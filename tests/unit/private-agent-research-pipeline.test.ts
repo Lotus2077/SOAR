@@ -8,6 +8,7 @@ import { inventoryResearchSources, validateReadyResearchPacket } from "../../src
 import { ResearchPlanAttemptSchema } from "../../src/main/private-agent/research-plan";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
+import { F2_SHAPE_KIB, inventedCorpus, previewBoundarySource } from "../helpers/research-corpus";
 
 type Stage = "index" | "plan" | "extract" | "synthesise";
 type Script = (stage: Stage, input: any, sequence: number, system: string) => string | { content: string; truncated: boolean } | Error;
@@ -616,5 +617,91 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
     const result = await run(m, { sources: [source] }); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
     expect(result.summary.stages[2]).toMatchObject({ quotesVerified: 1, quotesDropped: 1, quotesMerged: 1 });
     expect(parsed(result, RESEARCH_FILES.evidence).quotes[0].chunkIds).toEqual([chunks[0]!.id, chunks[1]!.id]);
+  });
+});
+
+describe("E1 recoverability: the reading stage's recoveries and pinned limits at the pipeline (S3, S7)", () => {
+  // S3 as bad content: each stage receives invalid JSON twice. The bad-body half runs on the real broker in
+  // tests/unit/private-agent-research-recoverability.test.ts.
+  it("invalid JSON twice at the index: the batch's sources fall back to their literal cards, and the stage still reaches a ready packet", async () => {
+    const m = models((stage, input, n, system) => stage === "index" ? `not json ${n}` : happy(stage, input, n, system)), result = await run(m);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.map(c => c.stage)).toEqual(["index", "index", "plan", "extract", "extract", "synthesise"]);
+    expect(m.calls.filter(c => c.stage === "index").map(c => c.input.repair)).toEqual([false, true]);
+    expect(result.summary.stages[0]).toMatchObject({ calls: 2, invalidReplies: 2, initialCalls: 1, repairCalls: 1, invalidJsonReplies: 2, sourcesIndexed: 0, sourcesLiteralFallback: 2 });
+    expect(parsed(result, RESEARCH_FILES.index).sources.map((s: any) => [s.modelStatus, s.metadataOrigin, s.modelAttempts])).toEqual([["unresolved", "host_literal", 2], ["unresolved", "host_literal", 2]]);
+    validateReadyResearchPacket(result.files, { brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET });
+  });
+  it("invalid JSON twice at extraction: the chunk's one repair fails too, so it stays invalid and the stage ends research_extraction_incomplete before any synthesis", async () => {
+    const first = inventoryResearchSources(researchV4Sources()).chunks[0]!.id;
+    const m = models((stage, input, n, system) => stage === "extract" && input.chunk.id === first ? `not json ${n}` : happy(stage, input, n, system)), result = await run(m);
+    expect(result).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(m.calls.filter(c => c.stage === "extract").map(c => [c.input.chunk.id === first, c.input.repairReason === null])).toEqual([[true, true], [false, true], [true, false]]);
+    expect(m.calls.some(c => c.stage === "synthesise")).toBe(false); expect(result.summary.stages.map(s => s.stage)).toEqual(["index", "plan", "extract"]);
+    expect(result.summary.stages[2]).toMatchObject({ calls: 3, invalidReplies: 2, initialCalls: 2, repairCalls: 1, chunksComplete: 1 });
+    expect(parsed(result, RESEARCH_FILES.coverage).chunks.map((c: any) => [c.status, c.attempts.map((a: any) => a.status)])).toEqual([["invalid", ["invalid", "invalid"]], ["complete", ["complete"]]]);
+    expect(result.files.some(f => f.path === RESEARCH_FILES.argument)).toBe(false);
+  });
+  it.each([["plan", "research_plan_invalid", ["index"]], ["synthesise", "research_synthesis_invalid", ["index", "plan", "extract", "extract"]]] as const)(
+    "pins a limitation item 7c flips: invalid JSON twice at the %s ends the stage as %s, with no host fallback", async (stage, reason, before) => {
+      const m = models((s, input, n, system) => s === stage ? `not json ${n}` : happy(s, input, n, system)), result = await run(m);
+      expect(result).toMatchObject({ status: "incomplete", reason });
+      expect(m.calls.map(c => c.stage)).toEqual([...before, stage, stage]);
+      expect(result.summary.stages.at(-1)).toMatchObject({ stage, calls: 2, invalidReplies: 2 });
+      expect(result.files.some(f => f.path === (stage === "plan" ? RESEARCH_FILES.plan : RESEARCH_FILES.argument))).toBe(false);
+    });
+
+  // S7: corpora at E3's scale, with invented sizes (tests/helpers/research-corpus.ts). These prove admission and completion at that scale,
+  // not a retry: gate clause 2's cases are the split arm's 529 case (private-agent-research-recoverability.test.ts) and E1-T3's retried calls.
+  const totalBytes = (sources: { bytes: Buffer }[]) => sources.reduce((sum, source) => sum + source.bytes.length, 0);
+  const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
+  it.each([["an f2-shaped corpus of 21 sources", "f2", F2_SHAPE_KIB, 7, false],
+    ["a web-shaped corpus of 25 sources over 20 KiB (refused at admission before 7b.1, D8)", "web", Array<number>(24).fill(20.5), 9, true]] as const)(
+    "%s, about 512 KiB of invented text, reaches a ready packet: each batch indexed once and each chunk extracted once (S7)", async (_name, label, sizes, batches, boundary) => {
+      // The web-shaped corpus's 25th source is the boundary source: its 20 KiB preview limit falls inside an em dash.
+      const sources = [...inventedCorpus(label, sizes), ...(boundary ? [previewBoundarySource(`input/${label}-boundary.md`)] : [])];
+      expect(totalBytes(sources)).toBeGreaterThan(500 * 1024); expect(totalBytes(sources)).toBeLessThan(520 * 1024);
+      expect(Math.max(...sources.map(s => s.bytes.length))).toBeLessThan(64 * 1024);
+      const m = models(), result = await run(m, { sources });
+      expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+      expect(result.summary.stages.map(s => [s.stage, s.calls, s.invalidReplies])).toEqual([["index", batches, 0], ["plan", 1, 0], ["extract", sources.length, 0], ["synthesise", 1, 0]]);
+      const previews = m.calls.filter(c => c.stage === "index").flatMap(c => c.input.sources as { id: string; bytes: number; previewTruncated: boolean; text: string }[]);
+      expect(previews.map(p => p.id)).toEqual(sources.map(s => s.id));
+      // Each preview is at most 20 KiB and a prefix of its source, never a replacement character; the boundary source's stops one byte short.
+      for (const p of previews) {
+        expect(Buffer.byteLength(p.text)).toBeLessThanOrEqual(20 * 1024); expect(p.text).not.toContain(REPLACEMENT_CHARACTER);
+        expect(sources.find(s => s.id === p.id)!.bytes.toString("utf8").startsWith(p.text)).toBe(true);
+      }
+      if (boundary) { const cut = previews.find(p => p.id === `input/${label}-boundary.md`)!; expect([Buffer.byteLength(cut.text), cut.previewTruncated]).toEqual([20 * 1024 - 1, true]); }
+      expect(m.calls.filter(c => c.stage === "extract").map(c => c.input.source.id)).toEqual(sources.map(s => s.id));
+      const packet = validateReadyResearchPacket(result.files, { brief: RESEARCH_V4_TEST_BRIEF, sources, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET });
+      expect(packet.evidence.quotes).toHaveLength(sources.length);
+    });
+  it("pins D8's 40-chunk ceiling, which no PR in this program lifts: 40 pages (about 511 KiB) complete and 41 pages (about 515 KiB) are refused before any request", async () => {
+    // 7b.1 removed the batch refusal (25 or more sources over 20 KiB, above), so the extraction budget's 40 calls are the ceiling that remains.
+    // The 7(b) mapping: card-derived ceilings (7b.3) only tighten admission, and raising this one needs item 12's own web request pool.
+    const admitted = inventedCorpus("page", Array<number>(40).fill(12.75)), refused = inventedCorpus("page", Array<number>(41).fill(12.5));
+    for (const sources of [admitted, refused]) {
+      expect(totalBytes(sources)).toBeGreaterThan(500 * 1024); expect(totalBytes(sources)).toBeLessThan(520 * 1024); expect(planResearchIndexBatches(sources)).toHaveLength(14);
+    }
+    expect([inventoryResearchSources(admitted).chunks.length, inventoryResearchSources(refused).chunks.length]).toEqual([40, 41]);
+    const fits = models(), done = await run(fits, { sources: admitted });
+    expect(done).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(fits.calls.filter(c => c.stage === "extract")).toHaveLength(40);
+    const m = models(), events: ResearchStageCounts[] = [], result = await run(m, { sources: refused }, events);
+    expect(result).toMatchObject({ status: "incomplete", reason: "research_mandatory_budget_exceeded" });
+    expect(m.request).not.toHaveBeenCalled(); expect(events).toEqual([]);
+    expect(result.files.map(f => f.path).sort()).toEqual([RESEARCH_FILES.coverage, RESEARCH_FILES.summary].sort());
+  });
+  it("pins a limitation item 7b.2 flips (D4): dense quotes at f2's scale overflow the 64 KiB packet, and the stage ends research_packet_cap_omission before synthesis", async () => {
+    const sources = inventedCorpus("dense", F2_SHAPE_KIB);
+    const note = "An invented note restating the quoted row for the planner's question; its relevance and truth still require an independent review.";
+    const m = models((stage, input, n, system) => stage !== "extract" ? happy(stage, input, n, system) : JSON.stringify({ questions: input.plan.questions.map((q: any) => ({ questionId: q.id, status: "evidence_found" })),
+      quotes: String(input.chunk.text).split("\n").filter((line: string) => !line.startsWith("#")).slice(0, 12).map((quote: string) => ({ quote, questionIds: ["Q1"], note })), conflicts: [] }));
+    const result = await run(m, { sources }), row = result.summary.stages[2]!, coverage = parsed(result, RESEARCH_FILES.coverage);
+    expect(result).toMatchObject({ status: "incomplete", reason: "research_packet_cap_omission" });
+    expect(row).toMatchObject({ stage: "extract", calls: 21, invalidReplies: 0, quotesDropped: 0, quotesVerified: 252 });
+    expect(row.quotesLeftByCap).toBeGreaterThan(0); expect(row.quotesInPacket! + row.quotesLeftByCap!).toBe(252); expect(row.packetBytes).toBeLessThanOrEqual(64 * 1024);
+    expect(coverage.omissions).toHaveLength(row.quotesLeftByCap!); expect(coverage.omissions.every((o: any) => o.reason === "packet_cap")).toBe(true);
+    expect(m.calls.some(c => c.stage === "synthesise")).toBe(false);
   });
 });

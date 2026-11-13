@@ -34971,3 +34971,909 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on #89, then the orchestrator's merge.
 
 References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261113-0838-correction-infra-resume-ids; BL-20261113-0839-infra-resume-on-main; BL-20261113-0840-correction-infra-resume-on-main-stage-entries; BL-20261113-0758 and BL-20261113-0832 (pull request #87).
+
+### BL-20261113-0848-correction-e1-train-1-reviews -- 2026-11-13 -- Correction to the entries of E1-T1, E1-J and E1-L (BL-20261109-0351-e1-recoverability-card, BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented, BL-20261109-0411-judge-cancel-label-design, BL-20261109-0444-judge-cancel-label-implemented and BL-20261109-0513-capture-keeps-pinned-paths-implemented): the merge-train-1 review findings, two test comments and one assertion
+
+Status: `Implemented`
+
+Scope or hypothesis: Merge train 1 (BL-20261110-1506-merge-train-1-integration) merged E1-T1 (#66), E1-J (#70) and E1-L (#74) without the corrections their train reviews found. The train entry lists them under "Review corrections not on `main` after this train".
+- This entry applies those corrections and the two items that the integration check of 1ae3509 left to lane S-e1.
+- Each item names the entry it corrects. No entry on `main` is edited. Where an item supersedes a sentence, that sentence stands as the record of what was claimed at the time.
+
+Decisions:
+1. **E1-T1's full-suite evidence** (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented, Evidence; #66's review, F1).
+   - The full-suite run that the entry cites is at cca6b5a, a commit that was never pushed: GitHub has no such commit, and it is not an ancestor of `main`.
+   - That cut differs from the merged tests in more than the entry says. Besides adding the loop pin, b1bebbe rewrote the loop's two interrupt cases: their samples' summaries changed from cancelled to submitted, and the tie assertions were removed.
+   - The full-suite evidence for the merged tests is instead:
+     - CI run 42562547747 on b1bebbe: workflow CI, whose check job runs `pnpm check` (the whole suite), with its electron-e2e job, both successful on 2026-11-09;
+     - on the merged tree, the train's whole-suite run at 7fd99df (BL-20261110-1506-merge-train-1-integration).
+   - The entry's sentence "CI has not run on this branch yet" is withdrawn.
+2. **The gate and E1-L's Docker-gated run** (BL-20261109-0351-e1-recoverability-card, decisions (2) and (3); #66's review, F2).
+   - The card's decision (2) makes the Docker-gated suites part of the gate when a fix changes the lister, while decision (3) passes the gate on CI alone. E1-L (BL-20261109-0513-capture-keeps-pinned-paths-implemented) does change LIST_FILES, so the two disagree.
+   - Added as an owner question with a proposed default, which the card applies until the owner records otherwise:
+     - Question: if a fix changes LIST_FILES, does the gate also need that fix's Docker-gated run on the owner's Mac, recorded `Verified`?
+     - Default: yes. E1-G records the CI clauses `Verified`, names the owner's command and keeps the gate held, with no E2 to E6 live run, until that run is recorded `Verified`.
+   - The owner's command is `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-sandbox.test.ts --maxWorkers=1 --testTimeout=120000`.
+3. **The card's stop rule and pins** (BL-20261109-0351-e1-recoverability-card, decisions (3) and (4); #66's review, F3).
+   - The card's stop rule is decision (3)'s hold clause: "A failure caused by a defect holds the gate until its fix merges."
+   - Decision (4)'s list of pinned limitations gains the two pins E1-T1 added:
+     - The loop pin named for item 11's PR 11.1. The train flipped it to 11.1's refusal (`loop_stage_interrupted`). BL-20261110-1506-merge-train-1-integration records that flip and supersedes the clause of BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented that describes the pin; this entry does not restate it.
+     - Bug (e), a cancel during flash_next_v1 token admission ending with the admission stop. It is pinned in tests/unit/private-agent-runner-budget.test.ts ("E1 recoverability: known limitations of the writer, pinned until their fix") until E0's adapter verdict.
+4. **E1-T1's tie wording, and one assertion** (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented, Decisions and Limitations; the integration check's F2-3 and X3-1).
+   - That entry's Decisions say the loop's interrupt cases "assert no tie winner, since item 11's PR 11.1 changes the tie rule", and its Limitations repeat that they "assert no tie winner".
+   - With 11.1 merged, selection protocol 2 is the rule in force: every tie keeps the first candidate (BL-20261109-0417-loop-selection-protocol-2-implemented).
+   - The cases' comment now says so, and the cases now assert the winner: a at stage 1 (a over b) and a at the final choice (the draft over its repair), each with step `tie`.
+   - Their earlier assertions already depended on that rule. With ties given to the second candidate (a mutation in a scratch copy), `main`'s version of the two cases fails as well as this one, because the rerun then reuses other stages. The new assertion states the dependence outright; it adds no power against that mutation.
+5. **Two comments in E1-T1's broker test** (tests/integration/private-agent-broker.test.ts, "E1 recoverability: zero-fee bad bodies and eight zero-fee failure modes leave nothing unresolved (S3, gate clause 1)"; #66's review, F4, and the integration check's note (e) on the same block).
+   - The first comment said: "The other zero-fee diagnostics (connection_failed, transport_failed and the stream codes) are covered by the zero-risk and stream tests above."
+     - It now says that the stream codes have end-to-end cases, while a zero-fee `connection_failed` or `transport_failed` row is covered only at the predicate level, by "confirms every zero-risk failure but retries only the transient aborts".
+     - E1-G cites that test for those two codes, not an end-to-end case.
+   - The second comment said that "a bad body is never retried".
+     - It now says that this destination is not recoverable, so the request count shows only that nothing is retried there.
+     - That a settlement failure is never retried is that predicate test's `isRetryableAbort` case.
+6. **E1-J's references** (BL-20261109-0411-judge-cancel-label-design and BL-20261109-0444-judge-cancel-label-implemented; #70's review, F1).
+   - Both entries rest on the card's third owner question (label-only defects are fixed without holding the gate) but do not cite the card.
+   - Their References are to be read as including BL-20261109-0351-e1-recoverability-card.
+   - In train 1, #66 merged before #70, so `main` never held E1-J's entries without the card.
+7. **E1-L's Implemented entry** (BL-20261109-0513-capture-keeps-pinned-paths-implemented; #74's review, F1 to F3).
+   - **F1.** Its Changes bullet for tests/unit/private-agent-runner-budget.test.ts says the runner case pins "the exact kept set and the 78 named omissions". The case pins 78 omissions, the first 32 named: `captureOmitted` totals 78, all `cap`, and names at most 32 paths. #74's PR body was corrected on 2026-11-10.
+   - **F2.** Its Changes list leaves out:
+     - tests/unit/private-agent-public-research.test.ts, whose fixture records the pinned paths (`listedWith`), and to which the case "pins the retained source's workspace copy for every capture after the fetch, between the claims ledger and the host's files (E1-L)" was added;
+     - two cases in tests/unit/private-agent-runner-budget.test.ts: "reads the pinned files first, so the 128 MiB total reaches them last and names the files it omitted", and the `capturePinnedPaths` case "orders the pinned paths deliverables, claims ledger, retained sources, host files, each once, and leaves the sources out when reading them fails".
+   - **F3.** The review expected #74 to be rebased, which would have left the revisions its Evidence cites (b690273, 4d45d81 and b1bebbe) outside `main`'s history.
+     - It was not rebased: train 1 merged it at its own head 53f6ae8, so all three revisions are ancestors of `main` (9d10b9a), and the failure the review described did not occur.
+     - The deterministic evidence was taken at those revisions. The merged tree's runs are the train's.
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- tests/unit/phase4-loop.test.ts, in "E1 recoverability: the harness loop admits retried rows and stops on an interrupt in any later sample (S1, S2)": the interrupt cases' comment (one line) and their selection assertion (one line).
+- tests/integration/private-agent-broker.test.ts: two comments in E1-T1's block, each now two lines.
+- No `src/` file changes.
+
+Evidence:
+On the owner's Mac, at this branch's head (`main` 9d10b9a plus this change), with a load average of about 9:
+- tests/unit/phase4-loop.test.ts and tests/integration/private-agent-broker.test.ts: 130 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files and 55 tests passed, 3,225 tests skipped. This counts E1's cases on `main` after train 1, with this change; E1-G counts again on its own head.
+- `pnpm exec vitest run`: 187 files (174 passed, 13 skipped) and 3,280 tests (3,194 passed, 86 skipped, 0 failed), in 49.7 s.
+- Decision 4's mutation, ties given to the second candidate in a scratch copy: both interrupt cases fail, both with this change and without it.
+- Read with `gh`:
+  - CI run 42562547747: workflow CI on b1bebbe; its check and electron-e2e jobs succeeded.
+  - commit cca6b5a: HTTP 422, "No commit found".
+- Ancestry, checked with `git merge-base --is-ancestor`: b690273, 4d45d81, b1bebbe and 53f6ae8 are ancestors of `main`; cca6b5a is not.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction plus one assertion; nothing is verified or released by it.
+- E1's gate is still open. E1-G's `Verified` entry is written after E1-T2, E1-T3 and E1-J2 merge with CI green.
+- Decision 2 adds an owner question with a proposed default; it does not answer the question for the owner.
+- The cited CI run and the train's whole-suite run are the evidence for the merged tests. This entry's own runs are those under Evidence.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- One review by the orchestrator, CI green on the pull request, and the owner's go-ahead.
+- If an entry with a later ID reaches `main` first, this entry is re-stamped after `main`'s tail at merge, under the owner's rule of 2026-11-13 (recorded on PR #87).
+
+References:
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented
+- BL-20261109-0417-loop-selection-protocol-2-implemented
+- BL-20261109-0411-judge-cancel-label-design
+- BL-20261109-0444-judge-cancel-label-implemented
+- BL-20261109-0423-capture-keeps-pinned-paths-design
+- BL-20261109-0513-capture-keeps-pinned-paths-implemented
+- The merge-train-1 reviews of #66, #70 and #74, and the integration check of 1ae3509. These are review data and are not committed.
+
+### BL-20261113-0849-correction-e1-train-1-reviews-restamp -- 2026-11-13 -- Correction: the train-1 review correction for E1-T1, E1-J and E1-L carries ID BL-20261113-0848-correction-e1-train-1-reviews; it was authored at 08:05 UTC on 2026-11-13 as BL-20261113-0805, and its decision 1 misdescribes the assertions b1bebbe removed
+
+Status: `Implemented`
+
+Scope or hypothesis: After #88 was written, #92 and #82 merged into `main`. `main`'s last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- #88's one entry was authored at 08:05 UTC on 2026-11-13 as BL-20261113-0805, with the same slug.
+- It therefore moves after that tail, into the block of minutes the orchestrator gave lane S-e1 for this integration (0848 to 0909), under the owner's re-stamp rule (BL-20261113-0758, pull request #87).
+- This entry also corrects one sentence of that entry, which the orchestrator's review of #88 found.
+
+Decisions:
+1. **The re-stamp.**
+   - Only the heading's ID minute changes, from 0805 to 0848; its date stays 2026-11-13.
+   - The body is byte-identical to #88's at 58442e5, and nothing else in the repository cites the ID.
+   - `main` (23dfadc) is merged into #88, with `main`'s log kept whole as a byte prefix of this branch's.
+2. **A correction to decision 1 of BL-20261113-0848-correction-e1-train-1-reviews.**
+   - Decision 1 says that b1bebbe rewrote the loop's two interrupt cases so that "their samples' summaries changed from cancelled to submitted, and the tie assertions were removed". The removed assertions were not about ties.
+   - At cca6b5a each case asserted a choice won at step `submitted` over the cancelled sample: in the b case, stage 1 to a over the cancelled b; in the repair case, the final choice to the draft over its cancelled repair. b1bebbe removed both when it made the samples submitted.
+   - The wording came from #66's train review, F1. The rest of decision 1 stands.
+   - Decision 4 is unaffected: the cases now assert the tie winner under selection protocol 2, a at both stages.
+
+Changes:
+- docs/BUILD_LOG.md: the heading of BL-20261113-0848-correction-e1-train-1-reviews, and this entry.
+- The merge of `main` brings `main`'s files; #88 changes nothing else.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #88, with a load average of about 9:
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0: 561 entries, append-only against 23dfadc.
+- `pnpm typecheck` passes.
+- tests/unit/phase4-loop.test.ts and tests/integration/private-agent-broker.test.ts: 130 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files and 55 tests passed.
+- `pnpm exec vitest run`: 189 files (176 passed, 13 skipped) and 3,350 tests (3,264 passed, 86 skipped, 0 failed), in 54.6 s.
+- `git show cca6b5a:tests/unit/phase4-loop.test.ts` holds the two `step: "submitted"` assertions that decision 2 describes, and b1bebbe's diff removes them.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. Nothing is implemented, verified or released by it. Commit messages and #88's earlier description keep the ID they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #89 and #93 on green CI, under the owner's standing go-ahead. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0848-correction-e1-train-1-reviews
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)
+
+### BL-20261113-0850-e1-recoverability-pipeline-seed-implemented -- 2026-11-13 -- E1-T2 implemented: invalid JSON twice at each stage, a malformed body in each stage on the real broker, the split arm's Anthropic planner after a 529, 512 KiB corpora, retried and skipped rows through the producer and the seed, and the D4 and D8 pins
+
+Status: `Implemented`
+
+Scope or hypothesis: Lane S-e1's item E1-T2, under E1's card BL-20261109-0351-e1-recoverability-card, the `Proposed` entry committed on Lotus2077/SOAR#66 and not yet on `main`.
+- The branch is `test/e1-t2-recoverability-pipeline-seed`. It is based on 2fe1ec8, the frozen head of Lotus2077/SOAR#76 (7a.1). That head contains Lotus2077/SOAR#69 (7b.1) at 848524e, through the merge 961aea5.
+- These are the two research PRs E1-T2 waited for. On 2026-11-10 the orchestrator lifted the hold on pinning against them.
+- The PR adds the card's scenarios S2, S3 and S7 for the research reading stage, its producer and the seed loader, and pins the D4 and D8 limitations.
+
+Hypothesis: each case passes on 2fe1ec8 without a source change.
+
+Decisions: None beyond the card, except these four.
+1. Placement.
+   - The pipeline cases are appended to tests/unit/private-agent-research-pipeline.test.ts, reusing its mocked-broker models.
+   - The seed and producer cases are appended to tests/unit/private-agent-research-seed.test.ts, reusing its source-run builder.
+   - The real-broker session cases go into a new file, tests/unit/private-agent-research-recoverability.test.ts, with its own fixture. The lane brief proposed tests/unit/private-agent-research-session.test.ts instead, but that file's fixture is rewritten or extended by 6.2 (Lotus2077/SOAR#77), 7c (an options object), 10.b and E1-T3 (Lotus2077/SOAR#75). A separate fixture keeps every one of those merges free of conflicts with this PR.
+   - The cost is a compact copy of the session options, whose split-arm wiring must follow the headless driver's.
+2. D8.
+   - The card planned to pin "a web-shaped corpus refused at admission" (25 or more sources over 20 KiB). 7b.1 flipped that: index batches now go by preview size.
+   - This PR asserts the flip (a web-shaped corpus of 25 sources over 20 KiB completes) and pins the ceiling that remains: the extraction budget's 40 chunks. At about 515 KiB, 40 pages complete and 41 are refused before any request.
+   - No PR in this program lifts that ceiling. By the 7(b) mapping, card-derived ceilings (7b.3) only tighten admission, and raising this one needs item 12's own web request pool.
+   - 7b.1's own test pins the same refusal at 41 sources of 21 KiB and at 60 of 100 KiB.
+3. Names.
+   - The invalid-plan and invalid-synthesis pins are named for 7c (host fallback plan, skeleton synthesis).
+   - The D4 pin is named for 7b.2 (priority trim with disclosed omissions).
+   - The malformed-body pins are named "the item-7 gap", as E1-T3 named its exhausted-retry pin (BL-20261107-0809-zero-fee-failures-resolve-design decision 6). No planned PR flips that gap: the 7c mapping keeps a stage-model `BrokerError` ending the stage, and item 10's code lists cover assist outcomes only.
+4. Sizes. The corpora are invented with f2's aggregate shape, as the card's owner question proposes: 21 files, 512 KiB, 11 over 20 KiB, the largest 48 KiB. Nothing is read from `.soar/` or from the frozen tasks' metadata.
+
+One adversarial review of the tests examined: whether each case proves its claim (with mutations run in a scratch copy), flakiness, conventions, the duplicated fixture, and scope against the lane brief. It found no blocker or major issue. All three minor findings and six nits were applied:
+- the S7 cases no longer claim gate clause 2, since none retries a call;
+- the D8 pin now holds the boundary (40 admitted, 41 refused); the earlier 42-page case let a mutation raising the ceiling to 41 pass;
+- the preview cut-back is now proven by a constructed boundary source. Its em dash starts at byte 20,479, so its preview is exactly 20,479 bytes. Before, it rested on line lengths that a wording change could move;
+- the D4 extractor quotes every non-heading line instead of matching the helper's "Row" prefix;
+- the split-arm case asserts that the retry re-sent the same packet (`packetSha256`), replacing a fee-cap check the store already enforces;
+- the seed helper now checks that loading is read-only, as its comment claimed;
+- the helper cites E1's card instead of the uncommitted lane brief;
+- both loopback timeouts are 10 s instead of 2 s;
+- the item-7 gap note under decision 3.
+
+A check after the review found that two Unicode escapes in my tool input had been written to the files as literal characters (an em dash and U+FFFD). Both are now built with `String.fromCharCode`, as the headings test builds its code points, so every changed file is ASCII.
+
+Changes: Tests only; no `src/` file changes.
+- tests/helpers/research-corpus.ts (new):
+  - `F2_SHAPE_KIB`;
+  - `inventedCorpus(label, sizesKib, directory)`, which builds numbered lines, each with a three-byte em dash;
+  - `previewBoundarySource(id)`.
+- tests/unit/private-agent-research-pipeline.test.ts, "E1 recoverability: the reading stage's recoveries and pinned limits at the pipeline (S3, S7)", 8 cases:
+  - invalid JSON twice at the index: the batch's two sources fall back to their literal cards (`unresolved`, `host_literal`, two attempts each), and the stage still reaches a ready packet;
+  - invalid JSON twice at extraction: the chunk's one repair fails too, so the chunk stays invalid, the stage ends `research_extraction_incomplete`, and nothing is synthesised;
+  - pinned for 7c (2 cases): invalid JSON twice at the plan ends `research_plan_invalid`, and at the synthesis `research_synthesis_invalid`, with no plan or argument file written;
+  - two corpora reach ready packets, each batch and each chunk read once:
+    - the f2-shaped corpus (21 sources, 513 KiB): 7 index batches, 21 chunks;
+    - a web-shaped one (24 sources of 20.5 KiB plus the boundary source, 514 KiB): 9 batches, 25 chunks.
+
+    Every preview is at most 20 KiB, a prefix of its source and free of U+FFFD. The boundary source's preview is exactly 20,479 bytes;
+  - the D8 pin of decision 2: 40 pages of 12.75 KiB complete with 40 extraction calls. 41 pages of 12.5 KiB are refused `research_mandatory_budget_exceeded`, with no request and no stage row;
+  - pinned for 7b.2 (D4): twelve quotes with notes per chunk of the f2-shaped corpus verify 252 quotes. The packet stays within 64 KiB, the rest are omitted with reason `packet_cap`, and the stage ends `research_packet_cap_omission` before synthesis.
+- tests/unit/private-agent-research-seed.test.ts, "E1 recoverability: retried and skipped rows through the producer and the seed (S2, S4)", 2 cases:
+  - a superseded row before each stage's first call, and two before the plan's (D4's three attempts):
+    - the producer binds all five uncounted beside the four counted calls and validates against the ledger;
+    - the seed loads read-only, and `researchTransferStatus` gives the snapshot with code `null`;
+  - a skipped (unknown) plan assist and a superseded local plan attempt beside the plan's settled call: both bind uncounted, the assist with `role: "assist"`, and the seed loads the same way.
+- tests/unit/private-agent-research-recoverability.test.ts (new), 6 cases on the real broker, store, session, pipeline and producer with a stub writer:
+  - a malformed body (JSON cut off) at each of the four stages, pinned as the item-7 gap:
+    - the zero-fee row resolves `failed` (`settlement`, `response_or_usage_invalid`, sub-code `other`) with no response;
+    - the earlier rows are settled, and none is `unknown` or `committed`;
+    - the stage records `denied: "request_failed"` and the run ends `research_request_denied`;
+    - the resume ends `research_stage_not_replayed`, with nothing sent;
+  - the split arm, built by the driver's `buildCloudArm` for Anthropic's Messages endpoint under `RESEARCH_SPLIT_MAX_FEE_USD`, with the Anthropic waits shortened to 20 and 40 ms:
+    - the planner's first attempt is answered 529 `overloaded_error`;
+    - the broker supersedes that priced attempt (a fee reserved, none settled) and re-sends the same packet, which settles, as does the cloud synthesis;
+    - each stage row records one call, the producer binds the superseded row uncounted, and the writer is reached;
+    - a resume reuses the packet, with nothing sent;
+  - the f2-shaped corpus in a session:
+    - 30 rows, each settled once (7 index, 1 plan, 21 extraction, 1 synthesis);
+    - the producer binds them all, and the writer receives every source and the seven packet files.
+
+Evidence:
+On the owner's Mac, at the final test files, with a load average of about 14:
+- `pnpm exec vitest run tests/unit/private-agent-research-pipeline.test.ts tests/unit/private-agent-research-seed.test.ts tests/unit/private-agent-research-recoverability.test.ts -t "E1 recoverability"`: 16 passed, 66 skipped (82).
+- Those three files with tests/unit/private-agent-research-session.test.ts, unfiltered: 92 passed.
+- `pnpm exec vitest run`, the full suite: 181 files (168 passed, 13 skipped) and 2,834 tests (2,750 passed, 84 skipped, 0 failed), in 65 s.
+- Mutations, run in scratch copies only. The worktree was untouched, and the scratch sources were restored and compared after each run.
+  - Before the fixes, the review's run caught all of these:
+    - a valid body in place of the malformed one;
+    - a denied `request_failed` that does not end its stage;
+    - a zero-risk settlement failure left `unknown`;
+    - a denied call counted in the stage's calls;
+    - a session that replays a denied stage on resume;
+    - another sub-code;
+    - a 529 hook that never fires;
+    - the split planner or synthesiser on the local model;
+    - a 529 that is not retried, or that resolves `failed`;
+    - a producer that counts, or drops, superseded rows;
+    - a skipped assist counted as a call;
+    - invalid JSON at the index only once;
+    - the index or extraction repair skipped;
+    - dense quotes without notes;
+    - the packet-cap reason removed;
+    - a corpus without em dashes;
+    - a preview never cut back;
+    - a chunk ceiling of 42.
+
+    It missed only a chunk ceiling of 41.
+  - After the fixes:
+    - a chunk ceiling of 41 now fails the D8 pin;
+    - a preview never cut back fails the web-shaped case;
+    - the two helper wording changes that broke cases before ("unit" for "units", "Line" for "Row") now pass.
+- `pnpm typecheck` passed with no error. `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref 2fe1ec8` passed.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The tests prove their stated contracts on loopback replies, with the real broker, store, session, pipeline and producer and a stub writer. No model, endpoint, Docker container or paid call ran.
+- Proven at 2fe1ec8, not on `main`. E1-R (Lotus2077/SOAR#68) changes when the broker marks a retried attempt `superseded`. The 529 case asserts only the final ledger (superseded, then settled), which E1-R's design keeps. The rebase after merge train 1 reruns everything.
+- The malformed body is one shape: JSON cut off, sub-code `other`. The other settlement sub-codes belong to the broker tests (E1-T1).
+- The split-arm case covers one 529 followed by a success. Three 529s, and a cancel during an Anthropic wait, belong to the broker tests and E1-R. The fixture also departs from the driver:
+  - the destination's timeout is cut from 600 s to 10 s;
+  - the writer is a stub;
+  - the split wiring is copied from the driver by hand.
+- The corpora use the fixture's invented replies: one question and one quote per chunk, so the f2-shaped run makes 21 chunk-question pairs.
+  - A real task with up to 12 questions extracts far more densely; the D4 pin shows where density overflows the packet.
+  - The sizes are invented. E3's real web corpora may hold many more, smaller pages, which reach the 40-chunk ceiling sooner.
+- The seed cases' ledgers are built by hand from the fixture's receipts. Their retried and assist rows have the shapes the broker writes, but no broker wrote them here. The session cases cover rows the broker did write: D4 retries in E1-T3, and the Anthropic retry above.
+- These cases assume one in-flight dispatch per job. Once item 8 lands they must be rerun with K > 1.
+- Not covered here:
+  - the S1 stop matrix, D14 retries at every stage, the exhausted-retry pin and the emulated assist (E1-T3, Lotus2077/SOAR#75);
+  - bug (b), which 6.2 pins.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- This PR stays a draft until merge train 1 lands. The branch then rebases onto `main`, the PR retargets `main`, and every check reruns, including against E1-R's broker.
+- After that it needs CI green and the owner's go-ahead.
+- Of this PR and 7c, whichever merges second updates the two pins named for 7c. The same holds for 7b.2 and the D4 pin.
+- If an entry with a later ID reaches `main` first, the orchestrator decides any re-stamp, as for every lane PR.
+
+References:
+- E1's card, BL-20261109-0351-e1-recoverability-card (Lotus2077/SOAR#66).
+- E1-T3's BL-20261113-0853-e1-recoverability-session-implemented (Lotus2077/SOAR#75).
+- BL-20261107-0809-zero-fee-failures-resolve-design (decision 6 and finding D14).
+- 7b.1: BL-20261109-0334-research-request-shapes-design and BL-20261110-0848-correction-research-length-parser-chains.
+- 7a.1: BL-20261109-0447-research-tolerance-design and BL-20261110-0900-correction-research-tolerance-held-repair.
+- BL-20261027-0145-phase4-tasks-design (the tasks' authoring separation).
+- docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1, and section 5.7 items 7, 10 and 12.
+
+### BL-20261113-0851-correction-e1-recoverability-pipeline-seed-restamp -- 2026-11-13 -- Correction: E1-T2's Implemented entry carries ID BL-20261113-0850-e1-recoverability-pipeline-seed-implemented; it was authored at 11:30 UTC on 2026-11-10 as BL-20261110-1130, and its branch is now rebased onto `main`
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records two things about E1-T2's Implemented entry:
+- its re-stamp, under the owner's rule of 2026-11-13: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, with a correction recording its original ID and time. The decision is recorded on PR #87;
+- what rebasing its pull request, #84, onto `main` after merge train 1 changes in that entry's statements.
+
+The entry was committed at 3ba5452 on 2026-11-10, on #84 stacked on #76's head 2fe1ec8. It was authored at 11:30 UTC as BL-20261110-1130, with the same slug. Merge train 1 (BL-20261110-1506-merge-train-1-integration) then put `main`'s tail after it, so the validator would refuse it there.
+
+Decisions:
+1. **The re-stamp.** The heading's ID moved to BL-20261113-0850, and its date field to 2026-11-13, because the validator requires an ID's date to match the heading's date. No other text in the entry changed, and nothing else in the repository cited the old ID. The pull request description and the commit messages keep the old ID, as history should.
+2. **The rebase.** #84 is rebased onto `main` at 9d10b9a, and its base is `main`. The tests commit replayed unchanged (`git range-diff` shows it identical); the entry commit only moved to `main`'s tail.
+3. **What the rebase makes stale in the entry's body**, which is not edited:
+   - its Scope's "not yet on `main`": the card, BL-20261109-0351-e1-recoverability-card, has been on `main` since train 1;
+   - its Limitations' "Proven at 2fe1ec8, not on `main`": the tests now pass on `main`'s code, which includes E1-R's broker (BL-20261109-0436-retry-wait-atomic-supersede-implemented). The 529 case's final ledger (superseded, then settled) is unchanged there;
+   - its Next gate's draft-until-the-train sentences: that step is done, and the pull request leaves draft.
+
+Changes:
+- docs/BUILD_LOG.md: the entry's heading (ID and date) and this entry.
+- Nothing else beyond the rebase itself.
+
+Evidence: On the owner's Mac, at the rebased head with the re-stamp (load average about 9):
+- `pnpm exec vitest run` on tests/unit/private-agent-research-pipeline.test.ts, tests/unit/private-agent-research-seed.test.ts and tests/unit/private-agent-research-recoverability.test.ts: 83 passed. Under `-t "E1 recoverability"`, 16 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 11 files and 71 tests passed: `main`'s 55 and this pull request's 16.
+- `pnpm exec vitest run`: 188 files (175 passed, 13 skipped) and 3,296 tests (3,210 passed, 86 skipped, 0 failed), in 44.7 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction; nothing new is implemented or verified by it. If an entry with a later ID reaches `main` before #84 merges, these two entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, and the owner's go-ahead.
+
+References:
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261109-0436-retry-wait-atomic-supersede-implemented
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+
+### BL-20261113-0852-correction-e1-recoverability-pipeline-seed-second-restamp -- 2026-11-13 -- Correction: E1-T2's two entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834-correction-runner-storage-integrity-second-restamp; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: After #84's first re-stamp, #92 and #82 merged into `main`. `main`'s last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp, so at this merge of `main` (23dfadc) into #84, E1-T2's two entries move again.
+- They move into the block of minutes the orchestrator gave lane S-e1 for this integration, 0848 to 0909, in the order #88, #84, #75, #80.
+- The owner's re-stamp rule applies (BL-20261113-0758, pull request #87).
+- This entry also records two fixes the orchestrator's review of #84 asked for.
+
+Each entry, with its original ID, date and authoring time:
+- **The Implemented entry.**
+  - Authored at 11:30 UTC on 2026-11-10 as BL-20261110-1130.
+  - First re-stamped as BL-20261113-0810, with the same slug.
+  - Now BL-20261113-0850-e1-recoverability-pipeline-seed-implemented.
+- **The first correction.**
+  - Authored at 08:11 UTC on 2026-11-13 as BL-20261113-0811, with the same slug.
+  - Now BL-20261113-0851-correction-e1-recoverability-pipeline-seed-restamp.
+
+Decisions:
+1. **The second re-stamp.**
+   - Only the two headings' ID minutes change, together with the references to those IDs; the dates stay 2026-11-13.
+   - The references are in the first correction's title, its decision 1 and its References.
+   - Each body is otherwise byte-identical to #84's at fb15df6, except for decision 2's cross-reference. Nothing outside the log cites these IDs.
+   - `main` is merged into #84, not rebased, and `main`'s log is kept whole as a byte prefix of this branch's.
+   - The first correction's account now names the current IDs. Its line "rebased onto `main` at 9d10b9a" describes the first rebase only.
+2. **The cross-reference to E1-T3.**
+   - The Implemented entry's References cited E1-T3's Implemented entry by its original ID, BL-20261109-0530.
+   - That entry is now BL-20261113-0853, with the same slug, on #75 in this integration, so the citation now names that ID.
+3. **The D8 pin's size** (BL-20261113-0850-e1-recoverability-pipeline-seed-implemented, decision 2 and Changes).
+   - The entry says "At about 515 KiB, 40 pages complete and 41 are refused". In fact, the 40-page corpus that completes is 511.4 KiB, and the 41-page corpus that is refused is 515.4 KiB.
+   - The test's title now gives each size (commit b9134da). No assertion changed.
+
+Changes:
+- docs/BUILD_LOG.md: two headings, the first correction's references to the re-stamped ID, the Implemented entry's citation of E1-T3, and this entry.
+- tests/unit/private-agent-research-pipeline.test.ts: the D8 pin's title.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #84, with a load average of about 11 to 19:
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0: 562 entries, append-only against 23dfadc.
+- `pnpm typecheck` passes.
+- tests/unit/private-agent-research-pipeline.test.ts, tests/unit/private-agent-research-seed.test.ts and tests/unit/private-agent-research-recoverability.test.ts: 83 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 11 files and 71 tests passed. These are `main`'s 55 and E1-T2's 16.
+- `pnpm exec vitest run`: 190 files (177 passed, 13 skipped) and 3,366 tests (3,280 passed, 86 skipped, 0 failed), in 63.1 s.
+- The corpus sizes were measured with the helper `inventedCorpus`: 523,686 bytes (511.4 KiB) for 40 pages of 12.75 KiB, and 527,776 bytes (515.4 KiB) for 41 pages of 12.5 KiB.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction plus one test title. Nothing is implemented, verified or released by it. Commit messages and #84's earlier descriptions keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #88, #75, #80, #89 and #93 on green CI. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented
+- BL-20261113-0851-correction-e1-recoverability-pipeline-seed-restamp
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)
+
+### BL-20261113-0853-e1-recoverability-session-implemented -- 2026-11-13 -- E1-T3 implemented: the research session's stop matrix, retried stage calls, two pinned limitations and the emulated cloud assist, on the real broker; the pause column waits for 6.2
+
+Status: `Implemented`
+
+Scope or hypothesis: The session test PR under E1's card (the `Proposed` E1 card entry in lane S-e1's E1-T1 pull request, Lotus2077/SOAR#66, not yet on `main`), on branch `test/e1-t3-recoverability-session-matrix` based on `main` at 2982ca7. It adds the card's scenarios S1, S2 and S4 for the research stage that a session runs on the real broker against a loopback model: gate clause 4 (cancellation still stops the stage), clause 2 (a stage with a retried call still reaches the writer) and, emulated test-locally, clause 3 (local work continues after a cloud UNKNOWN). Hypothesis: each case passes on today's `main` without a source change.
+
+Decisions: None beyond the card. One adversarial review of the tests (do they prove what they claim; flakiness and cost; scope against the lane brief) found one blocker and seven should-fix items, all applied before this entry:
+- the blocker, no build-log entry: this entry;
+- the exhausted-retry cases are pinned as a known limitation, the item-7 gap of BL-20261107-0809-zero-fee-failures-resolve-design decision 6 (a denied call ends its stage), in their own block rather than under clause 2, and cut from four stages to one: the rule does not depend on the stage, and each case spends 4 s of real D4 backoff;
+- three cases were added: a cancel during the broker's D4 backoff inside a stage, the split arm's cloud planner left UNKNOWN (pinned for item 10's PR 10.b), and a stop on the second of two extraction calls;
+- the emulated assist's fee check is two-sided (a row reserving 501 is refused and one reserving 500 admitted), and its block is titled "until 10.b";
+- the extraction stage's own retry case was dropped from the new block, because the existing "D14: a stage whose extraction call was retried once still reaches the writer" test covers it; the session-deadline allowance is 0.4 s instead of 1.2 s;
+- the fixture's `/cloud` path answers through an optional `onCloud` hook, which the split arm's abort case uses;
+- the card's S1 wording is corrected below, and the coordination point with PR 6.2 is recorded under Next gate.
+
+Correction to the card's S1 (the card entry is not rewritten): "an external abort leaves it resumable" holds for the writer (E1-T1's external-abort case completes on rerun) but not at the research stage: on today's `main` the resume after an external abort mid-stage ends `research_stage_not_replayed` and sends nothing. Likewise "the run ends cancelled or at its deadline": a session deadline that cuts a stage's call ends the run `research_cancelled`, and only the resume reports `session_deadline`.
+
+Changes: Tests only; no `src/` file changes. tests/unit/private-agent-research-session.test.ts:
+- The fixture: `onRequest` may return "hold" (never answer); the broker gains a grant-free synthetic `cloud` destination (`cloud_model`, 200 ms timeout) whose `/cloud` path never answers unless a test's `onCloud` hook does. Only the new cases configure a job that uses it.
+- "E1 recoverability: a research stage stopped mid-call on the real broker (S1)":
+  - a cancel, an external abort of the run's signal and the session's own deadline, each while the index, plan, extraction or synthesis call is held open (12 cases): the call's row resolves `failed` with code `cancelled`, the earlier rows are settled and none is `unknown` or `committed`, the stage records `denied: "cancelled"`, the writer is not reached, the run ends `session_cancelled` (cancel) or `research_cancelled` (abort, deadline), the resume ends `session_cancelled`, `research_stage_not_replayed` or `session_deadline`, and nothing is sent again;
+  - a cancel or an external abort on the second of two extraction calls (the phase gets a second source; 2 cases): the first chunk's row stays settled and the stage records one call, with the same outcomes.
+- "E1 recoverability: a research stage whose call the broker retried still reaches the writer (S2, D14, gate clause 2)":
+  - one cut call at the index, plan or synthesis stage is retried (3 cases): the writer is reached, the producer binds every row and the one superseded row uncounted, and a resume reuses the packet with nothing sent;
+  - a cancel during the broker's first D4 backoff inside the plan stage, triggered by a `setTimeout` spy on the first 1,000 ms timer after the cut, so it runs inside the wait: the cut call resolves `failed` (`upstream_closed`, attempt 1), no second plan request is sent, the stage records `denied: "cancelled"`, and the run and its resume end `session_cancelled`.
+- "E1 recoverability: known limitations of the research stage, pinned until the item that changes them":
+  - the item-7 gap: three cut plan calls leave `superseded`, `superseded` and `failed` rows, the stage is denied `request_failed` with nothing unresolved, and the resume ends `research_stage_not_replayed`;
+  - for item 10's PR 10.b (2 cases): the split arm's cloud planner (the plain `research plan` purpose on the `cloud` destination) is left `unknown` by no answer (`request_timeout`; the stage denied `transport_or_settlement_unknown`; the run `research_request_denied`) or by an external abort mid-call (`cancelled`; the stage denied `cancelled`; the run `research_cancelled`), and the resume is refused `unresolved_dispatch_no_replay`.
+- "E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)": the planner and the synthesiser are wrapped in the test to call a cloud one-shot with the assist purposes first. The plan assist times out and stays `unknown` with its 500 reservation pinned; the synthesis assist is refused `cloud_after_assist_unknown` before any row; every local row settles; the producer binds the assist uncounted to the plan stage with `role: "assist"`; the writer is reached and the session submits. Of the job's 1,000 fee cap, a row reserving 501 is then refused and one reserving 500 admitted.
+
+Evidence: On the owner's Mac, at the branch's final test file (load average about 9):
+- `pnpm exec vitest run tests/unit/private-agent-research-session.test.ts -t "E1 recoverability"`: 22 passed and 10 skipped (32).
+- The same file unfiltered, three runs in a row: 32 passed each time, about 11.4 s per run.
+- `pnpm exec vitest run` (the full suite): 178 files, 165 passed and 13 skipped; 2,779 tests, 2,695 passed, 84 skipped and 0 failed (41 s).
+- One mutation run: with the D4 branch's post-backoff abort check removed from broker.ts, the D4-backoff cancel case fails; broker.ts was restored before the commit.
+- `pnpm typecheck` passed with no error; `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None open. The pause column is not written: it waits for PR 6.2. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The tests prove their stated contracts on a loopback model, with the real broker, store, session, pipeline and producer and a stub writer (the runner factory records its inputs and returns a completed snapshot). No model, endpoint, Docker container or paid call ran.
+- The S1 matrix has no pause column. PR 6.2 changes what a pause during the research stage does (finding A7), and this PR then asserts 6.2's result. The existing pause tests, the :197 resume assertion among them, are unchanged.
+- Clause 3 is component-proven only. The "wrapper" here is test code that calls `broker.request` with an assist purpose before each wrapped stage call. Item 10's PR 10.b must still prove, end to end:
+  - the wrapper's own skip after an UNKNOWN;
+  - its handling of the stage's signal and deadline;
+  - the sealed packet and its cache mode;
+  - the stage summary's assist record (BL-20261107-0839-assist-purpose-exception-design decision 7);
+  - the protocol and identity binding;
+  - the refusal of an invalid configuration.
+- The emulation borrows `cloudArm` with a local writer, a combination no current driver configures. E3 must not rely on E1 alone.
+- The stop cases assume one in-flight dispatch per job. Once item 8 lands, they must be rerun with K > 1.
+- The D4-backoff trigger relies on the broker's first backoff being the only 1,000 ms `setTimeout` started after the cut. A change to `BROKER_RETRY_BACKOFF_MS` or to the fixture's 2,000 ms transport timeout needs the trigger revisited; the test asserts that the trigger fired.
+- Not covered here:
+  - the pipeline, seed and producer cases, a malformed body in a stage, the Anthropic 529 split-arm planner and the 500 KB corpus (E1-T2, after 7b.1);
+  - bug (b), a pause aborting a priced or cloud stage call, which 6.2 pins.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: S-desk's PR 6.2 merges first, since it rewrites this file's pause tests (merge order in the lane plan). This branch then rebases onto `main`, adds the pause column asserting 6.2's result, and leaves draft. For that rebase: lane S-desk's 6.2 brief says "session.cancel() mid-stage still gives research_cancelled", but on today's `main` a cancel mid-stage ends the session `session_cancelled`, which this PR pins; the rebase reconciles the two. After that: CI green and the owner's merge go-ahead. The orchestrator re-stamps this entry's ID after main's tail at merge.
+
+References: E1's card (the `Proposed` entry in Lotus2077/SOAR#66); docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1; BL-20261107-0809-zero-fee-failures-resolve-design (decision 6 and finding D14); BL-20261107-0839-assist-purpose-exception-design; BL-20261025-1242-h2b-h2c-research-pipeline-design (the stage's pause and cancel results).
+
+### BL-20261113-0854-correction-e1-recoverability-session-restamp -- 2026-11-13 -- Correction: E1-T3's Implemented entry carries ID BL-20261113-0853-e1-recoverability-session-implemented; it was authored at 05:30 UTC on 2026-11-09 as BL-20261109-0530, and its branch, rebased onto `main` after 6.2, adds the pause column that entry left to 6.2
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the re-stamp of E1-T3's Implemented entry and the rebase of its pull request, #75, onto `main` after merge train 1.
+- The re-stamp follows the owner's rule of 2026-11-13: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, and a correction records its original ID and time. That decision is recorded on PR #87.
+- The rebase adds the pause column that the entry left to backlog item 6's PR 6.2 (#77), now on `main` (BL-20261109-0607-research-stage-pause-implemented).
+- History of the entry: it was committed at 0dddf60 on 2026-11-09, on #75 based on `main` at 2982ca7, and authored at 05:30 UTC as BL-20261109-0530, with the same slug. Merge train 1 (BL-20261110-1506-merge-train-1-integration) then put `main`'s tail after it.
+
+Decisions:
+1. **The re-stamp.** The heading's ID moved to BL-20261113-0853 and its date field to 2026-11-13, since the validator requires an ID's date to match the heading's date. No other text in the entry changed, and nothing else in the repository cited the old ID. The pull request description and the commit messages keep the old ID.
+2. **The rebase.** #75 is rebased onto `main` at 9d10b9a.
+   - The review-fix commit replayed unchanged (`git range-diff`).
+   - The first test commit conflicted only in the research-session fixture's destinations: 6.2 added `priced-planner` and E1-T3 added `cloud`, and both are kept.
+   - The entry commit only moved to `main`'s tail.
+3. **The pause column.** The S1 matrix ("E1 recoverability: a research stage stopped mid-call on the real broker (S1)") gains a pause mid-call. It runs at each of the four stages and on the second of two extraction calls, five cases. Each asserts 6.2's result:
+   - the zero-fee row resolves `failed` with code `cancelled`, and no row is left `unknown` or `committed`;
+   - the stage records `denied: "cancelled"`, and in the two-chunk case one call;
+   - the writer is not reached;
+   - the run ends incomplete `research_stage_not_replayed`, as does its resume, and nothing is sent again.
+
+   A pause inside a started stage ends the task: the stage has no per-chunk continuation.
+4. **What the rebase settles or makes stale in the entry's body**, which is not edited:
+   - Its Next gate's coordination point with 6.2 is settled.
+     - 6.2's brief said "session.cancel() mid-stage still gives research_cancelled". Its implementation keeps the cancel at `session_cancelled`, which E1-T3 pins.
+     - 6.2 rewrote the pause tests, including the resume assertion the entry calls ":197". E1-T3 still does not touch them.
+   - Its Limitations' "The S1 matrix has no pause column" no longer holds.
+   - "The orchestrator re-stamps this entry's ID" is superseded by decision 1: under the owner's rule, each lane re-stamps its own entries.
+   - Its Scope's "not yet on `main`" no longer holds. The card, BL-20261109-0351-e1-recoverability-card, has been on `main` since train 1.
+5. **The card's pinned limitation A7** ("a paused research stage cannot resume: item 6 (PR 6.2)", BL-20261109-0351-e1-recoverability-card decision (4)). 6.2 settled it by ending the task, not by resuming the stage, and these five cases pin that. A resume of a paused stage still needs a per-chunk continuation, which no merged part of items 7 and 8 adds.
+
+Changes:
+- tests/unit/private-agent-research-session.test.ts:
+  - the pause mode in the S1 matrix's `stoppedAt`, its outcomes and its two `it.each` lists;
+  - the fixture's merged destinations.
+- docs/BUILD_LOG.md: the entry's heading (ID and date) and this entry.
+- No `src/` file changes.
+
+Evidence: On the owner's Mac, at the rebased head with the pause column and the re-stamp (load average about 4 to 7):
+- `pnpm exec vitest run tests/unit/private-agent-research-session.test.ts`: 44 passed. Under `-t "E1 recoverability"`, 27 passed: the 22 reviewed and the five pause cases.
+- With the pause trigger removed in a scratch copy, the five pause cases fail and the other 22 pass.
+- `pnpm exec vitest run -t "E1 recoverability"`: 9 files and 82 tests passed: `main`'s 55 and this pull request's 27.
+- `pnpm exec vitest run`: 187 files (174 passed, 13 skipped) and 3,307 tests (3,221 passed, 86 skipped, 0 failed), in 79.3 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- The pause cases cover zero-fee local roles only.
+- The priced-planner pause (E1's bug (b), an `unknown` row) is 6.2's own test, pinned until 10.b.
+- The entry's other limitations stand. In particular, the stop cases assume one in-flight dispatch per job, and must be rerun with K > 1 once item 8 lands.
+- If an entry with a later ID reaches `main` before #75 merges, these two entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, and the owner's go-ahead.
+
+References:
+- BL-20261113-0853-e1-recoverability-session-implemented
+- BL-20261109-0607-research-stage-pause-implemented
+- BL-20261109-0501-research-stage-pause-design
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+
+### BL-20261113-0855-correction-e1-recoverability-session-second-restamp -- 2026-11-13 -- Correction: E1-T3's two entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834-correction-runner-storage-integrity-second-restamp; their original IDs, dates and authoring times, and the fixture merged with 6.3's
+
+Status: `Implemented`
+
+Scope or hypothesis: After #75's first re-stamp, #92 and #82 merged into `main`, whose last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- At this merge of `main` (23dfadc) into #75, E1-T3's two entries move again, into the block of minutes the orchestrator gave lane S-e1 for this integration: 0848 to 0909, in the order #88, #84, #75, #80. The owner's re-stamp rule applies (BL-20261113-0758, pull request #87).
+- #82's held-attempt pins (BL-20261113-0820-research-stage-pause-held-attempt-pins) also changed the research-session test fixture, so the merge resolves that file too.
+
+Each entry, with its original ID, date and authoring time:
+- **The Implemented entry.** Authored at 05:30 UTC on 2026-11-09 as BL-20261109-0530, and first re-stamped as BL-20261113-0816 (with the same slug). It is now BL-20261113-0853-e1-recoverability-session-implemented.
+- **The first correction.** Authored at 08:17 UTC on 2026-11-13 as BL-20261113-0817, with the same slug. It is now BL-20261113-0854-correction-e1-recoverability-session-restamp.
+
+Decisions:
+1. **The second re-stamp.**
+   - Only the two headings' ID minutes change, together with the references to those IDs; the dates stay 2026-11-13.
+   - The references are in the first correction's title, its scope, decision 1 and its References.
+   - Each body is otherwise byte-identical to #75's at 1a0af07. Nothing outside the log cites these IDs.
+   - `main` is merged into #75, not rebased. `main`'s log is kept whole, as a byte prefix of this branch's.
+   - The first correction's account now names the current IDs. Its "rebased onto `main` at 9d10b9a" describes the first rebase only.
+2. **The fixture.** #82 gave the research-session fixture an `extractReply` option, which replaces the nth extraction reply. E1-T3 had given it a "hold" decision and an `onCloud` hook. The merge keeps both sides:
+   - the options type holds `recoverable` and `extractReply`;
+   - the hooks type holds "destroy", "hold" and `onCloud`;
+   - the handler destroys or holds before it computes a reply. A held or destroyed request therefore does not advance the extraction count, as a destroyed one did not before.
+   - The test titles and assertions of both sides are unchanged.
+3. **A correction to BL-20261113-0854-correction-e1-recoverability-session-restamp, decision 1.** It says that "The pull request description and the commit messages keep the old ID". Since #75's description was updated on 2026-11-13, the description has named the current ID and the original one; only the commit messages keep the old ID.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, the first correction's references to the re-stamped ID, and this entry.
+- tests/unit/private-agent-research-session.test.ts: the fixture, merged as decision 2 describes.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #75 (load average about 9 to 11):
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0: 562 entries, append-only against 23dfadc.
+- `pnpm typecheck` passes.
+- tests/unit/private-agent-research-session.test.ts: 48 passed. Of these, 27 are E1-T3's cases, and the rest are the file's own tests, including #82's held-attempt cases, all with the merged fixture.
+- `pnpm exec vitest run -t "E1 recoverability"`: 9 files and 82 tests passed (`main`'s 55 and E1-T3's 27).
+- `pnpm exec vitest run`: 189 files (176 passed, 13 skipped) and 3,377 tests (3,291 passed, 86 skipped, 0 failed), in 50.1 s.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction plus a merge resolution. Nothing new is implemented or verified by it.
+- The orchestrator's review noted a timing assumption, which stands: the session-deadline cases give the stages before the held call 400 ms. On a much slower runner the deadline could cut an earlier stage, and the case would fail on its row assertions. It has passed in every run so far, locally and in CI.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #88, #84, #80, #89 and #93 on green CI. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0853-e1-recoverability-session-implemented
+- BL-20261113-0854-correction-e1-recoverability-session-restamp
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261113-0820-research-stage-pause-held-attempt-pins (6.3's follow-up, which added `extractReply`)
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)
+
+### BL-20261113-0856-claims-trailing-strip-linear-design -- 2026-11-13 -- E1-J2 decided: the claims check's heading strip becomes linear with the same output; the new check text adds no refusal but changes the hash of claims-checked tasks
+
+Status: `Proposed`
+
+Scope or hypothesis: Lane S-e1's item E1-J2, given by the orchestrator on 2026-11-09. Lane S-pipe's 7a.1 code review found the defect on `main` and left it unfixed.
+
+The branch is `fix/e1-j2-linear-trailing-strip`. Until merge train 1 lands it is a draft stacked on E1-J (Lotus2077/SOAR#70). It is then rebased onto `main`, where it also updates 7a.1's heading test (Lotus2077/SOAR#76; decision (5)).
+
+The request allows an `Implemented` entry alone if the change "changes no contract". It does change one: decision (3) shows the check's text is hashed into persisted identities. So this design entry comes first.
+
+The defect: the host-owned claims ledger check (`claimsLedgerCheck` in claims.ts) is the required check of every desktop public-research task, and of the local screen's `--claims-ledger true` runs, research runs included. Its `section_present` decides whether each required section heading (two today) is in the writer's report:
+- for each title it scans the report's lines in order, stopping at the first match;
+- it strips each line with `re.sub(r'[*_:\s]+$', '', ...)`.
+
+When a run of those characters inside a line does not reach the line's end, Python's backtracking engine retries the run from each of its positions. One call's time therefore grows with the square of the run's length.
+
+Measured with scratch scripts that are not committed, with Python 3.9.5 on the owner's Mac:
+
+| Run of spaces | Time of one call |
+|---|---|
+| 5,000 | 0.12 s |
+| 10,000 | 0.47 s |
+| 20,000 | 1.9 s |
+| 40,000 | 8.3 s |
+
+The container's Python 3.11.16 is somewhat faster.
+
+The final verifier runs each check with a 90 s limit (runner.ts), and the model's `check_claims` tool with 180 s. Extrapolated from these figures, a valid report fails its required check in two cases:
+- one line before both headings holds a run of roughly 130,000 such characters (3.11; about 93,000 on 3.9.5);
+- roughly 185,000, when only one title's scan reaches the line.
+
+A degenerate reply, a padded table or a fill-in line can produce such a run. No run on record is known to have failed this way.
+
+Hypothesis: a linear strip that returns the same string on every input removes the defect and changes no check result.
+
+Decisions:
+(1) **The strip.** A Python helper, `strip_trailing(text)`, returns `text[:len(text)-re.match(r'[*_:\s]*',text[::-1]).end()]`. That is the text without its longest suffix of class characters, which is exactly what `re.sub(r'[*_:\s]+$','',text)` returns:
+   - **What `re.sub` matches.** It takes the leftmost match, and no match starts before the suffix:
+     - a run that starts earlier stops at the character just before the suffix;
+     - that character is outside the class, so it is neither the end nor a final newline (a newline is in the class), and `$` fails there.
+
+     At the suffix's first character, the greedy run first tries the whole suffix to the end, where `$` holds. No second match follows, because the pattern needs at least one character.
+   - **What the helper computes.**
+     - `[*_:\s]*` always matches, perhaps empty, so `re.match` never returns None.
+     - It matches the longest prefix of the reversed text, which is the suffix.
+     - `len(text)-k` keeps the whole text when k is 0.
+     - The same pattern text and default flags decide class membership per code point, so reversal cannot change it.
+   - **Why it is linear.** The greedy class has no tail to backtrack into, and the reversal and the slice are linear. The leading strip `^[#*_\s]+` is kept and is linear too. It can match only at position 0, and every later attempt fails at its first step. Python 3.11 and later do not try those positions at all.
+(2) **The rule as one constant.** The two functions become an exported constant, `CLAIMS_SECTION_RULE_PY`:
+   - `strip_trailing`;
+   - `section_present`, which now calls it.
+
+   The constant is written with `String.raw`, like `DECK_CHECK_PY` (ooxml.ts) and `RENDER_PY` (repair.ts), and interpolated into the check. Tests run that constant rather than a typed copy, and a typed copy elsewhere can be replaced by it (decision (5)).
+(3) **What the new text changes.** Each phase that carries the check hashes its Python text (`sessionPhaseIdentity`), and from there the text reaches persisted values. Nothing refuses work because of it beyond what any build of this change already refuses.
+   - **Desktop.** Every unfinished desktop task, of any kind, is already refused at start or resume with `general_task_configuration_changed` after any main-process build. The configuration identity hashes the built app (general-task-runtime.ts; controller.ts `launch`), and E1-J's build does the same. The phase-identity check behind it (`general_task_input_changed`) is not reached for this cause.
+   - **Local screen.** It never resumes across processes: each run makes a new job and directory. As for any change under src/main/private-agent, E1-J's included:
+     - a run given the pre-merge `--runtime-sha256` is refused `local_screen_reviewed_source_changed` before its directory exists;
+     - a run under way when the checkout changes ends `source_changed_during_run`.
+   - **Harness loop.** No loop may span the merge:
+     - resumed with the old hash, a loop is refused at its next fresh stage;
+     - resumed with the new hash, its reused stages fail `loop_stage_mismatch`.
+   - **Values that bind the text but that nothing re-verifies:**
+     - a public-research task's attestation identity, and through it the `taskJobSha256` of its verdict receipt and registry row;
+     - the session's and the runner's start identities, and the loop's `writeIdentity`;
+     - freeze.json's `privatePhaseSha256` and `publicPhaseSha256`.
+
+     The visible effect: the same public-research task gets a different `taskJobSha256` before and after the merge, so rows from either side do not match by that hash. No existing owner registry row is claims-checked.
+   - **Unaffected:**
+     - the research pipeline's protocol hash, which covers no check;
+     - the H4 seed's binding and the repair's binding;
+     - the owner's authority hashes, which are only format-checked and are recomputed where used.
+   - **Practical note.** registry-row.py records the checkout's HEAD when a row is written. Rows for runs made before the merge should therefore be written before pulling it.
+(4) **The tests.**
+   - (a) **A time bound through the real check.** The check runs under the machine's python3 on a valid report. The report holds a 1,000,000-character run of spaces, underscores, asterisks and colons inside one line before both headings, so both scans reach it. The check must finish within 20 s.
+     - The old strip needs tens of minutes there, the new one well under a second. Each side is therefore at least 100 times from the bound.
+     - Python's engine has no step counter, so a time bound with these margins stands in for one.
+     - Reproduced before the fix: the check is stopped at the bound.
+   - (b) **A differential test inside Python.** It compares the shipped `strip_trailing` with the old pattern, and with a regex-free strip that drops the last character while it is `*`, `_`, `:` or `isspace()`. The inputs:
+     - every string of up to five characters over twelve characters: `s`, `#`, a backslash, `*`, `_`, `:`, space, tab, newline, vertical tab, U+00A0 and U+200B;
+     - 2,000 seeded strings of 6 to 300 characters.
+
+     It prints only a summary. Fixed expected outputs, asserted from TypeScript, catch an escaping error that would break both regex sides alike, for example `\s` read as `s`.
+   - (c) **The source.** The check's source contains the rule constant and no longer contains the old pattern, and the constant contains a literal `\s`.
+(5) **7a.1's heading test** (#76, landing in train 1) pins the old `section_present` line character for character and runs a typed copy of the rule. After the rebase onto `main`, this PR makes two changes there:
+   - the guard asserts that the check contains `CLAIMS_SECTION_RULE_PY`;
+   - `claimsPresent` runs the constant.
+
+   Its two other mirror lines, for the fence and comment strips and for `read_text`, stay as they are. claims.ts's merge order becomes E1-J (#70), then E1-J2, then 8.2b.
+(6) **Out of scope, listed as follow-ups.** The design reviews measured, on Python 3.12, other patterns of the same check that also take quadratic time on a hostile report or source:
+
+   | Pattern | Input | Time |
+   |---|---|---|
+   | The fence strip | 40,000 lines that each open a fence | 49.5 s |
+   | The comment strip | 50,000 unclosed HTML comment openers | 31.9 s |
+   | The HTML tag strip in `units` | 150 KB | 2.6 s |
+
+   Fixing them changes the check's text once more, and with it `taskJobSha256`.
+
+Owner question: fix (6)'s patterns in one follow-up PR, which changes the check's text once more, or in this one? Proposed default: one follow-up PR after E1-J2. The request scoped E1-J2 to the trailing strip, and each pattern needs its own equality proof. The cost is one more `taskJobSha256` split for the same public-research task, and no refusal.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/claims.ts: `CLAIMS_SECTION_RULE_PY` and its use;
+- tests/unit/private-agent-claims.test.ts: an optional time bound on the `run` helper, and the describe "E1 recoverability: the claims check's heading strip, same result without quadratic time (E1-J2)";
+- after the rebase, tests/unit/private-agent-research-headings.test.ts (decision (5));
+- docs/BUILD_LOG.md.
+
+Evidence:
+- **The reproduction** ran at f7251dd, E1-J's head, whose check text equals `main`'s. Its command was `pnpm exec vitest run tests/unit/private-agent-claims.test.ts -t "E1-J2"`, with the first draft of test (a), which put a 200,000-character run between the headings. Result: 1 failed and 27 skipped. The failure was "claims check stopped by SIGTERM at the 20000 ms bound", after 20.0 s.
+- **Three adversarial design reviews** ran: ledger and replay; consumers and tests; specification fidelity. They found no counterexample to decision (1). An equality run gave zero mismatches on Python 3.9.5, 3.11.16 (the container's, runtime/private-agent/Dockerfile) and 3.12.13, over:
+  - all 1,114,112 code points in twelve contexts;
+  - every string of up to four characters over a 24-character alphabet;
+  - every string of up to eight characters over a 6-character structural alphabet;
+  - 1,000,000 seeded strings.
+
+  CI's ubuntu runner uses its system python3.
+- **Their confirmed findings are folded in above:**
+  - the mechanism of (3): the first draft named `general_task_input_changed` and `session_contract_drift`, and this change causes neither;
+  - the list of bound values;
+  - the equality argument's wording;
+  - the threshold figures;
+  - the size and place of test (a)'s run;
+  - test (b)'s escaping guards;
+  - #76's pin;
+  - (6)'s other patterns.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only.
+- The timings come from the reviewers' and the owner's machines, and the thresholds are extrapolations.
+- The time-bound test asserts a bound, not a speed.
+- Nothing measures how often real reports contain such runs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The implementation and its `Implemented` entry.
+2. After train 1 lands, the rebase onto `main` with decision (5).
+3. CI green.
+4. The owner's answer to the question.
+
+The orchestrator re-stamps this entry's ID if another entry merges first.
+
+References: BL-20261006-1058-pr-j-claims-ledger-design; BL-20261006-1150-pr-j1-claims-ledger-implemented; E1-J's entries (the judge-cancel label, #70); 7a.1's research-tolerance entries (#76); lane S-pipe's 7a.1 notes.
+
+### BL-20261113-0857-claims-trailing-strip-linear-implemented -- 2026-11-13 -- E1-J2 implemented: the claims check's heading rule strips in linear time with the same result, exported as one constant; the update of #76's test waits for the rebase
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements decisions (1), (2) and (4) of BL-20261113-0856-claims-trailing-strip-linear-design as decided. The branch is `fix/e1-j2-linear-trailing-strip`, a draft stacked on E1-J (`fix/e1-j-judge-cancel-label`, Lotus2077/SOAR#70, at f7251dd).
+
+Decision (5), the update of 7a.1's heading test (#76), is checked but is not on this branch, because #76 is not in its base. It lands with the rebase onto `main` after merge train 1.
+
+Hypothesis: the check's result is unchanged on every input, and a report line with a long run of the strip's characters no longer makes the check slow.
+
+Decisions: None beyond the design. One adversarial code review checked the check's escaping and byte identity, whether each test proves its title, and the conventions. It found no blocker and four should-fix or nit items, all applied before this entry:
+- **Hidden characters.** The fixed cases, their expected values and the differential alphabet held literal U+00A0 and U+200B characters. They are escapes now: an editor that normalised them would have dropped that coverage silently.
+- **The `run` helper's signal branch.** It reported any signal as the time bound, including a full output buffer or a kill. It now reports only `ETIMEDOUT` that way and rethrows anything else.
+- **The differential test's limit.** It had vitest's default 5 s limit and timed out once in a full-suite run at a load average of 141. Its limit is now 30 s.
+- **The source test.** It now asserts that each of the two definitions appears once, so no later definition can shadow the rule. The import is now in alphabetical order.
+
+The review also confirmed three things:
+- the check's Python differs from E1-J's only by the two functions; with that block masked, the rest is byte-identical;
+- the constant holds exactly the design's expression, with two backslashes;
+- nine deliberately broken helpers each fail the differential test, with 50,768 to 212,379 mismatches.
+
+Changes:
+- src/main/private-agent/claims.ts: `CLAIMS_SECTION_RULE_PY`, a `String.raw` constant holding `strip_trailing` and `section_present`, which calls it. The check interpolates the constant in place of the former `section_present`.
+- tests/unit/private-agent-claims.test.ts: the `run` helper's optional `timeoutMs`, and the describe "E1 recoverability: the claims check's heading strip, same result without quadratic time (E1-J2)". It holds four tests:
+  - **The time bound.** The check runs under the machine's python3 on a valid report with a 1,000,000-character run of spaces, underscores, asterisks and colons inside a line before both headings, and must finish within 20 s.
+  - **The differential test.** It compares `strip_trailing` with the former pattern and with a regex-free strip on 273,453 strings: every string of up to five characters over twelve, and 2,000 seeded strings of 6 to 300 characters. The comparison runs in Python.
+  - **Fixed results**, read from TypeScript, and `section_present` on two lines.
+  - **The check's source.** It contains the constant, defines each function once, and no longer contains the former pattern.
+
+Evidence: On the owner's Mac, with Python 3.9.5 as the system python3:
+- `pnpm exec vitest run tests/unit/private-agent-claims.test.ts`: 30 passed and 1 skipped (31). The four E1-J2 tests add under a second.
+- `pnpm exec vitest run` (the full suite) at 5bf4928, at a load average of about 26:
+  - 178 files: 164 passed, 1 failed and 13 skipped;
+  - 2,768 tests: 2,683 passed, 1 failed and 84 skipped.
+
+  The failure is tests/unit/with-claude-key.test.ts, which reached its 5 s limit and does not import claims.ts. Run alone, it passed (3 of 3).
+- An earlier full-suite run at e3a57ce, at a load average of 141 from other sessions' suites: 13 tests in 7 files timed out. One was this PR's differential test, fixed above. The other 12 are in six files that do not import claims.ts: hybrid-simulation-change-review, local-change-review, local-repository-investigator, inspect-git-changes, patch-routing-comparison and private-agent-observations. Run alone at a load average of about 18, those six files passed: 159 tests passed and 1 was skipped.
+- Two mutation runs on this branch's tests, with claims.ts restored after each:
+  - with the former pattern back inside the helper, the time-bound test is stopped at the 20 s bound (20.0 s), and the fixed-results and source tests fail;
+  - with `\s` read as `s` in the constant, three tests fail: the time-bound test (a heading's trailing `s` is stripped), the differential test and the fixed-results test.
+- The code review measured the final test input:
+  - the old check is stopped at 20.02 s on Python 3.9.5 and at 20.01 s on 3.12.13;
+  - the new check takes 0.07 s, 0.08 s and 0.16 s on 3.9.5, 3.11.16 and 3.12.13, and about 80 ms inside vitest at a load average of about 40.
+- Decision (5) was checked in a temporary detached checkout of #76's head (18655e5), with this PR's claims.ts change applied. Nothing was pushed to #76's branch.
+  - #76's guard "still mirrors claims.ts's rule as written there" fails as the design predicted: 1 failed and 10 passed.
+  - With the planned update (the guard asserts that the check contains `CLAIMS_SECTION_RULE_PY`, and `claimsPresent` runs the constant), the file passes 11 of 11, and the node typecheck reports no error.
+  - The patch is kept for the rebase.
+- `pnpm typecheck` passed with no error. `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/fix/e1-j-judge-cancel-label` passed.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No live run took place, and nothing here measures how often real reports contain such runs.
+- The time bound is wall-clock, with the margins the design gives; it is not a step count.
+- The differential test proves equality on its own inputs. Equality on every input rests on the design's argument and on the design reviews' wider runs, on Python 3.9.5, 3.11.16 and 3.12.13.
+- Decision (5) is not on this branch until the rebase. Until then, merging this branch with #76 fails #76's guard.
+- The check's other quadratic patterns (the design's decision (6)) are unchanged, and the owner question stands.
+- As the design records:
+  - the check's new text changes the `taskJobSha256` of public-research tasks across the merge;
+  - claims.ts's change moves the local screen's source freeze, so no harness loop may span the merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. After merge train 1 lands, the rebase onto `main`, with decision (5)'s test update.
+2. CI green.
+3. The owner's answer to the design's question, and the merge go-ahead.
+
+The orchestrator re-stamps the entry IDs at merge.
+
+References: BL-20261113-0856-claims-trailing-strip-linear-design; E1-J's entries (#70); 7a.1's research-tolerance entries (#76).
+
+### BL-20261113-0858-correction-claims-trailing-strip-linear-restamp -- 2026-11-13 -- Correction: E1-J2's entries carry IDs BL-20261113-0856-claims-trailing-strip-linear-design and BL-20261113-0857-claims-trailing-strip-linear-implemented; they were authored at 06:23 and 06:42 UTC on 2026-11-10 as BL-20261110-0623 and BL-20261110-0642, and the rebase onto `main` applies the design's decision (5)
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the re-stamp of E1-J2's two entries, under the owner's rule of 2026-11-13 recorded on PR #87: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, and a correction records its original ID and time. It also records the rebase of their pull request, #80, onto `main` after merge train 1, which carries out the design's decision (5).
+- The design entry was committed at a3f652c and authored at 06:23 UTC on 2026-11-10 as BL-20261110-0623. The Implemented entry was committed at 5d6a5a1 and authored at 06:42 UTC the same day as BL-20261110-0642. Both kept their slugs.
+- At that time #80 was a draft stacked on E1-J (#70) at f7251dd.
+- Merge train 1 (BL-20261110-1506-merge-train-1-integration) then merged #70 and put `main`'s tail after both entries.
+
+Decisions:
+1. **The re-stamp.** The two headings' IDs moved to BL-20261113-0856 and BL-20261113-0857, and their date fields to 2026-11-13: the validator requires an ID's date to match the heading's date.
+   - The Implemented entry's two citations of the design's ID, in its Scope and in its References, follow it.
+   - No other text in either entry changed, and nothing else in the repository cited either ID.
+   - The pull request description and the commit messages keep the old IDs.
+2. **The rebase.** #80 is rebased from f7251dd onto `main` at 9d10b9a, and its base is `main`.
+   - The fix, the review fixes and the Implemented entry's commit replayed unchanged (`git range-diff`). The design entry's commit only moved to `main`'s tail.
+   - claims.ts's merge order (E1-J, then E1-J2, then 8.2b) holds: E1-J is on `main`, and 8.2b is not.
+3. **Decision (5) carried out.** The design's decision (5) planned two changes to 7a.1's headings test, tests/unit/private-agent-research-headings.test.ts, at this rebase. Commit a5090f7 makes them:
+   - `claimsPresent` runs `CLAIMS_SECTION_RULE_PY` instead of a typed copy of `section_present`;
+   - the guard "still mirrors claims.ts's rule as written there" asserts that the claims check interpolates that constant, in place of the old `section_present` line.
+
+   The guard's other two mirror lines, the fence and comment strips and `read_text`, are unchanged. The patch is the one checked against #76's heads 18655e5, bd876d9 and 2fe1ec8 before the train.
+4. **What the rebase makes stale in the entries' bodies**, which are not edited:
+   - Both entries' Next gates name "the rebase onto `main` with decision (5)"; that step is now done.
+   - The Implemented entry's "The orchestrator re-stamps the entry IDs at merge" is superseded by decision 1: under the owner's rule, each lane re-stamps its own entries.
+   - The design's owner question still stands: should the check's fence, comment and HTML-tag strips be fixed in one follow-up PR? The proposed default is yes.
+
+Changes:
+- tests/unit/private-agent-research-headings.test.ts, decision (5): one import, `claimsPresent`'s script, and the guard's first assertion.
+- docs/BUILD_LOG.md: the two headings (ID and date), the Implemented entry's two citations of the design, and this entry.
+- No `src/` file changes beyond the rebased fix.
+
+Evidence: On the owner's Mac, at the rebased head with decision (5) and the re-stamp:
+- tests/unit/private-agent-research-headings.test.ts and tests/unit/private-agent-claims.test.ts: 41 passed and 1 skipped. The skip is in `main`'s claims tests. Under `-t "E1-J2"`, the claims file gives 4 passed.
+- Without decision (5)'s change, at the rebased head before a5090f7, run from a scratch copy: the headings file gives 1 failed and 10 passed. The failure is the guard, which still pinned the old `section_present` line.
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files, 59 tests passed: `main`'s 55 and E1-J2's 4.
+- `pnpm exec vitest run` (the full suite), at a load average of about 18: 3,284 tests, with 3,197 passed, 86 skipped and 1 failed.
+  - The failure is tests/unit/private-agent-sandbox-capture.test.ts, "keeps the first 1,024 regular files in sorted order, counts the rest as cap, and stops at the entry cap with an incomplete report". It reached vitest's 5 s timeout while it ran the lister under python3 over 4,106 files.
+  - This branch changes neither that test nor sandbox.ts. Run alone twice, the file gave 13 passed and 1 skipped each time.
+  - A second full run right after it gave 3,284 tests, with 3,198 passed, 86 skipped and 0 failed (187 files: 174 passed, 13 skipped), in 55.5 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None caused by this branch. The load-dependent lister timeout is recorded under Evidence.
+
+Limitations and non-claims:
+- A record correction plus the test update that the design's decision (5) planned; nothing is verified or released by it.
+- The design's limitations stand. In particular, the check's fence, comment and HTML-tag strips still scale badly on a hostile report.
+- If an entry with a later ID reaches `main` before #80 merges, these three entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, the owner's answer to the design's question, and the merge go-ahead.
+
+References:
+- BL-20261113-0856-claims-trailing-strip-linear-design
+- BL-20261113-0857-claims-trailing-strip-linear-implemented
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0411-judge-cancel-label-design
+- BL-20261109-0444-judge-cancel-label-implemented
+- BL-20261109-0447-research-tolerance-design
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+
+### BL-20261113-0859-correction-claims-trailing-strip-linear-second-restamp -- 2026-11-13 -- Correction: E1-J2's three entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834-correction-runner-storage-integrity-second-restamp; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: After #80's first re-stamp, #92 and #82 merged into `main`, whose last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- At this merge of `main` (23dfadc) into #80, E1-J2's three entries move again.
+- They go into the block of minutes the orchestrator gave lane S-e1 for this integration, 0848 to 0909, in the order #88, #84, #75, #80, under the owner's re-stamp rule (BL-20261113-0758, pull request #87).
+- #80's entries are the last of the block.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 06:23 UTC on 2026-11-10 as BL-20261110-0623, then first re-stamped as BL-20261113-0821 (with the same slug). It is now BL-20261113-0856-claims-trailing-strip-linear-design.
+- **The Implemented entry.** Authored at 06:42 UTC on 2026-11-10 as BL-20261110-0642, then first re-stamped as BL-20261113-0822 (with the same slug). It is now BL-20261113-0857-claims-trailing-strip-linear-implemented.
+- **The first correction.** Authored at 08:23 UTC on 2026-11-13 as BL-20261113-0823, with the same slug. It is now BL-20261113-0858-correction-claims-trailing-strip-linear-restamp.
+
+Decisions:
+- **What changes.** Only the three headings' ID minutes change, together with the references to those IDs; the dates stay 2026-11-13.
+- **Where the references are:**
+  - in the Implemented entry, its Scope and References citations of the design;
+  - in the first correction, its title, its scope, decision 1 and its References.
+- **Each body is otherwise byte-identical** to #80's at d60aa1f. Nothing outside the log cites these IDs.
+- **How `main` comes in.** `main` is merged into #80, not rebased. `main`'s log is kept whole as a byte prefix of this branch's. The merge conflicted in docs/BUILD_LOG.md only.
+- **The first correction's account** now names the current IDs. Its "rebased from f7251dd onto `main` at 9d10b9a" describes the first rebase only.
+
+Changes: docs/BUILD_LOG.md only: the three headings, their references, and this entry.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #80, with a load average of about 8 to 11:
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0, reporting "SOAR build log valid: 563 entries; append-only against 23dfadc".
+- `pnpm typecheck` passes.
+- tests/unit/private-agent-research-headings.test.ts and tests/unit/private-agent-claims.test.ts: 41 passed, 1 skipped (`main`'s skip).
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files and 59 tests passed (`main`'s 55 and E1-J2's 4).
+- `pnpm exec vitest run`: 189 files (176 passed, 13 skipped) and 3,354 tests (3,268 passed, 86 skipped, 0 failed), in 48.5 s.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only. Nothing is implemented, verified or released by it.
+- The design's owner question stands: whether to fix the check's fence, comment and HTML-tag strips in one follow-up PR. So do its practical notes on the identity split.
+- Commit messages and #80's earlier descriptions keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #88, #84, #75, #89 and #93 on green CI. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0856-claims-trailing-strip-linear-design
+- BL-20261113-0857-claims-trailing-strip-linear-implemented
+- BL-20261113-0858-correction-claims-trailing-strip-linear-restamp
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)

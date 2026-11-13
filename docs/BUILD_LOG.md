@@ -33795,7 +33795,7 @@ Failures or blockers:
 - Rayline's pricing tables did not render. Its solutions pages render only in the browser, so their text was read from the site's script bundle.
 - No independent replication of any Rayline figure was found. The only outside coverage was one aggregator funding story and a Show HN thread of 11 points.
 - Every docs.rayline.ai page tells AI agents to fetch an llms.txt index first; the agents did not act on it.
-- This entry's ID follows the unmerged entries of #79, #80, #82, #84 and #75 (dated 2026-11-10). It must therefore merge after them, or ride their merge train, where the union sorted by ID places it last.
+- Other open pull requests carry entries dated around this one: #79, #80, #82, #84 and #75 (2026-11-10), and #87, #88 and #89 (2026-11-13). Under the owner's rule of 2026-11-13 (BL-20261113-0758-owner-decision-restamp-unmerged-entries, on #87), whichever branch merges later re-stamps its earlier-dated entries after `main`'s tail and adds a Correction recording the original IDs. No fixed merge order is needed.
 
 Limitations and non-claims:
 - This is research and planning only. Nothing is implemented, verified or released.
@@ -33807,7 +33807,7 @@ Limitations and non-claims:
 Paid exposure: None. Zero SOAR model requests, zero Rayline requests and zero envelope spend. Every cap is unchanged.
 
 Next gate:
-- This pull request merges after #79, #80, #82, #84 and #75, or rides their train.
+- Review, then merge. If `main`'s tail is later than this entry by then, re-stamp it under BL-20261113-0758-owner-decision-restamp-unmerged-entries.
 - (a) and (b) can be built before E0 at zero fee.
 - (d) goes to the 10.b and item 11 lanes.
 - (e) starts from `main` after this entry merges.

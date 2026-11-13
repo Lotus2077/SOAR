@@ -414,7 +414,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
 describe("E1 recoverability: a research stage stopped mid-call on the real broker (S1)", () => {
   const stages = [["index", "You index"], ["plan", "You plan"], ["extract", "You extract"], ["synthesise", "You write"]] as const;
   const purposes = { index: "research source index", plan: "research plan", extract: "research evidence extraction", synthesise: "research synthesis" } as const;
-  type Mode = "cancel" | "external abort" | "session deadline";
+  type Mode = "cancel" | "external abort" | "session deadline" | "pause";
   /** The fixture's phase with a second source, so the extraction stage makes two calls, one per source's chunk. */
   function withSecondSource(config: GeneralSessionOptions): GeneralSessionOptions {
     const privatePhase = { ...config.privatePhase, files: [...config.privatePhase.files, { path: "input/corpus/b.md", bytes: Buffer.from("# Prices\nPack prices fell by a fifth in 2024, to 115 USD per kWh.\n") }] };
@@ -432,7 +432,7 @@ describe("E1 recoverability: a research stage stopped mid-call on the real broke
     let seen = 0;
     f.hooks.onRequest = system => {
       if (!system.startsWith(stage[1]) || ++seen < nth) return undefined;
-      if (mode === "cancel") session.cancel(); else if (mode === "external abort") external.abort();
+      if (mode === "cancel") session.cancel(); else if (mode === "external abort") external.abort(); else if (mode === "pause") session.pause();
       return "hold";
     };
     const result = await session.run(external.signal);
@@ -444,10 +444,14 @@ describe("E1 recoverability: a research stage stopped mid-call on the real broke
     const resumed = await new GeneralAgentSession(again).run();
     return { f, jobId, runs, result, rows, stageEvents, sent, resumed };
   }
-  /** The run's own outcome and the resume's, per stop: a cancel ends the job; an external abort or the session's deadline ends the run. */
+  /**
+   * The run's own outcome and the resume's, per stop: a cancel ends the job; an external abort or the session's deadline ends the run. A pause
+   * inside the stage ends the task too, since backlog item 6's PR 6.2 (BL-20261109-0607-research-stage-pause-implemented): a started stage has
+   * no per-chunk continuation, so the run and every resume end research_stage_not_replayed.
+   */
   const outcomes: Record<Mode, [string, string]> = { cancel: ["session_cancelled", "session_cancelled"], "external abort": ["research_cancelled", "research_stage_not_replayed"],
-    "session deadline": ["research_cancelled", "session_deadline"] };
-  it.each(stages.flatMap(stage => (["cancel", "external abort", "session deadline"] as const).map(mode => [stage[0], mode, stage] as const)))(
+    "session deadline": ["research_cancelled", "session_deadline"], pause: ["research_stage_not_replayed", "research_stage_not_replayed"] };
+  it.each(stages.flatMap(stage => (["cancel", "external abort", "session deadline", "pause"] as const).map(mode => [stage[0], mode, stage] as const)))(
     "%s, %s: the stopped call resolves failed with code cancelled, the stage records denied cancelled, the run ends, and a resume sends nothing again", async (name, mode, stage) => {
       const { f, jobId, runs, result, rows, stageEvents, sent, resumed } = await stoppedAt(stage, mode);
       expect(result).toMatchObject({ status: "incomplete", reason: outcomes[mode][0] }); expect(resumed).toMatchObject({ status: "incomplete", reason: outcomes[mode][1] });
@@ -458,7 +462,7 @@ describe("E1 recoverability: a research stage stopped mid-call on the real broke
       expect(runs).toHaveLength(0);
       expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
     }, 20_000);
-  it.each(["cancel", "external abort"] as const)("extract, %s on the second of two chunks: the first chunk's call stays settled, the stage records one call and denied cancelled, and a resume sends nothing again", async mode => {
+  it.each(["cancel", "external abort", "pause"] as const)("extract, %s on the second of two chunks: the first chunk's call stays settled, the stage records one call and denied cancelled, and a resume sends nothing again", async mode => {
     const { f, jobId, runs, result, rows, stageEvents, sent, resumed } = await stoppedAt(stages[2], mode, 2);
     expect(result).toMatchObject({ status: "incomplete", reason: outcomes[mode][0] }); expect(resumed).toMatchObject({ status: "incomplete", reason: outcomes[mode][1] });
     expect(rows.filter(row => row.purpose === purposes.extract).map(row => [row.status, row.failure?.code])).toEqual([["settled", undefined], ["failed", "cancelled"]]);

@@ -37983,3 +37983,87 @@ References:
 - BL-20261113-0920-assist-wrapper-design;
 - BL-20261113-0921-assist-core-implemented;
 - BL-20261113-0926-correction-assist-entries-second-restamp (#79's tail).
+
+### BL-20261113-1011-p10-align-design -- 2026-11-13 -- P10-align decided: P10's cells send the pipeline's own request bodies, built by the role export with the model layer's own builder for each role and thinking mode, including a thinking-off synthesis request
+
+Status: `Proposed`
+
+Scope or hypothesis: The owner chose to align P10. The decision is BL-20261113-1003-e0-card-owner-answers on #87, and item 6 of E0's card.
+
+Today P10's cells in scripts/serving-probe.py build their own request bodies.
+- **Thinking on** sends `reasoning_effort: "medium"` with the probe's sampling.
+- **Thinking off** sends the probe's `NO_THINK`: `enable_thinking: false`, temperature 0.7, top_p 0.8, top_k 20 and presence_penalty 1.5.
+- **What neither sends.** Neither cell streams, and neither sends `preserve_thinking: false` or a job's `cache_salt`.
+- **The synthesis payload.** Both synthesis cells send one payload. Its `lengthCap` is the thinking ceiling's 1,200 words.
+
+So a passing P10 cell shows nothing about the pipeline's own requests.
+
+The hypothesis: if the role export builds each cell's body with the pipeline's own builders, and the probe sends exactly that body with `response_format` added, then P10 measures the requests the pipeline sends. The builders are the role payload builders and `PrivateAgentModel.requestBody`, under the configuration the headless driver gives every local research role.
+
+Decisions:
+(1) **The export builds the bodies.** This is scripts/export-role-schemas.ts, export version 2. It builds one body for each role (plan, extract, synthesis) and each thinking mode.
+- **The model configuration** is `buildLocalScreenModelConfig` from scripts/private-agent-local-screen.ts, which the driver uses for the local reader, planner and synthesiser.
+  - Its settings come from `loadConfig()`, the desktop's own parser: the model, streaming, the Flash reply contract with its context, and the token admission.
+  - It uses the heavy profile, the one profile with thinking on, and the cache salt on, as the driver does by default. A fixed synthetic job id is used for the salt.
+- **The body** is `requestBody([system, user], [], { maxOutputTokens: OUTPUT_TOKENS[role], purpose })`, as the pipeline's `call()` sends it.
+  - **Thinking on** is the role thinking "model" with the profile's medium thinking and its sampling.
+  - **Thinking off** adds the call override `thinking: "disabled"`, as the pipeline sends a role whose thinking is disabled.
+- **The synthesis off cell** carries the length cap a thinking-off synthesis role gets: `researchSynthesisLengthCap(brief, { maxOutputTokens: OUTPUT_TOKENS.synthesis, thinking: "disabled" })`, from BL-20261109-0334-research-request-shapes-design. The on cell keeps the 1,200-word thinking ceiling.
+- **What the export records.** The settings used (`requestSettings`: model, streaming, cache salt, reply contract), with no address and no key, and each body's SHA-256.
+
+(2) **The probe sends them.** This is scripts/serving-probe.py, P10.
+- **The body.** Each of a cell's 20 calls sends the exported body for its role and mode, with only `response_format` added: the strict or non-strict variant the acceptance check chose.
+- **Streaming.** A streamed body has `stream: true`, the default under `SOAR_STREAMING`. The probe reads it as server-sent events and reassembles the content, the reasoning field, the finish reason and the usage into a chat-completion JSON. It retains that JSON, so `pnpm probe:assess` reads every reply unchanged.
+- **Refusals.** Before any P10 request, the probe refuses an export without bodies (an older export) and an export whose model differs from the probe's.
+- **Unchanged:**
+  - 20 calls per cell;
+  - the strict default (`--p10-strict true`);
+  - the acceptance check, two 16-token requests per role, which picks the variant;
+  - the classification order;
+  - `--strip-reasoning`;
+  - the assessor.
+
+(3) **Tests, offline only.**
+- **The export test.** Each body equals `PrivateAgentModel.requestBody`'s for the same configuration, in both modes and under each setting that changes a body: streaming, the cache salt and the Flash reply contract. The synthesis off body carries the thinking-off cap.
+- **The probe test.** It drives P10 against a loopback fake server inside the test.
+  - The server receives the export's bodies with `response_format` added.
+  - Streamed and plain replies are both retained in a shape the assessor reads.
+  - An old export and a mismatched model are refused before any request.
+
+(4) **What P10 still does not show.**
+- **No `response_format` today.** The pipeline does not send one; that is item 9. P10 measures the pipeline's bodies with one added.
+- **Synthetic, small payloads.** They hold two short sources, one chunk and one quote. They show neither a real corpus's sizes nor a repair request.
+- **Extract's on cell.** It measures thinking that the pipeline's role policy turns off today. 7a.2 decides that policy.
+- **Reassembled replies.** The probe reassembles streamed replies itself. The broker's Flash reply-contract checks are not run; the adapter probe covers them in part.
+- **One cache salt.** Every P10 call uses the same salt.
+
+Changes: Planned:
+- scripts/export-role-schemas.ts;
+- scripts/serving-probe.py;
+- tests/unit/role-schema-export.test.ts and tests/unit/serving-probe-helpers.test.ts;
+- docs/experiments/README.md, which describes P10.
+
+Nothing under src/ changes. The protocol hash and every pin stay unchanged.
+
+Evidence: The current bodies, as read at 613ec11:
+- serving-probe.py's `NO_THINK` and `THINK_SAMPLING`, and its P10 cell body;
+- model.ts's `requestBody` for the owned vLLM shape;
+- the export's synthesis payload, whose `lengthCap` is `synthesisLengthCap(brief)`. That function uses THINKING.synthesis, "model", so it gives 1,200 words.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims: This is `Proposed`. Nothing is implemented, and nothing runs against an endpoint.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the implementation, with its offline tests and an `Implemented` entry;
+- one light review;
+- CI green;
+- the merge before E0's export.
+
+References:
+- BL-20261113-1003-e0-card-owner-answers on #87;
+- BL-20261109-0334-research-request-shapes-design;
+- BL-20261108-1459-serving-card-reader-design;
+- docs/experiments/e0-card-2026-11-13.md on #87.

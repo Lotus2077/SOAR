@@ -35114,3 +35114,252 @@ References:
 - BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented
 - BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
 - BL-20261113-0758 (pull request #87)
+
+### BL-20261113-0850-e1-recoverability-pipeline-seed-implemented -- 2026-11-13 -- E1-T2 implemented: invalid JSON twice at each stage, a malformed body in each stage on the real broker, the split arm's Anthropic planner after a 529, 512 KiB corpora, retried and skipped rows through the producer and the seed, and the D4 and D8 pins
+
+Status: `Implemented`
+
+Scope or hypothesis: Lane S-e1's item E1-T2, under E1's card BL-20261109-0351-e1-recoverability-card, the `Proposed` entry committed on Lotus2077/SOAR#66 and not yet on `main`.
+- The branch is `test/e1-t2-recoverability-pipeline-seed`. It is based on 2fe1ec8, the frozen head of Lotus2077/SOAR#76 (7a.1). That head contains Lotus2077/SOAR#69 (7b.1) at 848524e, through the merge 961aea5.
+- These are the two research PRs E1-T2 waited for. On 2026-11-10 the orchestrator lifted the hold on pinning against them.
+- The PR adds the card's scenarios S2, S3 and S7 for the research reading stage, its producer and the seed loader, and pins the D4 and D8 limitations.
+
+Hypothesis: each case passes on 2fe1ec8 without a source change.
+
+Decisions: None beyond the card, except these four.
+1. Placement.
+   - The pipeline cases are appended to tests/unit/private-agent-research-pipeline.test.ts, reusing its mocked-broker models.
+   - The seed and producer cases are appended to tests/unit/private-agent-research-seed.test.ts, reusing its source-run builder.
+   - The real-broker session cases go into a new file, tests/unit/private-agent-research-recoverability.test.ts, with its own fixture. The lane brief proposed tests/unit/private-agent-research-session.test.ts instead, but that file's fixture is rewritten or extended by 6.2 (Lotus2077/SOAR#77), 7c (an options object), 10.b and E1-T3 (Lotus2077/SOAR#75). A separate fixture keeps every one of those merges free of conflicts with this PR.
+   - The cost is a compact copy of the session options, whose split-arm wiring must follow the headless driver's.
+2. D8.
+   - The card planned to pin "a web-shaped corpus refused at admission" (25 or more sources over 20 KiB). 7b.1 flipped that: index batches now go by preview size.
+   - This PR asserts the flip (a web-shaped corpus of 25 sources over 20 KiB completes) and pins the ceiling that remains: the extraction budget's 40 chunks. At about 515 KiB, 40 pages complete and 41 are refused before any request.
+   - No PR in this program lifts that ceiling. By the 7(b) mapping, card-derived ceilings (7b.3) only tighten admission, and raising this one needs item 12's own web request pool.
+   - 7b.1's own test pins the same refusal at 41 sources of 21 KiB and at 60 of 100 KiB.
+3. Names.
+   - The invalid-plan and invalid-synthesis pins are named for 7c (host fallback plan, skeleton synthesis).
+   - The D4 pin is named for 7b.2 (priority trim with disclosed omissions).
+   - The malformed-body pins are named "the item-7 gap", as E1-T3 named its exhausted-retry pin (BL-20261107-0809-zero-fee-failures-resolve-design decision 6). No planned PR flips that gap: the 7c mapping keeps a stage-model `BrokerError` ending the stage, and item 10's code lists cover assist outcomes only.
+4. Sizes. The corpora are invented with f2's aggregate shape, as the card's owner question proposes: 21 files, 512 KiB, 11 over 20 KiB, the largest 48 KiB. Nothing is read from `.soar/` or from the frozen tasks' metadata.
+
+One adversarial review of the tests examined: whether each case proves its claim (with mutations run in a scratch copy), flakiness, conventions, the duplicated fixture, and scope against the lane brief. It found no blocker or major issue. All three minor findings and six nits were applied:
+- the S7 cases no longer claim gate clause 2, since none retries a call;
+- the D8 pin now holds the boundary (40 admitted, 41 refused); the earlier 42-page case let a mutation raising the ceiling to 41 pass;
+- the preview cut-back is now proven by a constructed boundary source. Its em dash starts at byte 20,479, so its preview is exactly 20,479 bytes. Before, it rested on line lengths that a wording change could move;
+- the D4 extractor quotes every non-heading line instead of matching the helper's "Row" prefix;
+- the split-arm case asserts that the retry re-sent the same packet (`packetSha256`), replacing a fee-cap check the store already enforces;
+- the seed helper now checks that loading is read-only, as its comment claimed;
+- the helper cites E1's card instead of the uncommitted lane brief;
+- both loopback timeouts are 10 s instead of 2 s;
+- the item-7 gap note under decision 3.
+
+A check after the review found that two Unicode escapes in my tool input had been written to the files as literal characters (an em dash and U+FFFD). Both are now built with `String.fromCharCode`, as the headings test builds its code points, so every changed file is ASCII.
+
+Changes: Tests only; no `src/` file changes.
+- tests/helpers/research-corpus.ts (new):
+  - `F2_SHAPE_KIB`;
+  - `inventedCorpus(label, sizesKib, directory)`, which builds numbered lines, each with a three-byte em dash;
+  - `previewBoundarySource(id)`.
+- tests/unit/private-agent-research-pipeline.test.ts, "E1 recoverability: the reading stage's recoveries and pinned limits at the pipeline (S3, S7)", 8 cases:
+  - invalid JSON twice at the index: the batch's two sources fall back to their literal cards (`unresolved`, `host_literal`, two attempts each), and the stage still reaches a ready packet;
+  - invalid JSON twice at extraction: the chunk's one repair fails too, so the chunk stays invalid, the stage ends `research_extraction_incomplete`, and nothing is synthesised;
+  - pinned for 7c (2 cases): invalid JSON twice at the plan ends `research_plan_invalid`, and at the synthesis `research_synthesis_invalid`, with no plan or argument file written;
+  - two corpora reach ready packets, each batch and each chunk read once:
+    - the f2-shaped corpus (21 sources, 513 KiB): 7 index batches, 21 chunks;
+    - a web-shaped one (24 sources of 20.5 KiB plus the boundary source, 514 KiB): 9 batches, 25 chunks.
+
+    Every preview is at most 20 KiB, a prefix of its source and free of U+FFFD. The boundary source's preview is exactly 20,479 bytes;
+  - the D8 pin of decision 2: 40 pages of 12.75 KiB complete with 40 extraction calls. 41 pages of 12.5 KiB are refused `research_mandatory_budget_exceeded`, with no request and no stage row;
+  - pinned for 7b.2 (D4): twelve quotes with notes per chunk of the f2-shaped corpus verify 252 quotes. The packet stays within 64 KiB, the rest are omitted with reason `packet_cap`, and the stage ends `research_packet_cap_omission` before synthesis.
+- tests/unit/private-agent-research-seed.test.ts, "E1 recoverability: retried and skipped rows through the producer and the seed (S2, S4)", 2 cases:
+  - a superseded row before each stage's first call, and two before the plan's (D4's three attempts):
+    - the producer binds all five uncounted beside the four counted calls and validates against the ledger;
+    - the seed loads read-only, and `researchTransferStatus` gives the snapshot with code `null`;
+  - a skipped (unknown) plan assist and a superseded local plan attempt beside the plan's settled call: both bind uncounted, the assist with `role: "assist"`, and the seed loads the same way.
+- tests/unit/private-agent-research-recoverability.test.ts (new), 6 cases on the real broker, store, session, pipeline and producer with a stub writer:
+  - a malformed body (JSON cut off) at each of the four stages, pinned as the item-7 gap:
+    - the zero-fee row resolves `failed` (`settlement`, `response_or_usage_invalid`, sub-code `other`) with no response;
+    - the earlier rows are settled, and none is `unknown` or `committed`;
+    - the stage records `denied: "request_failed"` and the run ends `research_request_denied`;
+    - the resume ends `research_stage_not_replayed`, with nothing sent;
+  - the split arm, built by the driver's `buildCloudArm` for Anthropic's Messages endpoint under `RESEARCH_SPLIT_MAX_FEE_USD`, with the Anthropic waits shortened to 20 and 40 ms:
+    - the planner's first attempt is answered 529 `overloaded_error`;
+    - the broker supersedes that priced attempt (a fee reserved, none settled) and re-sends the same packet, which settles, as does the cloud synthesis;
+    - each stage row records one call, the producer binds the superseded row uncounted, and the writer is reached;
+    - a resume reuses the packet, with nothing sent;
+  - the f2-shaped corpus in a session:
+    - 30 rows, each settled once (7 index, 1 plan, 21 extraction, 1 synthesis);
+    - the producer binds them all, and the writer receives every source and the seven packet files.
+
+Evidence:
+On the owner's Mac, at the final test files, with a load average of about 14:
+- `pnpm exec vitest run tests/unit/private-agent-research-pipeline.test.ts tests/unit/private-agent-research-seed.test.ts tests/unit/private-agent-research-recoverability.test.ts -t "E1 recoverability"`: 16 passed, 66 skipped (82).
+- Those three files with tests/unit/private-agent-research-session.test.ts, unfiltered: 92 passed.
+- `pnpm exec vitest run`, the full suite: 181 files (168 passed, 13 skipped) and 2,834 tests (2,750 passed, 84 skipped, 0 failed), in 65 s.
+- Mutations, run in scratch copies only. The worktree was untouched, and the scratch sources were restored and compared after each run.
+  - Before the fixes, the review's run caught all of these:
+    - a valid body in place of the malformed one;
+    - a denied `request_failed` that does not end its stage;
+    - a zero-risk settlement failure left `unknown`;
+    - a denied call counted in the stage's calls;
+    - a session that replays a denied stage on resume;
+    - another sub-code;
+    - a 529 hook that never fires;
+    - the split planner or synthesiser on the local model;
+    - a 529 that is not retried, or that resolves `failed`;
+    - a producer that counts, or drops, superseded rows;
+    - a skipped assist counted as a call;
+    - invalid JSON at the index only once;
+    - the index or extraction repair skipped;
+    - dense quotes without notes;
+    - the packet-cap reason removed;
+    - a corpus without em dashes;
+    - a preview never cut back;
+    - a chunk ceiling of 42.
+
+    It missed only a chunk ceiling of 41.
+  - After the fixes:
+    - a chunk ceiling of 41 now fails the D8 pin;
+    - a preview never cut back fails the web-shaped case;
+    - the two helper wording changes that broke cases before ("unit" for "units", "Line" for "Row") now pass.
+- `pnpm typecheck` passed with no error. `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref 2fe1ec8` passed.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The tests prove their stated contracts on loopback replies, with the real broker, store, session, pipeline and producer and a stub writer. No model, endpoint, Docker container or paid call ran.
+- Proven at 2fe1ec8, not on `main`. E1-R (Lotus2077/SOAR#68) changes when the broker marks a retried attempt `superseded`. The 529 case asserts only the final ledger (superseded, then settled), which E1-R's design keeps. The rebase after merge train 1 reruns everything.
+- The malformed body is one shape: JSON cut off, sub-code `other`. The other settlement sub-codes belong to the broker tests (E1-T1).
+- The split-arm case covers one 529 followed by a success. Three 529s, and a cancel during an Anthropic wait, belong to the broker tests and E1-R. The fixture also departs from the driver:
+  - the destination's timeout is cut from 600 s to 10 s;
+  - the writer is a stub;
+  - the split wiring is copied from the driver by hand.
+- The corpora use the fixture's invented replies: one question and one quote per chunk, so the f2-shaped run makes 21 chunk-question pairs.
+  - A real task with up to 12 questions extracts far more densely; the D4 pin shows where density overflows the packet.
+  - The sizes are invented. E3's real web corpora may hold many more, smaller pages, which reach the 40-chunk ceiling sooner.
+- The seed cases' ledgers are built by hand from the fixture's receipts. Their retried and assist rows have the shapes the broker writes, but no broker wrote them here. The session cases cover rows the broker did write: D4 retries in E1-T3, and the Anthropic retry above.
+- These cases assume one in-flight dispatch per job. Once item 8 lands they must be rerun with K > 1.
+- Not covered here:
+  - the S1 stop matrix, D14 retries at every stage, the exhausted-retry pin and the emulated assist (E1-T3, Lotus2077/SOAR#75);
+  - bug (b), which 6.2 pins.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- This PR stays a draft until merge train 1 lands. The branch then rebases onto `main`, the PR retargets `main`, and every check reruns, including against E1-R's broker.
+- After that it needs CI green and the owner's go-ahead.
+- Of this PR and 7c, whichever merges second updates the two pins named for 7c. The same holds for 7b.2 and the D4 pin.
+- If an entry with a later ID reaches `main` first, the orchestrator decides any re-stamp, as for every lane PR.
+
+References:
+- E1's card, BL-20261109-0351-e1-recoverability-card (Lotus2077/SOAR#66).
+- E1-T3's BL-20261113-0853-e1-recoverability-session-implemented (Lotus2077/SOAR#75).
+- BL-20261107-0809-zero-fee-failures-resolve-design (decision 6 and finding D14).
+- 7b.1: BL-20261109-0334-research-request-shapes-design and BL-20261110-0848-correction-research-length-parser-chains.
+- 7a.1: BL-20261109-0447-research-tolerance-design and BL-20261110-0900-correction-research-tolerance-held-repair.
+- BL-20261027-0145-phase4-tasks-design (the tasks' authoring separation).
+- docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1, and section 5.7 items 7, 10 and 12.
+
+### BL-20261113-0851-correction-e1-recoverability-pipeline-seed-restamp -- 2026-11-13 -- Correction: E1-T2's Implemented entry carries ID BL-20261113-0850-e1-recoverability-pipeline-seed-implemented; it was authored at 11:30 UTC on 2026-11-10 as BL-20261110-1130, and its branch is now rebased onto `main`
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records two things about E1-T2's Implemented entry:
+- its re-stamp, under the owner's rule of 2026-11-13: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, with a correction recording its original ID and time. The decision is recorded on PR #87;
+- what rebasing its pull request, #84, onto `main` after merge train 1 changes in that entry's statements.
+
+The entry was committed at 3ba5452 on 2026-11-10, on #84 stacked on #76's head 2fe1ec8. It was authored at 11:30 UTC as BL-20261110-1130, with the same slug. Merge train 1 (BL-20261110-1506-merge-train-1-integration) then put `main`'s tail after it, so the validator would refuse it there.
+
+Decisions:
+1. **The re-stamp.** The heading's ID moved to BL-20261113-0850, and its date field to 2026-11-13, because the validator requires an ID's date to match the heading's date. No other text in the entry changed, and nothing else in the repository cited the old ID. The pull request description and the commit messages keep the old ID, as history should.
+2. **The rebase.** #84 is rebased onto `main` at 9d10b9a, and its base is `main`. The tests commit replayed unchanged (`git range-diff` shows it identical); the entry commit only moved to `main`'s tail.
+3. **What the rebase makes stale in the entry's body**, which is not edited:
+   - its Scope's "not yet on `main`": the card, BL-20261109-0351-e1-recoverability-card, has been on `main` since train 1;
+   - its Limitations' "Proven at 2fe1ec8, not on `main`": the tests now pass on `main`'s code, which includes E1-R's broker (BL-20261109-0436-retry-wait-atomic-supersede-implemented). The 529 case's final ledger (superseded, then settled) is unchanged there;
+   - its Next gate's draft-until-the-train sentences: that step is done, and the pull request leaves draft.
+
+Changes:
+- docs/BUILD_LOG.md: the entry's heading (ID and date) and this entry.
+- Nothing else beyond the rebase itself.
+
+Evidence: On the owner's Mac, at the rebased head with the re-stamp (load average about 9):
+- `pnpm exec vitest run` on tests/unit/private-agent-research-pipeline.test.ts, tests/unit/private-agent-research-seed.test.ts and tests/unit/private-agent-research-recoverability.test.ts: 83 passed. Under `-t "E1 recoverability"`, 16 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 11 files and 71 tests passed: `main`'s 55 and this pull request's 16.
+- `pnpm exec vitest run`: 188 files (175 passed, 13 skipped) and 3,296 tests (3,210 passed, 86 skipped, 0 failed), in 44.7 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction; nothing new is implemented or verified by it. If an entry with a later ID reaches `main` before #84 merges, these two entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, and the owner's go-ahead.
+
+References:
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261109-0436-retry-wait-atomic-supersede-implemented
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+
+### BL-20261113-0852-correction-e1-recoverability-pipeline-seed-second-restamp -- 2026-11-13 -- Correction: E1-T2's two entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834-correction-runner-storage-integrity-second-restamp; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: After #84's first re-stamp, #92 and #82 merged into `main`. `main`'s last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp, so at this merge of `main` (23dfadc) into #84, E1-T2's two entries move again.
+- They move into the block of minutes the orchestrator gave lane S-e1 for this integration, 0848 to 0909, in the order #88, #84, #75, #80.
+- The owner's re-stamp rule applies (BL-20261113-0758, pull request #87).
+- This entry also records two fixes the orchestrator's review of #84 asked for.
+
+Each entry, with its original ID, date and authoring time:
+- **The Implemented entry.**
+  - Authored at 11:30 UTC on 2026-11-10 as BL-20261110-1130.
+  - First re-stamped as BL-20261113-0810, with the same slug.
+  - Now BL-20261113-0850-e1-recoverability-pipeline-seed-implemented.
+- **The first correction.**
+  - Authored at 08:11 UTC on 2026-11-13 as BL-20261113-0811, with the same slug.
+  - Now BL-20261113-0851-correction-e1-recoverability-pipeline-seed-restamp.
+
+Decisions:
+1. **The second re-stamp.**
+   - Only the two headings' ID minutes change, together with the references to those IDs; the dates stay 2026-11-13.
+   - The references are in the first correction's title, its decision 1 and its References.
+   - Each body is otherwise byte-identical to #84's at fb15df6, except for decision 2's cross-reference. Nothing outside the log cites these IDs.
+   - `main` is merged into #84, not rebased, and `main`'s log is kept whole as a byte prefix of this branch's.
+   - The first correction's account now names the current IDs. Its line "rebased onto `main` at 9d10b9a" describes the first rebase only.
+2. **The cross-reference to E1-T3.**
+   - The Implemented entry's References cited E1-T3's Implemented entry by its original ID, BL-20261109-0530.
+   - That entry is now BL-20261113-0853, with the same slug, on #75 in this integration, so the citation now names that ID.
+3. **The D8 pin's size** (BL-20261113-0850-e1-recoverability-pipeline-seed-implemented, decision 2 and Changes).
+   - The entry says "At about 515 KiB, 40 pages complete and 41 are refused". In fact, the 40-page corpus that completes is 511.4 KiB, and the 41-page corpus that is refused is 515.4 KiB.
+   - The test's title now gives each size (commit b9134da). No assertion changed.
+
+Changes:
+- docs/BUILD_LOG.md: two headings, the first correction's references to the re-stamped ID, the Implemented entry's citation of E1-T3, and this entry.
+- tests/unit/private-agent-research-pipeline.test.ts: the D8 pin's title.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #84, with a load average of about 11 to 19:
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0: 562 entries, append-only against 23dfadc.
+- `pnpm typecheck` passes.
+- tests/unit/private-agent-research-pipeline.test.ts, tests/unit/private-agent-research-seed.test.ts and tests/unit/private-agent-research-recoverability.test.ts: 83 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 11 files and 71 tests passed. These are `main`'s 55 and E1-T2's 16.
+- `pnpm exec vitest run`: 190 files (177 passed, 13 skipped) and 3,366 tests (3,280 passed, 86 skipped, 0 failed), in 63.1 s.
+- The corpus sizes were measured with the helper `inventedCorpus`: 523,686 bytes (511.4 KiB) for 40 pages of 12.75 KiB, and 527,776 bytes (515.4 KiB) for 41 pages of 12.5 KiB.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction plus one test title. Nothing is implemented, verified or released by it. Commit messages and #84's earlier descriptions keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #88, #75, #80, #89 and #93 on green CI. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented
+- BL-20261113-0851-correction-e1-recoverability-pipeline-seed-restamp
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)

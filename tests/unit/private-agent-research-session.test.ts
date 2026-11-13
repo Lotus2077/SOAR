@@ -13,6 +13,7 @@ import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
 import { diagnosticRetention, digest, restrictedContext } from "../../src/main/private-agent/contracts";
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
+import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
 import { researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -24,11 +25,13 @@ function phase(): SessionPhase {
   return { files, checks: [{ id: "structure", python: "# fixed fixture" }], contract: { version: 1, goal: "Write a cited briefing on storage from input/corpus.",
     requiredArtifacts: [{ path: "output/report.md", description: "report" }], requiredChecks: ["structure"], maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
 }
-/** A loopback model whose reply depends on the stage named by the system prompt; `planReply` lets a test break the plan; `onRequest` lets one pause mid-call. */
-/** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply, or "hold" to never answer.
- * `extractReply` may replace the nth extraction reply (from 1); undefined keeps the fixture's own. */
-async function fixture(planReply?: () => string, options: { recoverable?: boolean; extractReply?: (nth: number) => string | undefined } = {}) {
-  let extractions = 0;
+/**
+ * A loopback model whose reply depends on the stage named by the system prompt; `reply` lets a test break a stage (since 7c a
+ * broken plan falls back, so tests break extraction); `onRequest` lets one pause mid-call. The options are one object, so a
+ * caller written for the old `fixture(() => "not a plan")` shape no longer compiles instead of silently breaking every stage.
+ */
+/** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply, or "hold" to never answer. */
+async function fixture(options: { reply?: (system: string) => string | undefined; recoverable?: boolean } = {}) {
   const bodies: { system: string; user: string }[] = [];
   const hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" | "hold"; onCloud?: (response: http.ServerResponse) => void } = {};
   const server = http.createServer((request, response) => {
@@ -40,8 +43,7 @@ async function fixture(planReply?: () => string, options: { recoverable?: boolea
       const decision = hooks.onRequest?.(system, request);
       if (decision === "destroy") { request.socket.destroy(); return; }
       if (decision === "hold") return;
-      const content = system.startsWith("You plan") && planReply ? planReply() :
-        (system.startsWith("You extract") && options.extractReply?.(++extractions)) || researchV4Reply(system, user);
+      const content = options.reply?.(system) ?? researchV4Reply(system, user);
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
     });
@@ -165,11 +167,11 @@ describe("H2b/H2c: the research stage inside a session", () => {
   });
 
   it("propagates a failed stage as an incomplete session, writes nothing, and binds the budget into the identity", async () => {
-    const f = await fixture(() => "not a plan"), runs: Run[] = [];
+    const f = await fixture({ reply: system => system.startsWith("You extract") ? "not an extraction" : undefined }), runs: Run[] = [];
     const result = await new GeneralAgentSession(options(f, "job-noplan", runs)).run();
-    expect(result).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(result).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
     expect(runs).toHaveLength(0);
-    expect(f.store.events("job-noplan").filter(event => event.type === "research_stage").map(event => event.stage)).toEqual(["index", "plan"]);
+    expect(f.store.events("job-noplan").filter(event => event.type === "research_stage").map(event => event.stage)).toEqual(["index", "plan", "extract"]);
     expect(f.store.events("job-noplan").some(event => event.type === "research_transfer")).toBe(false);
     const spent = f.store.dispatches("job-noplan").length;
     expect(f.store.dispatches("job-noplan").every(row => row.status === "settled")).toBe(true);
@@ -180,6 +182,19 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(drift).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
   });
 
+  it("7c: a run whose every plan and synthesis reply is rejected reaches the writer with the host plan and the host skeleton, both disclosed", async () => {
+    const f = await fixture({ reply: system => system.startsWith("You plan") ? "not a plan" : system.startsWith("You write") ? "not a synthesis" : undefined }), runs: Run[] = [];
+    expect(await new GeneralAgentSession(options(f, "job-fallback", runs)).run()).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    const stages = f.store.events("job-fallback").filter(event => event.type === "research_stage") as unknown as { stage: string; calls: number; fallback?: string }[];
+    expect(stages.map(event => [event.stage, event.calls, event.fallback])).toEqual([["index", 1, undefined], ["plan", 2, "host_plan"], ["extract", 1, undefined], ["synthesise", 2, "skeleton"]]);
+    // The writer reads the host plan and the skeleton from the packet, and coverage.json discloses both.
+    const evidence = runs[0]!.initialEvidence!;
+    expect(evidence).toContain("Host fallback question: what does the corpus establish for brief requirement U1?");
+    expect(evidence).toContain(RESEARCH_FALLBACK_POLICY.skeleton.opening);
+    const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
+    expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 2, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
+  });
   it("refuses a cloud-shaped planner on a private lineage at the broker, stops the stage with the denial code, and dispatches nothing to it", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-private", runs, "private-model");
     delete config.syntheticInputApproval;  // a labelled job: private lineage, no synthetic approval
@@ -243,7 +258,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
   });
 
   it("D14: a stage whose extraction call was retried once still reaches the writer, and the producer binds the superseded row uncounted", async () => {
-    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], config = options(f, "job-retried", runs);
+    const f = await fixture({ recoverable: true }), runs: Run[] = [], config = options(f, "job-retried", runs);
     let dropped = false;
     // The first extraction request is cut after it was sent: a confirmed upstream_closed on a zero-fee packet, retried once by the broker (D4).
     f.hooks.onRequest = system => { if (system.startsWith("You extract") && !dropped) { dropped = true; return "destroy"; } return undefined; };
@@ -276,28 +291,28 @@ describe("H2b/H2c: the research stage inside a session", () => {
   });
 
   it("backlog item 4: forwards the diagnostics sink for a synthetic-attested job and withholds it for a labelled one, with no other difference in events or receipts", async () => {
-    const f = await fixture(() => "not a plan");
+    const f = await fixture({ reply: system => system.startsWith("You extract") ? "not an extraction" : undefined });
     const retained: ResearchDiagnostic[] = [], withheld: ResearchDiagnostic[] = [];
     // The headless driver's shape: private sources under the synthetic attestation, so the reader context's retention is raw.
     const synthetic = options(f, "job-raw", []); synthetic.research = { ...synthetic.research!, diagnostics: { retain: entry => retained.push(entry) } };
-    expect(await new GeneralAgentSession(synthetic).run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
-    expect(retained.map(entry => [entry.stage, entry.ordinal, entry.purpose, entry.content])).toEqual([["plan", 1, "research plan", "not a plan"], ["plan", 2, "research plan", "not a plan"]]);
+    expect(await new GeneralAgentSession(synthetic).run()).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(retained.map(entry => [entry.stage, entry.ordinal, entry.purpose, entry.content])).toEqual([["extract", 1, "research evidence extraction", "not an extraction"], ["extract", 2, "research evidence extraction", "not an extraction"]]);
     expect(retained.every(entry => entry.reasons.length === 1 && entry.reasons[0]!.code === "invalid_json")).toBe(true);
     // A labelled job: private lineage without the attestation, every role on the destination that admits private data; the sink is never called.
     const labelled = options(f, "job-labelled", [], "private-model"); delete labelled.syntheticInputApproval;
     labelled.research = { ...labelled.research!, diagnostics: { retain: entry => withheld.push(entry) } };
-    expect(await new GeneralAgentSession(labelled).run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(await new GeneralAgentSession(labelled).run()).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
     expect(withheld).toEqual([]);
     const reader = (jobId: string) => String(f.store.events(jobId).find(event => event.type === "session_started")!.readerContextId);
     expect(diagnosticRetention(f.store.context(reader("job-raw")))).toBe("raw"); expect(diagnosticRetention(f.store.context(reader("job-labelled")))).toBe("hash_only");
     // Beside the sink, nothing differs: the same stage events (hash-only, no reply text) and the same receipts, purpose for purpose.
     const stages = (jobId: string) => f.store.events(jobId).filter(event => event.type === "research_stage").map(({ contextId: _context, ...rest }) => rest);
-    expect(stages("job-labelled")).toEqual(stages("job-raw")); expect(JSON.stringify(stages("job-raw"))).not.toContain("not a plan");
+    expect(stages("job-labelled")).toEqual(stages("job-raw")); expect(JSON.stringify(stages("job-raw"))).not.toContain("not an extraction");
     const rows = (jobId: string) => f.store.dispatches(jobId).map(row => [row.purpose, row.status, row.responseSha256]);
-    expect(rows("job-labelled")).toEqual(rows("job-raw")); expect(rows("job-raw")).toHaveLength(3);
+    expect(rows("job-labelled")).toEqual(rows("job-raw")); expect(rows("job-raw")).toHaveLength(4);
     // A sink is no part of the session identity: the same job without one starts with the same identity and records the same events.
     const plain = options(f, "job-plain-sink", []);
-    expect(await new GeneralAgentSession(plain).run()).toMatchObject({ reason: "research_plan_invalid" });
+    expect(await new GeneralAgentSession(plain).run()).toMatchObject({ reason: "research_extraction_incomplete" });
     const start = (jobId: string) => f.store.events(jobId).find(event => event.type === "session_started")!;
     expect(start("job-plain-sink").identity).toBe(start("job-raw").identity); expect(stages("job-plain-sink")).toEqual(stages("job-raw"));
   });
@@ -354,32 +369,49 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(options(f, "job-cancel", [])).run()).toMatchObject({ status: "incomplete", reason: "session_cancelled" });
     expect(await new GeneralAgentSession(options(f, "job-abort", [])).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     expect(f.bodies).toHaveLength(sent);
-    // An invalid plan while a pause was pending (asked after the planner's last reply, so nothing was cut) is that failure, not a pause.
-    const g = await fixture(() => "not a plan"), invalid = options(g, "job-invalid", []), make = invalid.research!.models;
+    // A failed stage while a pause was pending (asked after the stage's last reply, so nothing was cut) is that failure, not a pause.
+    // Since 7c a broken plan falls back to the host plan, so the stage is broken at extraction instead: the pause is asked after the
+    // reader's last extraction reply, the one chunk's repair.
+    const g = await fixture({ reply: system => system.startsWith("You extract") ? "not an extraction" : undefined }), invalid = options(g, "job-invalid", []), make = invalid.research!.models;
     let paused: GeneralAgentSession, replies = 0;
     invalid.research = { ...invalid.research!, models: contextId => {
-      const models = make(contextId), complete = models.planner.complete.bind(models.planner);
-      models.planner.complete = async (...args) => { const reply = await complete(...args); if (++replies === 2) paused.pause(); return reply; };
+      const models = make(contextId), complete = models.reader.complete.bind(models.reader);
+      models.reader.complete = async (...args) => { const reply = await complete(...args); if (args[0][0]?.content?.startsWith("You extract") && ++replies === 2) paused.pause(); return reply; };
       return models;
     } };
     paused = new GeneralAgentSession(invalid);
-    expect(await paused.run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
-    expect(replies).toBe(2);  // the pause was asked, after the planner's last reply
+    expect(await paused.run()).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(replies).toBe(2);  // the pause was asked, after the reader's last extraction reply
     expect(await new GeneralAgentSession(options(g, "job-invalid", [])).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    // The plan case since 7c: two broken plans, and a pause asked after the planner's last reply. A cancel never completes as the
+    // host fallback, so the stage ends cancelled, and the session reports the refusal the next run gives (it started), not a pause.
+    const h = await fixture({ reply: system => system.startsWith("You plan") ? "not a plan" : undefined }), fallback = options(h, "job-fallback-paused", []), makePlan = fallback.research!.models;
+    let pausedPlan: GeneralAgentSession, planReplies = 0;
+    fallback.research = { ...fallback.research!, models: contextId => {
+      const models = makePlan(contextId), complete = models.planner.complete.bind(models.planner);
+      models.planner.complete = async (...args) => { const reply = await complete(...args); if (++planReplies === 2) pausedPlan.pause(); return reply; };
+      return models;
+    } };
+    pausedPlan = new GeneralAgentSession(fallback);
+    expect(await pausedPlan.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(planReplies).toBe(2);
+    expect(stageEvents(h.store, "job-fallback-paused")).toEqual([["index", 1, undefined], ["plan", 2, "cancelled"]]);
   });
 
   // The train-1 integration check (part f3): 7a.1 holds a first extraction attempt that lost every quote of a question it marked evidence_found,
   // and repairs it after every other chunk. A pause or a cancel around that repair ends the task as BL-20261109-0501 decided.
   const held = (nth: number) => nth === 1 ? JSON.stringify({ questions: [{ questionId: "Q1", status: "evidence_found" }],
     quotes: [{ quote: "This sentence appears in no source at all.", questionIds: ["Q1"], note: "" }], conflicts: [] }) : undefined;
+  // 7c's fixture takes one reply function: the nth extraction reply (from 1) is `held`'s, and undefined keeps the fixture's own.
+  const heldBy = () => { let n = 0; return (system: string) => system.startsWith("You extract") ? held(++n) : undefined; };
   const extractStage = (store: PrivateAgentStore, jobId: string) => store.events(jobId).find(event => event.type === "research_stage" && event.stage === "extract");
   it("backlog item 6 (A7): a pause between a held extraction attempt and its repair ends the task incomplete, and the next run refuses with nothing sent", async () => {
     // Control: unpaused, the held attempt is repaired and the stage completes.
-    const c = await fixture(undefined, { extractReply: held }), control = options(c, "job-held-control", []);
+    const c = await fixture({ reply: heldBy() }), control = options(c, "job-held-control", []);
     expect((await new GeneralAgentSession(control).run()).status).toBe("submitted");
     expect(stageEvents(c.store, control.jobId)).toEqual([["index", 1, undefined], ["plan", 1, undefined], ["extract", 2, undefined], ["synthesise", 1, undefined]]);
     expect(extractStage(c.store, control.jobId)).toMatchObject({ invalidReplies: 1, repairCalls: 1 });
-    const f = await fixture(undefined, { extractReply: held }), runs: Run[] = [], config = options(f, "job-held-pause", runs), make = config.research!.models;
+    const f = await fixture({ reply: heldBy() }), runs: Run[] = [], config = options(f, "job-held-pause", runs), make = config.research!.models;
     let session: GeneralAgentSession, extractions = 0;
     config.research = { ...config.research!, models: contextId => {
       const models = make(contextId), complete = models.reader.complete.bind(models.reader);
@@ -402,7 +434,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(config.jobId)).toHaveLength(3); expect(runs).toHaveLength(0);
   });
   it("backlog item 6 (A7): a pause during a held attempt's repair call fails its zero-fee row as cancelled, never unknown, and ends the task incomplete", async () => {
-    const f = await fixture(undefined, { extractReply: held }), runs: Run[] = [], config = options(f, "job-held-repair-pause", runs);
+    const f = await fixture({ reply: heldBy() }), runs: Run[] = [], config = options(f, "job-held-repair-pause", runs);
     const session = new GeneralAgentSession(config);
     let extractions = 0;
     f.hooks.onRequest = system => { if (system.startsWith("You extract") && ++extractions === 2) session.pause(); };
@@ -417,7 +449,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(config.jobId)).toHaveLength(4); expect(runs).toHaveLength(0);
   });
   it("backlog item 6 (A7): a cancel during a held attempt's repair call ends the task cancelled, and so does every later run", async () => {
-    const f = await fixture(undefined, { extractReply: held }), runs: Run[] = [], config = options(f, "job-held-repair-cancel", runs);
+    const f = await fixture({ reply: heldBy() }), runs: Run[] = [], config = options(f, "job-held-repair-cancel", runs);
     const session = new GeneralAgentSession(config);
     let extractions = 0;
     f.hooks.onRequest = system => { if (system.startsWith("You extract") && ++extractions === 2) session.cancel(); };
@@ -564,7 +596,7 @@ describe("E1 recoverability: a research stage whose call the broker retried stil
   // The extraction stage's own case is the D14 reproduction above; here the other three stages.
   const stages = [["index", "You index", "research source index"], ["plan", "You plan", "research plan"], ["synthesise", "You write", "research synthesis"]] as const;
   it.each(stages)("%s: one cut call is retried (D4), the writer is reached, the producer binds the superseded row uncounted, and a resume reuses the packet", async (name, prompt, purpose) => {
-    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], jobId = `job-retried-${name}`, config = options(f, jobId, runs);
+    const f = await fixture({ recoverable: true }), runs: Run[] = [], jobId = `job-retried-${name}`, config = options(f, jobId, runs);
     let cut = false;
     f.hooks.onRequest = system => { if (system.startsWith(prompt) && !cut) { cut = true; return "destroy"; } return undefined; };
     expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
@@ -583,7 +615,7 @@ describe("E1 recoverability: a research stage whose call the broker retried stil
     expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
   }, 20_000);
   it("a cancel during the broker's D4 backoff ends the retry: the cut plan call resolves failed, nothing more is sent, and the stage records the cancel", async () => {
-    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], jobId = "job-backoff-cancel", session = new GeneralAgentSession(options(f, jobId, runs));
+    const f = await fixture({ recoverable: true }), runs: Run[] = [], jobId = "job-backoff-cancel", session = new GeneralAgentSession(options(f, jobId, runs));
     let cut = false, cancelled = false;
     f.hooks.onRequest = system => { if (system.startsWith("You plan") && !cut) { cut = true; return "destroy"; } return undefined; };
     // The first 1,000 ms timer started after the cut is the broker's first D4 backoff (the destination's own timeout is 2,000 ms). The cancel
@@ -609,7 +641,7 @@ describe("E1 recoverability: known limitations of the research stage, pinned unt
   it("pins the item-7 gap: a call whose retries are exhausted is final, the stage is denied request_failed with nothing unresolved, and a resume does not replay it", async () => {
     // BL-20261107-0809 decision 6: a denied call ends its stage, and item 7 must reconcile the failed-row binding with the ready-packet
     // check before a stage may continue after a failed call.
-    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], jobId = "job-exhausted-plan", config = options(f, jobId, runs);
+    const f = await fixture({ recoverable: true }), runs: Run[] = [], jobId = "job-exhausted-plan", config = options(f, jobId, runs);
     f.hooks.onRequest = system => system.startsWith("You plan") ? "destroy" : undefined;
     expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
     const rows = f.store.dispatches(jobId);

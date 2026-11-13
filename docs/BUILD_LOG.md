@@ -37067,3 +37067,919 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The orchestrator's review of #79 at its new head, with a skeptic on the privacy findings. #79 joins the integration merge if it is clean in time, and merges after it otherwise. If `main`'s tail moves past 09:29 before #79 merges, #79 re-stamps again under the same rule.
 
 References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0924-correction-assist-entries-restamp; BL-20261113-0925-correction-assist-core-rereview; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).
+
+### BL-20261113-0927-research-v5-design -- 2026-11-13 -- Backlog item 7(c) decided: research v5, plan and synthesis slot schedules with the assist hook, the host fallback plan and skeleton synthesis, coverage v2, and two encoding defects already on main
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for 7c, the third research tolerance PR. It covers:
+- backlog item 7(c) of docs/PROJECT_REVIEW_2026-11-05.md section 5.7;
+- finding D1 of section 4;
+- stages S3, S3c, S6 and S6c, principle 5 and the "Escalation" and "Forced split" paragraphs of section 5.2.
+
+It is recorded before its code because it changes several contracts: the research pipeline's version, the plan and synthesis schedules, coverage.json's schema, the ready gate, the producer's receipt binding and the research protocol. Three adversarial design reviews (ledger and replay, downstream consumers and tests, specification fidelity) ran on its first draft. This text folds in every finding they confirmed, and the decisions below name the ones they changed.
+
+**Stacking.** The change is stacked on 7a.1 (`feat/7a.1-research-tolerance`, PR #76). Since 2026-11-10 #76 is based on main and contains 7b.1 (PR #69) through a merge of #69's corrected head. The merge order puts 7c after both. At most two pull requests may be open on research-pipeline.ts, and only on different functions. 7c and #76 both edit runResearchPipeline, so 7c's pull request opens only after #69 merges. Once it opens, it is the second of two, and it contains #76's commits rather than racing them.
+
+**Approval.** It is zero-fee code with deterministic tests and needs no approval under PLAN.md section 4(c). The owner may record otherwise, in particular on the four questions below.
+
+It takes from backlog item 10's branch `feat/10a-assist-core` at d2ab888 (BL-20261113-0920-assist-wrapper-design, decisions 6 and 11):
+- the types-only hook contract, src/main/private-agent/research-assist-contract.ts, byte for byte;
+- `assessResearchPlanReply`'s optional `sourceAliases`.
+
+10.a's working copy has announced one change not yet on its branch: `auditFinding` drops `"host_text"`. 7c mirrors it when 10.a pushes it and says so in its pull request. A test pins the copy's digest, so a drift between the two lanes fails a test (the brief's "test that the copies match"). 7c also edits `assessResearchPlanReply` in the lines 10.a's hunk touches (decisions 6 and 10). 10.a's rebase therefore conflicts in research-plan.ts, and the conflict resolves in 7c's favour.
+
+Hypothesis: with these changes no rejected plan and no rejected synthesis ends a research run. The pipeline falls back to a host plan or a host skeleton that it builds from host data alone and discloses. The ready gate admits such a fallback only when it equals the host's own recomputation byte for byte, and only after every stage attempt was spent. With no assist hook configured, every index, plan and extraction request that 7a.1 also sends is byte-identical.
+
+Decisions:
+(1) **Slots are frozen, hashed constants.** `RESEARCH_SLOT_POLICY` gives:
+- the plan stage `budget.plannerCalls` stage attempts and 1 assist;
+- the synthesis stage `budget.synthesisCalls` stage attempts, 1 assist, and 1 assist retry that follows only a truncated assist reply.
+
+ResearchBudget and its schemas are unchanged: the pipeline's budget parser, research-coverage.ts, the producer and PipelineFreezeSchema. So is researchBudgetTotal (session.ts's pool check); item 10.b adds the assist slots to the pool when it wires the hook. The ready gate's per-slot ceilings are in (9). A settled assist reply is one of its stage's calls, as the producer already counts it (BL-20261107-0839, decision 6).
+(2) **The plan schedule.**
+- **As today.** With no hook, with a hook that has no `plan`, or under `local_first`, the plan stage runs as today: up to plannerCalls stage attempts, each repair carrying the previous stage reply (RESEARCH_PLAN_DIAGNOSTIC_POLICY).
+- **Local first.** Once every stage attempt has been rejected, one assist runs. That is two attempts under the default budget, the review's "two rejected local plans" (S3c). A non-default budget, which only tests use and which the seed and the producer refuse, fires after its own plannerCalls.
+- **Forced split.** With a plan hook, the assist runs first. If it yields no accepted plan, the stage attempts follow, and the first carries no repair context. An assist reply never feeds a repair (review §5.1, rule 6).
+- **Fallback.** If no attempt is accepted, the host fallback plan is used (decision 7).
+(3) **The synthesis schedule** has the same shape:
+- **Local first:** the stage attempts, then the assist, then its one retry when the assist reply settled truncated.
+- **Forced split:** the assist and its retry first, then the stage attempts, the first with repairReason null.
+- **Fallback:** if no attempt is accepted, the host skeleton (decision 8).
+
+Only a rejected stage attempt sets coverage.synthesis.status to "invalid" in later requests. A rejected assist leaves it unchanged, so a stage attempt after an assist sends the bytes a first attempt without a hook sends.
+(4) **Denial scope stays narrow, and departs from the review's Escalation list for local calls.**
+- **What moves the schedule on.** Only settled replies the stage rejects, and the hook's `no_reply` outcomes.
+- **What ends the stage.** Through `denied()`:
+  - a stage model's BrokerError;
+  - the hook's `stop`, with its code;
+  - a hook that throws (`assist_hook_failed`);
+  - an outcome of the wrong shape (`assist_outcome_invalid`);
+  - a stop whose code is no fixed code (`assist_stop_code_invalid`);
+  - an alias binding refused by `assessResearchPlanReply` (`research_plan_alias_binding`).
+- **The departure.** Review §5.2's Escalation paragraph lists "a confirmed `request_failed`" among the codes that apply the host fallback and continue. Here that list applies only to assist outcomes, through 10.a's `no_reply`. A zero-fee local planner or synthesiser failure still ends the stage, and item 1's failed-row rule (BL-20261107-0809, decision 6) stays unreachable for packets.
+- **Who owns the rest.** The lane brief handed the reconciliation to item 10's code lists. 10.a's design (BL-20261113-0920-assist-wrapper-design) declines it ("a local denial is no signal") and classifies assist calls only. It therefore has no owner, and owner question 4 below names one.
+(5) **The hook.**
+- **Input.** `ResearchPipelineInput` gains an optional `assists?: ResearchAssists` (research-assist-contract.ts). No production caller passes one until 10.b.
+- **Requests** are built as the contract shapes them, and each request is a structured clone, so nothing the hook does reaches the pipeline's own records.
+  - The base: the brief, the units, the source inventory and texts, the index document, and `deadlineMs`.
+  - `deadlineMs` is `input.deadlineMs`. Without a session deadline it is NaN, which the wrapper refuses as `assist_deadline_missing`, because the contract requires a deadline. A test without a session passes Infinity.
+  - T1 adds mandatorySourceChunks, extractionCallBudget and the earlier plan attempt records: codes and hashes, never a reply.
+  - T2 adds the plan, the evidence, the coverage and `retryAfterTruncation`.
+  - A request never carries a raw local reply.
+- **A cancel** refuses the hook call before it is made, as call() refuses a stage request.
+- **Outcomes** are parsed at runtime, because the contract is types only:
+  - `content` must be a string and `truncated` a boolean;
+  - `usage` must be four non-negative safe integers;
+  - `sourceAliases`, when present, maps `S{n}` keys to the stage's own source ids (assessResearchPlanReply checks this);
+  - `evidenceIds`, when present, is an array of strings;
+  - `record` and any other key are 10.b's and are ignored for every outcome kind.
+- **Replies are judged exactly like stage replies**, with two additions:
+  - a plan reply is assessed with its `sourceAliases`;
+  - a synthesis reply may cite only its `evidenceIds`, both in the argument (`unknown_citation`) and in `questions[].evidenceIds` (`unknown_evidence_id`).
+- **Accounting.**
+  - A settled assist reply is one of the stage's calls. Its usage and its truncation are summed into the stage row as a stage reply's are.
+  - A rejected assist reply reaches the diagnostics sink under its assist purpose.
+  - A `no_reply` outcome is recorded nowhere here. 10.b adds the stage's assist record.
+  - The stage row's usage is the authoritative total. 10.b's assist record must not be added to it again, or registry-row.py and selection.ts double-count.
+- **The ledger invariant for 10.b.**
+  - An assist commits its rows in the reader context.
+  - A `reply` means exactly one settled assist row. Unknown, failed and superseded assist rows bind uncounted.
+  - 10.a's code table guarantees the second point. 10.b must keep the first, and it should map a producer refusal at session.ts's transfer to an incomplete result rather than an uncaught throw. session.ts is not changed here.
+(6) **Attempt records.**
+- **Plan.** A plan attempt gains an optional `slot: "assist"`; absent means the stage model. Ordinals run 1 to 3 over all attempts. `repairContext` gains `omitted_unencodable` (decision 10).
+- **Synthesis.** The synthesis stage row gains `synthesisAttempts`, hashed and strict. Each attempt holds:
+  - `ordinal`, 1 to 4;
+  - an optional `slot`, `assist` or `assist_retry`;
+  - `replyContentSha256` and `replyBytes`;
+  - `truncated` and `accepted`.
+
+  It never holds model text.
+- **Slots are bound to the ledger.** The producer's receipt binding takes each stage's settled rows in commit order. In the plan and synthesis stages, a settled row has an assist purpose exactly where its attempt carries an assist slot.
+  - A local third plan call labelled `assist` is refused (`research_producer_slot_mismatch`), and so is an assist reply recorded as a stage attempt.
+  - Unknown, failed and superseded assist rows stay uncounted, as before.
+(7) **The host fallback plan.** It has min(n, 12) questions over the n brief units, each covering a contiguous group. Group sizes differ by at most one, the larger groups first.
+- **Ids and text.** Ids are Q1 onwards. Each text is a fixed template that names its unit ids. A brief has at most 128 units (deriveBriefUnits), so a text stays within about 145 of the schema's 300 UTF-16 units.
+- **Fields.** `requirementIds` holds the group and `sourceIds` is []. There is no `lookFor`, `conflictsToCheck` or `deliverableNotes`.
+- **How model text stays out.**
+  - Unit ids are minted by the host.
+  - Question ids follow the plan schema's pattern.
+  - The templates are fixed strings bound into the protocol.
+  - No brief, source or model text enters the plan.
+  - A one-unit brief gets a one-question plan, acceptable until owner decision 12 (#55).
+- **Marking.** The plan stage row is marked `fallback: "host_plan"`, and extraction runs on that plan as on any other.
+(8) **The host skeleton synthesis.** A fixed Markdown argument. It:
+- says first that the host built it because no model synthesis was accepted, and that it states no finding;
+- lists every question by id with its packet evidence ids, or with "no verified evidence was extracted";
+- has the exact `## Conflicting evidence` section, which counts the extractor's packet conflicts per question id;
+- has the exact `## Unanswered questions` section, which lists by id each question without evidence.
+
+It carries only fixed strings, question ids and evidence ids. Evidence ids are host-minted E ids. No quote, source, path, brief or model text appears, so research-coverage.ts's citation pattern meets only evidence ids.
+
+Each question's disposition is `findings`, with every packet evidence id of the question, when it has one; otherwise it is `unresolved`. coverage.synthesis's status is `skeleton`, and the synthesis stage row is marked `fallback: "skeleton"`. The row's `argumentBytes` is the skeleton's size, and `argumentWords` and `headingsNormalised` are 0, because no model wrote it.
+(9) **The ready gate** (research-coverage.ts and research-plan.ts) adds the following rules.
+- **Per-slot ceilings.** At most plannerCalls stage attempts and 1 assist in the plan stage, and at most synthesisCalls stage attempts, 1 assist and 1 retry in the synthesis stage. A plan stage therefore makes at most plannerCalls + 1 calls, and a synthesis stage at most synthesisCalls + 2.
+- **Order.**
+  - A plan assist sits first, or after exactly plannerCalls stage attempts.
+  - A synthesis assist, with its retry right after it, sits first, or after exactly synthesisCalls stage attempts.
+  - A retry follows only a truncated assist.
+- **Repairs.** A plan `repairContext` other than `not_used` appears only on a stage attempt that another stage attempt follows. `omitted_oversize` is required above the size limit. At or below it, `included` and `omitted_unencodable` are both admitted, because the reply is not retained (a non-claim).
+- **Counts.**
+  - Attempts equal the row's calls, and ordinals are contiguous.
+  - Rejected attempts equal invalidReplies, and truncated attempts equal truncatedReplies.
+  - The last attempt is accepted, and only it, unless a fallback is marked.
+- **Markers.**
+  - A fallback marker appears only on the plan row (`host_plan`) or the synthesis row (`skeleton`), and only when no attempt was accepted.
+  - It requires every stage attempt spent: plannerCalls, or synthesisCalls, stage attempts. A packet whose fallback came too early is refused.
+  - coverage.fallbacks equals the rows' markers, and coverage.synthesis.status is `skeleton` exactly when the synthesis marker is set.
+  - No other row may carry `fallback`, `planAttempts` or `synthesisAttempts`.
+- **Recomputation.** plan.json must equal the host fallback plan, and argument.md and coverage.synthesis.questions must equal the host skeleton, byte for byte. Both are recomputed from the packet's units, plan and evidence.
+- **The stage_success_contradiction rule** exempts only a marked fallback, whose invalid replies then equal its calls. calls ≥ 1 is kept.
+
+The builders live in a new research-fallback.ts, which the pipeline and the gate both import.
+(10) **Two encoding defects already on main are fixed here.** canonical() refuses text that holds a NUL or a lone surrogate (exactText). These are the two remaining places where model text reached it outside call()'s `try` and lost a stage's rows or files.
+- **Index fields.** 7a.1 recorded this defect (BL-20261109-0447, BL-20261109-0552), proposing a follow-up from this lane. The orchestrator assigned it to 7c on 2026-11-09. A model-written index title, date, gist or figure that cannot be encoded now makes its row schema-invalid. The source is repaired, or falls back to its literal card, instead of `put(index)` throwing.
+- **The plan.** 7b.1's code review recorded this defect (BL-20261109-0442), and the orchestrator assigned it to 7c. A schema-valid plan whose text cannot be encoded is rejected with `validation_failed` at the field's path and is never accepted. The repair or the host fallback follows.
+
+A third case is folded in with them, and it supersedes a decision of 0442. That entry pinned that a plan reply holding a NUL, carried into the repair payload, ends the stage with `research_request_denied`; 7b.1's test failed if the content moved out of call()'s `try`. Now such a reply is left out of the next repair's context whole, as `repairContext: "omitted_unencodable"`, and the repair still runs.
+
+Since 7c, no request field can be unencodable:
+- the brief is exact text, because the session's identity canonicalises the goal before the stage starts;
+- sources holding a NUL are unreadable;
+- model text is checked before any request reuses it.
+
+The refusal path inside call()'s `try` is therefore no longer reachable through the pipeline's input. It is kept by the code's structure (the content builder) and by 7b.1's mutation evidence, not by a test (a non-claim).
+(11) **Disclosure.**
+- coverage.json goes to version 2, with `fallbacks: {plan: "none" | "host_plan", synthesis: "none" | "skeleton"}` and the synthesis status `skeleton`. It reaches the writer through the presentation.
+- The stage rows carry the same `fallback` marker, for item 11's registry column.
+- researchWriteInstructions gains one clause: when coverage.json's `fallbacks` names a host plan or a host skeleton, that file is host text, not model text.
+- E3's card should report fallback rates per arm.
+- **Rule 9 is not met.** Review §5.1, rule 9 says every fallback is disclosed in `reportedIssues`, and `reportedIssues` exists only in the desktop controller. Until item 13 (D7) carries it, the disclosure is coverage.json, summary.json's stage rows and the skeleton's first sentence.
+(12) **A cancel never completes as a fallback.** 10.a's entry (BL-20261113-0920-assist-wrapper-design) expects this. Before either fallback, a cancelled signal ends the stage through `denied(counts, "cancelled")`.
+- **The trade-off.** A pause that arrives during the last synthesis attempt ends the stage. Under 6.2 that is incomplete `research_stage_not_replayed`, not resumable. Completing a skeleton instead would leave a durable transfer.
+- **Item 6's pinned test.** The test on #77 (6.2) pins `research_plan_invalid` with a pause pending after the planner's last reply. It changes meaning here: whichever of the two merges second rewrites it.
+(13) **The presentation is checked before the transfer.**
+- **The risk.** The skeleton always takes its fullest form, every evidence id of every question listed twice. A ready packet could then exceed the presentation's 196,608-byte cap, which session.ts enforces only after the transfer is durable. Every resume would then refuse it.
+- **The check.** The pipeline's final validation builds the writer's presentation the way session.ts does. If it is refused, the run ends incomplete with that code (`research_presentation_too_large`), or with `research_presentation_invalid` for any other refusal.
+- **Scope.** This also covers a model synthesis that lists every id. 7b.2 still owns the length policy that makes such packets rarer.
+(14) **Version and protocol.** RESEARCH_PIPELINE_VERSION goes from 4 to 5, and schemaVersions.coverage from 1 to 2. `researchProtocolSha256()` binds:
+- the version;
+- the changed plan-attempt schema and the new synthesis-attempt schema;
+- coverage v2;
+- RESEARCH_SLOT_POLICY and RESEARCH_FALLBACK_POLICY (the grouping rule and every template string);
+- the diagnostic policy's omission;
+- the tolerance policy's index rule;
+- the writer-instruction clause.
+
+It moves from #76's value at 873d1c7, 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5 (7a.1 with #69's word-limit corrections merged, BL-20261110-0712). The consequences are those of BL-20261109-0334, decision (6):
+- v4 run directories stop seeding, refused by version and by protocol (`research_seed_protocol_mismatch`);
+- a paused research session resumes as `session_contract_drift`;
+- the harness source-freeze digest changes, so no loop may span the merge (none is in flight);
+- every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), and a P10 export that spans the merge records `schemasProtocolMatch` false; none exists, because E0 has not run;
+- planner-fixture summaries record the new hash.
+
+**Request bytes.** With no hook, the index, plan and extraction requests that 7a.1 also sends are byte-identical, and digest pins capture them. A synthesis request differs only by coverage: its version, `fallbacks` and protocolSha256.
+
+v5 also sends requests 7a.1 never sends:
+- a repair after an unencodable plan reply;
+- an index repair after a row that is now invalid;
+- extraction and synthesis on a host plan;
+- the stage attempts after an assist.
+
+Producer and seed versions are unchanged. The seed's packet message and comments name v5.
+(15) **No per-attempt policy and no card values here.** Per-role, per-attempt caps and thinking are 7a.2's, and they apply to the stage attempts only, never to an assist slot. The two owner questions from 7b.1's lane report stay recorded for 7a.2's entry, which touches them:
+- P10's synthesis/off cell does not measure a thinking-off request;
+- the length clamp's three constants have no card route.
+(16) **Stage rows.** The plan row gains `fallback`. The synthesise row gains `fallback` and `synthesisAttempts`. `fallback` is a fixed code, checked per stage, and the hash-only guard's documented key set grows by both keys.
+(17) **Out of scope:**
+- the assist wrapper's wiring and stage record, and the T1-unknown and retry-trimming rules (10.a's wrapper and 10.b). The wrapper suppresses T2 after an unknown T1 and halves the evidence for its retry. 7c's `no_reply` path then runs the stage attempts and, failing them, the skeleton;
+- registry columns (item 11);
+- D11's brief units;
+- the priority trim (7b.2), which extends coverage v2 in place only if no v5 artifact is kept between the two merges.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/research-assist-contract.ts: new, byte-identical to 10.a's d2ab888;
+- research-plan.ts: 10.a's `sourceAliases`, byte-identical; the attempt schema's ordinal, slot and repairContext; the unencodable plan and reply rules; the attempts validation;
+- research-fallback.ts (new): the host plan and skeleton builders and their policy;
+- research-contract.ts: the version, RESEARCH_SLOT_POLICY and the tolerance policy's index rule;
+- research-coverage.ts: coverage v2, the synthesis-attempt schema and the gate rules;
+- research-index.ts: unencodable row fields;
+- research-pipeline.ts: the schedules, the hook calls, the outcome parsing, the records, the fallbacks, the presentation check, the writer clause and the hash;
+- research-producer.ts: the slot binding;
+- research-seed.ts: the message and comments;
+- scripts/export-role-schemas.ts: coverage v2 in P10's synthesis payload;
+- docs/experiments/README.md: a note that v5 runs no longer end on the plan or synthesis reasons and that a fallback run can submit;
+- tests: the pipeline, plan-contract, diagnostics, session, seed and coverage tests, and a new tests/unit/private-agent-research-presentation-guard.test.ts.
+
+Tests:
+- **Request bytes.** The no-hook pins. The synthesis request with coverage reverted to v4's shape equals 7a.1's bytes. A local-first hook never asked when the stages accept sends identical requests. After an assist, the stage request equals a first request with no hook.
+- **End to end.** The fallbacks through the packet, the gate, the producer and the session to the writer.
+- **Forged packets**, through the gate, the producer and the seed:
+  - an altered host plan or skeleton;
+  - a marker beside an accepted attempt, a marker on the wrong row, coverage and markers disagreeing, the status without the marker and the marker without the status;
+  - a fallback taken too early;
+  - an assist out of order;
+  - three stage attempts, and [stage, assist] under the default budget;
+  - a retry without truncation, and a lone retry;
+  - the synthesis-attempt set the plan already has: missing, an ordinal gap, a count mismatch, accepted while truncated, accepted but not last, an unknown slot, an extra key;
+  - stray attempt keys on other rows;
+  - slot labels that disagree with the ledger.
+- **A fake hook** under both firings, crossed with each outcome (an accepted reply, a rejected reply, skipped, failed, refused, stop, a throw, a malformed outcome): calls, attempts, fallback and requests.
+- **The seed** loading a `[stage, stage, assist]` plan stage and a truncated synthesis assist with its retry, with assist rows committed in the ledger.
+- **No third plan request** without a hook. **A v4 freeze** refused. **A cancel** before either fallback. The T1-skipped, T2-no-reply path.
+- **The rest:** the encoding defects; the presentation check, through a stubbed builder in its own test file, since a real oversized packet needs about 40 sources; the key guard; the contract digest; the pin.
+- **Rewritten:** the session test that failed the plan now fails extraction; the diagnostics test completes with the fallback; the plan-contract and pipeline tests that ended on a rejected plan or synthesis.
+
+Evidence: None yet; this entry decides. The reading is from the code at 18655e5 and 873d1c7 (#76's head after it took #69's corrections) and at 10.a's d2ab888:
+- research-pipeline.ts: the plan loop, the synthesis loop and `call()`;
+- research-plan.ts: assessResearchPlanReply, buildResearchPlanRepair and validateResearchPlanAttempts;
+- research-coverage.ts: validateReadyResearchPacket's stage, plan and synthesis checks;
+- research-producer.ts: receiptBindings;
+- research-index.ts: RowSchema;
+- research-seed.ts: PipelineFreezeSchema;
+- research-presentation.ts, session.ts (the transfer and the presentation), dispatch-purposes.ts and the contract file.
+
+The three design reviews read the first draft and the work-in-progress code. Their repros are in the session's scratch space and are not committed.
+
+Failures or blockers: None in recording. There are four open questions for the owner, each with the default this PR implements:
+1. Should a research run whose plan is the host fallback, or whose synthesis is the host skeleton, go on to the writer and be graded like any other run in E3 and E4, with the fallback disclosed? Today such a run ends incomplete. Proposed default: proceed and disclose (review section 5.2, principle 5). E3's card reports the fallback rate per arm.
+2. With an unnumbered brief, the host fallback plan is a single question. Is that acceptable until decision 12 (#55) settles numbered briefs? Proposed default: yes.
+3. Should a rejected plan reply that cannot be encoded be left out of the repair context, so that the repair still runs, rather than end the stage? Proposed default: yes.
+4. Who reconciles a confirmed zero-fee local failure (`request_failed`) with the fallback schedule? That change would need an attempt record without a reply, and the producer's failed-row count with the gate's calls ≥ 1. The review's Escalation list implies a fallback. Proposed default: it ends the stage in 7c. It becomes a follow-up item 7 ticket after 10.b, owned by this lane, because 10.a declines it.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it, and nothing ran live.
+- **Fallbacks may be over-credited.** A run with a host plan and a skeleton argument can now reach the writer and submit. Until item 11 adds the disclosure columns, registry analyses could over-credit such runs. Until item 13, the disclosure is coverage.json, the stage rows and the skeleton's first sentence (decision 11).
+- **The skeleton argues nothing.** The writer still reads the evidence.
+- **The hook is exercised only by fakes.** The real wrapper is 10.a's and 10.b's. Nothing binds a slot attempt to an assist configuration: 10.b must require its stage record whenever a slot attempt appears.
+- **Failed calls still end the stage.** A zero-fee local planner timeout (`request_failed`) still ends it, so principle 5 is met only for rejected replies (decision 4).
+- **The repair context cannot be fully checked.** For replies of 64 KiB or less, the gate cannot tell `included` from `omitted_unencodable`.
+- **Packets from different protocols differ.** E2 must generate all of its packets under one protocol.
+- **The split arm may now pay for synthesis after a failed plan.** scripts/private-agent-local-screen.ts runs the cloud model as planner and synthesiser. In v4, two rejected plans ended the run before any synthesis call. In v5, the host plan goes on to up to synthesisCalls paid synthesis calls, still capped by RESEARCH_SPLIT_MAX_FEE_USD.
+
+Paid exposure: None for this PR. It makes zero SOAR model requests and spends nothing from the envelope. Assist slots fire only through 10.b's wrapper. The split arm's possible extra synthesis calls are paid exposure only when an owner runs that arm, and they stay under its existing cap.
+
+Next gate: The implementation with deterministic tests, two adversarial code reviews and the `Implemented` entry. The pull request opens after #69 merges. Then CI must be green, and the PR merges after #76 and before 7b.2 and 10.b.
+
+References:
+- docs/PROJECT_REVIEW_2026-11-05.md: section 4 row D1; section 5.1, rules 6 and 9; section 5.2 (principle 5, S3, S3c, S6, S6c, "Escalation", "Forced split"); section 5.7 item 7;
+- BL-20261107-0809-zero-fee-failures-resolve-design (decision 6);
+- BL-20261107-0839-assist-purpose-exception-design (decisions 6 and 7);
+- BL-20261113-0920-assist-wrapper-design (decisions 6, 9, 11 and 14);
+- BL-20261109-0334-research-request-shapes-design, BL-20261109-0442-research-request-shapes-implemented and BL-20261110-0625-correction-research-length-parser;
+- BL-20261109-0447-research-tolerance-design, BL-20261109-0552-research-tolerance-implemented and BL-20261110-0712-correction-research-tolerance-repin;
+- BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions;
+- BL-20261109-0501-research-stage-pause-design (6.2).
+
+### BL-20261113-0928-research-v5-implemented -- 2026-11-13 -- Backlog item 7(c) implemented: research v5 slot schedules, host fallbacks, coverage v2, the gate's slot and fallback rules, the producer's slot binding, the presentation check, and the code-review corrections
+
+Status: `Implemented`
+
+Scope or hypothesis: The implementation of BL-20261113-0927-research-v5-design (backlog item 7(c), finding D1). It is on branch `feat/7c-research-v5`, stacked on #76's head bd876d9, and its pull request opens after #69 merges. The hypothesis is the design entry's. Nothing ran live; the assist hook is exercised only by fakes. Two adversarial code reviews ran on the first code commit:
+- correctness, ledger and replay, with exhaustive schedule fuzzing;
+- specification fidelity, tests and consumers, with 64 mutants.
+
+Their confirmed findings are fixed in 2e1dc65 and recorded here.
+
+Decisions: The design entry's 17 decisions are implemented as decided, except as recorded here.
+(1) **The contract copy (correcting BL-20261113-0927-research-v5-design's stacking paragraph).** BL-20261113-0927-research-v5-design says 10.a's `host_text` removal was "not yet on its branch". 10.a had pushed it in 67e3374 before BL-20261113-0927-research-v5-design was committed, together with a change BL-20261113-0927-research-v5-design does not mention: `sourceTexts` may hold `undefined` for a source with no readable text.
+- research-assist-contract.ts now mirrors 67e3374 byte for byte, sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0. Its pinned test follows it.
+- The pipeline passes researchSourceText's answer through unchanged.
+- 10.a's own entry (BL-20261113-0921-assist-core-implemented) expects 10.a to merge before 7c. The file is identical on both branches, and so is the `sourceAliases` hunk of research-plan.ts. Whichever merges second rebases; 7c's research-plan.ts holds 10.a's hunk plus 7c's lines.
+(2) **Byte for byte, now in fact (correcting BL-20261113-0927-research-v5-design decision 9).** The gate compared the host fallback plan by canonical form, so a plan.json with a duplicate key held text the gate never parsed. The writer's presentation shows the file's text, so that text reached the writer. The gate now requires every JSON file of the packet (index, plan, evidence, summary and coverage) to be exactly `canonical(value)` plus a newline, which is how the pipeline writes them (`research_packet_json_form`). The host plan and the skeleton are then compared byte for byte.
+(3) **Assist citations fail closed (correcting decision 5's code).** A synthesis assist reply without `evidenceIds` could cite the whole packet. It now may cite none. 10.a's wrapper always sends the field.
+(4) **What the pipeline refuses before assessing is uncounted.** This is a new rule, applied to both the malformed outcome and the alias map.
+- An outcome of the wrong shape already ended the stage uncounted.
+- An alias map that does not bind (`research_plan_alias_binding`) had been counted as a call with no attempt. The reply is now assessed before it is counted, so a denied plan row's calls, attempts and invalid replies agree.
+- The wrapper's ledger row is the only trace of such a call.
+(5) **The hook object is checked at entry.** This is new. Its firing must be one the contract names, and its touchpoints functions or absent. Otherwise the run ends `research_assists_invalid` before any request. Nothing read from the hook later can throw out of the pipeline.
+(6) **Two facts in BL-20261113-0927-research-v5-design.** The longest host-plan question text, at 128 units, is 137 UTF-16 units, not about 145. 7c builds on #76 at bd876d9, whose protocol is 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa, not 873d1c7's 679e623f….
+(7) **The protocol.** `researchProtocolSha256()` moves from 396a15f3… (#76 at bd876d9) to 35a622eecf830b80c7c57d3dcd9f0a9b3ad10cc78f180bd59b5955d24c9a1e71, re-pinned in tests/helpers/research-protocol-pin.ts. The consequences are BL-20261113-0927-research-v5-design decision 14's:
+- v4 seeds are refused;
+- paused sessions drift;
+- the source-freeze digest changes, so no loop may span the merge (none is in flight);
+- every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`); none exists.
+
+The code-review corrections change no hashed value.
+
+Changes: Commits d9dbcd4 (the implementation) and 2e1dc65 (the code-review corrections) on `feat/7c-research-v5`, after the design entry 204f363:
+- src/main/private-agent/research-assist-contract.ts: new, 10.a's 67e3374 bytes;
+- research-fallback.ts: new;
+- research-pipeline.ts, research-plan.ts, research-coverage.ts, research-contract.ts, research-index.ts, research-producer.ts, research-seed.ts;
+- scripts/export-role-schemas.ts and docs/experiments/README.md;
+- tests: helpers/research-protocol-pin.ts; the pipeline, plan-contract, diagnostics, session and seed tests; the new private-agent-research-presentation-guard.test.ts.
+
+The coverage test file, which BL-20261113-0927-research-v5-design's Changes list names, is not changed. Its tests pass unchanged, and the gate's new rules are tested in the pipeline and seed files.
+
+Evidence: At 2e1dc65, run locally:
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture, assess-probe-replies and local-screen suites pass: 16 files, 261 tests. Among them are the pipeline (84), plan-contract (38), seed (22), coverage (17), session (11) and presentation-guard (1) files.
+- **Full suite.** `pnpm exec vitest run`: 168 files passed and 13 skipped; 2,770 tests passed, 84 skipped, 0 failed. `pnpm typecheck` passes.
+- **Request bytes.**
+  - With no hook, the index, plan and extraction request digests pinned since 7b.1 are unchanged.
+  - The first synthesis request, with coverage reverted to v4's shape, equals #76's at bd876d9: digest f543e90e0ca9e0e3a58bf770d0657e5acda25170722f5497aae2dc262311bca5.
+  - A local-first hook that is never asked sends every request unchanged.
+  - After a rejected assist, the first stage plan request is the one pinned since 7b.1 (db70bd30…), and the first stage synthesis request equals a run's without a hook.
+- **Mutations.**
+  - The tests-and-consumers review ran 64 mutants across decisions 2 to 13 and 16; 57 were killed at d9dbcd4. Of the seven survivors, six were untested gate rules and one equivalent. 2e1dc65's tests kill each of the six.
+  - Three new rules were mutated as well: the throw after a cancel, the fail-closed citations and the JSON form. Each is killed.
+  - The check of the hook's touchpoint type is an equivalent mutant: a non-function's `bind` fails inside the same `try`.
+- **Fuzzing.** The correctness review fuzzed 575 plan schedules and 306 synthesis schedules over local outcomes, hook kinds and firings. Every completed run passed validateReadyResearchPacket and createResearchProducer, nothing threw, and every incomplete run was `research_request_denied`. Host plans and skeletons over 1 to 129 units, 1 to 8 sources and 0 to 12 quotes per chunk all validated.
+- **Consumers.** The tests-and-consumers review found no break or misreport in any of: session.ts, the seed, the presentation, selection.ts, registry-row.py, export-role-schemas, local-screen and phase4-loop.
+
+Failures or blockers: The code reviews' findings listed under Decisions (1) to (5) were confirmed and fixed before any push. Nothing else.
+
+The design entry's four owner questions stand, with their defaults:
+- proceed with a disclosed fallback;
+- a single fallback question for an unnumbered brief;
+- an unencodable rejected plan reply left out of the repair context;
+- a local `request_failed` still ends the stage.
+
+7b.1's two questions stay for 7a.2's entry: P10's synthesis/off cell, and the clamp's three constants.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint, and the hook is exercised only by fakes. Every limitation of the design entry stands.
+- **The presentation guard is checked through a stub.** Its wiring is tested with a stubbed builder. A real oversized packet needs about 40 sources and hundreds of multi-question quotes; the design review built one in its scratch space.
+- **Request-content refusals inside call() are not reachable by tests.** No request field can be unencodable, so the refusal path inside `call()`'s `try` is no longer exercised by any test.
+- **The pinned digests move with #76.** If #76 moves again, the synthesis request digest pinned against #76 (f543e90e…) and 7c's protocol move with it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Push the branch with no pull request yet. The pull request opens after #69 merges, based on main like #76, and notes that it contains #76. Then CI green, the orchestrator's review, and a merge after #76 and before 7b.2 and 10.b.
+
+References: BL-20261113-0927-research-v5-design; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0712-correction-research-tolerance-repin; BL-20261113-0920-assist-wrapper-design and BL-20261113-0921-assist-core-implemented (10.a's, on its branch); docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 7.
+
+### BL-20261113-0929-correction-research-v5-assist-order-deadline -- 2026-11-13 -- Correction to BL-20261113-0927-research-v5-design and BL-20261113-0928-research-v5-implemented: the assist requests already follow the sorted inventory the wrapper checks, and a run without a deadline is stopped at its first assist, not refused; both now pinned by tests
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0927-research-v5-design and BL-20261113-0928-research-v5-implemented, on the local branch `feat/7c-research-v5` (backlog item 7(c); not pushed, no pull request yet). It adds two tests and corrects two comments. It changes no runtime behaviour and no hashed value.
+
+The orchestrator relayed two cross-lane notes for 7c from its delta review of #79 (10.a, the assist wrapper) at d364b46:
+- **The order check.** The wrapper's new check ends any T2 request whose `coverage.sources` and `request.sources` differ in length or in the id at any position, or that lacks a text for a readable source.
+- **The deadline.** Without a session deadline, 7c passes NaN as `deadlineMs`; the wrapper answers `assist_deadline_missing` and sends nothing. So an assist can run only when the pipeline is given a deadline.
+
+Both outcomes are stops, not refusals. `assist_request_invalid` and `assist_deadline_missing` are both on the wrapper's stop list, so either one ends the stage.
+
+Decisions:
+(1) **The request order: 7c conforms, and the code does not change.**
+- **The sources.** `inventoryResearchSources` sorts the sources once, comparing ids with `<`. That is the coverage policy's `sourceOrder: "id_utf16_ascending"`.
+  - `coverage.sources` is that inventory.
+  - Both requests' `sources` is its `sourceManifest`: the same identities, in the same order.
+  - So the two lists agree in length and in the id at every position, for any input the inventory accepts. The caller's order reaches neither.
+- **The texts and the index.** Both follow the same order.
+  - `sourceTexts[i]` is `researchSourceText` of the i-th source in that order. The inventory sets `readable` with the same function, so a text is undefined exactly where coverage marks the source unreadable.
+  - The index document lists the sources in that order too.
+  - This matters for both touchpoints, because the wrapper's shared checks stop T1 and T2 alike (`assist_request_invalid`) when the index's ids differ from the sources' at any position, or when there is not one text per source.
+- **Unreadable sources.** That case cannot reach the hook in 7c. A run with any unreadable source ends before its first model request and before any hook call: as `research_source_unreadable`, unless an earlier entry check ends it first. So no 7c assist request carries an undefined text.
+- **The coverage.** T2 receives a structured clone of the pipeline's own coverage object, as it stands at the call.
+- **The new test.** It runs six sources.
+  - Five are local, with id equal to path.
+  - One is shaped like a public source (session.ts): its id is a URL and its path a stored `.bin` file. Its text is non-ASCII, starts with a BOM, and is longer than the 20 KiB index preview.
+  - The caller's order, code-point order and path order each differ from the inventory's. Where Node has ICU, localeCompare differs too, but the test does not assert that, so a build without ICU does not fail it.
+  - The run is `forced_split`, with both touchpoints answering `skipped`. Both requests carry:
+    - the inventory's identities, paths included;
+    - `researchSourceText`'s texts in that order;
+    - the index in that order;
+    - NaN for the deadline.
+  - T1 carries the coverage's chunk count and the extraction budget.
+  - T2's coverage equals the coverage that the stage's own synthesis request carries next, and the wrapper's T2 condition holds.
+  - Adding a seventh, unreadable source ends the run with no hook call and no model request.
+- **Before this test.** BL-20261113-0928-research-v5-implemented's tests checked the texts only for the fixture's two sources, which are already sorted, with ids equal to paths.
+
+(2) **The missing deadline is a stop, not a refusal. This corrects BL-20261113-0927-research-v5-design's wording.**
+- **What BL-20261113-0927-research-v5-design says.** Decision (5) of BL-20261113-0927-research-v5-design says: "Without a session deadline it is NaN, which the wrapper refuses as `assist_deadline_missing`". The pipeline's comment and a test comment said the same.
+- **Why that is wrong.** In the contract's vocabulary, "refused" is a `no_reply` outcome, and the stage continues past it. The contract's own comment on `deadlineMs` says "stops". The wrapper (#79 at d364b46) answers a `deadlineMs` that is not a number, or is NaN, with a `stop`.
+  - The stop comes before the wrapper builds a packet, so nothing is sent, and its attempt record says `dispatched: false`.
+  - In 7c a `stop` ends the stage through `denied()`. The stage row's `denied` is `assist_deadline_missing`, and the run ends `research_request_denied`.
+- **When it happens.** At the first assist that fires.
+  - Under `forced_split`, T1 fires before the plan stage's own calls, so the run ends at the plan stage after only the index stage.
+  - Under `local_first`, an assist fires only after the stage's own attempts fail.
+    - A run whose local synthesis is rejected twice ends at the synthesis stage, with calls 2, invalidReplies 2 and `denied: "assist_deadline_missing"`.
+    - A run whose local replies are accepted never consults the hook, so the missing deadline does not show.
+  - Infinity passes the wrapper's check. BL-20261113-0927-research-v5-design says "A test without a session passes Infinity". In 7c's tests only the copy test does; the slot-matrix tests pass no deadline, and their fake hooks do not apply the wrapper's rule.
+- **Production.** The one production caller is session.ts. It passes `deadlineMs: sessionDeadlineMs`, which is `performance.now()` plus the time remaining, so always finite. No production caller passes `assists` until 10.b, and 10.b must pass the session's deadline together with the hook.
+- **The new test.** A fake applies the wrapper's deadline rule. It checks four cases:
+  - the `forced_split` stop at T1;
+  - the `local_first` stop at T2, whose request carries NaN and the coverage as it stands, with the synthesis marked invalid;
+  - the `local_first` run that never consults the hook;
+  - a finite deadline reaching both touchpoints unchanged.
+
+  Before it, only Infinity was passed, and only T1's value was checked.
+- **Not changed.** The pipeline could refuse `assists` without a deadline at entry, before any request, as it already refuses a hook object of the wrong shape (BL-20261113-0928-research-v5-implemented decision (5)). That would expose the wiring fault before the index stage's calls, under either firing. It is not done here, for three reasons:
+  - it would change behaviour;
+  - 10.a's design makes the deadline the wrapper's check;
+  - no production path reaches the case.
+
+  It is offered to the orchestrator as an option.
+
+(3) **The comments.**
+- The pipeline's comment above `assistBase` now states:
+  - the order;
+  - that the wrapper checks it position by position (the index for T1 and T2, the coverage for T2);
+  - that both the order check and the missing deadline are stops.
+- The test comment at the T1 request check now says "stops with" instead of "refuses as".
+
+(4) **The review.** An adversarial review of the first version found two majors and five minors, all in the tests or the comment, and three nits. Fourteen of its mutants passed every test of that version. Each finding is fixed in (1) to (3):
+- **Major:** T2's no-deadline path was not pinned (two mutants passed).
+- **Major:** every test source had its id equal to its path, so path order went unseen (four mutants passed).
+- **Minor:** the texts were short ASCII, so another decoding or the preview cut went unseen (three passed).
+- **Minor:** only T2's `coverage.sources` was compared (four passed).
+- **Minor:** the comment still said "refuses" for the T2 order check, which is also a stop.
+- **Minor:** the entry was cited before it existed. It lands in the commit after the tests.
+- **Minor:** T1's chunk count was not pinned (one passed).
+
+One more mutant, `||` for `??` on the deadline, differs only for a deadline of exactly 0 and is not pinned.
+
+Changes: Commit ced2b05 on the local branch `feat/7c-research-v5`:
+- **src/main/private-agent/research-pipeline.ts:** the comment above `assistBase`. No code changes.
+- **tests/unit/private-agent-research-pipeline.test.ts:**
+  - the tests in (1) and (2);
+  - the comment in (3);
+  - `RESEARCH_INDEX_BATCH_BYTES` imported.
+
+Evidence: The checks ran locally at ced2b05.
+- **The pipeline test.** `pnpm exec vitest run tests/unit/private-agent-research-pipeline.test.ts` passes 88 tests: the 86 at dd1e8a2 and the 2 new ones.
+- **Mutations.** 25 single-edit mutants of research-pipeline.ts were run against the pipeline test. Eleven were written for this change and fourteen are the review's. Each fails a test, and each fails the two new tests run alone:
+  - **Order (ten):**
+    - `request.sources` in the caller's order, by localeCompare, by code point or by path, or with paths replaced by ids;
+    - `sourceTexts` in the caller's order or by path;
+    - the pipeline's ordered list by path;
+    - the index document in the caller's order;
+    - T2's coverage with its sources reversed.
+  - **Texts (three):** decoded as latin1, decoded without the BOM rule, or cut to the index preview.
+  - **Coverage (five):**
+    - T2's coverage without chunks, with its chunk questions rewritten, with its status "ready", or with its synthesis reset;
+    - T1's chunk count taken from the batches.
+  - **Deadline (six):**
+    - no deadline given as Infinity, or as 0;
+    - the deadline always NaN;
+    - T2 never carrying it;
+    - T2 given Infinity when there is no deadline, directly or once a plan exists.
+  - **The rest (one):** the unreadable-source stop removed.
+
+  Without the new tests, 21 of the 25 pass. Only four fail an earlier test: the two no-deadline values, the always-NaN deadline, and the removed unreadable-source stop.
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The research suites.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts` passes 16 files and 271 tests.
+- **Full suite.** `pnpm exec vitest run` reports 166 files passed, 2 failed and 13 skipped, and 2,777 tests passed, 3 failed and 84 skipped.
+  - The failures: one test in patch-routing-comparison.test.ts and two in private-agent-observations.test.ts. Neither file imports the research code.
+  - Rerun alone, both files pass, 85 tests.
+- **The build log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry appended, and the log at dd1e8a2 is a byte prefix of this one.
+- **The hash.** `researchProtocolSha256()` returns 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, the same as at dd1e8a2.
+  - The value is provisional: 7c sits on #76's 2fe1ec8, and its rebase for a pull request will move it.
+  - BL-20261113-0928-research-v5-implemented records 35a622eecf830b80c7c57d3dcd9f0a9b3ad10cc78f180bd59b5955d24c9a1e71 at bd876d9. It changed when 7c was rebased onto 2fe1ec8.
+  - research-assist-contract.ts is unchanged: sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0, byte-identical to #79's copy at d364b46.
+  - The comment edit moves the harness source-freeze digest, which hashes file bytes. 7c moves it anyway.
+
+Failures or blockers: Two negative results, both found by review before any run:
+- BL-20261113-0927-research-v5-design's "refuses", corrected in (2);
+- the first version of these tests, which missed what (4) lists.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint, and no run used the real wrapper.
+- **The wrapper's rules are copied.** The tests copy the wrapper's two rules as read at d364b46. #79 has not cleared review, and its head will move once more, so a later change to those rules would not show here.
+- **The texts are read at each hook call.** They come from the caller's buffers each time, and the pipeline assumes those buffers do not change during a run. If a caller changed them, a request could carry a text the inventory did not read. The ready gate would then refuse the packet (`source_bytes`, ending `research_packet_binding_invalid`), but only after the request had gone.
+- **BL-20261113-0927-research-v5-design and BL-20261113-0928-research-v5-implemented otherwise stand,** as corrected here.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: 7c stays local until the orchestrator opens its turn. That comes after #69 and #76 merge; #79 leads train 2. When 7c's pull request opens:
+- the rebase;
+- the protocol hash and the synthesis digest, re-derived;
+- the ID order of BL-20261113-0927-research-v5-design and BL-20261113-0928-research-v5-implemented, which the orchestrator decides;
+- the entry check in (2) (refusing `assists` without a deadline), if the orchestrator takes it.
+
+References: BL-20261113-0927-research-v5-design and BL-20261113-0928-research-v5-implemented (corrected); #79 (10.a), its delta review at d364b46, and the shared hook-contract note; backlog item 7(c).
+
+### BL-20261113-0930-correction-research-v5-restamp-ids -- 2026-11-13 -- Correction: 7c's three entries carry IDs BL-20261113-0927-research-v5-design, BL-20261113-0928-research-v5-implemented and BL-20261113-0929-correction-research-v5-assist-order-deadline in the merged ledger; they were authored on 2026-11-10 at 07:17, 07:49 and 13:30 UTC as BL-20261110-0717, BL-20261110-0749 and BL-20261110-1330
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records why backlog item 7(c)'s three entries no longer carry their authoring minutes:
+- BL-20261113-0927-research-v5-design;
+- BL-20261113-0928-research-v5-implemented;
+- BL-20261113-0929-correction-research-v5-assist-order-deadline.
+
+7c's branch was never pushed before this pull request. Its entries sat between train 1's entries in ID order. When 7c was rebased onto `main` for its pull request, at bb6ef32, `main` held merge train 1 (#85) and then #92 (7d.B). The log's tail was BL-20261113-0816-correction-host-flags-event-ids-and-replay, and the validator refuses an ID earlier than the tail.
+
+The owner decided on 2026-11-13 that an unmerged branch re-stamps such entries after `main`'s tail and adds this kind of correction. The decision is BL-20261113-0758 (owner-decision-restamp-unmerged-entries), on the open pull request #87. The same rule is in docs/HANDOFF.md, and BL-20261108-0856-correction-stop-bricking-tasks-design-id, BL-20261108-0906-correction-owner-verdict-capture-ids and BL-20261108-0912-correction-probe-extensions-id applied it.
+
+Decisions:
+- **The map.**
+
+  | Original ID | Authored (UTC) | New ID |
+  | --- | --- | --- |
+  | BL-20261110-0717 | 2026-11-10 07:17 | BL-20261113-0927-research-v5-design |
+  | BL-20261110-0749 | 2026-11-10 07:49 | BL-20261113-0928-research-v5-implemented |
+  | BL-20261110-1330 | 2026-11-10 13:30 | BL-20261113-0929-correction-research-v5-assist-order-deadline |
+
+  The entries keep their order and are appended after the tail, in merge chronology as rule 1 requires; they are not interleaved. The new minutes are 08:17 to 08:19 UTC on 2026-11-13, the next free minutes after the tail. The heading's date moves with its ID, as BL-20261108-0912-correction-probe-extensions-id records.
+- **What changed.** Only the heading's ID and date, and the references to the three IDs. Those references are the full and short forms, and the bare minute in prose, such as "0717 says". Apart from these, each entry's body is byte-identical to the local branch before the rebase (4118ccc).
+- **Why these minutes.** They also come after BL-20261113-0758, the latest entry on #87, so they still hold if #87 merges first. If `main`'s tail passes them before 7c merges, they are re-stamped again under the same rule.
+
+Changes:
+- docs/BUILD_LOG.md: three headings, and the references in the three entries.
+- Commit ee74807:
+  - comments in research-contract.ts, research-coverage.ts, research-fallback.ts and research-pipeline.ts;
+  - the 505c385a line of tests/helpers/research-protocol-pin.ts;
+  - in tests/unit/private-agent-research-pipeline.test.ts, one comment, the 7(c) describe title and two test titles.
+
+  They now cite the new IDs in full. No behaviour changes.
+
+Evidence:
+- **The bodies are unchanged.** For each re-stamped entry, applying the map in reverse (new minute to old, and the heading's date back to 2026-11-10) gives exactly the text at 4118ccc. Only 1 of 261 lines changed in the design entry, 8 of 75 in the implemented entry, and 12 of 140 in the correction.
+- **No old ID is left.** `git grep -E "BL-20261110-(0717|0749|1330)"` finds the old IDs only here. Commit messages keep the old IDs.
+- **The log is valid.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes: append-only against `main`, with monotonic IDs.
+- **The commits.** The rebased commits carrying the three entries are c450684, 9bab77c and 78cdd2f. Their pre-rebase originals are fdb31f0, dd1e8a2 and 094efea; their author dates are 07:18, 07:51 and 13:59 UTC on 2026-11-10.
+
+Failures or blockers: Two attempts failed before the push.
+- **The first re-stamp was overtaken.** It was made against train 1's tail, BL-20261110-1506-merge-train-1-integration, and gave 08:14 to 08:16. Before this branch was pushed, #92 merged with its own BL-20261113-0816 entry, so the three entries were re-stamped again. Neither the first minutes nor their commits were pushed.
+- **An interleaved entry.** A first `git rebase` applied the implemented entry's insertion inside `main`'s log, between train-1 entries, without a conflict. It was aborted. The commits were then replayed one by one, and each entry was appended after the tail.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages keep the old IDs, as history should.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of 7c's pull request checks this re-stamp, as BL-20261113-0758 asks. If `main` moves past 08:19 UTC on 2026-11-13 before the merge, the three entries are re-stamped again.
+
+References: BL-20261113-0927-research-v5-design, BL-20261113-0928-research-v5-implemented and BL-20261113-0929-correction-research-v5-assist-order-deadline (re-stamped); BL-20261113-0816-correction-host-flags-event-ids-and-replay (the tail); BL-20261110-1506-merge-train-1-integration (train 1's tail); BL-20261108-0856-correction-stop-bricking-tasks-design-id and BL-20261108-0912-correction-probe-extensions-id (precedents); BL-20261113-0758 on pull request #87 (the owner's decision).
+
+### BL-20261113-0931-correction-research-train-1-check-pins -- 2026-11-13 -- Correction to BL-20261110-1100: class (iv) is its own owner question, three statements of 1100 corrected, and the follow-up pins the check of #83 asked for
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-1100-correction-research-train-1-review-pins (#83, merged in train 1). The orchestrator's check of #83 at d894a62 found no blocker and no major. It asked for two things:
+- five statements, in the lane's next appended entry, which is this one;
+- comment fixes and test rows, in the lane's next pull request that touches the two research test files, which is 7c's.
+
+The rows pin today's behaviour. Nothing changes in `CLAUSE_GUARDS`, the parser or the pipeline; 1100 is not edited.
+
+Decisions:
+(1) **Class (iv) is its own question (E1).** This supersedes 1100's closing bullet "under owner question 3, class (iv) in (9) and the member in (10)".
+- Class (iv) follows from 0447 decision (5), not from owner question 3, as 1100 decision (9) says. Widening the hold does not address it.
+- The owner either accepts class (iv) as a stated limit of 0447 decision (5) or revisits that decision.
+- Only the member in 1100 decision (10) is under owner question 3.
+(2) **The 1,200-word default (E2).** 1100 decision (5) says 0848's Limitations stated that a miss leaves the 1,200-word default. Only 0848's hypothesis and #69's earlier body said so. 0848's Limitations says that a stated limit of 1,200 words or more is clamped while the role thinks, and that is right.
+(3) **The skeptics (E3).** 1100's scope says "a skeptic checked every finding". A skeptic checked every minor or higher finding; the nits went to none.
+(4) **The list marker (B-F1).** 1100 decision (2) files "1. Include an abstract.\n2. Max 150 words." under "a limit that neither opens its sentence nor follows a referring word". It belongs with "a part two or more sentences back".
+- "2." ends a sentence, so the limit opens its own sentence.
+- Rule B's look-back runs and reads the marker's one-word sentence "2", not the item before.
+- Only a marker with no sentence end, such as "b)", is a word before the limit.
+(5) **The fourth pinned miss (B-F2).** 1100 does not describe it: "Read every source. Then write a report that is under 2,000 words." reads none.
+- Rule B's referring-word trigger is lexical, so the relative "that" opens the look-back, as the determiner "this" does in 0848's pinned "This report must not exceed".
+- The limit is dropped only because the sentence before holds a distributive ("every").
+- 1100 decision (4), "They read list words and distributives in any sense", holds under rule B's two triggers: a limit that opens its sentence, or a referring word before it.
+(6) **The follow-up pins (commit 81740d1).** The admission test:
+- **B-F1:** the list-marker row's comment says the marker is a sentence of its own, so rule B reads the marker, not the item before. The row's value is unchanged.
+- **B-F2:** the known-miss comment counts referring words among the words read in any sense (a relative "that").
+- **B-F3:** two rule B rows, "Include an abstract. Keep this under 150 words." and "Include an abstract. Keep that under 150 words.", read none. The rule B rows now hold all nine referring words, as the comment says.
+- **C-2:** a rule-pin row, "?\nIt/max 2,000 words", reads 2000. It is the guard's third branch, a cut referring word after a line break.
+- **Known misreads, wrapped lines (O2):** "Notes,\nfor each vendor,\nbe brief, at most 2,000 words" and "Intro\nAbstract: x\nconcise, short, at most 2,000 words" read 2000. Each has two line breaks before a rule A limit.
+- **A new known-misread class (O14, O28):** a part or a distributive in the limit's own sentence before a referring word. Rule B reads only the sentence before. "Write a report. For the abstract, keep it under 150 words." and "Write a report. Notes (per source) keep it under 150 words." read 150.
+- **Positive controls (O19, O20):** a line break inside a run of white space still ends the line. "Sections: Abstract, Results \nLength: at most 2,000 words" (a trailing space) and "Sections: Abstract, Results\n Length: at most 2,000 words" (an indent) read 2000.
+
+The pipeline test:
+- **Part D:** the held-attempt test of 1100 now also checks quotesVerified 2. That pins 1100 decision (10)'s discard: a rejected held attempt's verified quotes go with it.
+- **A new test for the drop rule's gaps.**
+  - **O9:** a located quote dropped for a repeated question id (["Q1", "Q1"]) was the found question's only quote. The first attempt is held and repaired: calls 3, repairCalls 1, invalidReplies 1, attempts ["invalid", "complete"].
+  - **O11:** a verified quote naming Q1 and Q2 keeps a quote for Q2, although Q2's invented quote was dropped. The reply is kept: calls 2, quotesDropped 1, questionsDowngraded 0.
+  - **O12:** a quote dropped for Q1 does not count against Q2, which no quote names. The reply is kept with Q2 downgraded: calls 2, questionsDowngraded 1.
+
+Changes: Commit 81740d1 (tests/unit/private-agent-research-admission.test.ts and tests/unit/private-agent-research-pipeline.test.ts; tests and comments only). The ten short BL-20261110-1100 citations of #83 now give 1100's full ID, in commit ee74807.
+
+Evidence: The checks ran locally on the branch.
+- **The tests.** The admission test passes 24 tests and the pipeline test 90.
+- **Mutations.** Each single-edit mutant was run twice: against the follow-up tests, and against the tests at the commit before them. Both runs were on this branch over 9d10b9a, before its rebase onto bb6ef32 (#92), which changed none of the code or tests involved.
+  - Nine fail a new row or the new test now, and pass every test at ee74807:
+    - O2: the line start taken as the text's first line break;
+    - O14 and O28: parts or distributives read up to the limit;
+    - O19 and O20: a white-space run counted as a line break only when it starts, or only when it ends, with one;
+    - C-2's O11: the cut-word guard dropped;
+    - O9, O11 and O12: the drop rule's three gaps.
+  - The check's O21, which also keeps a rejected held attempt's verified quotes, fails only the quotesVerified 2 pin now and passes every test at ee74807.
+  - Removing "this" or "that" from the referring words fails a test both now and at ee74807. B-F3's rows add a second pin for each.
+
+Failures or blockers: The first run of the mutant script restored each mutated file only at the end. So the last admission mutant was still in place while the pipeline mutants ran, and every pipeline run showed two extra failures. The script was fixed to restore after each mutant and the pipeline mutants were run again; the results above are from that run.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. The misread rows pin wrong values on purpose. A pinned misread is a stated limit, not an endorsement. Changing one is a parser decision for the owner (0848's widened question).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of 7c's pull request, which carries this entry.
+
+References: BL-20261110-1100-correction-research-train-1-review-pins (corrected); BL-20261110-0848-correction-research-length-parser-chains; BL-20261109-0447-research-tolerance-design (decision (5)); the orchestrator's check of #83 at d894a62.
+
+### BL-20261113-0932-correction-research-v5-on-main -- 2026-11-13 -- Correction to BL-20261113-0928-research-v5-implemented: 7c rebased onto main after merge train 1 and #92; the protocol hash is 505c385a, as on #76, 6.2's paused-failure case is rewritten for the host fallback, and the merge waits outside E0's window
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0928-research-v5-implemented. That entry recorded 7c at #76's bd876d9 with the protocol hash 35a622ee…. The hash was 505c385a… once 7c moved onto 2fe1ec8, as BL-20261113-0929-correction-research-v5-assist-order-deadline records. This entry records 7c rebased onto `main` for its pull request, at bb6ef32: merge train 1 (#85) and then 7d.B (#92). It covers:
+- what the rebase met;
+- the hash `main` takes when 7c merges;
+- the one test and the one code line the rebase had to change;
+- when the merge may happen.
+
+Decisions:
+(1) **The rebase.** The commits of 7c's local branch were replayed onto 9d10b9a, and again onto bb6ef32 once #92 had merged.
+- Its code commits applied without a conflict.
+- Its three entries were appended after the log's tail and re-stamped, as BL-20261113-0930-correction-research-v5-restamp-ids records.
+- Train 1 changed seven of 7c's files:
+  - research-admission.ts and the admission test (#83, comments and rows);
+  - the pipeline test (#83);
+  - session.ts and the session test (6.2, the research-stage pause);
+  - docs/experiments/README.md;
+  - the build log.
+- #92 then added a host-flags test to the session test. It reads the transferred packet's coverage, and it passes on 7c's coverage v2.
+(2) **The protocol hash.** `researchProtocolSha256()` on the rebased tree is 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, the value on #76's 2fe1ec8, because neither train 1 nor #92 changed a hashed value.
+- `main` pins 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8. 7c's merge moves `main` to 505c385a….
+- The pinned synthesis digest 03bdfb5e0fc7a0b178c5b743a5b9035fb0fdd8838f53dc701989eb35a38fce6e and the four request digests hold.
+- The consequences are the ones BL-20261113-0928-research-v5-implemented decision (7) names:
+  - v4 seeds are refused;
+  - paused sessions drift;
+  - the harness source-freeze digest changes;
+  - earlier P10 evidence is invalidated.
+(3) **6.2's paused-failure case, rewritten (commit 7620fb9).** Train 1's 6.2 pinned that an invalid plan with a pause asked after the planner's last reply ends as that failure, `research_plan_invalid`. Since 7c, a broken plan falls back to the host plan.
+- The case now breaks the stage at extraction. The pause comes after the reader's last extraction reply, and the run ends `research_extraction_incomplete`, the failure, not a pause. The next run is refused (`research_stage_not_replayed`).
+- The plan case is pinned as it now behaves. Two broken plans, then a pause after the planner's last reply: a cancel never completes as the fallback (BL-20261113-0927-research-v5-design decision (12)), so the stage ends denied `cancelled`. The stage rows are [index 1], [plan 2 cancelled]. The session reports `research_stage_not_replayed` because the stage started; where 6.2 ended `research_plan_invalid`, the run is still incomplete, with another reason.
+- The test also moves to 7c's options-object fixture, so the old call shape no longer compiles. That is the break the typecheck found.
+(4) **The merge waits outside E0's window.** 7c changes `researchProtocolSha256()`. E0's card (#87) allows no protocol-hash change to merge between the owner's E0 export and `probe:assess`. So 7c merges outside that window, and if it merges after E0, P10's synthesis cells are run again. The merge also waits for the orchestrator's review and the owner's go-ahead.
+(5) **The run-reasons scan (commit 26a5f3b).** Train 1's run-reasons contract test (backlog item 6, finding A6) reads every reason the pipeline can record from its syntax tree, and it fails closed on a computed reason.
+- 7c's presentation catch returned `error.message` when it equalled `research_presentation_too_large`, which the scan cannot evaluate. It now returns that literal, with identical behaviour.
+- src/main/general-tasks/run-reasons.ts classifies every `research_` reason as terminal by its prefix. So 7c's new reasons, such as `research_assists_invalid` and `research_presentation_invalid`, need no rows: they are terminal, and the desktop offers no Resume for them.
+(6) **The assist contract.** src/main/private-agent/research-assist-contract.ts is added byte-identical to #79's copy at d364b46 (sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0). #79 is still open. Whichever of the two merges second rebases onto an identical file.
+
+Changes: The pull request's commits on `feat/7c-research-v5`, from bb6ef32:
+- the seven replayed commits: c450684, 33b5ac7, cd90073, 9bab77c, b2a783f, 78cdd2f and bba75b6;
+- 7620fb9: the session test;
+- 26a5f3b: the run-reasons literal;
+- ee74807: the references in full;
+- 81740d1: the check's follow-up pins;
+- the entries BL-20261113-0930-correction-research-v5-restamp-ids (commit 71af529), BL-20261113-0931-correction-research-train-1-check-pins and this one.
+
+Evidence: The checks ran locally at 26a5f3b, on bb6ef32. The entry commits after it change docs/BUILD_LOG.md only.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The research suites, with the run-reasons and host-flags tests.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts tests/unit/general-task-run-reasons.test.ts tests/unit/private-agent-host-flags.test.ts` passes 18 files and 325 tests.
+- **Full suite.** `pnpm exec vitest run` reports 176 files passed and 13 skipped, and 3,287 tests passed and 86 skipped. None failed.
+- **Earlier runs, on 9d10b9a.** Before (5), the full suite failed only the run-reasons contract test. Once, it failed with-claude-key.test.ts's shell-script test under load, which passes alone.
+- **The pins.** The pin test passes, so `researchProtocolSha256()` returns 505c385a…. The synthesis digest 03bdfb5e… and the four request digests pass.
+- **The contract file.** research-assist-contract.ts hashes to bced24df…, the same as #79's copy at d364b46.
+- **The build log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this pull request's six entries.
+
+Failures or blockers: The rebase met two breaks, both found by the checks and both fixed:
+- 6.2's session test, whose old fixture shape no longer compiled and whose plan case had a new outcome under 7c, fixed in (3);
+- the run-reasons scan, which could not read the presentation catch, fixed in (5).
+
+Nothing else is new.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. Nothing ran against an endpoint. The limitations of BL-20261113-0927-research-v5-design, BL-20261113-0928-research-v5-implemented and BL-20261113-0929-correction-research-v5-assist-order-deadline stand, with their four owner questions and the entry-time deadline check that BL-20261113-0929-correction-research-v5-assist-order-deadline offers.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green, the orchestrator's review (one reviewer, with a skeptic only for a blocker or major finding), then the owner's go-ahead outside E0's window. If `main` moves past this branch's last ID first, the entries are re-stamped again.
+
+References: BL-20261113-0928-research-v5-implemented (corrected); BL-20261113-0927-research-v5-design; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261113-0930-correction-research-v5-restamp-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0501-research-stage-pause-design (6.2); E0's card on #87.
+
+### BL-20261113-0933-correction-research-v5-third-stamp -- 2026-11-13 -- Correction to BL-20261113-0930-correction-research-v5-restamp-ids and BL-20261113-0932-correction-research-v5-on-main: 7c's six entries carry BL-20261113-0927-research-v5-design to BL-20261113-0932-correction-research-v5-on-main after #82's tail, and three statements of BL-20261113-0932-correction-research-v5-on-main are corrected: the E0 consequence, a stale "0816" and a file count
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0930-correction-research-v5-restamp-ids and BL-20261113-0932-correction-research-v5-on-main. It follows the orchestrator's review of #93 at a269e48, which found no code defect: CI passed, and the pin equals the computed hash.
+
+After #93 opened, #82 (6.3) merged into `main` at 23dfadc. It appended:
+- BL-20261113-0817-runner-storage-integrity-design;
+- BL-20261113-0818-runner-storage-integrity-implemented;
+- BL-20261113-0819-correction-runner-storage-integrity-ids;
+- BL-20261113-0820-research-stage-pause-held-attempt-pins;
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+
+7c's entries then shared the minutes 08:17 to 08:20 with those entries and came before the tail, so the log was no longer append-only against `main`. The orchestrator gave this lane the minutes 09:10 to 09:19. #89 holds 08:36 to 08:47 and S-e1 holds 08:48 to 09:09; #93 lands in one integration merge after them.
+
+Decisions:
+(1) **The third stamp.** `main` at 23dfadc is merged into the branch (merge commit d280f17), which keeps every earlier commit SHA. All six entries move into the lane's minutes, in their order, one minute each:
+
+| Entry | Second-stamp minute | Third stamp |
+| --- | --- | --- |
+| research v5 design | 08:17 | BL-20261113-0927-research-v5-design |
+| research v5 implemented | 08:18 | BL-20261113-0928-research-v5-implemented |
+| assist order and deadline | 08:19 | BL-20261113-0929-correction-research-v5-assist-order-deadline |
+| re-stamp record | 08:20 | BL-20261113-0930-correction-research-v5-restamp-ids |
+| train-1 check pins | 08:35 | BL-20261113-0931-correction-research-train-1-check-pins |
+| 7c on main | 08:40 | BL-20261113-0932-correction-research-v5-on-main |
+
+- **Authoring times.** BL-20261113-0930-correction-research-v5-restamp-ids keeps the original IDs and authoring times of the first three. The other three were written on 2026-11-13 between 08:15 and 08:40 UTC.
+- **Why all six move.** 08:35 and 08:40 already sort after `main`'s 08:34. But moving only the first four would put them after those two, or make several share one minute.
+- **The record keeps its own narrative.** BL-20261113-0930-correction-research-v5-restamp-ids still describes the second stamp: 08:17 to 08:19, made after #92's tail. That narrative is history, and this entry records the move from it.
+
+(2) **What changed in the six bodies.** Only the references to the six changed: headings, full IDs, short IDs and bare minutes.
+- A reference whose second-stamp minute (08:17 to 08:20) now belongs to one of 6.3's entries on `main` became a full ID.
+- The references in code comments, the pin file and test titles follow, in commit d65aef6.
+- The one other change is in (3).
+
+(3) **The stale "0816" in BL-20261113-0932-correction-research-v5-on-main.** Its Limitations read "The limitations of 0817, 0818 and 0816 stand, with their four owner questions and the entry-time deadline check that 0816 offers."
+- **What 0816 meant.** Both "0816" strings meant the assist-order entry, whose first stamp was 08:16. The second stamp should have made them 0819. It did not, because its mapping replaced only the full and short forms of that minute.
+- **What 0816 is on `main`.** BL-20261113-0816-correction-host-flags-event-ids-and-replay (7d.B), which offers no deadline check.
+- **The fix.** The third stamp writes both strings as BL-20261113-0929-correction-research-v5-assist-order-deadline. It writes the entry's two other bare references, in decisions (2) and (3), as BL-20261113-0928-research-v5-implemented and BL-20261113-0927-research-v5-design. The four owner questions are the design entry's.
+
+(4) **The E0 consequence.** This corrects BL-20261113-0932-correction-research-v5-on-main decision (4), which said, as #93's body did, that P10's synthesis cells are run again if 7c merges after E0.
+- **Only the synthesis request bytes change under 7c.** The plan and extract exports are byte-identical. `pnpm probe:export-schemas` at 23dfadc and at d65aef6 gives the same plan and extract schemas, system prompts, synthetic payloads, output caps and thinking policy. Only the synthesis payload, the protocol hash and the export time differ.
+- **The P10 block has one protocol hash.** The serving card's P10 block carries one hash for the whole export. When that hash differs from today's `researchProtocolSha256()`, the reader refuses every flagged role's structured output (`serving_card_p10_protocol_drift`).
+- **Merging after the export.** P10 would be exported and run again for all three roles, because serving-probe.py has no per-role P10 option.
+- **Merging before the export.** E0's P10 is measured under 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, and nothing is re-run.
+- **E0 has not started, so 7c lands before E0's export.** E0's card then binds 505c385a…, and P10 measures v5's synthesis payload: coverage v2 with `fallbacks`.
+- **P11 is unaffected either way.** 7c changes neither RESEARCH_EXTRACTION_LAYOUT nor the extraction requests.
+
+(5) **The file count.** BL-20261113-0932-correction-research-v5-on-main decision (1) counts session.ts among 7c's files, but 7c does not change session.ts. Train 1 changed six of 7c's files, and also session.ts:
+- research-admission.ts and the admission test;
+- the pipeline test;
+- the session test;
+- docs/experiments/README.md;
+- the build log.
+
+(6) **#82's held-attempt tests.** #82 added a control run and three held-attempt tests to the session test, written for its own fixture shape, `fixture(undefined, { extractReply: held })`. The merge keeps 7c's options-object fixture. Those four calls become `fixture({ reply: heldBy() })`, where `heldBy` gives `held` the nth extraction reply.
+
+Changes:
+- Merge commit d280f17: the log and the session test.
+- Commit d65aef6: the references in code, the pin file and test titles.
+- This entry.
+
+Evidence:
+- **The log.** `pnpm --silent validate:build-log -- --base-ref 23dfadc` passes with this entry: append-only against the merged `main`, with monotonic IDs.
+- **The bodies.** Once every reference to the six is normalised, each moved body equals its text at a269e48, except (3)'s two strings.
+- **The export.** The comparison in (4).
+- **The tests.** At d65aef6, whose code this entry's commit leaves unchanged:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - The research suites, with the run-reasons and host-flags tests, pass 18 files and 328 tests. The session test passes 22 tests and the pipeline test 90.
+  - `pnpm exec vitest run` reports 175 files passed, 2 failed and 13 skipped, and 3,309 tests passed, 2 failed and 86 skipped. The two failures are local-repository-investigator.test.ts and patch-routing-comparison.test.ts. Neither imports research code, and both pass when rerun alone (79 tests passed, 1 skipped).
+- **The hash.** The pin test passes, so `researchProtocolSha256()` is still 505c385a….
+
+Failures or blockers:
+- **The second stamp's miss.** It left the two bare "0816" strings unchanged; (3) corrects them.
+- **CI passed against an old base.** #93's CI passed because the pull_request event's base SHA was still bb6ef32. Against `main` at 23dfadc the log was not append-only, and GitHub reported the pull request as conflicting.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. It records the third stamp and carries one test port. Nothing ran live.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge, which lands #93 after #89 (08:36 to 08:47) and S-e1's (08:48 to 09:09). Then E0's export binds 505c385a….
+
+References:
+- BL-20261113-0930-correction-research-v5-restamp-ids and BL-20261113-0932-correction-research-v5-on-main (corrected);
+- BL-20261113-0927-research-v5-design, BL-20261113-0928-research-v5-implemented, BL-20261113-0929-correction-research-v5-assist-order-deadline and BL-20261113-0931-correction-research-train-1-check-pins;
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp (`main`'s tail at the merge);
+- BL-20261113-0816-correction-host-flags-event-ids-and-replay;
+- BL-20261113-0758 on #87 (the owner's re-stamp rule).
+
+### BL-20261113-0934-correction-research-v5-train-2b-expectations -- 2026-11-13 -- Correction to BL-20261113-0933-correction-research-v5-third-stamp: #93 merges train 2b and adapts E1-T2's and E1-T3's tests to 7c; one pinned limitation flips, as 7c intends
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0933-correction-research-v5-third-stamp, for #93's merge of train 2b.
+- **Train 2b** carries #88, #84, #75 and #80. It is PR #94, from `integration/train-2b` at a6a1466, and it becomes `main` when #94 merges with a merge commit.
+- **The conflict.** #93 conflicted with it in two test files, and the conflict was semantic.
+- **What the orchestrator asked.** Merge train 2b, adapt E1-T2's and E1-T3's tests to 7c's fixture and to 7c's behaviour where 7c legitimately changes an outcome, and record each changed expectation here.
+- **No re-stamp.** 7c's IDs, 0927 to 0933, already sort after train 2b's last entry, BL-20261113-0859-correction-claims-trailing-strip-linear-second-restamp.
+
+Decisions:
+(1) **The merge (commit 95a7ed2).** origin/integration/train-2b at a6a1466 is merged into #93.
+- **docs/BUILD_LOG.md:** train 2b's log, unchanged, followed by 7c's seven entries.
+- **The session test's fixture:** 7c's options object (`reply`, `recoverable`) keeps E1-T3's additions:
+  - `onRequest` may answer "hold", which never answers;
+  - the `onCloud` hook;
+  - the grant-free cloud destination, which merged without a conflict.
+- **The pipeline test:** 7c's describe groups and E1-T2's are both kept, in that order.
+
+(2) **E1-T3's tests (BL-20261113-0853-e1-recoverability-session-implemented): a new call shape, the same expectations.** Three call sites used `fixture(undefined, { recoverable: true })` and now use `fixture({ recoverable: true })`:
+- the retried-stage cases ("one cut call is retried (D4)…", for index, plan and synthesise);
+- the D4 backoff cancel;
+- the item-7 gap pin ("a call whose retries are exhausted…").
+
+No E1-T3 expectation changes. Under 7c, each of these ends as before:
+- the S1 stops at each stage, in each mode;
+- the retried calls;
+- the exhausted plan call, denied `request_failed`;
+- the split arm's unknown cloud planner;
+- the emulated plan assist left unknown, whose receipt is still bound with role "assist".
+
+7c's host fallbacks never replace a denial or a cancel (BL-20261113-0927-research-v5-design, decisions (4) and (12)).
+
+(3) **E1-T2's tests (BL-20261113-0850-e1-recoverability-pipeline-seed-implemented): one changed expectation.**
+- **The test.** "pins a limitation item 7c flips: invalid JSON twice at the %s ends the stage as %s, with no host fallback", for the plan and the synthesise stage.
+- **The old outcome.**
+  - The run ended `incomplete`, `research_plan_invalid` or `research_synthesis_invalid`, after two calls at that stage.
+  - No plan file, or no argument file, was written.
+- **The new outcome.**
+  - The run ends `completed`, `research_packet_ready`.
+  - The stage row keeps calls 2 and invalidReplies 2, and gains `fallback` (`host_plan` or `skeleton`), which coverage discloses.
+  - The plan file is the host fallback plan, or the argument file is the host skeleton, and the ready gate accepts the packet.
+  - The calls are index, plan, plan, extract, extract, synthesise for the plan case, and index, plan, extract, extract, synthesise, synthesise for the synthesis case.
+- **Why.** This is 7c's intended behaviour, and the pin's own title names 7c as the item that flips it. BL-20261113-0927-research-v5-design decisions (7) and (8) replace "no accepted attempt ends the stage" with a disclosed host fallback that states no finding. The test keeps both cases under a title that states the flip.
+- **What did not change.** E1-T2's other cases keep their expectations under 7c:
+  - the index fallback after invalid JSON twice;
+  - the extraction chunk that stays invalid;
+  - the S7 corpora;
+  - the 40-chunk ceiling;
+  - the 64 KiB packet cap.
+
+Changes: The merge commit 95a7ed2, which holds the log, the session test's fixture and the pipeline test with (3)'s rewritten case; and this entry.
+
+Evidence:
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/integration/train-2b` passes with this entry: append-only against train 2b at a6a1466.
+- **The conflict's only failures.** Before (3), the merged tests failed exactly the two cases in (3), and only those: 145 of 147 passed across the session and pipeline tests. After (3), the four "invalid JSON twice" cases pass.
+- **The checks.** At 95a7ed2, whose code this entry's commit leaves unchanged:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - The research suites, with the run-reasons and host-flags tests, pass 19 files and 371 tests.
+  - `pnpm exec vitest run` reports 179 files passed, 1 failed and 13 skipped, and 3,444 tests passed, 1 failed and 86 skipped.
+  - The one failure is private-agent-sandbox-capture.test.ts, which imports no research code and passes alone (13 tests passed, 1 skipped).
+- **The hash.** The pin test passes, so `researchProtocolSha256()` is still 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92. Train 2b changes no hashed value.
+
+Failures or blockers: None. The conflict was in test files only, no code conflicted, and no E1 test showed a regression.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. The rewritten case in (3) belongs to S-e1's E1-T2. Its new title and expectations follow the pin's own statement that 7c flips it, and S-e1 may want to reword it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: #94 merges into `main`. Then #93's CI must be green on that base, and the orchestrator merges #93.
+
+References:
+- BL-20261113-0933-correction-research-v5-third-stamp (corrected);
+- BL-20261113-0927-research-v5-design;
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented;
+- BL-20261113-0853-e1-recoverability-session-implemented;
+- BL-20261113-0859-correction-claims-trailing-strip-linear-second-restamp (train 2b's tail).
+
+### BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge -- 2026-11-13 -- Correction to BL-20261113-0933 and BL-20261113-0934: 7c merges #79 (10.a) and its eight entries move after #79's BL-20261113-0926; the hook contract is now 10.a's single file
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0933-correction-research-v5-third-stamp and BL-20261113-0934-correction-research-v5-train-2b-expectations.
+
+The orchestrator now lands #79 (10.a, the assist core) right after train 2b and before #93. Train 2b is #94, merged as 83bf38c. #79's entries run from BL-20261113-0920-assist-wrapper-design to BL-20261113-0926-correction-assist-entries-second-restamp. The orchestrator asked for three things:
+- merge #79's head into #93;
+- re-stamp 7c's entries after 0926, keeping their original IDs in the correction;
+- keep the E1 adaptations, recording any changed expectation.
+
+Decisions:
+(1) **The merges.**
+- **`main` first (480621f).** `main` at 83bf38c (#94) is merged in. Its tree equals train 2b's at a6a1466, which #93 already held.
+- **#79 next (a328951).** #79's head is fcf64da: its af261fc with `main` 83bf38c merged in.
+- **research-assist-contract.ts.** This is #79's file. It differs from 7c's mirror only in its header's design-entry ID, which #79 re-stamped from BL-20261109-0417 to BL-20261113-0920-assist-wrapper-design.
+- **research-plan.ts.** This is 7c's version. It already holds #79's `sourceAliases` binding verbatim, plus the `slot` and the unencodable-plan check. Its header comment takes #79's re-stamped ID.
+- **docs/BUILD_LOG.md.** This is `main`'s log, then #79's seven entries exactly as at fcf64da, then 7c's entries.
+
+(2) **The fourth stamp.** 7c's eight entries move after 0926, in order, one minute each. The table gives the first three's original IDs. The other five were first written on 2026-11-13, at the minutes it gives.
+
+| Entry | First ID or minute (written, UTC) | Third stamp | Now |
+| --- | --- | --- | --- |
+| design | BL-20261110-0717 (2026-11-10 07:17) | 09:10 | BL-20261113-0927-research-v5-design |
+| implemented | BL-20261110-0749 (2026-11-10 07:49) | 09:11 | BL-20261113-0928-research-v5-implemented |
+| assist order and deadline | BL-20261110-1330 (2026-11-10 13:30) | 09:12 | BL-20261113-0929-correction-research-v5-assist-order-deadline |
+| re-stamp record | 08:20 on 2026-11-13 (written 08:15 to 08:38) | 09:13 | BL-20261113-0930-correction-research-v5-restamp-ids |
+| train-1 check pins | 08:35 on 2026-11-13 (written 08:15 to 08:38) | 09:14 | BL-20261113-0931-correction-research-train-1-check-pins |
+| 7c on main | 08:40 on 2026-11-13 (written by 08:40) | 09:15 | BL-20261113-0932-correction-research-v5-on-main |
+| third stamp | 09:16 on 2026-11-13 (written by 09:06) | 09:16 | BL-20261113-0933-correction-research-v5-third-stamp |
+| train 2b expectations | 09:17 on 2026-11-13 (written by 09:25) | 09:17 | BL-20261113-0934-correction-research-v5-train-2b-expectations |
+
+These minutes come after 0926, but no one assigned them as a block. If another branch lands first with later minutes, the entries are re-stamped again under the same rule.
+
+(3) **What changed in the eight bodies.** Only references changed:
+- **The eight entries' own IDs.** Each is now cited by its full new ID.
+- **#79's re-stamped entries.** #79's design entry (BL-20261109-0417, cited three times in full and twice in short form) is now cited as BL-20261113-0920-assist-wrapper-design. Its implemented entry (BL-20261110-0639, cited twice) is now BL-20261113-0921-assist-core-implemented.
+- **One bare range.** In BL-20261113-0934-correction-research-v5-train-2b-expectations, "7c's IDs, 0910 to 0916" now reads 0927 to 0933.
+
+Once references are normalised, each body equals its text at 480621f. The code comments, the pin file and the test titles follow, in 02547e1.
+
+(4) **One changed expectation: the contract pin.**
+- **The test.** In the pipeline test: "keeps the hook contract byte-identical to item 10's copy (feat/10a-assist-core 67e3374): a change there is mirrored here and re-pinned".
+- **The old outcome.** The file's SHA-256 was bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0, the digest of 7c's mirror of 10.a's copy.
+- **The new outcome.** The test is now "pins the hook contract's bytes (research-assist-contract.ts, 10.a's file)". It pins ddd19123b301ab4baff09afb43b9b02685451314d878161fd59c90bc38f29665, the digest of the merged file.
+- **Why.** With #79 landing first there is one file, 10.a's, so there is nothing left to mirror. Its bytes differ from the mirror only in the re-stamped ID in its header. The pin still guards the hook's interface: changing it takes a deliberate re-pin.
+
+(5) **No other changed expectation.**
+- #79's own tests pass on 7c's coverage v2 and v5 pipeline: the assist core, the scrub, and the model's responses and Anthropic paths.
+- E1-T2's and E1-T3's adaptations in BL-20261113-0934-correction-research-v5-train-2b-expectations stand.
+- The protocol hash stays 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, because #79 changes no hashed value.
+
+Changes:
+- merge commits 480621f (`main`) and a328951 (#79);
+- commit 02547e1 (the references);
+- this entry.
+
+Evidence:
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry: append-only against `main` at 83bf38c, with monotonic IDs.
+- **The bodies.** The normalised comparison in (3).
+- **The checks.** At 02547e1, whose code this entry's commit leaves unchanged:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - Research suites pass 23 files and 558 tests. They include #79's assist and scrub tests, the run-reasons and host-flags tests, and the model's responses and Anthropic tests.
+  - `pnpm exec vitest run` reports 182 files passed and 13 skipped, and 3,577 tests passed and 86 skipped. None failed.
+- **The hash.** The pin test passes, so `researchProtocolSha256()` is 505c385a….
+
+Failures or blockers: #79's branch moved between this session's fetch and the merge, from af261fc to fcf64da (#79's own merge of `main`). The merge took fcf64da. Its seven entries equal af261fc's byte for byte, and the merge commit's message was corrected to name fcf64da before the push.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. Nothing ran live.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: #79 lands on `main`. Then #93's CI must be green on that base, and the orchestrator merges #93.
+
+References:
+- BL-20261113-0933-correction-research-v5-third-stamp and BL-20261113-0934-correction-research-v5-train-2b-expectations (corrected);
+- BL-20261113-0930-correction-research-v5-restamp-ids;
+- BL-20261113-0920-assist-wrapper-design;
+- BL-20261113-0921-assist-core-implemented;
+- BL-20261113-0926-correction-assist-entries-second-restamp (#79's tail).

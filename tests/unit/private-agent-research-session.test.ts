@@ -359,18 +359,33 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(options(f, "job-cancel", [])).run()).toMatchObject({ status: "incomplete", reason: "session_cancelled" });
     expect(await new GeneralAgentSession(options(f, "job-abort", [])).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     expect(f.bodies).toHaveLength(sent);
-    // An invalid plan while a pause was pending (asked after the planner's last reply, so nothing was cut) is that failure, not a pause.
-    const g = await fixture(() => "not a plan"), invalid = options(g, "job-invalid", []), make = invalid.research!.models;
+    // A failed stage while a pause was pending (asked after the stage's last reply, so nothing was cut) is that failure, not a pause.
+    // Since 7c a broken plan falls back to the host plan, so the stage is broken at extraction instead: the pause is asked after the
+    // reader's last extraction reply, the one chunk's repair.
+    const g = await fixture({ reply: system => system.startsWith("You extract") ? "not an extraction" : undefined }), invalid = options(g, "job-invalid", []), make = invalid.research!.models;
     let paused: GeneralAgentSession, replies = 0;
     invalid.research = { ...invalid.research!, models: contextId => {
-      const models = make(contextId), complete = models.planner.complete.bind(models.planner);
-      models.planner.complete = async (...args) => { const reply = await complete(...args); if (++replies === 2) paused.pause(); return reply; };
+      const models = make(contextId), complete = models.reader.complete.bind(models.reader);
+      models.reader.complete = async (...args) => { const reply = await complete(...args); if (args[0][0]?.content?.startsWith("You extract") && ++replies === 2) paused.pause(); return reply; };
       return models;
     } };
     paused = new GeneralAgentSession(invalid);
-    expect(await paused.run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
-    expect(replies).toBe(2);  // the pause was asked, after the planner's last reply
+    expect(await paused.run()).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(replies).toBe(2);  // the pause was asked, after the reader's last extraction reply
     expect(await new GeneralAgentSession(options(g, "job-invalid", [])).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    // The plan case since 7c: two broken plans, and a pause asked after the planner's last reply. A cancel never completes as the
+    // host fallback, so the stage ends cancelled, and the session reports the refusal the next run gives (it started), not a pause.
+    const h = await fixture({ reply: system => system.startsWith("You plan") ? "not a plan" : undefined }), fallback = options(h, "job-fallback-paused", []), makePlan = fallback.research!.models;
+    let pausedPlan: GeneralAgentSession, planReplies = 0;
+    fallback.research = { ...fallback.research!, models: contextId => {
+      const models = makePlan(contextId), complete = models.planner.complete.bind(models.planner);
+      models.planner.complete = async (...args) => { const reply = await complete(...args); if (++planReplies === 2) pausedPlan.pause(); return reply; };
+      return models;
+    } };
+    pausedPlan = new GeneralAgentSession(fallback);
+    expect(await pausedPlan.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(planReplies).toBe(2);
+    expect(stageEvents(h.store, "job-fallback-paused")).toEqual([["index", 1, undefined], ["plan", 2, "cancelled"]]);
   });
 
   it("backlog item 6 (A7): a settled reader row with no stage event (a crash during the index stage) is refused by the next run with nothing sent", async () => {

@@ -18,6 +18,7 @@ import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
 import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorModelProfile, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck } from "../src/main/private-agent/claims";
+import { claimsReportPath } from "../src/main/private-agent/host-flags";
 import { withDocumentReview } from "../src/main/private-agent/document-review";
 import { loadRepairDirectory, repairMatchesRun, repairSeedMatches, withRepair } from "../src/main/private-agent/repair";
 import { DECK_CHECK_VERSION, deckArtifacts, withDeckValidity } from "../src/main/private-agent/ooxml";
@@ -317,7 +318,7 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
 
 /** Adds the claims ledger requirement: sources are the job's input files plus, for two-phase runs, the public sources the host retained (never the model-authored context files). */
 export function withClaimsLedger(phase: SessionPhase, publicRetrieval: boolean): SessionPhase {
-  const report = phase.contract.requiredArtifacts.find(artifact => artifact.path.endsWith(".md"))?.path ?? phase.contract.requiredArtifacts[0]!.path;
+  const report = claimsReportPath(phase.contract);
   const sources = phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path }));
   const check = claimsLedgerCheck({ reportPath: report, sources, publicSources: publicRetrieval });
   return { ...phase, checks: [...phase.checks, check], contract: { ...phase.contract, goal: `${phase.contract.goal}\n${claimsInstructions(report, sources, publicRetrieval)}`,

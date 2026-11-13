@@ -303,4 +303,26 @@ describe("desktop consultation authority and continuity", () => {
     expect(view.reason).toContain("consultation request was attempted and did not succeed");
     expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied"); expect(f.executions).toHaveLength(2);
   });
+
+  it("backlog item 6 (6.3): a consultation decision never re-opens a task that damaged storage ended", async () => {
+    const f = fixture(), original = f.options.testing!.runnerFactory!;
+    // After the approval, the next run trips on the draft's lost blob before any dispatch and keeps only the error's class.
+    f.options.testing!.runnerFactory = args => args.consultation?.view() ? { pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId } = args, owner = randomUUID();
+      store.acquireRun(contextId, owner, "unix:///synthetic-controller.sock");
+      try {
+        rmSync(join(f.options.dataRoot, "checkpoints", jobId, digest("Synthetic draft text.")), { force: true });
+        store.append(jobId, { type: "runtime_failure", contextId, code: "Error" });
+        return { status: "incomplete" as const, reason: "runtime_failure_progress_preserved", snapshot: [], checks: [], modelCalls: 0 };
+      } finally { store.releaseRun(contextId, owner, true); store.append(jobId, { type: "run_ended", contextId, elapsedMs: 5, cleanupConfirmed: true }); }
+    } } : original(args);
+    const pending = await f.start(), ref = f.ref(pending);
+    f.controller.previewConsultation(ref); f.controller.decideConsultation({ ...ref, decision: "approve" });
+    f.controller.resume(pending.id); await f.controller.wait(pending.id);
+    const stopped = f.controller.get(pending.id);
+    expect(stopped).toMatchObject({ status: "incomplete", canResume: false }); expect(stopped.reason).toContain("no longer match what it recorded");
+    expect(f.controller.decideConsultation({ ...ref, decision: "revoke" })).toMatchObject({ status: "incomplete", canResume: false, reason: stopped.reason });
+    expect(() => f.controller.resume(pending.id)).toThrow("general_task_resume_denied"); expect(f.executions).toHaveLength(2);
+  });
 });

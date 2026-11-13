@@ -34181,3 +34181,39 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The review of this pull request, which checks the re-stamp and this correction as the owner's decision requires; then its merge into `main`.
 
 References: BL-20261113-0805-infra-resume-design; BL-20261113-0806-infra-resume-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0906-correction-owner-verdict-capture-ids; BL-20261108-0856-correction-stop-bricking-tasks-design-id; the log rules at the top of this file.
+
+### BL-20261113-0810-infra-resume-on-main -- 2026-11-13 -- Part 3b on `main` after merge train 1: E1-T1's interrupt pin and test A move with the resume, and the loop's interrupt tests assert their stage entries whole
+
+Status: `Implemented`
+
+Scope or hypothesis: Bring backlog item 11's part 3b (BL-20261113-0806-infra-resume-implemented) onto `main` after merge train 1 (BL-20261110-1506-merge-train-1-integration), as the orchestrator asked on 2026-11-13, and record what changed beyond the rebase. Two of E1-T1's tests (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented) fail with part 3b and move here. Part 3b's own interrupt tests were tightened after the train's integration review. Implemented is not Verified: no sample, critique, model request, endpoint, Docker container or paid call ran.
+
+Decisions:
+- **The rebase.** The branch is rebased onto `main` at 9d10b9a. Its merge of part 3a's branch fell away, since #78 is on `main`. Six commits replayed with identical patches (`git range-diff`). The two build-log commits conflicted only at the ledger's tail, and re-applied their added lines byte for byte after the train's entry. Their re-stamp is BL-20261113-0808-correction-infra-resume-ids.
+- **E1-T1's pin moves again.** Train 1 flipped the pin to 11.1's refusal: a rerun refused, with `loop_stage_interrupted`, a sample the loop's interrupt cut before it submitted. Part 3b resumes such a sample once, so the pin now asserts the resume. The rerun moves the cut b to `b.infra-1` and runs b, the critique and the repair. It records one `operator_stop` resume, keeps a with its first times, and leaves no stage marked. This supersedes, without editing it, the train entry's description of the flipped pin, which expected part 3b to move it.
+- **E1-T1's test A.** Its `ledgerSummary` fixture ended the sample on `runtime_failure_progress_preserved`. Part 3a classes that reason as infrastructure, so part 3b deferred the fresh a with `loop_stage_infra` before admitting it, and the test failed. The fixture now ends on a task reason (`bounded_allowance_exhausted`), as part 3b did for 11.1's `rowSummary` and `transportStoppedSummary`, so the loop's admission rules decide again. The test's claims are unchanged: a is admitted, b, one critique and the repair run, and two rows count as retried. The integration review expected only the pin to move; a dry merge found this second break.
+- **Stage entries asserted whole (finding F2-1 of the train's integration review).** The review found that the flipped pin and 11.1's interrupt tests compared stage entries with subset matches, so a mark leaked onto another stage passed. Every interrupt scenario in tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts now asserts the whole `stages` array: each entry's keys, its `reused` flag, and the mark on the stage it names alone. The moved pin does the same. A reused stage is compared with its first recorded entry where the record keeps it. This answers the train entry's limitation on the flipped pin, whose subset match let that leak pass the whole file.
+- **Whose tests.** Both E1-T1 changes alter what lane S-e1's tests assert. The orchestrator asked for them, and this entry records them.
+
+Changes: tests/unit/phase4-loop.test.ts (E1-T1's pin and `ledgerSummary`; part 3b's interrupt tests; a `stageEntry` helper; `rowSummary` loses an unused parameter); tests/unit/phase4-loop-resume.test.ts (two interrupt scenarios and `stageEntry`). No source file changes beyond the rebase and the re-stamp's comments.
+
+Evidence:
+- **Mark mutants.** Each is a single edit of scripts/phase4-loop.ts, restored after its run. Before the rebase, failing tests over the two loop files (55 tests), before and after the tightening:
+  - a reused entry takes a mark another entry carries (the review's record-only leak): 1, then 4;
+  - the carry keeps every prior entry, not only marked ones: 0, then 1;
+  - a fresh entry takes a mark another entry carries: 1, then 2;
+  - a reused stage drops its own mark: 1, then 4;
+  - a moved stage keeps its entry: 0, then 0.
+- **On the rebased tree.** There are 59 tests, E1-T1's four included, and the record-only leak mutant fails five of them, the moved pin among them.
+- **Dry merge.** Before the rebase, a dry merge (`git merge-tree`, nothing written) of the branch with the integration branch at 7fd99df had a textual conflict only in docs/BUILD_LOG.md. Its tests/unit/phase4-loop.test.ts, run as a throwaway copy, failed 2 of 32 (the flipped pin, and test A with `loop_stage_infra`) and passed 32 of 32 with the two changes.
+- **At this branch's head,** on Node 22.22.2 with pnpm 10.12.4: at 5882a7e, the commit before this entry's, `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass. `pnpm exec vitest run`, run alone, ran 189 files and 3,367 tests: 3,280 passed, 86 were skipped and 1 failed. The failure was tests/unit/with-claude-key.test.ts, which timed out at its 5 s limit under the suite's load, as it has before on `main`, and passes alone (3 of 3). The ten registry, classification, loop and repair test files (tests/unit/registry-row-*.test.ts, run-classification, phase4-loop, phase4-loop-resume and phase2-repair) pass 295 of 295 under the machine's Python 3.9.5 and again under 3.9.6.
+
+Failures or blockers: Test A's break was found by the dry merge, not by the integration review, which expected only the pin to move.
+
+Limitations and non-claims: The tests run the loop on fakes only. The pin shows that a rerun resumes a marked stage whose summary ended `cancelled_or_deadline`, and that no stage is marked afterwards; it does not show what the driver's real interrupt handler leaves. One mark mutant still survives: a moved stage that keeps its entry. The rerun drops that entry before it records its own, so it shows on disk only if an interrupt lands between the move and the rerun. The it.each comment in E1-T1's describe still gives a stale reason for asserting no tie winner (the review's nit F2-3); it is S-e1's wording and is unchanged. CI had not run on this branch when this entry was written.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of this pull request (one reviewer, and a skeptic only for a blocker or major finding) and the owner's go-ahead; then its merge into `main`. Part 5's launcher (plan 11.5) is next in this lane.
+
+References: BL-20261113-0806-infra-resume-implemented; BL-20261113-0805-infra-resume-design; BL-20261113-0808-correction-infra-resume-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261113-0758 (on pull request #87); pull request #85.

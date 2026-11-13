@@ -20,7 +20,8 @@ Probes (docs/PLAN.md Phase 0 step 4; docs/PROJECT_REVIEW_2026-11-05.md section 5
   P1 identity   P2 effort honoured   P3 decode/prefill by workload
   P4 prefix cache   P5 escaped tool-argument integrity   P6 abort then next request
   P7 one vs two streams   P8 non-streaming request over 300 s   P9 context guard
-  P10 structured output per role: response_format json_schema, thinking on and off
+  P10 structured output per role: the pipeline's own request bodies (pnpm probe:export-schemas) with response_format
+      json_schema added, thinking on and off; a streamed body is read as server-sent events (P10-align)
   P11 prefill and decode by prompt size, cache reuse per extraction layout, K streams
   adapter: /openapi.json, /tokenize parity, reasoning field, legacy or flash_next_v1
 All prompts are synthetic. Never send personal or professional data through this.
@@ -54,6 +55,9 @@ THINK_SAMPLING = {"temperature": 1.0, "top_p": 0.95, "top_k": 20}
 TOKENS_PER_WORD = 1.245
 P10_CALLS = 20
 P10_ROLES = ("plan", "extract", "synthesis")
+P10_MODES = ("on", "off")
+# P10-align (BL-20261113-1011-p10-align-design): the export version that carries the pipeline's request bodies.
+P10_EXPORT_VERSION = 2
 P10_SCHEMA_NAMES = {"plan": "research_plan", "extract": "research_extraction", "synthesis": "research_synthesis"}
 P10_CLASSES = ("request_rejected", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed")
 P11_SIZES = (20_000, 60_000, 120_000)
@@ -391,6 +395,66 @@ def choose_variant(acceptance: Dict[str, Dict[str, Any]], requested_strict: bool
     return requested_strict
 
 
+def p10_bodies(schemas: Dict[str, Any], model: Optional[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """P10-align: the pipeline's own body for each role and thinking mode, as the role export built it. Refuses, before any
+    request, an older export, a missing body, a body for another model than the probe's, and a body that already sets
+    response_format."""
+    if not isinstance(schemas.get("version"), int) or schemas["version"] < P10_EXPORT_VERSION or not isinstance(schemas.get("requests"), dict):
+        raise ConfigError("P10 needs the pipeline's request bodies (role export version 2): run pnpm probe:export-schemas again")
+    bodies: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for role in P10_ROLES:
+        for mode in P10_MODES:
+            entry = (schemas["requests"].get(role) or {}).get(mode) or {}
+            body = entry.get("body") if isinstance(entry, dict) else None
+            if not isinstance(body, dict) or not isinstance(body.get("messages"), list) or "response_format" in body:
+                raise ConfigError(f"the role export has no usable {role}/{mode} body: run pnpm probe:export-schemas again")
+            if model is not None and body.get("model") != model:
+                raise ConfigError("the role export names another model than the probe: export with the same SOAR_VLLM_MODEL")
+            bodies.setdefault(role, {})[mode] = body
+    return bodies
+
+
+def p10_request_body(body: Dict[str, Any], role: str, schema: Dict[str, Any], strict: bool) -> Dict[str, Any]:
+    """The exported body with only response_format added: nothing else is the probe's own."""
+    return {**body, "response_format": response_format(role, schema, strict)}
+
+
+def reassemble_stream(lines: Sequence[str]) -> Tuple[Dict[str, Any], int]:
+    """A streamed chat completion as the JSON a plain reply would have: the joined content and reasoning fields, the last
+    finish reason, the usage and the model. Returns the reply and the number of data chunks; a malformed line raises ValueError."""
+    content_parts: List[str] = []
+    reasoning: Dict[str, List[str]] = {}
+    finish = usage = model = None
+    chunks = 0
+    for raw in lines:
+        line = raw.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            break
+        obj = json.loads(payload)
+        if not isinstance(obj, dict):
+            raise ValueError("stream chunk is not an object")
+        chunks += 1
+        model = obj.get("model", model)
+        usage = obj.get("usage") or usage
+        for choice in obj.get("choices") or []:
+            delta = choice.get("delta") or {}
+            if isinstance(delta.get("content"), str):
+                content_parts.append(delta["content"])
+            for field in REASONING_FIELDS:
+                if isinstance(delta.get(field), str) and delta[field]:
+                    reasoning.setdefault(field, []).append(delta[field])
+            finish = choice.get("finish_reason") or finish
+    message: Dict[str, Any] = {"role": "assistant", "content": "".join(content_parts) if content_parts else None}
+    for field, parts in reasoning.items():
+        message[field] = "".join(parts)
+    reply: Dict[str, Any] = {"object": "chat.completion", **({"model": model} if model is not None else {}),
+                             "choices": [{"index": 0, "message": message, "finish_reason": finish}], **({"usage": usage} if usage is not None else {})}
+    return reply, chunks
+
+
 def write_private(path: str, data: bytes) -> str:
     """Retained reply bodies are owner-readable only."""
     handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -483,6 +547,27 @@ class Endpoint:
             return {"status": error.code, "raw": raw, "json": None, "elapsed_s": time.monotonic() - started, **redact_error(raw)}
         except Exception as error:  # timeouts, resets
             return {"status": -1, "raw": b"", "json": None, "elapsed_s": time.monotonic() - started, "transport_error": type(error).__name__}
+
+    def post_stream(self, path: str, body: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+        """post() for a body with stream: true: the reply is reassembled into the JSON a plain reply has, so callers and the
+        assessor read both alike. A malformed stream is a transport failure."""
+        started = time.monotonic()
+        request = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers=self.headers)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                status = response.status
+                lines = [raw.decode("utf-8", "replace") for raw in response]
+        except urllib.error.HTTPError as error:
+            raw = error.read()
+            return {"status": error.code, "raw": raw, "json": None, "elapsed_s": time.monotonic() - started, **redact_error(raw)}
+        except Exception as error:  # timeouts, resets
+            return {"status": -1, "raw": b"", "json": None, "elapsed_s": time.monotonic() - started, "transport_error": type(error).__name__}
+        try:
+            reply, chunks = reassemble_stream(lines)
+        except ValueError:
+            return {"status": -1, "raw": b"", "json": None, "elapsed_s": time.monotonic() - started, "transport_error": "StreamMalformed"}
+        raw = json.dumps(reply, ensure_ascii=False).encode("utf-8")
+        return {"status": status, "raw": raw, "json": reply, "elapsed_s": time.monotonic() - started, "stream_chunks": chunks}
 
     def stream(self, messages: list, max_tokens: int, extra: dict, timeout: float = 900, abort_after: Optional[float] = None,
                keep_content: bool = False) -> dict:
@@ -740,13 +825,16 @@ def probe_p10(ep: Endpoint, card: dict, ctx: dict) -> dict:
     p10_dir = os.path.join(ctx["run_dir"], "p10")
     os.makedirs(p10_dir, mode=0o700, exist_ok=True)
     plan_payload = schemas["payloads"]["plan"]
+    # P10-align: the pipeline's own bodies, checked before any request (an older export, or another model, is refused here).
+    bodies = p10_bodies(schemas, ep.model)
     out: dict = {"calls_per_cell": args.p10_calls, "strict_requested": args.p10_strict, "reasoning_stripped": args.strip_reasoning,
+                 "export_version": schemas.get("version"), "request_settings": schemas.get("requestSettings"),
                  "schemas_protocol_sha256": schemas.get("protocolSha256"), "schema_sha256": {role: sha256_text(canonical_json(schemas["schemas"][role])) for role in P10_ROLES},
                  "binding": {"units": plan_payload["units"], "sourceIds": plan_payload["sourceIds"]}, "acceptance": {}, "cells": {}}
     for role in P10_ROLES:
         schema = schemas["schemas"][role]
+        # The acceptance check is unchanged by P10-align: two 16-token requests that pick the response_format variant only.
         messages = [{"role": "system", "content": schemas["systems"][role]}, {"role": "user", "content": schemas["payloads"][role]["userContent"]}]
-        max_tokens = int(schemas["outputTokens"][role])
         acceptance: Dict[str, Dict[str, Any]] = {}
         for strict in (True, False):
             result = ep.post("/chat/completions", {"model": ep.model, "messages": messages, "max_tokens": 16, **NO_THINK,
@@ -754,13 +842,15 @@ def probe_p10(ep: Endpoint, card: dict, ctx: dict) -> dict:
             acceptance["strict" if strict else "non_strict"] = {**post_record(result), "accepted": result["status"] == 200}
         out["acceptance"][role] = acceptance
         variant = choose_variant(acceptance, args.p10_strict)
-        for thinking in ("on", "off"):
-            extra = {"reasoning_effort": "medium", **THINK_SAMPLING} if thinking == "on" else NO_THINK
+        for thinking in P10_MODES:
+            # The exported body for this role and mode, with only response_format added; a streamed body is read as events.
+            exported = bodies[role][thinking]
+            streamed = exported.get("stream") is True
             calls = []
             for ordinal in range(1, args.p10_calls + 1):
-                body = {"model": ep.model, "messages": messages, "max_tokens": max_tokens, **extra, "response_format": response_format(role, schema, variant)}
-                result = ep.post("/chat/completions", body, timeout=900)
-                record: Dict[str, Any] = {"ordinal": ordinal, **post_record(result)}
+                body = p10_request_body(exported, role, schema, variant)
+                result = ep.post_stream("/chat/completions", body, timeout=900) if streamed else ep.post("/chat/completions", body, timeout=900)
+                record: Dict[str, Any] = {"ordinal": ordinal, **post_record(result), **({"stream_chunks": result["stream_chunks"]} if "stream_chunks" in result else {})}
                 content = None
                 finish = None
                 body_json = result["json"]
@@ -781,7 +871,8 @@ def probe_p10(ep: Endpoint, card: dict, ctx: dict) -> dict:
                     record["body_sha256"] = write_private(os.path.join(p10_dir, file_name), retained)
                 record["classification"] = classify_reply(result["status"], finish, content)
                 calls.append(record)
-            out["cells"][f"{role}/{thinking}"] = {"role": role, "thinking": thinking, "strict": variant, "max_tokens": max_tokens,
+            out["cells"][f"{role}/{thinking}"] = {"role": role, "thinking": thinking, "strict": variant, "max_tokens": exported.get("max_tokens"),
+                                                 "streamed": streamed, "request_body_sha256": schemas["requests"][role][thinking].get("bodySha256"),
                                                  "calls": calls, "counts": summarize_cell(calls, thinking)}
     return out
 
@@ -924,6 +1015,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         schemas = load_role_schemas(args.schemas)
         if "P10" in selected and schemas is None:
             raise ConfigError("P10 needs the role schemas: run pnpm probe:export-schemas first, or pass --skip P10")
+        if "P10" in selected:
+            # P10-align: an export without the pipeline's bodies, or with another model than the configured one, is refused before any request.
+            p10_bodies(schemas, config["model"])
     except (ConfigError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 2

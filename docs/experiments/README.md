@@ -39,9 +39,16 @@ This folder holds the committed, sanitized record of live trials (see
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and
-    adopt a new card. P10's thinking-off cells use the probe's own sampling,
-    non-streaming, so a passing cell does not show that the pipeline's own
-    requests pass. The K bursts use a one-sentence prompt and show decode
+    adopt a new card. Since P10-align (BL-20261113-1011-p10-align-design), each
+    P10 cell sends the pipeline's own request body for its role and thinking
+    mode. `pnpm probe:export-schemas` builds those bodies with the model layer
+    under the desktop's settings (`.env.local`). The probe only adds
+    `response_format`, and it reads a streamed reply as events. A passing cell
+    still shows nothing about requests without `response_format`, which is what
+    the pipeline sends until backlog item 9. It also shows nothing about real
+    corpus sizes or repair requests, since the payloads are synthetic and small.
+    Re-export after changing those settings: the probe refuses an export for
+    another model. The K bursts use a one-sentence prompt and show decode
     concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
     entry}`, and the run directory keeps `serving-card.json`. A refused card leaves

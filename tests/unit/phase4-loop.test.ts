@@ -520,7 +520,7 @@ describe("E1 recoverability: the harness loop admits retried rows and stops on a
   it.each([["b", ["a", "b"], 0, ["repair"], 1], ["repair", ["a", "b", "repair"], 1, [], 0]] as const)(
     "stops after %s on an interrupt during it, starts nothing after it, and a rerun reuses every finished stage and selects", async (name, ran, critiques, rerun, recritiques) => {
       // The interrupted stage here submitted before the interrupt was seen, so every loop version reuses it; a stage the interrupt cut before it
-      // submitted is the pin below. No tie winner is asserted: item 11's PR 11.1 changes the tie rule.
+      // submitted is the pin below. Under selection protocol 2 (item 11's PR 11.1) both ties keep the first: a over b, then the draft over its repair.
       const dir = loopDir(), abort = new AbortController();
       const { deps, calls } = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith(`/${name}`)) abort.abort(); } });
       await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
@@ -530,7 +530,7 @@ describe("E1 recoverability: the harness loop admits retried rows and stops on a
       const again = fakes({ summaries: candidates(false) });
       const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
       expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(rerun); expect(again.calls.critiques).toHaveLength(recritiques);
-      expect(record.failure).toBeNull(); expect(record.selected.final).not.toBeNull();
+      expect(record.failure).toBeNull(); expect(record.selected).toMatchObject({ stage1: { candidate: "a", step: "tie" }, final: { candidate: "a", step: "tie" } });
       expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(name === "b" ? ["a", "b"] : ["a", "b", "critique", "repair"]);
     });
 

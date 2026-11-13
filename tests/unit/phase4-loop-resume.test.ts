@@ -488,7 +488,9 @@ describe("part 3b after its code review: spans, carried counts, driver throws, c
       throw new Error("request_cancelled");
     }) as unknown as LoopDependencies["critique"];
     await expect(run(dir, harness({ summaries: stages(), critique: cancelled }).deps, {}, abort.signal)).rejects.toThrow("loop_interrupted");
-    expect(read(dir)).toMatchObject({ failedStage: "critique", stages: expect.arrayContaining([expect.objectContaining({ stage: "critique", interrupted: true })]) });
+    expect(read(dir)).toMatchObject({ failedStage: "critique" });
+    // The mark on the cut critique alone: a and b ran before the interrupt and stay unmarked.
+    expect(read(dir).stages).toEqual([stageEntry("a", false), stageEntry("b", false), stageEntry("critique", false, true)]);
     const closed = await closeLoop(dir, closing(harness({ summaries: stages() }).deps));
     // The critique's record keeps the critique's own code, as a critique that failed in the loop records it.
     expect(closed).toMatchObject({ selected: { final: { candidate: "a", step: "critique_failed", cause: "operator_stop" } }, closed: true, stopped: null,

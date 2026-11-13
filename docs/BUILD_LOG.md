@@ -34217,3 +34217,37 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The orchestrator's review of this pull request (one reviewer, and a skeptic only for a blocker or major finding) and the owner's go-ahead; then its merge into `main`. Part 5's launcher (plan 11.5) is next in this lane.
 
 References: BL-20261113-0806-infra-resume-implemented; BL-20261113-0805-infra-resume-design; BL-20261113-0808-correction-infra-resume-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261113-0758 (on pull request #87); pull request #85.
+
+### BL-20261113-0835-correction-infra-resume-on-main-stage-entries -- 2026-11-13 -- Correction: BL-20261113-0810-infra-resume-on-main overstates which interrupt tests assert their stage entries whole, and a sentence kept in BL-20261113-0806-infra-resume-implemented is now only historically true
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct two statements on this branch without editing the entries that make them. The light review of pull request #89 found the first. (1) The Decisions bullet "Stage entries asserted whole" of BL-20261113-0810-infra-resume-on-main says that every interrupt scenario in tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts asserts the whole `stages` array. Of the twelve tests in those files that fire the loop's interrupt, five did not at that entry's commit. (2) The Evidence of BL-20261113-0806-infra-resume-implemented says the design entry "is neither edited nor re-stamped". That stopped being true at BL-20261113-0808-correction-infra-resume-ids.
+
+Decisions:
+- **Where the whole `stages` array is asserted.**
+  - In tests/unit/phase4-loop.test.ts: 'stops after the running stage on an interrupt...', 'resumes a stage its own interrupt cut, once...', 'keeps an interrupt mark across invocations...', 'passes its interrupt to the critique...' and the moved E1-T1 pin.
+  - In tests/unit/phase4-loop-resume.test.ts: 'never resumes a cloud-armed a without a packet...' and 'ends the loop with its draft when the critique or the repair stops for good after stage 1'. From this entry's commit it is also asserted in 'closes a loop cut during its critique after stage 1...', whose subset match on the cut critique's entry is now whole-array equality.
+- **Where it is not.**
+  - Three critique scenarios of tests/unit/phase4-loop-resume.test.ts assert no stage entries: 'resumes a critique the loop's interrupt cancelled at its token admission...', 'closes a loop whose critique answered before the loop recorded it at the repair...' and 'resumes a torn critique record...'.
+  - E1-T1's it.each ('stops after %s on an interrupt during it...') compares only the names of the reused stages. It is lane S-e1's test and stays as written.
+- **The kept sentence.** The Evidence of BL-20261113-0806-infra-resume-implemented says "The design entry is neither edited nor re-stamped." That was true when the entry was written, under the orchestrator's ruling of 2026-11-10. Since BL-20261113-0808-correction-infra-resume-ids, the design entry carries a re-stamped heading, as the owner's decision of 2026-11-13 allows; its body is unchanged. The sentence stays as written, for the reason that correction gives for the sentences that keep the original ID.
+- **The pull request's description.** Its sentence "Every interrupt test asserts the whole `stages` array" now names the tests that do and points here for the ones that do not.
+
+Changes: tests/unit/phase4-loop-resume.test.ts (one matcher, in 'closes a loop cut during its critique after stage 1...'); docs/BUILD_LOG.md (this entry); one sentence of pull request #89's description.
+
+Evidence:
+- tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts pass 59 of 59.
+- The twelve interrupt scenarios come from a scan of both files for tests that fire the loop's abort. Each was then read for its stage assertions.
+- A single-edit mutant of scripts/phase4-loop.ts leaks the mark of a stage cut while its run threw onto every stage recorded before it. Out of the 59 tests it fails 2 with the old matcher ('keeps an interrupt mark across invocations...' and 'passes its interrupt to the critique...') and 3 with the new one, the close scenario added. The record-only leak mutant that BL-20261113-0810-infra-resume-on-main reports still fails 5.
+- `pnpm --silent validate:build-log -- --base-ref 9d10b9a`, this branch's base, passes: 556 entries. Against `main` at bb6ef32 it fails as expected ("not append-only relative to the base"), because `main` gained #92's entries after this branch was rebased.
+
+Failures or blockers: None in this commit. The branch is behind `main` at bb6ef32: its entries from 0805 to 0810 sort before `main`'s tail, BL-20261113-0816. They are re-stamped when `main` is merged in, after #82, in the order the orchestrator set.
+
+Limitations and non-claims: The tests run the loop on fakes only. The three critique scenarios and E1-T1's it.each still do not pin which stage carries a mark.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: After #82 merges, `main` is merged into this branch, every entry that sorts before `main`'s tail is re-stamped with its correction, the validator runs against `main`, and the branch is pushed. The orchestrator then merges once CI is green.
+
+References: BL-20261113-0810-infra-resume-on-main; BL-20261113-0806-infra-resume-implemented; BL-20261113-0808-correction-infra-resume-ids; the light review of pull request #89.

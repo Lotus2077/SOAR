@@ -33925,3 +33925,38 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The review of #82 checks this re-stamp and its correction, as the owner's rule requires. If another entry with a later ID merges into `main` first, these entries are re-stamped again at #82's merge, with a further correction.
 
 References: BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-1506-merge-train-1-integration; BL-20261110-1507-runner-storage-integrity-design; BL-20261110-1508-runner-storage-integrity-implemented; BL-20261113-0758 (pull request #87).
+
+### BL-20261113-0807-research-stage-pause-held-attempt-pins -- 2026-11-13 -- Backlog item 6 follow-up: the train-1 integration check's items carried by plan 6.3; three session-level pins of a pause or a cancel around 7a.1's held extraction attempt, and wording that no longer reads as if items 7 and 8 lifted the stage limitation
+
+Status: `Implemented`
+
+Scope or hypothesis: The integration check of merge train 1 (part f3 and finding X3-2) left two items to lane S-desk, for 6.3 or a later pull request. Pull request #82 carries them after its rebase onto `main`.
+- **Part f3.** No committed session-level test pinned a pause or a cancel around 7a.1's held extraction attempt. 7a.1 (BL-20261110-0726-correction-research-tolerance-total-loss, pull request #76) holds a first extraction attempt that lost every quote of a question it marked `evidence_found`, and repairs it after every other chunk. The check showed with a throwaway test that the merged behaviour is what BL-20261109-0501-research-stage-pause-design decided.
+- **Finding X3-2.** #77's test title and the comment on `researchStageUnfinished` said the stage limitation lasts "until backlog items 7 and 8". After train 1, 7a.1, 7b.1, 7d.A and 8.2a are merged and none adds a per-chunk continuation protocol, so the wording read as if they might have lifted it.
+
+Decisions: No new decision. The tests pin BL-20261109-0501's decisions on the merged pipeline. The wording is the check's own suggested text.
+
+Changes:
+- src/main/private-agent/session.ts: the comment on `researchStageUnfinished` now says there is no per-chunk continuation protocol yet, and that the parts of items 7 and 8 merged so far (7a.1, 7b.1, 7d.A, 8.2a) add none. Comment only; it changes the private-agent source freeze, so no loop or E3 card may span this merge.
+- tests/unit/private-agent-research-session.test.ts:
+  - #77's limitation test is retitled to name the merged parts that do not lift it;
+  - the fixture takes an optional `extractReply` that may replace the nth extraction reply;
+  - three tests, each with a first extraction reply whose only quote is in no source, for the plan's one question marked `evidence_found`. A control run without a pause is submitted, with the extract stage at 2 calls, 1 invalid reply and 1 repair call.
+    - A pause after the held attempt settles and before its repair: the task ends incomplete with `research_stage_not_replayed`. The repair is refused before dispatch: the extract stage records 1 call, `cancelled` and 1 invalid reply, and the three rows are settled. The next run refuses the same way, with nothing sent and no writer run.
+    - A pause during the repair call: the task ends the same way, and the repair's row is `failed` with code `cancelled` and a zero fee, never `unknown`. The next run refuses with nothing sent.
+    - A cancel during the repair call: the task ends `session_cancelled`, and so does the next run, with nothing sent.
+
+Evidence: private-agent-research-session 20 of 20 (17 before), and `pnpm typecheck` passes. The full suite and the other checks are stated in pull request #82's description at its head.
+
+Failures or blockers: None. The first run of the second test expected the row's purpose to be "research extraction"; it is "research evidence extraction", and the assertion now says so.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`: fixtures on loopback only; no endpoint, model or paid call ran.
+- The tests pin one source with one chunk, and a cancel only during the repair call. A cancel between the held attempt and its repair was measured by the integration check, not pinned here.
+- The per-chunk continuation protocol that would let a started stage resume remains unbuilt.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review of pull request #82, with its re-stamp.
+
+References: BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; BL-20261110-1507-runner-storage-integrity-design; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-1506-merge-train-1-integration; the train-1 integration check, part f3 and finding X3-2.

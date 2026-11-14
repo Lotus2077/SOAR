@@ -47,14 +47,16 @@ This folder holds the committed, sanitized record of live trials (see
   - **Structured output is read since item 9**
     (BL-20261114-1650-research-structured-output-design). A local plan, extract or
     synthesis call whose effective thinking mode the card flags sends the body it
-    would send without the flag, with only `response_format` added, as P10
-    measured it:
-    the role's schema under P10's name, and `strict: true` for the strict variant.
-    Thinking counts as off when the attempt or the role model disables it. Index,
-    a cloud role and the assists never send it. A flag changes the research
-    protocol hash, the session identity and freeze.json's pipeline block, and a
-    stage row counts the calls that carried it (`structuredOutputCalls`). Without a
-    card, nothing changes.
+    would send without the flag, plus `response_format`: the role's schema under
+    P10's name, and `strict: true` for the strict variant. One more value differs:
+    a flag changes the research protocol hash, which a synthesis payload carries in
+    `coverage.protocolSha256`. Thinking counts as off when the attempt or the role
+    model disables it. Index, a cloud role and the assists never send it. The
+    reader refuses a flag when an attempt that would send it has another cap than
+    its P10 cell measured (`serving_card_structured_output_cap_unmeasured`). A flag
+    also changes the session identity and freeze.json's pipeline block, and a stage
+    row counts the calls that carried it (`structuredOutputCalls`). Without a card,
+    nothing changes.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and
@@ -64,11 +66,16 @@ This folder holds the committed, sanitized record of live trials (see
     under the desktop's settings (`.env.local`). The probe only adds
     `response_format`, and it reads a streamed reply as events. A passing cell
     still shows nothing about requests without `response_format`, which is what
-    the pipeline sends until backlog item 9. It also shows nothing about real
-    corpus sizes or repair requests, since the payloads are synthetic and small.
-    Re-export after changing those settings: the probe refuses an export for
-    another model. The K bursts use a one-sentence prompt and show decode
-    concurrency only.
+    an unflagged call sends. It also shows nothing about real corpus sizes or
+    repair requests, since the payloads are synthetic and small. Re-export after
+    changing those settings: the probe refuses an export for another model. The
+    card does not yet record the settings the export built its bodies under (the
+    Flash reply contract, `SOAR_STREAMING` and the cache salt), and the reader
+    checks only the served model and, under `flash_next_v1`, the context. So run a
+    card with structured output only under the export's settings, and after
+    changing the reply contract, `SOAR_STREAMING` or `--cache-salt`, re-export,
+    re-run P1, P10, P11 and the adapter together, and adopt a new card. The K
+    bursts use a one-sentence prompt and show decode concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
     entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
     no run directory. The driver's and the loop's failure lines, and the loop's

@@ -95,12 +95,14 @@ export const RESEARCH_ROLE_POLICY_APPLICATION = Object.freeze({ version: 1, atte
  * local plan, extract or synthesis call adds its role's schema as `response_format` (the ReviewResultV1 shape; `strict: true` for
  * the strict variant only, the key omitted otherwise) when the flag for its effective thinking mode is set: "off" when the attempt
  * or the role model disables thinking, as probe P10's `<role>/off` cell. Bound into researchProtocolSha256 with the policy, and only
- * when a role's structured output is set.
+ * when a role's structured output is set. Since the review of #108, `body` also says that the flag moves the protocol hash, which a
+ * synthesis payload carries in coverage.protocolSha256: that one value of the synthesis user message differs too.
  */
 export const RESEARCH_STRUCTURED_OUTPUT_APPLICATION = Object.freeze({ version: 1, shape: "response_format_json_schema_review_result_v1",
   names: Object.freeze(Object.fromEntries(STRUCTURED_OUTPUT_ROLES.map(role => [role, RESEARCH_ROLE_SCHEMAS[role].name]))),
   strictKey: "true_for_strict_omitted_for_non_strict", mode: "effective_thinking_off_when_the_attempt_or_the_role_model_disables_it",
-  roles: "local_plan_extract_synthesis", index: "never", assists: "never", body: "unchanged_but_for_response_format" });
+  roles: "local_plan_extract_synthesis", index: "never", assists: "never",
+  body: "response_format_added_and_the_synthesis_payload_coverage_carries_the_flagged_protocol_hash" });
 /**
  * The role policy's part of the protocol (7a.2, item 9): none for a policy whose values are all default; otherwise the policy with
  * RESEARCH_ROLE_POLICY_APPLICATION, and RESEARCH_STRUCTURED_OUTPUT_APPLICATION as well only when a role's structured output is set,
@@ -164,7 +166,7 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
   diagnostics?: ResearchDiagnosticsSink;
   /** 7(c): backlog item 10's assist hook (research-assist-contract.ts). Absent, no assist slot fires and every request is as without one. */
   assists?: ResearchAssists;
-  /** 7a.2: the role policy (an adopted serving card's caps and thinking); absent is DEFAULT_RESEARCH_ROLE_POLICY, and every request is as without one. */
+  /** 7a.2 and item 9: the role policy (an adopted serving card's caps, thinking and structured-output flags); absent is DEFAULT_RESEARCH_ROLE_POLICY, and every request is as without one. */
   roles?: ResearchRolePolicy }
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
 /**

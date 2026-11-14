@@ -130,6 +130,9 @@ describe("serving-card reader (SC)", () => {
       card.evidence.p10.cells["extract/off"].variant = "non_strict"; }))],
     ["serving_card_structured_output_below_rule", "18/20", loadFrom(edited(flag("synthesis", false, true))), "roles.synthesis.structuredOutput.thinkingOn"],
     ["serving_card_structured_output_below_rule", "19/19", loadFrom(edited(card => { flag("extract", true, false)(card); Object.assign(card.evidence.p10.cells["extract/off"], { total: 19, valid: 19 }); }))],
+    // Item 9's review: extract sends the format with thinking off on both attempts, and its cell ran at 2,048 tokens.
+    ["serving_card_structured_output_cap_unmeasured", "an extract cap P10 did not measure", loadFrom(edited(card => { flag("extract", true, false)(card); card.roles.extract.maxOutputTokens = [1024, 2048]; })),
+      "roles.extract.maxOutputTokens[0]"],
     ["serving_card_streams_unproven", "K 4 with no burst", loadFrom(edited(card => { card.concurrency.localStreams = 4; delete card.evidence.p11.kStreams["4"]; })), "concurrency.localStreams"],
     ["serving_card_streams_unproven", "one error", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].errors = 1; }))],
     ["serving_card_streams_unproven", "3 streams", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].streams = 3; }))],
@@ -159,9 +162,17 @@ describe("serving-card reader (SC)", () => {
     expect(refusal(() => loadFrom(edited(card => { flag("extract", true, true)(card); card.concurrency.localStreams = 4; }))(workspace())))
       .toMatchObject({ code: "serving_card_parameter_unconsumed", parameter: "concurrency.localStreams" });
   });
+  it("R2 since item 9's review: an attempt that sends the format must use the cap its P10 cell measured; another attempt may change its cap", () => {
+    // Plan sends the format with thinking on only; its first attempt has thinking off, so its cap may differ from the plan/on cell's 8,192.
+    const plan = (caps: [number, number]) => edited(card => { flag("plan", false, true)(card); card.roles.plan.thinking = ["disabled", "model"]; card.roles.plan.maxOutputTokens = caps; });
+    expect(plan([8192, 8192]).evidence.p10!.cells["plan/on"]!.maxTokens).toBe(8192);
+    expect(loadFrom(plan([4096, 8192]))(workspace()).policy.roles.plan).toEqual({ maxOutputTokens: [4096, 8192], thinking: ["disabled", "model"],
+      structuredOutput: { variant: "strict", thinkingOff: false, thinkingOn: true } });
+    expect(refusal(() => loadFrom(plan([8192, 4096]))(workspace()))).toMatchObject({ code: "serving_card_structured_output_cap_unmeasured", parameter: "roles.plan.maxOutputTokens[1]" });
+  });
   it("R2: the table covers every refusal code, and a key path outside the allowlist never reaches an error", () => {
     expect(new Set(CASES.map(([code]) => code))).toEqual(new Set(SERVING_CARD_CODES));
-    expect(SERVING_CARD_CODES).toHaveLength(14);
+    expect(SERVING_CARD_CODES).toHaveLength(15);
     for (const code of SERVING_CARD_CODES) expect(code).toMatch(/^[a-z0-9_]{1,79}$/u);
     expect(new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json").parameter).toBeUndefined();
     expect(new ServingCardError("serving_card_not_adopted", "decision").parameter).toBe("decision");

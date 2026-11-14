@@ -94,7 +94,8 @@ export type ServingCardV1 = z.infer<typeof ServingCardV1Schema>;
 export const SERVING_CARD_CODES = ["serving_card_pin_drift", "serving_card_version_unsupported", "serving_card_invalid", "serving_card_not_adopted",
   "serving_card_model_mismatch", "serving_card_context_mismatch", "serving_card_cap_out_of_range", "serving_card_structured_output_unassessed",
   "serving_card_p10_protocol_drift", "serving_card_schema_drift", "serving_card_structured_output_variant_mismatch",
-  "serving_card_structured_output_below_rule", "serving_card_streams_unproven", "serving_card_parameter_unconsumed"] as const;
+  "serving_card_structured_output_below_rule", "serving_card_structured_output_cap_unmeasured", "serving_card_streams_unproven",
+  "serving_card_parameter_unconsumed"] as const;
 export type ServingCardCode = (typeof SERVING_CARD_CODES)[number];
 
 /**
@@ -218,8 +219,8 @@ export function nonDefaultParameters(policy: ServingPolicy): { parameter: Servin
 
 /**
  * Steps 4-10 of the reader against SERVING_CARD_CONSUMED: adopted, the served alias and (under flash_next_v1) the context,
- * every cap within [128, the heavy profile's limit], the evidence for each flagged structured-output mode, the burst for
- * K > 1, then fail closed. Pure; there is no override argument.
+ * every cap within [128, the heavy profile's limit], the evidence for each flagged structured-output mode (since item 9's review,
+ * also the cap P10 measured it at), the burst for K > 1, then fail closed. Pure; there is no override argument.
  */
 export function resolveServingCard(card: ServingCardV1, expectation: ServingCardExpectation): ServingPolicy {
   if (card.decision.status !== "adopted" || card.decision.entry === null) refuse("serving_card_not_adopted", "decision");
@@ -248,6 +249,12 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
       const requested: StructuredOutputVariant = p10.strictRequested ? "strict" : "non_strict";
       if (flag.variant !== requested || cell.variant !== flag.variant) refuse("serving_card_structured_output_variant_mismatch", at);
       if (cell.total < P10_RULE.minCalls || cell.valid * 100 < P10_RULE.minValidPercent * cell.total) refuse("serving_card_structured_output_below_rule", at);
+      // Item 9's review (BL-20261114-1650-research-structured-output-design): every attempt that sends the format in this mode sends it at
+      // the cap the cell measured. Research roles run under the heavy profile alone, whose thinking is on, so "model" is this mode's "on".
+      card.roles[role].thinking.forEach((thinking, attempt) => {
+        if ((thinking === "disabled" ? "off" : "on") === mode && card.roles[role].maxOutputTokens[attempt] !== cell.maxTokens)
+          refuse("serving_card_structured_output_cap_unmeasured", `roles.${role}.maxOutputTokens[${attempt}]`);
+      });
     }
   }
   const streams = card.concurrency.localStreams;

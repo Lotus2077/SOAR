@@ -133,7 +133,7 @@ const USER_START = `(?<![a-z0-9_./-])`;
  *   path, and starts directly after `:` or `@` (L2).
  * - The `localhost` and IPv6 rules start after `@` (L6).
  * - Last, a credential written directly before a URL or path that a rule has replaced goes too (`alice:pw@https://…` is
- *   `[url][url]`): it runs after every other URL rule, so it never takes a token from one.
+ *   `[url][url]`), its password up to 64 characters: it runs after every other URL rule, so it never takes a token from one.
  */
 const URL_PATTERNS_5: readonly RegExp[] = Object.freeze([
   new RegExp(`(?<![a-z0-9+.-])[a-z][a-z0-9+.-]{0,31}:\\/\\/(?:[^\\s/@]{1,256}@)?${BODY}+`, "giu"),
@@ -145,7 +145,7 @@ const URL_PATTERNS_5: readonly RegExp[] = Object.freeze([
   URL_PATTERNS[6]!,
   new RegExp(`(?<![a-z0-9_./-])localhost(?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
   new RegExp(`(?<![a-z0-9_./:\\]-])\\[(?=[0-9a-f:.]{0,40}::|(?:[0-9a-f]{1,4}:){7})[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\](?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
-  new RegExp(`${USER_START}${USER}?:[^\\s/"'<>]{0,256}@(?=:?\\[(?:url|file)\\])`, "giu"),
+  new RegExp(`${USER_START}${USER}?:[^\\s/"'<>]{0,64}@(?=:?\\[(?:url|file)\\])`, "giu"),
 ]);
 const SEGMENT = `[^\\s/\\\\"'<>${SPACELESS}]`, SEGMENT_Q = `(?:${SEGMENT}|'(?=${SEGMENT}))`;
 /** A path segment character: a segment character, or spaceless-script letters a connector touches. */
@@ -971,7 +971,7 @@ export const SCRUB_POLICY = Object.freeze({
   matching: "rolling_hashes_by_first_4_and_length_leftmost_longest; names_absorb_up_to_4_extensions_the_longest_unglued_and_a_folder_prefix_before; hosts_urls_paths_absorb_a_path_after; shared_form_[source]",
   glued: "a_file_name_glued_to_more_name_by_-_or__or_._on_either_side_is_[file]; a_host_led_form_glued_after_labels_userinfo_or_a_word_with_its_//_and_scheme_is_[url]_and_a_host_led_name_takes_its_url's_rest; a_lone_www._keeps_the_alias; on_the_provisional_path_userinfo_goes_back_through_a_password's_characters_once_an_@_is_crossed_and_a_user:password@_before_any_source_match_makes_it_host_led; a_whole_path_or_url_form_with_more_of_its_segment_glued_after_it_and_a_host_with_a_hyphenated_word_take_the_token's_rest; a_name_a_query_fragment_or_slash_and_segment_follows_takes_them",
   union: "two_paths_over_one_normalized_input_each_tracking_the_input_span_of_every_unit_of_its_text; the_policy_4_path_replaces_as_version_4; the_sent_text_replaces_every_span_either_path_replaced; overlapping_spans_become_one_with_the_alias_both_gave_else_the_widest_placeholder_url_file_source_digest; scrubbed_again_while_the_audit_finds_something_at_most_twice; counts_are_those_of_the_sent_text_a_re_scrub_dropping_the_placeholders_it_covers",
-  provisional: "a_match_leaves_the_alias_or_S0_for_a_placeholder; a_provisional_mark_records_its_glue_lead_prefix_run_and_tail_spans_moves_with_the_text_and_onto_the_placeholder_of_a_rule_that_takes_it; after_the_last_pass_each_mark_becomes_its_placeholder_or_its_rule's_over_what_is_still_visible_of_its_spans_with_a_scheme_glued_before_a_url; its_own_url_and_path_rules_and_a_relative_path's_query_or_fragment_after_the_extension; a_whole_url_or_path_form's_run_is_read_from_before_its_glued_digits_which_alone_keep_the_alias; a_name's_tail_takes_&_and_;_parameters; a_rooted_path_with_an_extension_takes_its_query_fragment_or_parameters; user_names_of_any_spaced_script_with_brackets_after_the_first; last_a_credential_directly_before_a_url_or_path_placeholder_is_[url]",
+  provisional: "a_match_leaves_the_alias_or_S0_for_a_placeholder; a_provisional_mark_records_its_glue_lead_prefix_run_and_tail_spans_moves_with_the_text_and_onto_the_placeholder_of_a_rule_that_takes_it; after_the_last_pass_each_mark_becomes_its_placeholder_or_its_rule's_over_what_is_still_visible_of_its_spans_with_a_scheme_glued_before_a_url; its_own_url_and_path_rules_and_a_relative_path's_query_or_fragment_after_the_extension; a_whole_url_or_path_form's_run_is_read_from_before_its_glued_digits_which_alone_keep_the_alias; a_name's_tail_takes_&_and_;_parameters; a_rooted_path_with_an_extension_takes_its_query_fragment_or_parameters; user_names_of_any_spaced_script_with_brackets_after_the_first; last_a_credential_with_a_password_up_to_64_directly_before_a_url_or_path_placeholder_is_[url]",
   spacelessInPaths: "spaceless_letters_inside_urls_paths_and_file_names_only_where_a_connector_touches_them",
   extensions: "2_to_16_letters_and_digits_with_a_letter_not_a_capitalized_word_not_a_decimal",
   relative: "whole_run_from_a_run_start_cut_after_the_longest_extension_whole_when_a_separator_follows_it",

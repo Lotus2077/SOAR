@@ -438,8 +438,8 @@ describe("the assist protocol block and the records", () => {
     expect(block.packet.scrub.patterns.path.length).toBeGreaterThan(5);
     expect(block.packet.evidenceTemplate).toContain("notes withheld");
     // Pinned: any change to a prompt, bound, code list or scrub rule must change these on purpose (scrub policy version 4).
-    expect(researchAssistProtocolSha256("forced_split")).toBe("4fa8d230e5adddd9069e1a279452c6caea3b0b919abfabbec47368a816e41440");
-    expect(researchAssistProtocolSha256("local_first")).toBe("46af4a6e579946b6856de2a74227905a27ec57787a2a97d4b18724ca29d7d95a");
+    expect(researchAssistProtocolSha256("forced_split")).toBe("2fe123bad3b1b49c0ee3dd4dd691e07213abd360ee779a2db9cad2d8833a50fc");
+    expect(researchAssistProtocolSha256("local_first")).toBe("5966a089edf715c99eebd3565833f1b794af49f048cd49d1a1693ff620a2dd34");
   });
 
   it("validates the stage record 10.b assembles, which keeps every attempt and never reads a skipped one as zero writes", async () => {

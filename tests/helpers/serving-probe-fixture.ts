@@ -1,3 +1,4 @@
+import type { ServingCardRequestSettings } from "../../src/main/private-agent/serving-card";
 /** A synthetic probe_version 2 result shaped the way scripts/serving-probe.py writes one. Invented numbers, no address anywhere. */
 const h = (n: string) => n.repeat(64);
 
@@ -24,6 +25,12 @@ function p10Cell(role: string, thinking: string, maxTokens: number, valid: numbe
   return { role, thinking, strict: true, max_tokens: maxTokens, calls, counts };
 }
 
+/**
+ * The settings the role export built P10's bodies under, as P10-align records them (`request_settings`): the served alias, streaming
+ * on, the legacy reply contract, the heavy profile and the cache salt (BL-20261114-1734-serving-card-request-settings-design).
+ */
+export const SYNTHETIC_P10_REQUEST_SETTINGS: Readonly<ServingCardRequestSettings> = Object.freeze({ model: "RM-01 VLM", streaming: true, localReplyContract: null,
+  localContextTokens: null, profile: "heavy", cacheSalt: true });
 export function syntheticProbe(): Record<string, any> {
   const acceptance = { strict: { status: 200, elapsed_s: 1.2, accepted: true }, non_strict: { status: 200, elapsed_s: 1.1, accepted: true } };
   const kStream = (k: number, decode: number) => ({ streams: k, errors: 0, per_stream_decode_tok_s: Array(k).fill(decode), median_decode_tok_s: decode, aggregate_tok_s: Math.round(decode * k * 0.98 * 10) / 10,
@@ -48,7 +55,7 @@ export function syntheticProbe(): Record<string, any> {
     P5: { status: 200, elapsed_s: 79.7, payload_bytes: 11124, finish_reason: "tool_calls", tool_calls: 1, args_parse: true, content_exact: true, content_len_ratio: 1 },
     P7: { single: syntheticStream(30, 900, 0.13, 35), concurrent: { s0: syntheticStream(30, 900, 0.2, 34.8), s1: syntheticStream(30, 900, 0.21, 35.1) } },
     P9: { status: 400, elapsed_s: 0.04, error_bytes: 180, error_sha256: h("d"), requested_max_tokens: 262144, rejected: true },
-    P10: { calls_per_cell: 20, strict_requested: true, reasoning_stripped: false, schemas_protocol_sha256: h("c"), schema_sha256: { plan: h("1"), extract: h("2"), synthesis: h("3") },
+    P10: { calls_per_cell: 20, strict_requested: true, reasoning_stripped: false, request_settings: { ...SYNTHETIC_P10_REQUEST_SETTINGS }, schemas_protocol_sha256: h("c"), schema_sha256: { plan: h("1"), extract: h("2"), synthesis: h("3") },
       binding: { units: ["U1", "U2", "U3"], sourceIds: ["input/corpus/alpha.md", "input/corpus/beta.md"] }, acceptance: { plan: acceptance, extract: acceptance, synthesis: acceptance },
       cells: { "plan/on": p10Cell("plan", "on", 8192, 19, { truncated: 1 }), "plan/off": p10Cell("plan", "off", 8192, 17, { schema_invalid: 2, binding_invalid: 1 }),
         "extract/on": p10Cell("extract", "on", 2048, 20, {}), "extract/off": p10Cell("extract", "off", 2048, 20, {}),

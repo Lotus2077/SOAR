@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { digest } from "../../src/main/private-agent/contracts";
 import { PYTHON_TIMEOUT_MS, runCardWriter } from "../helpers/serving-card-fixture";
-import { syntheticProbe } from "../helpers/serving-probe-fixture";
+import { SYNTHETIC_P10_REQUEST_SETTINGS, syntheticProbe } from "../helpers/serving-probe-fixture";
 
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-card.py");
 const cleanups: (() => void)[] = [];
@@ -174,6 +174,9 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
     expect(p10).toMatchObject({ callsPerCell: 20, strictRequested: true, protocolSha256: h("c"), schemaSha256: { plan: h("1"), extract: h("2"), synthesis: h("3") },
       assessed: { protocolSha256: h("c"), schemasProtocolMatch: true }, acceptance: { plan: both, extract: both, synthesis: both } });
     expect(Object.keys(p10.cells)).toEqual(["plan/on", "plan/off", "extract/on", "extract/off", "synthesis/on", "synthesis/off"]);
+    // BL-20261114-1734-serving-card-request-settings-design: the settings P10's bodies were built under, copied in the reader's order.
+    expect(p10.requestSettings).toEqual(SYNTHETIC_P10_REQUEST_SETTINGS);
+    expect(Object.keys(p10.requestSettings)).toEqual(["model", "streaming", "localReplyContract", "localContextTokens", "profile", "cacheSalt"]);
     expect(p10.cells["plan/off"]).toEqual({ variant: "strict", maxTokens: 8192, total: 20, valid: 17, truncated: 0, invalidJson: 0, schemaInvalid: 2, bindingInvalid: 1,
       requestRejected: 0, unassessed: 0, meanCompletionTokens: 400, meanReasoningTokens: 0 });
     for (const [key, cell] of Object.entries<any>(p10.cells)) expect(cell).toMatchObject({ meanCompletionTokens: 400, meanReasoningTokens: key.endsWith("/on") ? 350 : 0 });
@@ -210,6 +213,16 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
     expect(structured(JSON.parse(run.policy!.toString("utf8")))).toEqual(expected);
   });
 
+  it("W3 since BL-20261114-1734-serving-card-request-settings-design: copies a Flash record, and without one writes null and proposes no structured output", () => {
+    const flash = syntheticProbe(); Object.assign(flash.P10.request_settings, { localReplyContract: "flash_next_v1", localContextTokens: 262144 });
+    expect(JSON.parse(runCardWriter(flash).policy!.toString("utf8")).evidence.p10.requestSettings).toEqual({ ...SYNTHETIC_P10_REQUEST_SETTINGS,
+      localReplyContract: "flash_next_v1", localContextTokens: 262144 });
+    const none = syntheticProbe(); delete none.P10.request_settings;
+    const run = runCardWriter(none), policy = JSON.parse(run.policy!.toString("utf8"));
+    expect(run.status).toBe(0); expect(policy.evidence.p10.requestSettings).toBeNull();
+    expect(structured(policy)).toEqual({ plan: null, extract: null, synthesis: null });
+  });
+
   it.each(["P10", "P11", "adapter"])("W3: %s skipped leaves its evidence block null", name => {
     const probe = syntheticProbe();
     probe.probes_run = probe.probes_run.filter((item: string) => item !== name); probe.probes_skipped.push(name); delete probe[name];
@@ -229,6 +242,10 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
       "more P11 sizes, K values or layouts than the card holds", true],
     ["a K above 999", p => { p.P11.k_streams["1000"] = { ...p.P11.k_streams["1"], streams: 1000 }; }, [], "than the card holds", true],
     ["an assessment that disagrees with the protocol hashes", p => { p.P10.assessed.schemasProtocolMatch = false; }, [], "disagrees with the export's", true],
+    ["request settings with another key", p => { p.P10.request_settings.endpoint = "x"; }, [], "at $.P10.request_settings does not have the shape", true],
+    ["request settings with a path-like model", p => { p.P10.request_settings.model = "/home/x/m"; }, [], "at $.P10.request_settings does not have the shape", true],
+    ["a reply contract without its context", p => { p.P10.request_settings.localReplyContract = "flash_next_v1"; }, [], "at $.P10.request_settings does not have the shape", true],
+    ["another profile", p => { p.P10.request_settings.profile = "standard"; }, [], "at $.P10.request_settings does not have the shape", true],
     ["a lone surrogate in the served alias", p => { p.P1.models[0].id = "RM-01 \ud800"; }, [], "cannot be encoded as UTF-8", false],
     ["an engine version that looks like a path", p => { p.P1.version = "/opt/vllm-0.33"; }, [], "at $.P1.version; serve the model under --served-model-name", false],
   ])("W4: refuses %s with exit 2, printing and writing nothing", (_name, edit, extra, message, markdownAlone) => {

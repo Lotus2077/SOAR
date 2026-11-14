@@ -24,6 +24,7 @@ import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema
 import { assembleIndexEntry, buildLiteralSourceCard } from "../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanSchema } from "../src/main/private-agent/research-plan";
 import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
+import { servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
 import { buildLocalScreenModelConfig } from "./private-agent-local-screen";
 
 export const ROLE_SCHEMA_EXPORT_VERSION = 2;
@@ -51,8 +52,11 @@ export interface RoleSchemaExport {
   outputTokens: typeof OUTPUT_TOKENS;
   thinking: typeof THINKING;
   payloads: { plan: { userContent: string; units: string[]; sourceIds: string[] }; extract: { userContent: string }; synthesis: { userContent: string } };
-  /** The settings the bodies were built under: the desktop's model, streaming and Flash reply contract, the heavy profile and the cache salt. */
-  requestSettings: { model: string; streaming: boolean; localReplyContract: string | null; localContextTokens: number | null; profile: "heavy"; cacheSalt: true };
+  /**
+   * The settings the bodies were built under: the desktop's model, streaming and Flash reply contract, the heavy profile and the cache
+   * salt. Built by the serving-card reader's own function, which compares a run's settings with the card's copy of this record.
+   */
+  requestSettings: ServingCardRequestSettings;
   /** The body the pipeline sends for each role and thinking mode, before P10 adds `response_format`, with its SHA-256. */
   requests: Record<RoleWithSchema, Record<P10ThinkingMode, P10Request>>;
 }
@@ -125,8 +129,7 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
     outputTokens: OUTPUT_TOKENS, thinking: THINKING,
     payloads: { plan: { userContent: planUser, units: units.map(u => u.id), sourceIds: inventory.sources.map(s => s.id) },
       extract: { userContent: extractUser }, synthesis: { userContent: userContent.synthesis.on } },
-    requestSettings: { model: settings.vllm.model, streaming: settings.streamingEnabled, localReplyContract: settings.vllm.localReplyContract ?? null,
-      localContextTokens: settings.vllm.localContextTokens ?? null, profile: "heavy", cacheSalt: true },
+    requestSettings: servingCardRequestSettings(settings, true),
     requests: buildP10Requests(settings, userContent),
   };
 }

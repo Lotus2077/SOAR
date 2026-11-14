@@ -12,6 +12,7 @@ vi.mock("../../src/main/private-agent/serving-card-flags", async importOriginal 
 
 import { SERVING_CARD_CONSUMED, ServingCardError, loadServingCard, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
+import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
@@ -22,7 +23,7 @@ function card(edit: (card: any) => void): ServingCardV1 {
 }
 function load(value: ServingCardV1) {
   const root = mkdtempSync(join(tmpdir(), "soar-card-partial-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-  return loadServingCard(writeCard(root, value), { model: "RM-01 VLM" });
+  return loadServingCard(writeCard(root, value), { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } });
 }
 function refusal(value: ServingCardV1): ServingCardError {
   try { load(value); } catch (error) { if (error instanceof ServingCardError) return error; throw error; }

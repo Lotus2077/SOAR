@@ -10,14 +10,16 @@ import { OUTPUT_TOKENS, THINKING } from "../../src/main/private-agent/research-p
 import { DEFAULT_RESEARCH_ROLE_POLICY, RESEARCH_ROLES, STRUCTURED_OUTPUT_ROLES, nonDefaultRoleParameters, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { DEFAULT_SERVING_POLICY, P10_RULE, RESEARCH_ROLE_MAX_OUTPUT_TOKENS, SERVING_CARD_CODES, SERVING_CARD_CONSUMED, SERVING_CARD_PARAMETER_PATHS,
   ServingCardError, currentRoleSchemaSha256, isServingCardParameterPath, loadServingCard, nonDefaultParameters, parseServingCard, servingCardFreeze,
-  servingCardRefusal, type ServingCardCode, type ServingCardExpectation, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
+  servingCardRefusal, type ServingCardCode, type ServingCardExpectation, type ServingCardRequestSettings, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { buildRoleSchemaExport } from "../../scripts/export-role-schemas";
 import { failureCode } from "../../scripts/phase4-loop";
 import { ADOPTING_ENTRY, PYTHON_TIMEOUT_MS, SERVING_CARD_WRITER, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
+import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
 
 const PROBE_SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-probe.py");
 const ALIAS = "RM-01 VLM";
-const EXPECT: ServingCardExpectation = { model: ALIAS };
+/** The run's settings equal the ones the synthetic P10 recorded (BL-20261114-1734-serving-card-request-settings-design). */
+const EXPECT: ServingCardExpectation = { model: ALIAS, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } };
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 function workspace(): string { const root = mkdtempSync(join(tmpdir(), "soar-card-reader-")); cleanups.push(() => rmSync(root, { recursive: true, force: true })); return root; }
@@ -59,7 +61,7 @@ describe("serving-card reader (SC)", () => {
     expect(Object.isFrozen(loaded) && Object.isFrozen(loaded.policy.roles.plan.maxOutputTokens) && Object.isFrozen(loaded.evidence.p10)).toBe(true);
     expect(JSON.stringify({ ...loaded, bytes: null })).not.toContain(dir);
     // The context is compared only under flash_next_v1 (an expectation without contextTokens).
-    expect(loadServingCard(written, { model: ALIAS, contextTokens: 262_144 }).policy).toEqual(DEFAULT_SERVING_POLICY);
+    expect(loadServingCard(written, { ...EXPECT, contextTokens: 262_144 }).policy).toEqual(DEFAULT_SERVING_POLICY);
     // A card of exactly 64 KiB is read; one byte more is refused (R2).
     const padded = Buffer.concat([readFileSync(written.path), Buffer.alloc(64 * 1024 - readFileSync(written.path).length, 0x20)]);
     expect(loadServingCard(writeCard(dir, padded, "padded.json"), EXPECT).policy).toEqual(DEFAULT_SERVING_POLICY);
@@ -97,7 +99,7 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_invalid", "structuredOutput on index", loadFrom(edited(card => { card.roles.index.structuredOutput = null; }))],
     ["serving_card_invalid", "a cap of 0", loadFrom(edited(card => { card.roles.index.maxOutputTokens = [0, 1536]; }))],
     ["serving_card_invalid", "one attempt only", loadFrom(edited(card => { card.roles.plan.thinking = ["model"]; }))],
-    ["serving_card_invalid", "servedModel /home/x/m", loadFrom(edited(card => { card.identity.servedModel = "/home/x/m"; }), { model: "/home/x/m" })],
+    ["serving_card_invalid", "servedModel /home/x/m", loadFrom(edited(card => { card.identity.servedModel = "/home/x/m"; }), { ...EXPECT, model: "/home/x/m" })],
     ["serving_card_invalid", "schemasProtocolMatch true with differing hashes", loadFrom(edited(card => { card.evidence.p10.assessed.protocolSha256 = "1".repeat(64); }))],
     ["serving_card_invalid", "17 kStreams keys", loadFrom(edited(card => {
       for (let k = 9; Object.keys(card.evidence.p11.kStreams).length < 17; k++) card.evidence.p11.kStreams[String(k)] = { ...card.evidence.p11.kStreams["1"], streams: k };
@@ -105,9 +107,9 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_invalid", "a calendar-invalid date", loadFrom(edited(card => { card.date = "2026-02-30"; }))],
     ["serving_card_not_adopted", "proposed", loadFrom(proposed())],
     ["serving_card_not_adopted", "adopted with a null entry", loadFrom(adopt(proposed(), null, { defaults: true }))],
-    ["serving_card_model_mismatch", "another alias", loadFrom(allDefault(), { model: "another-model" }), "identity.servedModel"],
-    ["serving_card_context_mismatch", "another context under flash_next_v1", loadFrom(allDefault(), { model: ALIAS, contextTokens: 131_072 }), "identity.contextTokens"],
-    ["serving_card_context_mismatch", "no context in the card under flash_next_v1", loadFrom(edited(card => { card.identity.contextTokens = null; }), { model: ALIAS, contextTokens: 262_144 })],
+    ["serving_card_model_mismatch", "another alias", loadFrom(allDefault(), { ...EXPECT, model: "another-model" }), "identity.servedModel"],
+    ["serving_card_context_mismatch", "another context under flash_next_v1", loadFrom(allDefault(), { ...EXPECT, contextTokens: 131_072 }), "identity.contextTokens"],
+    ["serving_card_context_mismatch", "no context in the card under flash_next_v1", loadFrom(edited(card => { card.identity.contextTokens = null; }), { ...EXPECT, contextTokens: 262_144 })],
     ["serving_card_cap_out_of_range", "127", loadFrom(edited(card => { card.roles.extract.maxOutputTokens = [2048, 127]; })), "roles.extract.maxOutputTokens[1]"],
     ["serving_card_cap_out_of_range", "16,385", loadFrom(edited(card => { card.roles.plan.maxOutputTokens = [16_385, 8192]; })), "roles.plan.maxOutputTokens[0]"],
     ["serving_card_structured_output_unassessed", "p10 null", loadFrom(edited(card => { flag("extract", true, false)(card); card.evidence.p10 = null; })), "roles.extract.structuredOutput.thinkingOff"],
@@ -134,6 +136,8 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_parameter_unconsumed", "thinking", loadFrom(edited(card => { card.roles.plan.thinking = ["disabled", "model"]; })), "roles.plan.thinking"],
     ["serving_card_parameter_unconsumed", "structured output", loadFrom(edited(flag("extract", true, true))), "roles.extract.structuredOutput"],
     ["serving_card_parameter_unconsumed", "K", loadFrom(edited(card => { card.concurrency.localStreams = 4; })), "concurrency.localStreams"],
+    ["serving_card_p10_settings_drift", "a run without the cache salt P10's bodies carried", loadFrom(edited(flag("extract", true, false)),
+      { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, cacheSalt: false } }), "roles.extract.structuredOutput.thinkingOff"],
     ["serving_card_parameter_unconsumed", "admission", loadFrom(edited(card => { card.admission.basis = "serving_card"; })), "admission.basis"],
   ];
 
@@ -148,9 +152,34 @@ describe("serving-card reader (SC)", () => {
     if (parameter !== undefined) expect(error.parameter).toBe(parameter);
   });
 
+  it("R2 since BL-20261114-1734-serving-card-request-settings-design: a structured-output flag needs P10's request settings to be the run's; a card without flags does not", () => {
+    // Under the run's settings, the writer's card reaches today's fail-closed step: structured output is not consumed on this branch.
+    const writer = adopt(proposed());
+    expect(writer.evidence.p10!.requestSettings).toEqual(SYNTHETIC_P10_REQUEST_SETTINGS);
+    expect(refusal(() => loadFrom(writer)(workspace()))).toMatchObject({ code: "serving_card_parameter_unconsumed", parameter: "roles.plan.structuredOutput" });
+    // Each setting P10's bodies were built under, changed on the run's side, refuses the first flagged mode (plan's thinking-on cell).
+    const changes: Partial<ServingCardRequestSettings>[] = [{ model: "another-model" }, { streaming: false }, { localReplyContract: "flash_next_v1", localContextTokens: 262_144 },
+      { cacheSalt: false }];
+    for (const change of changes) {
+      expect(refusal(() => loadFrom(writer, { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, ...change } })(workspace())))
+        .toMatchObject({ code: "serving_card_p10_settings_drift", parameter: "roles.plan.structuredOutput.thinkingOn" });
+    }
+    // A card that records none (an earlier writer, or a probe before P10-align) binds no flag.
+    for (const record of [null, undefined]) {
+      const without = edited(card => { if (record === undefined) delete card.evidence.p10.requestSettings; else card.evidence.p10.requestSettings = null; }, () => adopt(proposed()));
+      expect(refusal(() => loadFrom(without)(workspace()))).toMatchObject({ code: "serving_card_p10_settings_drift", parameter: "roles.plan.structuredOutput.thinkingOn" });
+    }
+    // A card without flags resolves under other settings: P10's evidence backs nothing else.
+    expect(loadFrom(allDefault(), { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, streaming: false, cacheSalt: false } })(workspace()).policy)
+      .toEqual(DEFAULT_SERVING_POLICY);
+    // The record is strict: an unknown key, or a reply contract without its context, is invalid.
+    expect(refusal(() => loadFrom(edited(card => { card.evidence.p10.requestSettings = { ...SYNTHETIC_P10_REQUEST_SETTINGS, endpoint: "x" }; }))(workspace())).code).toBe("serving_card_invalid");
+    expect(refusal(() => loadFrom(edited(card => { card.evidence.p10.requestSettings = { ...SYNTHETIC_P10_REQUEST_SETTINGS, localReplyContract: "flash_next_v1" }; }))(workspace())).code)
+      .toBe("serving_card_invalid");
+  });
   it("R2: the table covers every refusal code, and a key path outside the allowlist never reaches an error", () => {
     expect(new Set(CASES.map(([code]) => code))).toEqual(new Set(SERVING_CARD_CODES));
-    expect(SERVING_CARD_CODES).toHaveLength(14);
+    expect(SERVING_CARD_CODES).toHaveLength(15);
     for (const code of SERVING_CARD_CODES) expect(code).toMatch(/^[a-z0-9_]{1,79}$/u);
     expect(new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json").parameter).toBeUndefined();
     expect(new ServingCardError("serving_card_not_adopted", "decision").parameter).toBe("decision");

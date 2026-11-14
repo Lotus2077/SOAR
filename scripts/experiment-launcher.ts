@@ -21,7 +21,8 @@ import { loadConfig } from "../src/main/config";
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { acquireLoopLock } from "../src/main/private-agent/loop-ledger";
 import { readRunLedger, readRunObject, readRunResult } from "../src/main/private-agent/selection";
-import { localScreenGitRunner, localScreenGitState, localScreenSourceFreeze } from "./private-agent-local-screen";
+import { parseLoopArguments } from "./phase4-loop";
+import { localScreenGitRunner, localScreenGitState, localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "./private-agent-local-screen";
 
 export const LAUNCHER_LEDGER_VERSION = 1;
 /** Decision (3): 3 observations 20 s apart, all with no running and no waiting request, before any start. */
@@ -34,6 +35,11 @@ export const WAIT_POLL_MS = 30_000;
 /** Decision (5): the wait after a forwarded signal before SIGKILL, and the wait for the reap after it. */
 export const TERM_WAIT_MS = 120_000;
 export const REAP_WAIT_MS = 10_000;
+/**
+ * BL-20261114-1431-experiment-launcher-signals-design, decision (1): a second signal escalates only this long after the first. Under pnpm one
+ * Ctrl-C arrives twice, 1 to 2 ms apart, and a hangup through a shell arrives twice, about 3 ms apart.
+ */
+export const SIGNAL_REPEAT_MS = 5_000;
 /** Decision (6): at most this many re-invocations of one loop after its first. */
 export const MAX_LOOP_REINVOCATIONS = 4;
 /** Decision (6), HARN-22: the loop stops that part 3b resumes in a later invocation (BL-20261113-0836-infra-resume-design). */
@@ -111,16 +117,19 @@ export function parseQueue(bytes: Buffer, root: string): LauncherQueue {
   if (windows.some((window, index) => !Number.isFinite(window.start) || !Number.isFinite(window.end) || window.start >= window.end ||
       (index > 0 && windows[index - 1]!.end > window.start))) throw new Error("launcher_queue_invalid");
   const runs = parsed.data.runs.map(run => {
-    const own = run.kind === "loop" ? "--loop-directory" : "--output-directory", other = run.kind === "loop" ? "--output-directory" : "--loop-directory";
-    const at = run.argv.flatMap((value, index) => value === own ? [index] : []);
-    if (at.length !== 1 || run.argv[at[0]! + 1] === undefined || run.argv.includes(other) || run.argv.includes("--close") ||
-        (run.kind === "loop" && run.argv[0] !== "--select-and-repair")) throw new Error("launcher_queue_invalid");
-    const fee = run.argv.indexOf("--max-fee-usd"), argumentCap = fee === -1 ? 0 : Number(run.argv[fee + 1]);
-    if (!Number.isFinite(argumentCap) || argumentCap < 0) throw new Error("launcher_queue_invalid");
-    // A loop's a, b and repair may each spend the arguments' cap; part 3b's resumes are zero fee.
+    // After the light review (findings 6 and 7): each run's arguments go through its own script's parser, so a queue the script would
+    // refuse is refused before the batch starts, and the run's directory and the arguments' cap are the parsed ones.
+    let directory: string, argumentCap: number;
+    try {
+      if (run.kind === "loop") { const loop = parseLoopArguments([...run.argv]); directory = loop.loopDirectory; argumentCap = loop.base.cloudArm?.maxFeeUsd ?? 0; }
+      else { const single = parseLocalArtifactScreenArguments([...run.argv]); directory = single.outputDirectory; argumentCap = single.cloudArm?.maxFeeUsd ?? 0; }
+    } catch { throw new Error("launcher_queue_invalid"); }
+    // BL-20261114-1431, decision (3): only a loop's sample a can spend. A cloud loop is a research loop whose b and repair are seeded
+    // writers without the cloud arm, its critique is local, and part 3b's resumes are zero fee. So a loop's cap, like a run's, covers
+    // the arguments' cap once.
     const capMicrousd = Math.round(run.capUsd * MICRO);
-    if (capMicrousd < Math.round(argumentCap * MICRO) * (run.kind === "loop" ? 3 : 1)) throw new Error("launcher_queue_invalid");
-    return { id: run.id, kind: run.kind, capMicrousd, argv: [...run.argv], directory: resolve(root, run.argv[at[0]! + 1]!),
+    if (!Number.isFinite(argumentCap) || argumentCap < 0 || capMicrousd < Math.round(argumentCap * MICRO)) throw new Error("launcher_queue_invalid");
+    return { id: run.id, kind: run.kind, capMicrousd, argv: [...run.argv], directory: resolve(root, directory),
       projectedMs: run.projectedSeconds === undefined ? null : run.projectedSeconds * 1000 };
   });
   if (new Set(runs.map(run => run.id)).size !== runs.length || new Set(runs.map(run => run.directory)).size !== runs.length) throw new Error("launcher_queue_invalid");
@@ -163,7 +172,8 @@ export function readLoopView(directory: string): LoopView | null {
   const stopped = value?.stopped as Record<string, unknown> | null | undefined, final = selected?.final as Record<string, unknown> | null | undefined;
   if (!value || typeof totals !== "object" || totals === null || typeof selected !== "object" || selected === null) throw new Error("launcher_loop_unreadable");
   const code = (item: unknown) => typeof item === "string" && CODE.test(item) ? item : null;
-  return { finishedAt: typeof value.finishedAt === "string" ? value.finishedAt : null, failure: code(value.failure),
+  // A finish time is kept only as an ISO instant, so nothing else from the record reaches the ledger (light review, finding 10).
+  return { finishedAt: typeof value.finishedAt === "string" && INSTANT.test(value.finishedAt) ? value.finishedAt : null, failure: code(value.failure),
     stopped: stopped && typeof stopped === "object" ? code(stopped.failure) ?? "loop_stopped" : null,
     final: final && typeof final === "object" ? code(final.step) ?? "loop_final" : null, feeMicrousd: counted(totals.feeMicrousd) };
 }
@@ -211,7 +221,7 @@ interface AttemptState { attempt: number; admittedAt: number; pid: number | null
 interface RunState { attempts: number; finished: string | null; notBefore: number | null; last: AttemptState | null }
 interface History { queueSha256: string | null; runs: Map<string, RunState> }
 const LEDGER_EVENTS = new Set(["launcher_started", "launcher_stopped", "refused", "idle_check", "quiescence", "window_too_short", "batch_cap_reached", "run_admitted",
-  "run_started", "signal_forwarded", "kill_sent", "reap_unconfirmed", "run_exited", "run_lost", "run_deferred", "run_finished"]);
+  "run_started", "signal_forwarded", "signal_repeated", "kill_sent", "reap_unconfirmed", "run_exited", "run_lost", "run_deferred", "run_finished"]);
 
 /** Applies one ledger event to the history it replays (decision (8)). */
 function applyEvent(history: History, event: Record<string, unknown>): void {
@@ -284,15 +294,25 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
     appendFileSync(ledgerPath, `${canonical(entry)}\n`, { mode: 0o600 });
     applyEvent(history, entry);
   };
+  let ledgerBroken = false;
+  /** A ledger write from the signal handler never throws out of it: a failed write stops the launcher once the run has exited. */
+  const note = (event: Record<string, unknown>) => { try { log(event); } catch { ledgerBroken = true; } };
   const forward = (running: Running, signal: ForwardedSignal) => {
     running.signalled = true;
-    log({ event: "signal_forwarded", run: running.run.id, attempt: running.attempt, signal });
-    running.child.signal(signal); running.stopRequested.resolve();
+    // BL-20261114-1431, decision (2): neither driver handles SIGHUP, so a hangup reaches the run as SIGTERM, its graceful stop, on the
+    // same gated path. The run is signalled before the ledger is written, so a failed write never leaves it running unsignalled.
+    const sent = signal === "SIGHUP" ? "SIGTERM" : signal;
+    running.child.signal(sent); running.stopRequested.resolve();
+    note({ event: "signal_forwarded", run: running.run.id, attempt: running.attempt, signal: sent, ...(sent === signal ? {} : { received: signal }) });
   };
-  // Decision (5): the first signal is forwarded to the child's group and stops new starts; a second sends SIGKILL at once.
+  let firstSignalAt = 0;
+  // BL-20261114-1431, decision (1): the first signal is forwarded to the run's group and stops new starts. A second escalates to
+  // SIGKILL only when it comes SIGNAL_REPEAT_MS or more after the first; a nearer one is the same signal delivered twice.
   const unsubscribe = signals.subscribe(signal => {
-    if (stopSignal === null) { stopSignal = signal; stop.abort(); if (current) forward(current, signal); }
-    else current?.escalate.resolve();
+    const at = deps.now();
+    if (stopSignal === null) { stopSignal = signal; firstSignalAt = at; stop.abort(); if (current) forward(current, signal); return; }
+    if (at - firstSignalAt < SIGNAL_REPEAT_MS) { note({ event: "signal_repeated", signal, ...(current ? { run: current.run.id, attempt: current.attempt } : {}) }); return; }
+    current?.escalate.resolve();
   });
   const windowAt = (at: number) => queue.windows.find(window => window.start <= at && at < window.end) ?? null;
   const exposureOf = (run: QueueRun) => directoryExposure(run.directory, run.kind);
@@ -306,7 +326,9 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
   const refuseLogged = (code: string) => { log({ event: "refused", code }); return outcome("refused", code); };
   /** Decision (6): what an exited, killed or lost attempt leaves: a finished run, or a loop deferred to a later window. */
   const decide = (run: QueueRun, attempt: AttemptState) => {
-    const finish = (result: string) => log({ event: "run_finished", run: run.id, attempt: attempt.attempt, outcome: CODE.test(result) ? result : "run_finished" });
+    // A single run's job id is on its finish too, so a lost or unreaped run still joins the registry's row (light review, finding 8).
+    const finish = (result: string) => log({ event: "run_finished", run: run.id, attempt: attempt.attempt, outcome: CODE.test(result) ? result : "run_finished",
+      ...(run.kind === "run" ? { jobId: readRunJobId(run.directory) } : {}) });
     if (run.kind === "run") {
       if (attempt.exit?.code === 0) return finish("submitted");
       let result: Record<string, unknown> | null = null;
@@ -318,10 +340,13 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
     try { view = readLoopView(run.directory); } catch { return finish("loop_record_unreadable"); }
     if (view?.stopped) return finish(view.stopped);
     if (view?.final) return finish(view.final);
-    const fresh = view !== null && view.finishedAt !== attempt.priorFinishedAt;
+    // A record is this invocation's only once it finished: the loop saves `finishedAt: null` when it starts and before each stage, and
+    // sets it in its `finally`, which SIGKILL, a hangup or a power loss skips (light review, finding 3).
+    const fresh = view !== null && view.finishedAt !== null && view.finishedAt !== attempt.priorFinishedAt;
     const resumable = fresh ? view!.failure !== null && RESUMABLE_LOOP_FAILURES.includes(view!.failure)
-      // A loop killed before it could save, or lost with the launcher, resumes like an interrupted one; a locked or terminal one never.
-      : (attempt.lost || attempt.signalled) && attempt.exit?.failure !== "loop_locked" && attempt.exit?.failure !== "loop_terminal";
+      // A loop killed before it finished its record (signalled, ended by a signal, or lost with the launcher) resumes like an interrupted
+      // one; a locked or terminal one never.
+      : (attempt.lost || attempt.signalled || (attempt.exit?.signal ?? null) !== null) && attempt.exit?.failure !== "loop_locked" && attempt.exit?.failure !== "loop_terminal";
     if (!resumable) return finish(attempt.exit?.failure ?? (fresh ? view!.failure : null) ?? "loop_failed");
     if (attempt.attempt > MAX_LOOP_REINVOCATIONS) return finish("reinvoke_limit");
     // A later window than the one the loop stopped in: for a loop lost with the launcher, the one it was admitted in.
@@ -383,7 +408,7 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
       if (!last || last.decided) continue;
       if (!last.exit && !last.lost) {
         if (last.pid !== null && deps.pidAlive(last.pid)) return refuseLogged("previous_run_running");
-        log({ event: "run_lost", run: run.id, attempt: last.attempt });
+        log({ event: "run_lost", run: run.id, attempt: last.attempt, ...(run.kind === "run" ? { jobId: readRunJobId(run.directory) } : {}) });
       }
       decide(run, history.runs.get(run.id)!.last!);
     }
@@ -420,6 +445,13 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
       // The idle check took IDLE_SPACING_MS twice: the signals, the STOP file and the window are read again before the admission.
       const at = deps.now(), still = windowAt(at);
       if (stopSignal || existsSync(stopPath) || !still || (next.projectedMs !== null && still.end - at < next.projectedMs)) continue;
+      // After the light review (finding 4): the tree, the commit and its place on main are checked again before each admission.
+      const tree = deps.gitState();
+      if (!tree) return stopped("commit_unknown");
+      if (tree.dirty) return stopped("tree_dirty");
+      if (tree.commit !== git.commit) return stopped("commit_changed");
+      const stillOnMain = deps.headOnMain(tree.commit);
+      if (stillOnMain !== true) return stopped(stillOnMain === null ? "main_unknown" : "head_not_on_main");
       const attempt = (prior?.attempts ?? 0) + 1;
       let priorFinishedAt: string | null = null;
       if (next.kind === "loop") { try { priorFinishedAt = readLoopView(next.directory)?.finishedAt ?? null; } catch { priorFinishedAt = null; } }
@@ -437,6 +469,7 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
       current = running;
       const exit = await waitForExit(running);
       current = null;
+      if (ledgerBroken) return outcome("stopped", "ledger_unwritable");
       if (!exit) { log({ event: "reap_unconfirmed", run: next.id, attempt }); return stopped("reap_unconfirmed"); }
       log({ event: "run_exited", run: next.id, attempt, exitCode: exit.code, signal: exit.signal, failure: readFailureLine(files.err), signalled: running.signalled,
         jobId: next.kind === "run" ? readRunJobId(next.directory) : null });
@@ -474,7 +507,7 @@ export function productionLauncherDependencies(root = LAUNCHER_ROOT): LauncherDe
     lock: directory => acquireLoopLock(directory),
     startInhibitor: () => process.platform !== "darwin" ? Promise.resolve({ kind: "none", stop() { /* no inhibitor off macOS */ } })
       : new Promise(done => {
-        const inhibitor = spawn("/usr/bin/caffeinate", ["-i", "-w", String(process.pid)], { stdio: "ignore" });
+        const inhibitor = spawn("/usr/bin/caffeinate", ["-i", "-w", String(process.pid)], { stdio: "ignore", detached: true });
         inhibitor.once("spawn", () => done({ kind: "caffeinate", stop() { try { inhibitor.kill("SIGTERM"); } catch { /* it exits with the launcher */ } } }));
         inhibitor.once("error", () => done(null));
       }),

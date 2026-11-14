@@ -51,8 +51,9 @@ export interface OrderedPoolResult {
 export async function runOrderedPool<T, R>(options: OrderedPoolOptions<T, R>): Promise<OrderedPoolResult> {
   const { items, limit } = options;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > ORDERED_POOL_MAX_LIMIT) throw new Error("ordered_pool_limit_invalid");
-  // One combined signal per pool, and one relay listener per in-flight launch on it: at most K listeners, whatever each call
-  // adds to its own signal (the broker, token admission and backoff each add one), so K = 8 stays under Node's warning limit.
+  // One combined signal per pool, and one relay listener per in-flight launch on it: the stage's own signal gets none, and each
+  // launch's signal holds only what its call adds (the broker, token admission and backoff each add one), whatever K is.
+  // (No warning limit applies on Node 22.22.2, whose AbortSignals have no maximum; BL-20261110-0619 withdrew that rationale.)
   const siblings = new AbortController(), siblingStop = new Error("ordered_pool_sibling_stop"), combined = AbortSignal.any([options.signal, siblings.signal]);
   const settled = new Map<number, { outcome: PoolOutcome<R>; afterAbort: boolean }>(), inFlight = new Map<number, Promise<void>>();
   let next = 0, applyNext = 0, stopped = false, reached = false, failure: { error: unknown } | undefined;

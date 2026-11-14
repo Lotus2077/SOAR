@@ -65,7 +65,13 @@ export interface GeneralSessionOptions {
      * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
      * of the session identity; the desktop passes none.
      */
-    diagnostics?: ResearchDiagnosticsSink };
+    diagnostics?: ResearchDiagnosticsSink;
+    /**
+     * Backlog item 8.2b: K, the serving card's `localStreams` (1 to MAX_LOCAL_STREAMS). The research loops and the claims judge
+     * run K calls at a time when their model is zero-risk local, and one at a time otherwise. No part of the session identity,
+     * the protocol hash or the counts; the headless driver passes the card's value, the desktop none (K = 1).
+     */
+    localStreams?: number };
 }
 export interface GeneralSessionResult {
   status: "submitted" | "paused" | "incomplete";
@@ -232,7 +238,9 @@ export class GeneralAgentSession {
     const startedAt = performance.now(), passAbort = new AbortController(); this.passAbort = passAbort;
     let outcome: EntailmentOutcome;
     try {
-      outcome = await judgeClaims({ claims, signal: AbortSignal.any([cancel, passAbort.signal, AbortSignal.timeout(ENTAILMENT_MAX_MS)]), stop: () => this.pauseRequested,
+      // 8.2b: K claims at a time when the judge's model is zero-risk local and the session has a K; otherwise one at a time.
+      const limit = this.options.research?.localStreams !== undefined && model.zeroRisk() ? this.options.research.localStreams : 1;
+      outcome = await judgeClaims({ claims, limit, signal: AbortSignal.any([cancel, passAbort.signal, AbortSignal.timeout(ENTAILMENT_MAX_MS)]), stop: () => this.pauseRequested,
         remainingMs: () => ENTAILMENT_MAX_MS - (performance.now() - startedAt), complete: (messages, tools, judgeSignal, overrides) => model.complete(messages, tools, judgeSignal, overrides) });
     } finally { this.passAbort = undefined; }
     if (this.pauseRequested && outcome.truncated) return "paused";
@@ -407,7 +415,8 @@ export class GeneralAgentSession {
           const diagnostics = options.research.diagnostics && diagnosticRetention(store.context(readerContextId)) === "raw" ? options.research.diagnostics : undefined;
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
-              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}) });
+              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
+              ...(options.research.localStreams !== undefined ? { localStreams: options.research.localStreams } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {

@@ -133,7 +133,6 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_parameter_unconsumed", "caps", loadFrom(edited(card => { card.roles.plan.maxOutputTokens = [4096, 8192]; })), "roles.plan.maxOutputTokens"],
     ["serving_card_parameter_unconsumed", "thinking", loadFrom(edited(card => { card.roles.plan.thinking = ["disabled", "model"]; })), "roles.plan.thinking"],
     ["serving_card_parameter_unconsumed", "structured output", loadFrom(edited(flag("extract", true, true))), "roles.extract.structuredOutput"],
-    ["serving_card_parameter_unconsumed", "K", loadFrom(edited(card => { card.concurrency.localStreams = 4; })), "concurrency.localStreams"],
     ["serving_card_parameter_unconsumed", "admission", loadFrom(edited(card => { card.admission.basis = "serving_card"; })), "admission.basis"],
   ];
 
@@ -190,8 +189,8 @@ describe("serving-card reader (SC)", () => {
     for (const role of STRUCTURED_OUTPUT_ROLES) expect(DEFAULT_RESEARCH_ROLE_POLICY[role].structuredOutput).toBeNull();
     expect(Object.isFrozen(DEFAULT_RESEARCH_ROLE_POLICY.plan.maxOutputTokens) && Object.isFrozen(DEFAULT_SERVING_POLICY.admission)).toBe(true);
     expect(DEFAULT_SERVING_POLICY).toEqual({ roles: DEFAULT_RESEARCH_ROLE_POLICY, localStreams: 1, admission: { basis: "none" } });
-    // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b).
-    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: false, thinking: false, structuredOutput: false, localStreams: false, admission: false });
+    // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b). 8.2b consumes K.
+    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: false, thinking: false, structuredOutput: false, localStreams: true, admission: false });
     const writer = JSON.parse(execFileSync("python3", ["-I", "-c", ["import importlib.util, json, sys",
       "spec = importlib.util.spec_from_file_location('serving_card', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
       "print(json.dumps({'minCalls': module.P10_MIN_CALLS, 'minValidPercent': module.P10_RULE_PERCENT}))"].join("\n"), SERVING_CARD_WRITER],
@@ -228,7 +227,7 @@ describe("serving-card reader (SC)", () => {
   it("R7: the freeze fragment is empty without a card and holds the digest, version, date and entry, never the path, with one", () => {
     expect(servingCardFreeze(undefined)).toEqual({});
     const dir = workspace(), written = writeCard(dir, allDefault()), fragment = servingCardFreeze(loadServingCard(written, EXPECT));
-    expect(fragment).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY } });
+    expect(fragment).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 1 } });
     expect(canonical(fragment)).not.toContain(written.path); expect(canonical(fragment)).not.toContain(dir);
   });
 

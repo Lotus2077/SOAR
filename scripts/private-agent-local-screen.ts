@@ -492,7 +492,9 @@ configOptions?: LoadConfigOptions) {
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
       ...(pipeline ? { research: { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, localModelConfig, jobId, contextId),
         planner: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId), synthesiser: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId) }),
-        ...(diagnostics ? { diagnostics } : {}) } } : {}),
+        ...(diagnostics ? { diagnostics } : {}),
+        // 8.2b: the card's K reaches the research loops and the judge; freeze.json records it (servingCardFreeze).
+        ...(servingCard ? { localStreams: servingCard.policy.localStreams } : {}) } } : {}),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;

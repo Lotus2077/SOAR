@@ -343,11 +343,19 @@ export class PrivateAgentModel {
    * and the output tokens are always positive.
    */
   deadlineRefuses(remainingMs: number): boolean {
+    return remainingMs < this.broker.requestTimeoutMs(this.config.destinationId) && !this.zeroRisk();
+  }
+
+  /**
+   * Whether this model's calls are zero-risk at the broker: every configured rate zero, the long-context tier included, and a
+   * destination the broker dispatches at zero risk (a `local_model`). Backlog item 8.2b runs a loop K calls at a time only for
+   * such a model; `deadlineRefuses` never refuses one.
+   */
+  zeroRisk(): boolean {
     const long = this.config.longContext;
     const zeroFee = this.config.inputUsdPerMillion === 0 && this.config.outputUsdPerMillion === 0 && (this.config.cacheWriteUsdPerMillion ?? 0) === 0 &&
       (long === undefined || (long.inputUsdPerMillion === 0 && long.outputUsdPerMillion === 0 && (long.cacheWriteUsdPerMillion ?? 0) === 0));
-    return remainingMs < this.broker.requestTimeoutMs(this.config.destinationId) &&
-      !this.broker.zeroRiskDispatch({ destinationId: this.config.destinationId, maxFeeMicrousd: zeroFee ? 0 : 1, method: "POST" });
+    return this.broker.zeroRiskDispatch({ destinationId: this.config.destinationId, maxFeeMicrousd: zeroFee ? 0 : 1, method: "POST" });
   }
 
   /** The configured rates for a prompt of this many tokens: the long-context tier above its threshold, the base tier otherwise. */

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ArtifactCheck } from "./runner";
 import type { GeneralMessage } from "./model";
 import { canonical, digest, exactText } from "./contracts";
+import { ORDERED_POOL_MAX_LIMIT, runOrderedPool } from "./ordered-pool";
 
 /**
  * Research claims ledger (PR-J1). The model writes output/claims.json beside its
@@ -55,37 +56,65 @@ export type EntailmentComplete = (messages: GeneralMessage[], tools: [], signal:
  * The pass itself: one fresh, thinking-off judgement per verified claim. Pure over `complete`, so the session runs it
  * after the completion is durable and tests drive it with a stub. It never throws: every failure becomes a verdict
  * of not_judged, a transport failure or an exhausted allowance also stops the pass (truncated).
+ *
+ * 8.2b (BL-20261114-1645 decision 3; ASSIST-2's default): `limit` claims are judged at a time on the ordered pool, the session's
+ * K for a zero-risk local judge and 1 otherwise. A failed call stops launching, but its in-flight siblings finish and their
+ * verdicts are kept, so at K > 1 a truncated pass may hold verdicts for claims launched after the failing one. Verdicts stay in
+ * claim order, and `entailmentCalls` counts launched calls. With K = 1 it is the serial pass.
  */
 export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: EntailmentComplete; signal: AbortSignal; remainingMs: () => number;
   /** A pause request: honoured at the next claim boundary, so the session can leave the rest for a resume; it also labels a call it stopped. */
-  stop?: () => boolean }): Promise<EntailmentOutcome> {
-  const verdicts: EntailmentRecord[] = []; let calls = 0, stopReason: EntailmentStopReason | undefined;
-  for (const claim of input.claims) {
-    if (!claim.context) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "context_omitted" }); continue; }
-    // Once the pass has stopped, the remaining claims say so rather than repeating the first claim's failure.
-    if (stopReason) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "pass_stopped" }); continue; }
-    if (input.stop?.()) { stopReason = "paused"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "paused" }); continue; }
-    if (input.signal.aborted || input.remainingMs() < ENTAILMENT_RESERVE_MS) { stopReason = "deadline_or_cancelled"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "deadline_or_cancelled" }); continue; }
-    let reply: string;
-    try {
+  stop?: () => boolean;
+  /** 8.2b: K, the claims judged at a time (1 to ORDERED_POOL_MAX_LIMIT); absent or out of range, 1. */
+  limit?: number }): Promise<EntailmentOutcome> {
+  type Judged = { kind: "omitted" } | { kind: "reply"; content: string } | { kind: "failed"; label: EntailmentStopReason };
+  const limit = input.limit !== undefined && Number.isSafeInteger(input.limit) && input.limit >= 1 && input.limit <= ORDERED_POOL_MAX_LIMIT ? input.limit : 1;
+  const verdicts: EntailmentRecord[] = []; let calls = 0, stopReason: EntailmentStopReason | undefined, stoppedAt: number | undefined;
+  const pool = await runOrderedPool<EntailmentClaim, Judged>({ items: input.claims, limit, signal: input.signal,
+    // The pause and deadline checks, once a slot is free. A claim without context passes untested: it is answered without a
+    // call, as the serial pass answered it before these checks, and a false here would stop the whole pass.
+    beforeLaunch: (claim, index) => {
+      if (!claim.context) return true;
+      const reason: EntailmentStopReason | undefined = input.stop?.() ? "paused" : input.signal.aborted || input.remainingMs() < ENTAILMENT_RESERVE_MS ? "deadline_or_cancelled" : undefined;
+      if (reason === undefined) return true;
+      stopReason ??= reason; stoppedAt = index; return false;
+    },
+    launch: async (claim, _index, signal) => {
+      if (!claim.context) return { kind: "omitted" as const };
       calls++;
-      reply = (await input.complete(entailmentMessages(claim), [], input.signal, { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: ENTAILMENT_PURPOSE })).content;
-    } catch {
-      // Every host stop (a pause, a cancel, the pass's own clock, and whatever aborts the run's signal: the desktop's task deadline, the
-      // driver's interrupt) reaches the call through this signal, so a call stopped mid-request carries the label the same stop gets
-      // between calls; one that failed while nothing stopped it is the judge's own failure (E1-J).
-      stopReason = !input.signal.aborted ? "request_failed" : input.stop?.() ? "paused" : "deadline_or_cancelled";
-      verdicts.push({ id: claim.id, verdict: "not_judged", reason: stopReason === "request_failed" ? "judge_request_failed" : stopReason });
-      continue;
-    }
-    try {
-      const text = String(reply).trim(), json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-      const verdict = EntailmentReplySchema.parse(JSON.parse(json));
-      // The reason is model text headed for the durable ledger: it must be exact text or it is dropped.
-      let reason: string | undefined;
-      try { reason = verdict.reason === undefined ? undefined : exactText(verdict.reason); } catch { reason = undefined; }
-      verdicts.push({ id: claim.id, verdict: verdict.verdict, ...(reason ? { reason } : {}) });
-    } catch { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_reply_invalid" }); }
+      try { return { kind: "reply" as const, content: String((await input.complete(entailmentMessages(claim), [], signal, { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: ENTAILMENT_PURPOSE })).content) }; }
+      catch {
+        // Every host stop (a pause, a cancel, the pass's own clock, and whatever aborts the run's signal: the desktop's task deadline, the
+        // driver's interrupt) reaches the call through this signal, so a call stopped mid-request carries the label the same stop gets
+        // between calls; one that failed while nothing stopped it is the judge's own failure (E1-J). It is labelled now, as it fails,
+        // because the pass's signal may change before its apply.
+        return { kind: "failed" as const, label: !input.signal.aborted ? "request_failed" as const : input.stop?.() ? "paused" as const : "deadline_or_cancelled" as const };
+      }
+    },
+    interrupt: outcome => outcome.status === "fulfilled" && outcome.value.kind === "failed" ? "stop" : undefined,
+    apply: (outcome, claim) => {
+      const judged: Judged = outcome.status === "fulfilled" ? outcome.value : { kind: "failed", label: "request_failed" };
+      if (judged.kind === "omitted") { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "context_omitted" }); return undefined; }
+      if (judged.kind === "failed") { stopReason ??= judged.label; verdicts.push({ id: claim.id, verdict: "not_judged", reason: judged.label === "request_failed" ? "judge_request_failed" : judged.label }); return "stop"; }
+      try {
+        const text = judged.content.trim(), json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+        const verdict = EntailmentReplySchema.parse(JSON.parse(json));
+        // The reason is model text headed for the durable ledger: it must be exact text or it is dropped.
+        let reason: string | undefined;
+        try { reason = verdict.reason === undefined ? undefined : exactText(verdict.reason); } catch { reason = undefined; }
+        verdicts.push({ id: claim.id, verdict: verdict.verdict, ...(reason ? { reason } : {}) });
+      } catch { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_reply_invalid" }); }
+      return undefined;
+    } });
+  // Claims never launched, in order: one without context is answered as ever; the claim a pause or the deadline stopped at takes
+  // that reason, and every other says the pass had stopped, rather than repeating the first claim's failure. The pool launches
+  // nothing once the pass's signal has aborted, without asking beforeLaunch; the first claim left then takes the stop's label,
+  // a pause before the deadline or cancel, as the serial pass gave it.
+  for (let index = pool.launched; index < input.claims.length; index++) {
+    const claim = input.claims[index]!;
+    if (!claim.context) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "context_omitted" }); continue; }
+    if (stopReason === undefined) { stopReason = input.stop?.() ? "paused" : "deadline_or_cancelled"; stoppedAt = index; }
+    verdicts.push({ id: claim.id, verdict: "not_judged", reason: index === stoppedAt ? stopReason : "pass_stopped" });
   }
   const counts = { supported: 0, partial: 0, unsupported: 0, contradicted: 0, not_judged: 0 };
   for (const row of verdicts) counts[row.verdict]++;

@@ -73,7 +73,7 @@ describe("shared harness local role configuration", () => {
     const paired = config(true); paired.vllm.servingCard = descriptor;
     const loaded = buildLocalScreenServingCard(paired)!;
     expect(loaded.policy).toEqual(DEFAULT_SERVING_POLICY);
-    expect(servingCardFreeze(loaded)).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY } });
+    expect(servingCardFreeze(loaded)).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 1 } });
     expect(canonical(servingCardFreeze(loaded))).not.toContain(root);
     for (const row of LEGACY_CONFIGS) {
       const withPair = config(row.streaming); withPair.vllm.servingCard = descriptor;

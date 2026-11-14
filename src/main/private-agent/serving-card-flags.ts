@@ -14,4 +14,4 @@ export type ServingCardParameter = (typeof SERVING_CARD_PARAMETERS)[number];
  * (localStreams) and item 7(b)'s admission PR (admission).
  */
 export const SERVING_CARD_CONSUMED: Readonly<Record<ServingCardParameter, boolean>> =
-  Object.freeze({ maxOutputTokens: false, thinking: false, structuredOutput: false, localStreams: false, admission: false });
+  Object.freeze({ maxOutputTokens: false, thinking: false, structuredOutput: false, localStreams: true, admission: false });

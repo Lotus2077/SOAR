@@ -284,8 +284,9 @@ export function loadServingCard(descriptor: ServingCardDescriptor, expectation: 
     identity: deepFreeze(card.identity), evidence: deepFreeze(card.evidence), policy: deepFreeze(policy), bytes: Buffer.from(bytes) });
 }
 
-export interface ServingCardFreeze { sha256: string; version: 1; date: string; entry: string }
+/** 8.2b: `localStreams` is the K the research loops ran at (ASSIST-M2's default: freeze.json, not yet the registry). */
+export interface ServingCardFreeze { sha256: string; version: 1; date: string; entry: string; localStreams: number }
 /** The freeze.json fragment: {} without a card; never the path. */
 export function servingCardFreeze(loaded: LoadedServingCard | undefined): { servingCard?: ServingCardFreeze } {
-  return loaded ? { servingCard: { sha256: loaded.sha256, version: loaded.version, date: loaded.date, entry: loaded.entry } } : {};
+  return loaded ? { servingCard: { sha256: loaded.sha256, version: loaded.version, date: loaded.date, entry: loaded.entry, localStreams: loaded.policy.localStreams } } : {};
 }

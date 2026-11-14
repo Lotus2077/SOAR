@@ -38474,3 +38474,78 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation with deterministic tests and its `Implemented` entry. Then `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck`, `pnpm validate:readiness` and the changed tests, the light review, CI, and a merge under the owner's standing go-ahead, re-stamping after `main`'s tail if it has moved (BL-20261113-0937, BL-20261113-0938).
 
 References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261113-0816-correction-host-flags-event-ids-and-replay; BL-20261109-0354-document-review-flags-design; BL-20261113-0836-infra-resume-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1311-host-flags-surfaces-implemented -- 2026-11-14 -- Backlog item 7(d), part C implemented: the timeline names the `host_flags` event, a submission's reported issues list it from its numbers and ids, and every registry row carries `hostFlags`
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-1246-host-flags-surfaces-design, with deterministic tests, on branch `feat/7d.C-host-flags-surfaces` from `main` at 582f880 (plan ID 7d.C, lane S-desk). The design commit is 4edc2fc and the implementation commit 69702a8.
+
+Decisions: Implemented as decided, with these precisions:
+- **Exported for tests.** `hostFlagIssues(events, expected)` is exported from src/main/general-tasks/controller.ts for its tests. `reportedIssues` calls it last, with `expected` true for a task with public sources.
+- **The wording.** Some lines as built:
+  - "3 sentences of the report assert that the sources lack something (absence rules v1), 2 without a claim citation: lines 3, 9 and 20.";
+  - "The report is a Word file, so the host did not scan it for absence claims.";
+  - "1 public source fetch failed.";
+  - "The host flags of this submission were not recorded.";
+  - "41 pairs of clauses are contradictory, 3 left unaddressed by the edits: paragraphs 7 and 8, and 40 more."
+- **Counts beyond the kept hits.** The event keeps at most 40 hits of each scan. When those 40 hold no absence hit, the report line gives its counts without line numbers. When the list was cut, the line says the lines are "among the first 40 hits". The review lines take their totals from the counts and name how many more the event did not list.
+- **Refused events.** The registry refuses a row whose event has any of these:
+  - a version that is not the integer 1;
+  - a rule other than `absence` or `review`, or a rule value other than 1;
+  - a count or a miss that is not a non-negative integer;
+  - an empty or unknown `errors` list;
+  - a scan without a boolean `scanned`, or a review without a boolean `valid`.
+- **The test fixture.** The controller test fixture takes the report's text, so an end-to-end test drives 7d.B's own pass through the real session.
+- **Review.** Under the owner's lighter-review rule, one light review of the pull request by the coordinating session.
+
+Changes:
+- src/main/general-tasks/controller.ts: the `host_flags` timeline summary; `hostFlagIssues`, called from `reportedIssues`.
+- scripts/registry-row.py: `host_flags(events, run_dir)`, and the `hostFlags` column in `run_counts`, `freeze_fields`, a stopped loop's fields and receipt rows. The docstring's list of copied fields names it.
+- README.md: the general-task row. docs/experiments/README.md: the `hostFlags` row, and `hostFlags` among the fields `--supersedes` copies.
+- tests/unit/general-task-host-flags.test.ts (new, 6 tests): every part of the event on synthetic events. They cover:
+  - the not-recorded line, the unreadable-event line, and no line for an event with nothing to report;
+  - report lines with cited, uncited and bounded hits, cut lists and cut text;
+  - unscanned Word, PDF and missing reports, and the argument;
+  - each miss and the single-unit brief;
+  - each review state and failed rule or step;
+  - failed sections, last.
+- tests/unit/general-task-controller.test.ts: one end-to-end test. A research task's report with one uncited absence claim makes 7d.B's pass record its event through the real session; the timeline names it and the reported issues list "line 2". A research task whose append fails gives the not-recorded line. A plain task gives no event and no line.
+- tests/unit/registry-row-host-flags.test.ts (new, 3 tests):
+  - a run's research and review events without their positions;
+  - an invalid review file, and `null` without an event;
+  - eleven kinds of unreadable event refused;
+  - a loop's selected run, a stopped stage with a result, `null` for a stage without one, and a stop without a run.
+- tests/unit/registry-row-verdict.test.ts: the receipt row's `hostFlags` is `null`.
+
+Evidence: At commit 69702a8:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: general-task-host-flags 6 of 6; general-task-controller 158 of 158; registry-row-host-flags 3 of 3; registry-row-verdict 4 of 4. The other registry suites pass unchanged: loop 3 of 3, resume 23 of 23, infra 5 of 5, zero-fee 25 of 25 and git 13 of 13.
+- The full `pnpm exec vitest run`: 197 files, 184 passed and 13 skipped (the environment-gated suites, as before); 3,678 tests, 3,592 passed and 86 skipped, none failed.
+- `researchProtocolSha256(RESEARCH_PIPELINE_BUDGET)` (505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92) and `localScreenSourceFreeze()` (32ad12463dc54e4038039d7abafd2d490a3cefd95dba119fb77671c0a1dc1f0e) are identical at the head and at `main` 582f880. No file in the freeze's list changes.
+- Mutation checks: 14 single mutants, each applied alone in a scratch copy and run against the changed tests, are all killed:
+  - no not-recorded line, or one for every task, or one that ignores the public sources;
+  - bounded hits listed;
+  - the uncited count replaced by the total;
+  - no cut-text line, or no failed-section line;
+  - no timeline summary;
+  - the registry keeping hit lines, skipping the version check, reading a stopped stage without a result, dropping the misses, or leaving the column off run or receipt rows.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- Before backlog item 13 the desktop runs no research stage and no document review. So the desktop can show only the report's, the fetch misses', the failed sections' and the not-recorded lines today. The other lines are tested on synthetic events only.
+- The wording is fixed host text around host numbers. It has not been tried on owners.
+- The renderer shows reported issues as before, as plain list items. No interface changes.
+- Rows already in docs/experiments/registry.jsonl carry no `hostFlags` and are not rewritten.
+- The registry reads a run's latest `host_flags` event. A run has one private context, so it has at most one.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- Push, open a pull request against `main`, and get the coordinating session's light review. CI must be green before the merge, which the owner's standing go-ahead covers.
+- At the merge, re-stamp after `main`'s tail if it has moved (BL-20261113-0937, BL-20261113-0938).
+- Then the Revoke follow-up for `consultation_budget_unavailable`, as its own pull request with its own `Proposed` entry.
+
+References: BL-20261114-1246-host-flags-surfaces-design; BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261113-0836-infra-resume-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

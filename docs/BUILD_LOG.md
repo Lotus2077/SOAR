@@ -38892,3 +38892,167 @@ References:
 - BL-20261109-0334-research-request-shapes-design;
 - the light review of #103;
 - #106.
+
+### BL-20261114-1650-research-structured-output-design -- 2026-11-14 -- Item 9 decided: an adopted card's structured-output flags add `response_format` json_schema, in the ReviewResultV1 shape and the card's variant, to local plan, extract and synthesis calls whose effective thinking mode is flagged; never to index, a cloud role or an assist; without a card every body and the default hash stay byte-identical
+
+Status: `Proposed`
+
+Scope or hypothesis: Item 9 of the lane plan: structured output per research role, behind the serving card's P10 flag.
+- **What exists.** The serving-card reader (BL-20261108-1459-serving-card-reader-design, implemented in BL-20261108-1649-serving-card-reader-implemented) resolves a card's `structuredOutput` for plan, extract and synthesis: `{variant: strict | non_strict, thinkingOff, thinkingOn}`.
+  - It admits a flag only with an assessed P10 cell of at least 20 calls and at least 95% valid on the requested variant, taken under today's default protocol hash and schema digests.
+  - It still refuses any non-null value as unconsumed, because no request carries `response_format`.
+- **What it builds on.** 7a.2 (#103, BL-20261114-1346-research-role-policy-design) carries the role policy from the card to the pipeline's `call()`. This branch stacks on it.
+- **P10's bodies.** Since P10-align (BL-20261113-1011-p10-align-design), each P10 cell sends the pipeline's own body for its role and thinking mode, with only `response_format` added. The body is built by `PrivateAgentModel.requestBody`.
+
+The hypothesis: if each flagged call sends the body it sends today with only that `response_format` added, then an adopted card's structured output reaches exactly the requests its P10 evidence measured. Without a card, nothing changes.
+
+Decisions:
+(1) **The model override.** `ModelCallOverrides` gains `responseFormat {name, schema, strict}`. `requestBody` reads it, and so does `complete()`.
+- **The body** gains `response_format: {type: "json_schema", json_schema: {name, schema, strict: true}}`. The non-strict variant omits `strict`, as P10's non-strict variant does. Nothing else in the body changes.
+- **Refusals come before any body exists**, so no broker call is made:
+  - `private_model_response_format_unsupported`: a shape other than the owned vLLM one (`openai`, `openai_responses`, `anthropic_messages`), or a call with tools;
+  - `private_model_response_format_invalid`: a name that is not 1 to 64 letters, digits, `_` or `-`, or a schema that is not a JSON object.
+
+(2) **The shape is ReviewResultV1's.** `reviewResultV1ResponseFormat()` (review-result-contract.ts) is what openai-compatible.ts sends. Its `type`, `json_schema.name`, `json_schema.schema` and `json_schema.strict: true` match this shape.
+- A parity test proves the match; there is no shared helper.
+- That is the plan's lower-overlap option, so review-result-contract.ts does not change.
+
+(3) **One table of role schemas.** research-pipeline.ts gains `RESEARCH_ROLE_SCHEMAS`:
+- plan: `research_plan`, `RESEARCH_PLAN_JSON_SCHEMA`;
+- extract: `research_extraction`, `RESEARCH_EXTRACT_JSON_SCHEMA`;
+- synthesis: `research_synthesis`, the JSON schema of `ResearchSynthesisSchema`.
+
+The names are P10's (`P10_SCHEMA_NAMES` in scripts/serving-probe.py). Three readers use the table:
+- the pipeline;
+- the reader's `currentRoleSchemaSha256`, so the gate checks the digests of the schemas the requests carry;
+- the role export's `schemas`, which P10 sends.
+
+No value changes, so the export, the digests and the protocol hash stay the same.
+
+(4) **The per-call rule.** A call sends `response_format` exactly when all of these hold:
+- its role is plan, extract or synthesis;
+- the role's model is local, by 7a.2's rule: `api` absent or `vllm`, and both rates 0. A cloud planner or synthesiser keeps the default policy, which has no flag;
+- the applied policy's `structuredOutput` for that role is not null;
+- the flag for the call's **effective thinking mode** is true. The mode is "off" when the attempt's thinking is `disabled` or the role model's own thinking is `disabled`, and "on" otherwise. These match P10's `<role>/off` and `<role>/on` cells.
+
+Attempt 1 and attempt 2 each use their own thinking. For example:
+- plan attempt 1, with thinking off and a `thinkingOff` flag, sends it;
+- attempt 2, with thinking on and no `thinkingOn` flag, does not.
+
+The variant is the card's: `strict` sends `strict: true`. The reader already requires the flag's variant to equal the one P10 requested and the cell ran.
+
+**Never:**
+- index, which has no schema and no flag;
+- a cloud role;
+- an assist slot, which never reads the policy;
+- the judge, the critic and the writer, which are not research role calls.
+
+(5) **A counter.** A stage row gains `structuredOutputCalls`: the settled calls of that stage that carried `response_format`. It is present only when at least one did, so a run without a card records the same rows.
+
+(6) **The hash: confirmed, with one precision.**
+- **Confirmed.** In research-roles.ts, `nonDefaultRoleParameters` counts a non-null `structuredOutput` as a non-default value. So only a card that sets a flag, a cap or thinking binds `rolePolicy` into `researchProtocolSha256`: 7a.2's rule.
+  - Item 9 adds nothing outside `rolePolicy`. The default value stays 505c385a… on this branch, or 7100b7a2… once 7b.2 merges.
+  - Without a card, the session identity, freeze.json and seeds stay byte-identical.
+- **The precision.** A card that sets a flag also binds a new `RESEARCH_STRUCTURED_OUTPUT_APPLICATION` inside `rolePolicy`.
+  - It records the shape, the names, the strict key, the effective-mode rule and the roles.
+  - It is bound only when some role's `structuredOutput` is not null. So a card that sets only caps or thinking keeps the hash 7a.2 gives it.
+
+(7) **Earlier cards' evidence.** Item 9 changes neither the default protocol hash nor any role schema, so it invalidates no card's structured-output evidence. SC's design requires each PR to state this.
+
+(8) **Defaults in force, recorded here, not answered.**
+- **SC-3, P10 evidence bound to the whole default protocol hash.** Unchanged; the reader's `serving_card_p10_protocol_drift` stands.
+- **The strict variant.** This is the E0 card's question 3: docs/experiments/e0-card-2026-11-13.md says P10's 95% rule binds `strict: true`. Item 9 sends exactly the variant the card names.
+- **SC-4, the writer proposes structured output by the 95% rule.**
+  - From this merge on, an adopted card that carries the writer's proposals is no longer refused for structured output.
+  - The writer proposes K 1 and admission `none`, so such a card resolves.
+  - This closes SC-4's gap: E0's card could come out non-default and stay refused until item 9.
+
+(9) **The flag.** `SERVING_CARD_CONSUMED.structuredOutput` becomes true. Still false: `localStreams` (8.2b) and `admission` (7b.3).
+
+(10) **Persisted contracts.**
+- **Under a flag:**
+  - a flagged call's body differs, and so do its packet hash and receipt body hash;
+  - stage rows in the ledger and summary.json may carry `structuredOutputCalls`, a count;
+  - the protocol hash binds the structured-output rule ((6)). Through 7a.2's carrier, the session identity, the freeze's pipeline block and the seed check follow it, so a seeded run must use its source's flags.
+- No new file and no schema version change. Nothing changes without a card.
+
+(11) **The source freeze rotates.**
+- **Why.** The PR edits files that `localScreenSourceFreeze()` hashes: model.ts, research-pipeline.ts, serving-card.ts and serving-card-flags.ts.
+- **The effect.** `--runtime-sha256` changes at the merge.
+- **The rule.** No loop or E-run may span the merge.
+
+(12) **Merge order.**
+- **Overall:** after 7a.2 (#103, this PR's base) and before 8.2b.
+- **serving-card-flags.ts and serving-card.ts:** 7a.2, item 9, 8.2b, then 7b.3.
+- **research-pipeline.ts:** after 7b.2 (#102) and 7a.2. The coordinator assigned this third PR on the file, as a draft stacked on #103.
+- When 7a.2 is on `main`, this branch merges `main` in and its entries are re-stamped.
+
+(13) **Tests, offline only.**
+- **The model** (new private-agent-model-structured-output.test.ts):
+  - the body with the override is the body without it plus `response_format` only, for strict and non-strict;
+  - refusals for `openai`, `openai_responses`, `anthropic_messages`, a call with tools and a malformed format, each with zero broker calls;
+  - the shape equals `reviewResultV1ResponseFormat()`'s for its own schema.
+- **The pipeline:**
+  - per role and attempt, `response_format` is sent exactly when the flag for the effective mode is set;
+  - never on index or a cloud role;
+  - a role model whose own thinking is disabled counts as off;
+  - the counter;
+  - without a card, every body, row and hash is byte-identical;
+  - the hash binding of (6).
+- **The session:** a card's flag reaches a request body through the session.
+- **The probe's parity** (serving-probe-helpers.test.ts):
+  - Python's `response_format(role, schema, strict)` equals the pipeline's format for all three roles and both variants;
+  - `P10_SCHEMA_NAMES` equals the table's names.
+- **The reader:**
+  - an adopted card with the writer's proposed flags resolves;
+  - the flag pin is flipped;
+  - the partial-flags test describes the state after item 9;
+  - K and admission are still refused.
+- **The export** sends the table's schemas. The identity golden test passes unedited.
+
+Changes: Planned:
+- src/main/private-agent/model.ts, research-pipeline.ts, serving-card.ts and serving-card-flags.ts;
+- scripts/export-role-schemas.ts;
+- docs/experiments/README.md, the reader's note;
+- the model, pipeline, session, probe-helper, reader and export tests.
+
+Evidence: Read at bf8855d (7a.2's head) and `main` bc6c61b:
+- research-roles.ts: `nonDefaultRoleParameters` and `StructuredOutputPolicySchema`;
+- serving-card.ts: `resolveServingCard`'s structured-output gate and `currentRoleSchemaSha256`;
+- model.ts: `requestBody` and `complete()`;
+- research-pipeline.ts: `call()`, `applied` and `researchProtocolSha256`;
+- scripts/serving-probe.py: `response_format`, `P10_SCHEMA_NAMES` and `p10_request_body`;
+- scripts/export-role-schemas.ts: `buildP10Requests`;
+- review-result-contract.ts: `reviewResultV1ResponseFormat`;
+- the E0 card's question 3, and SC-3 and SC-4 in the train-1 owner-decision list.
+
+**Size.** The canonical schemas are 915 bytes (plan), 1,111 (extract) and 675 (synthesis). A flagged body therefore grows by about 1.2 KB at most, which is small against the heavy profile's 640 KiB request cap.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims:
+- This is `Proposed`. Nothing is implemented, and nothing runs against an endpoint. No adopted card exists; E0 writes the first.
+- **What P10's evidence does not cover.** Item 9 does not refuse any of these:
+  - **Other caps.** P10's cells ran at today's caps (`OUTPUT_TOKENS`, the export's `max_tokens`). A card that changes a flagged role's cap sends a cap no P10 cell measured. The reader does not compare a cell's `maxTokens` with the policy's caps. That check belongs to the reader's gate, outside this item.
+  - **Attempt 2.** P10's payloads are attempt 1's, with no repair. A flagged repair or second call sends a larger payload under the same schema.
+  - **Payload size.** P10's payloads are synthetic and small (P10-align (4)).
+- **Flash-Next token admission (finding C7).**
+  - The external admission helper receives the whole body, `response_format` included.
+  - P10 ran outside the broker.
+  - So the first carded run under `flash_next_v1` is the first broker path that carries `response_format`.
+- **Replies are validated as today.** `response_format` only constrains decoding. The pipeline still checks every reply against its own schemas and rules.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the implementation, with its offline tests and an `Implemented` entry;
+- one light review;
+- CI green;
+- the merge after 7a.2 (#103), then `main` merged in and the entries re-stamped.
+
+References:
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261114-1346-research-role-policy-design, BL-20261114-1405-research-role-policy-implemented and BL-20261114-1447-correction-research-role-policy-review (7a.2, #103);
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- 7b.2's entries, on #102. They are cited by PR, because their IDs will be re-stamped;
+- docs/experiments/e0-card-2026-11-13.md.

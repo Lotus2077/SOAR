@@ -40291,3 +40291,79 @@ References:
 - BL-20261113-0937-owner-decision-restamp-unmerged-entries;
 - BL-20261113-0938-correction-restamp-rule-dates;
 - BL-20261114-1757-correction-claims-check-linear-strips-review.
+
+### BL-20261114-1805-correction-serving-card-request-settings-review -- 2026-11-14 -- Correction to BL-20261114-1759-serving-card-request-settings-implemented and BL-20261114-1758-serving-card-request-settings-design after the light review of #111: a flagged card binds only salted runs, the heavy profile's values stay unbound, and four test rows close four surviving mutants
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261114-1759-serving-card-request-settings-implemented and BL-20261114-1758-serving-card-request-settings-design.
+- **The review.** The coordinator's light review of #111 at 18d4ea8 was clean: no blocker or major finding, three minor findings.
+- **What it also confirmed:**
+  - the binding covers every setting a run can change;
+  - the export's bytes are unchanged for five settings, so E0's P10 evidence stays valid;
+  - every existing version-1 card still parses;
+  - the refusal comes before any output.
+- **What this entry does.** It records the three findings. Neither earlier entry is edited, and no source file under src/ or scripts/ changes.
+
+Decisions:
+(1) **Finding 1: a flagged card binds only salted runs.**
+- **The error.** docs/experiments/README.md said a cache-salt change is fixed by re-exporting and re-probing. It cannot be. The role export always salts:
+  - its record comes from `servingCardRequestSettings(settings, true)`;
+  - its bodies are built with the salt on;
+  - its command line takes only `--out`.
+- **The consequence.** Every card carries `cacheSalt: true`. A `--cache-salt false` run with a flagged card is therefore always refused with `serving_card_p10_settings_drift`.
+- **What stands.** The design entry's (4) says this correctly; its decisions stand. The README now says:
+  - a flagged card binds only salted runs, with `--cache-salt` true, the default;
+  - run the unsalted arm with an all-default card, or without the pair;
+  - after changing the model, the reply contract or its context, or `SOAR_STREAMING`: re-export, re-run P1, P10, P11 and the adapter together, and adopt a new card.
+
+(2) **Finding 2: `profile: "heavy"` binds only the name.**
+- **What shapes the bodies.** The heavy profile's values shape every P10 body:
+  - its sampling (temperature 1, top_p 0.95, top_k 20) and its thinking shape every thinking-on body;
+  - its 16,384-token output cap bounds every `max_tokens`;
+  - `buildLocalScreenModelConfig` builds the role model's configuration from it.
+- **Why they are unbound.** `researchProtocolSha256` covers neither the profiles nor that function. A change to either changes P10's bodies without moving any recorded value.
+- **The unbound list.** The design entry's (1) named the model layer's construction of the body as unbound. `COORDINATOR_PROFILES.heavy` and `buildLocalScreenModelConfig` join it, under the same rule: a PR that changes any of them must state that it invalidates earlier cards' structured-output evidence.
+- **`profile` is a constant on both sides.** The export records `heavy`, and `servingCardRequestSettings` returns `heavy`.
+- **The run's profile name is not passed in, by choice.**
+  - The driver already refuses `--pipeline research` and `--research-from` without the heavy profile, so no run that sends a flagged call can differ.
+  - Passing it would refuse a flagged card on every standard-profile run, which sends no flagged call.
+- **Where it is said.** The README says this under "What the gates do not show".
+
+(3) **Finding 3: four mutants survived, each failing closed.** New test rows now kill each one:
+- **The driver salting only when told to.** A row in the driver's L2 test omits `cacheSalt`. Such a run is salted, so the writer's card meets today's fail-closed step.
+- **The reader ignoring the context.** An R2 row has a Flash record whose context alone differs from the run's.
+- **The writer accepting any reply contract, or a non-boolean salt.** Two W4 rows refuse each one.
+
+Changes:
+- **Commit ee8ac8c:**
+  - docs/experiments/README.md: the salt rule and the unbound list;
+  - tests/unit/private-agent-local-role-config.test.ts, serving-card-reader.test.ts and serving-card-writer.test.ts: the four rows.
+- This entry.
+
+Evidence: At ee8ac8c, before the merge of `main` that BL-20261114-1804-correction-serving-card-request-settings-restamp records; the merge changed none of these files but the citations:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related suites.** The reader, partial-flags, consumed-flags, writer, export, probe-helper and driver-configuration suites pass: 7 files, 165 tests.
+- **Mutants.** The review's four surviving mutants each fail a test now:
+  - the driver's `input.cacheSalt !== false` changed to `=== true`;
+  - the reader comparing everything but `localContextTokens`;
+  - the writer accepting any `localReplyContract`;
+  - the writer accepting a non-boolean `cacheSalt`.
+- **The log.** At this entry's commit, after the merge, `pnpm --silent validate:build-log -- --base-ref origin/main` passes against `main` a38a88e.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists.
+- **The unbound list in (2) is procedural only.** No check enforces it; a reviewer must catch a PR that changes those values.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green;
+- the coordinator's merge under the standing go-ahead. #111 lands before #108.
+
+References:
+- BL-20261114-1759-serving-card-request-settings-implemented and BL-20261114-1758-serving-card-request-settings-design (corrected);
+- BL-20261108-1459-serving-card-reader-design;
+- the light review of #111.

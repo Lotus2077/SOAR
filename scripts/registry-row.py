@@ -503,7 +503,7 @@ def safe_integer(value):
     return value if abs(value) <= 2 ** 53 - 1 else None
 
 
-# Plan 11.4 (BL-20261114-1331-registry-columns-design): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
+# Plan 11.4 (BL-20261114-1343-registry-columns-design): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
 # and 7(c)'s fallback markers. Every value is a count, a USD amount, a fixed host enum or null: a retained source's URL is read only
 # to count it and its hostname, and never leaves this process.
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")

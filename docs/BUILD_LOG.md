@@ -38609,7 +38609,7 @@ Next gate: The coordinating session's check of this push, and CI. Then the merge
 
 References: BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261110-1509-host-flags-event-design.
 
-### BL-20261114-1331-registry-columns-design -- 2026-11-14 -- Decide plan 11.4: receipts record their destination kind, body and disclosed bytes, and registry rows gain reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
+### BL-20261114-1343-registry-columns-design -- 2026-11-14 -- Decide plan 11.4: receipts record their destination kind, body and disclosed bytes, and registry rows gain reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
 
 Status: `Proposed`
 
@@ -38684,3 +38684,30 @@ Next gate: The implementation with deterministic tests and its `Implemented` ent
 - Is the reading stage's `sourcesIndexed` the closed-corpus "read" until item 12? Default: yes.
 
 References: BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261109-0422-registry-run-commit-design; BL-20261114-1250 (pull request #98); HARN-27; issue #63; .soar/next-milestones plan item 11.4.
+
+### BL-20261114-1403-correction-registry-columns-design-id -- 2026-11-14 -- Correction: plan 11.4's design entry carries ID BL-20261114-1343 in the merged ledger; it was authored at 13:31 UTC on 2026-11-14 as BL-20261114-1331
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why plan 11.4's design entry (BL-20261114-1343-registry-columns-design) does not carry its authoring minute. 7d.C (#99) merged into `main` while this branch was open, and `main`'s last ID became BL-20261114-1342-correction-host-flags-surfaces-review. The validator refuses an ID earlier than the entry before it. Under the owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries), at this branch's merge of `main` (9f63fc6) the entry takes the first free minute after `main`'s tail, and the six references that point to it are updated. Nothing else about the entry changed.
+
+Decisions:
+- The entry's body is byte-identical to what it was at 9abb76c. Only the heading's minute moved; the date stays 2026-11-14.
+- The references are:
+  - the README's `reservedUsd` row;
+  - comments in scripts/registry-row.py, src/main/private-agent/broker.ts and src/main/private-agent/store.ts;
+  - the descriptions of the two test files.
+
+Changes: docs/BUILD_LOG.md (one heading, and this entry), and the six references above. No behaviour changes.
+
+Evidence: `git grep BL-20261114-1331` finds only this correction. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this commit, and `pnpm typecheck` passes.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. The message of the commit that added the entry (9abb76c) keeps its original ID. If another branch's entries reach `main` first, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of this pull request, which checks the re-stamp and this correction.
+
+References: BL-20261114-1343-registry-columns-design; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

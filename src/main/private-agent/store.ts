@@ -130,7 +130,7 @@ export interface DispatchReceipt {
   failure?: UnknownRequestDiagnostic;
   approval?: ExactApproval;
   /**
-   * Plan 11.4 (BL-20261114-1331-registry-columns-design): the destination's kind, the request body's UTF-8 bytes (0 for a GET) and the
+   * Plan 11.4 (BL-20261114-1343-registry-columns-design): the destination's kind, the request body's UTF-8 bytes (0 for a GET) and the
    * bytes the request disclosed (HARN-27: none to a local model or a loopback URL, else a POST's body or a GET's URL). The broker writes
    * all three on every row since; earlier rows lack them. Counts only, outside the packet and destination hashes.
    */

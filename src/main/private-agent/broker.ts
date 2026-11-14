@@ -247,7 +247,7 @@ function isLoopback(host: string): boolean {
 }
 
 /**
- * Plan 11.4 (BL-20261114-1331-registry-columns-design): what a dispatch row records about its request, beside its identity: the
+ * Plan 11.4 (BL-20261114-1343-registry-columns-design): what a dispatch row records about its request, beside its identity: the
  * destination's kind, the body's UTF-8 bytes (0 for a GET), and the bytes it disclosed by HARN-27's default: none to a local model
  * or a loopback URL, else a POST's body or a GET's URL.
  */

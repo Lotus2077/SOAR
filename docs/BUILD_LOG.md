@@ -38788,3 +38788,46 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The review of #98, which checks the re-stamp and this correction; then its merge.
 
 References: BL-20261114-1344-experiment-launcher-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1431-experiment-launcher-signals-design -- 2026-11-14 -- Supersede decisions (2) and (5) of plan 11.5's design: a second signal escalates only seconds after the first, a hangup stops the run through SIGTERM on the same gated path, and a loop's cap covers its arguments' cap once
+
+Status: `Proposed`
+
+Scope or hypothesis: Supersede, without editing it, decision (5) of BL-20261114-1344-experiment-launcher-design, and the cap rule in its decision (2). The light review of #98 found the problems, and its skeptic check confirmed all three majors. The skeptic used the launcher's real main block, real detached spawn and `process.kill` on the group, real `caffeinate` and the real lock, with a stand-in driver wired like the real ones.
+- Under `pnpm launcher` one Ctrl-C reaches the launcher twice, about 1 ms apart. pnpm forwards it, and the terminal's group signal also lands. Decision (5)'s "a second signal sends SIGKILL at once" then kills the run at once.
+- Neither driver handles SIGHUP. A run sent SIGHUP dies in 1 to 3 ms with no record and no cleanup, and nohup does not help.
+- A real hangup through a shell delivers SIGHUP twice, about 3 ms apart: zsh sends it to its job, and the kernel to the foreground group.
+- `caffeinate`, in the launcher's group, died on every group signal.
+- Decision (2)'s reason for a loop's three-times cap is wrong: only sample a can spend.
+
+The code, its tests, LAUNCHER.md and a correction of the implementation entry follow in this pull request. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) A second signal (supersedes decision (5)'s escalation).**
+  - The first SIGINT, SIGTERM or SIGHUP is forwarded to the run's process group and stops new starts.
+  - A second signal escalates to SIGKILL only when it arrives at least 5 s (`SIGNAL_REPEAT_MS`) after the first. A nearer one is the same signal delivered twice and is recorded as `signal_repeated`.
+  - The 120 s wait before SIGKILL and the 10 s reap bound are unchanged.
+- **(2) A hangup (supersedes decision (5)'s forwarding).**
+  - On SIGHUP, the launcher sends the run's group SIGTERM, the graceful stop both drivers handle, through the same gated path. It records SIGHUP as the cause, so a hangup stops the batch gracefully.
+  - `caffeinate` is spawned detached, so a group signal does not end it; its `-w` still ends it with the launcher.
+  - LAUNCHER.md recommends tmux or screen, and says that nohup does not help: the launcher's own SIGHUP listener overrides nohup's ignore.
+- **(3) A loop's cap (supersedes the cap rule in decision (2)).**
+  - Only a loop's sample a can spend. A cloud loop is a research loop: its b and repair are seeded writers without the cloud arm, its critique is local, and part 3b's resumes are zero fee.
+  - So a loop's `capUsd` must cover its arguments' cap once, as a run's does.
+  - Each run's argv is checked at queue time by its own script's parser: `parseLoopArguments` for a loop, the driver's `parseLocalArtifactScreenArguments` for a run, which requires `--execute-synthetic-local`. So a run the script would refuse is refused before the batch starts.
+
+Changes: This entry only. The code (scripts/experiment-launcher.ts), its tests, LAUNCHER.md and the correction of BL-20261114-1345-experiment-launcher-implemented follow in this pull request.
+
+Evidence: The light review of #98 and its skeptic section, which hold the probes and their measurements: pnpm 10.12.4's forwarding; a pseudo-terminal Ctrl-C; an interactive zsh foreground job; the hangup's double delivery; the stand-in driver's SIGHUP death; `caffeinate` dying in the launcher's group.
+
+Failures or blockers: None in this entry. Decision (5) as first recorded would have sent SIGKILL on one Ctrl-C under pnpm, and on any hangup.
+
+Limitations and non-claims: Proposed only; this entry implements nothing. The gate is a time window, so two separate owner signals less than 5 s apart count as one: the second is recorded, and an immediate kill needs a second signal 5 s or more after the first.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The code and the correction in this pull request, then the coordinator's re-check of the delta and the skeptic's check of the three majors. Owner questions, each with the default proposed here:
+- On SIGHUP: send the run SIGTERM through the gated path, as above, or treat SIGHUP like the STOP file, outside the escalation path, so the run in progress continues unsupervised and nothing new starts? Default: SIGTERM.
+- The 5 s window for a repeated signal. Default: 5 s.
+
+References: BL-20261114-1344-experiment-launcher-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261101-0135-h5-held-closure-supervision; the light review of #98 and its skeptic check.

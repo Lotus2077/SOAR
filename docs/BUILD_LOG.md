@@ -38861,3 +38861,48 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The light review of #101 at its new head, which checks this re-stamp and this correction, then CI and the merge.
 
 References: BL-20261114-1343-concurrent-local-admission-design; BL-20261114-1344-concurrent-local-admission-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1504-correction-concurrent-local-admission-review -- 2026-11-14 -- Correction to BL-20261114-1343-concurrent-local-admission-design after the light review of #101: keeping `request_failed` also changes a run's infra/task class at K > 1, and a call cancelled in its D4 backoff resolves with its own transport code
+
+Status: `Implemented`
+
+Scope or hypothesis: The orchestrator's light review of #101 at 29af996 is clean, with three minor findings. Two of them correct statements of BL-20261114-1343-concurrent-local-admission-design, which stays as written. The third is in the pull request's description only. Nothing in code changes.
+
+Decisions:
+- **Decision (4): the run's class differs too.** The design entry says 8.2b's loops "end the same way under either code", and that only the stage's recorded `denied` differs. The run's infra/task class differs as well.
+  - run-classification.ts:87-89 and scripts/registry-row.py:242-244 class `research_request_denied` as infrastructure (`research_request_failed`) when two things hold: the stage's `denied` is `request_failed`, and the failing call is a zero-fee failed row (`failedCallIsInfra`, run-classification.ts:70-73).
+  - At K > 1, a retried item's first attempt is such a row when a sibling takes the last request during its D4 backoff. A run that exhausts its request allowance that way is classed infrastructure.
+  - On the same events, the serial loop is refused at a later item with `budget_denied`, which is classed as task.
+  - So the same exhaustion is infrastructure at K > 1 and task at K = 1. That is the kind of mislabel E1-R's obligation was meant to prevent.
+  - It is rare. session.ts:289 refuses a session whose request pool is smaller than the stage budgets plus the writer's calls (and a public phase's), so the pool runs out only through retries.
+  - Decided: accepted as a limitation of 8.1, since nothing runs at K > 1 until 8.2b. 8.2b's design entry, which brings K > 1, decides whether its loops keep this class or class it as task, and records which.
+- **Decision (5): what a cancel resolves.** The design entry says `cancelJob` makes "K calls in flight each resolve `failed` (`cancelled`)". That holds for a call whose request is in flight.
+  - A call waiting in its D4 backoff when the cancel lands leaves the wait and falls through at broker.ts:628-636.
+  - It resolves `failed` with its own transport code, for example `upstream_closed`, not `cancelled`.
+  - It still denies `request_failed`, so the caller's outcome is unchanged. Only the row's recorded failure code differs.
+- **The pull request's description.** It said the broker test file gains 13 tests. That file gains 12; the 13th is in tests/integration/private-agent-flash-next.test.ts, as BL-20261114-1344-concurrent-local-admission-implemented says. The description is corrected.
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- The pull request's description.
+- No code or test changes.
+
+Evidence:
+- The cited code, read at 29af996:
+  - the `research_request_denied` rule in run-classification.ts:87-89 and scripts/registry-row.py:242-244, with `FAILED_CALL_STAGE_CODE` = `request_failed` in both;
+  - `failedCallIsInfra`, which counts a zero-fee failed row as infrastructure (run-classification.ts:70-73);
+  - the session's pool check (session.ts:289);
+  - the D4 wait in broker.ts:628-636, with its fall-through to `resolveFailure(…, "failed", failure, …)` and `deny("request_failed")`.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` (19d7826): exit 0.
+
+Failures or blockers: None open. The design entry's two statements were too narrow, and this entry corrects them.
+
+Limitations and non-claims:
+- This is a record correction only. Nothing is implemented, verified or released by it.
+- The K > 1 class difference stays open until 8.2b's design entry decides it. No test pins it, since nothing runs at K > 1 yet.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #101's new head, then the orchestrator's merge under the owner's standing go-ahead.
+
+References: BL-20261114-1343-concurrent-local-admission-design; BL-20261114-1344-concurrent-local-admission-implemented; BL-20261114-1429-correction-concurrent-local-admission-restamp; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented.

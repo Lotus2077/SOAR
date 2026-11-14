@@ -1052,3 +1052,283 @@ describe("receipt disclosure fields (plan 11.4, BL-20261114-1504)", () => {
     expect(commit({ destinationKind: "cloud_model", bodyBytes: 12, disclosedBytes: 12 })).toMatchObject({ status: "committed", bodyBytes: 12 });
   });
 });
+
+describe("concurrent zero-risk local admission (backlog item 8, part 1)", () => {
+  const PURPOSE = "research evidence extraction";
+  const scan = { status: "not_required_inside_boundary" as const };
+  /** One request as the loopback server received it, held until the test answers or cuts it. */
+  interface Arrival { body: string; path: string; answer: (status?: number, reply?: string) => void; cut: () => void }
+  /** A promise's outcome, so a call the test starts early never leaves an unhandled rejection behind. */
+  const outcome = <T>(pending: Promise<T>) => pending.then(value => ({ value }), (error: unknown) => ({ error }));
+  /**
+   * One job served by one loopback server through three destinations: a local model, a cloud model and a public page, plus two
+   * contexts. Every source is public, so no destination needs a grant. The server holds every request until the test answers it (or
+   * `onArrival` does), and `arrived(n)` resolves once n requests have arrived, so a test knows its calls are in flight together.
+   */
+  async function concurrentFixture(options: { databasePath?: string; maxRequests?: number; recoverable?: boolean; onArrival?: (arrival: Arrival, all: readonly Arrival[]) => void } = {}) {
+    const arrivals: Arrival[] = [], checks: (() => void)[] = [];
+    let answerAtOnce = false;
+    const server = http.createServer((request, response) => {
+      let body = ""; request.on("data", chunk => { body += chunk; });
+      request.on("end", () => {
+        const arrival: Arrival = { body, path: request.url ?? "", answer: (status = 200, reply = '{"ok":true}') => { response.writeHead(status); response.end(reply); },
+          cut: () => request.socket.destroy(new Error("synthetic reset")) };
+        arrivals.push(arrival);
+        if (answerAtOnce) arrival.answer(); else options.onArrival?.(arrival, arrivals);
+        for (const check of checks.splice(0)) check();
+      });
+    });
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+    cleanups.push(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const db = new Database(options.databasePath ?? ":memory:"); cleanups.push(() => { if (db.open) db.close(); });
+    const store = new PrivateAgentStore(db);
+    store.createJob({ id: "job", version: 1, revision: 0, cancelled: false, mode: "cloud_help", destinations: ["local", "cloud", "web", "approved"],
+      maxRequests: options.maxRequests ?? 10, maxFeeMicrousd: 1000 });
+    for (const id of ["context", "other-context"]) store.createContext({ id, jobId: "job", sources: [{ id: "input", version: digest("public input"), classification: "public", synthetic: true }] });
+    // The transport timeout (5 s) differs from both D4 backoffs (1 s, 3 s), so `watchWaits` can find the backoff.
+    const common = { accountId: "synthetic-account", credentialVersion: 1, loopbackFixture: true, maxResponseBytes: 2048, timeoutMs: 5000 };
+    const destinations: BrokerDestination[] = [
+      { ...common, id: "local", kind: "local_model", endpoint: `${base}/v1/chat/completions`, privateDataAdmitted: true, ...(options.recoverable ? { recoverable: true } : {}) },
+      { ...common, id: "cloud", kind: "cloud_model", endpoint: `${base}/cloud/v1/chat/completions`, privateDataAdmitted: false, apiKey: "synthetic-host-only-credential" },
+      { ...common, id: "web", kind: "public_web", endpoint: `${base}/web/`, privateDataAdmitted: false },
+      // A local model that takes only the owner's exact approved packet.
+      { ...common, id: "approved", kind: "local_model", endpoint: `${base}/approved/v1/chat/completions`, privateDataAdmitted: true,
+        requireExactGrant: true, approvalPriceProfileSha256: digest("synthetic price profile") },
+    ];
+    const broker = new PrivateAgentBroker(store, destinations, clean);
+    const request = (over: Partial<BrokerRequest> = {}): BrokerRequest => ({ jobId: "job", contextId: "context", destinationId: "local", purpose: PURPOSE, method: "POST",
+      body: '{"item":0}', maxFeeMicrousd: 0, ...over });
+    const web = (over: Partial<BrokerRequest> = {}): BrokerRequest => ({ jobId: "job", contextId: "context", destinationId: "web", purpose: PURPOSE, method: "GET",
+      url: `${base}/web/page`, maxFeeMicrousd: 0, ...over });
+    const arrived = (count: number) => new Promise<void>(resolve => { const check = () => { if (arrivals.length >= count) resolve(); else checks.push(check); }; check(); });
+    /** Answers every held request and every later one at once. */
+    const answerAll = () => { answerAtOnce = true; arrivals.forEach(arrival => arrival.answer()); };
+    /** A broker preview without its text: the identity fields a direct commit takes. */
+    const preview = (over: Partial<BrokerRequest> = {}) => { const { text: _text, ...rest } = broker.preview(request(over)); return rest; };
+    return { broker, store, db, destinations, arrivals, arrived, answerAll, request, web, preview, base };
+  }
+
+  it("admits several zero-fee local calls of one job, context and purpose together, and each settles with a receipt of the serial shape", async () => {
+    // The server answers none of the three until all three have arrived: each committed while the others' rows were committed.
+    const f = await concurrentFixture({ onArrival: (_arrival, all) => { if (all.length === 3) all.forEach(arrival => arrival.answer()); } });
+    const results = await Promise.all([0, 1, 2].map(item => f.broker.request(f.request({ body: `{"item":${item}}` }))));
+    expect(results.map(result => result.receipt.status)).toEqual(["settled", "settled", "settled"]); expect(f.arrivals).toHaveLength(3);
+    const rows = f.store.dispatches("job");
+    expect(rows.map(row => [row.status, row.contextId, row.purpose, row.reservedFeeMicrousd, row.feeMicrousd])).toEqual(
+      [0, 1, 2].map(() => ["settled", "context", PURPOSE, 0, 0]));
+    // Liveness is never persisted: each receipt has exactly the keys a serial settled receipt has.
+    for (const row of rows) {
+      expect(Object.keys(row).sort()).toEqual(["committedAt", "contextId", "contextSha256", "destinationId", "destinationSha256", "feeMicrousd", "id", "jobId",
+        "packetSha256", "policyRevision", "purpose", "reservedFeeMicrousd", "responseSha256", "scan", "status"]);
+    }
+  });
+
+  it("refuses a zero-fee local call of another purpose or another context beside a live row, with no row and no bytes", async () => {
+    const f = await concurrentFixture();
+    const first = outcome(f.broker.request(f.request())); await f.arrived(1);
+    await expect(f.broker.request(f.request({ body: '{"item":1}', purpose: "research source index" }))).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    await expect(f.broker.request(f.request({ body: '{"item":1}', contextId: "other-context" }))).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    expect(f.arrivals).toHaveLength(1); expect(f.store.dispatches("job")).toHaveLength(1);
+    f.answerAll();
+    expect(await first).toMatchObject({ value: { receipt: { status: "settled" } } });
+    // Nothing is committed now, so both are admitted, one after the other, as before.
+    await expect(f.broker.request(f.request({ body: '{"item":1}', purpose: "research source index" }))).resolves.toMatchObject({ receipt: { status: "settled" } });
+    await expect(f.broker.request(f.request({ body: '{"item":1}', contextId: "other-context" }))).resolves.toMatchObject({ receipt: { status: "settled" } });
+  });
+
+  it("refuses cloud, priced, granted, approved, public-GET and assist requests beside a live local row, and never certifies them", async () => {
+    const f = await concurrentFixture();
+    const first = outcome(f.broker.request(f.request())); await f.arrived(1);
+    const refused: [string, BrokerRequest][] = [
+      ["a zero-fee cloud call", f.request({ destinationId: "cloud" })],
+      ["a priced cloud call", f.request({ destinationId: "cloud", maxFeeMicrousd: 100 })],
+      ["a priced local call", f.request({ body: '{"item":1}', maxFeeMicrousd: 1 })],
+      ["a zero-fee public GET", f.web()],
+      ["a cloud assist", f.request({ destinationId: "cloud", purpose: PLAN_ASSIST_PURPOSE, maxFeeMicrousd: 100 })],
+    ];
+    // A zero-fee local call with an exact grant, and one with the owner's approval: neither is zero-risk, so neither is certified.
+    const granted = f.request({ body: '{"item":"granted"}' });
+    f.store.grant({ ...f.preview({ body: '{"item":"granted"}' }), id: "grant", expiresAt: Date.now() + 60_000, remainingUses: 1, revoked: false });
+    refused.push(["a granted zero-fee local call", { ...granted, grantId: "grant" }]);
+    const approval = { proposalId: "8a6d0d41-3c9d-4c1e-9a55-7b3f0f6d2c11", proposalSha256: digest("synthetic proposal"), priceProfileSha256: digest("synthetic price profile"), maxFeeMicrousd: 0 };
+    const approved = f.request({ destinationId: "approved", body: '{"item":"approved"}', approval });
+    f.store.grant({ ...f.preview({ destinationId: "approved", body: '{"item":"approved"}', approval }), id: "approval-grant", expiresAt: Date.now() + 60_000, remainingUses: 1, revoked: false, approval });
+    refused.push(["an approved zero-fee local call", { ...approved, grantId: "approval-grant" }]);
+    for (const [name, input] of refused) await expect(f.broker.request(input), name).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    // An assist purpose never reaches a local model at all (backlog item 10).
+    await expect(f.broker.request(f.request({ body: '{"item":1}', purpose: SYNTHESIS_ASSIST_PURPOSE }))).rejects.toThrow("assist_destination_invalid");
+    expect(f.arrivals).toHaveLength(1); expect(f.store.dispatches("job")).toHaveLength(1);
+    f.answerAll(); expect(await first).toMatchObject({ value: { receipt: { status: "settled" } } });
+    // Both grants are untouched: each refusal came before the grant was used.
+    await expect(f.broker.request({ ...granted, grantId: "grant" })).resolves.toMatchObject({ receipt: { status: "settled" } });
+    await expect(f.broker.request({ ...approved, grantId: "approval-grant" })).resolves.toMatchObject({ receipt: { status: "settled" } });
+  });
+
+  it("refuses a local call beside a committed zero-fee cloud row or public GET of the same purpose, and never lets two public GETs overlap (item 12)", async () => {
+    const f = await concurrentFixture();
+    const cloud = outcome(f.broker.request(f.request({ destinationId: "cloud" }))); await f.arrived(1);
+    await expect(f.broker.request(f.request())).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    f.arrivals[0]!.answer(); expect(await cloud).toMatchObject({ value: { receipt: { status: "settled", reservedFeeMicrousd: 0 } } });
+    const page = outcome(f.broker.request(f.web())); await f.arrived(2);
+    await expect(f.broker.request(f.request())).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    await expect(f.broker.request(f.web({ url: `${f.base}/web/other` }))).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    expect(f.arrivals.map(arrival => arrival.path)).toEqual(["/cloud/v1/chat/completions", "/web/page"]);
+    f.arrivals[1]!.answer(); expect(await page).toMatchObject({ value: { receipt: { status: "settled" } } });
+    expect(f.store.dispatches("job").map(row => [row.destinationId, row.status])).toEqual([["cloud", "settled"], ["web", "settled"]]);
+  });
+
+  it("refuses everything through a new broker on the reopened database while two rows are committed: rows a crash or another process left are never live", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "soar-concurrent-admission-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const f = await concurrentFixture({ databasePath: join(dir, "state.sqlite") });
+    const calls = [0, 1].map(item => outcome(f.broker.request(f.request({ body: `{"item":${item}}` })))); await f.arrived(2);
+    const reopened = new Database(join(dir, "state.sqlite")); cleanups.push(() => { if (reopened.open) reopened.close(); });
+    const store = new PrivateAgentStore(reopened), second = new PrivateAgentBroker(store, f.destinations, clean);
+    // The second connection reads exactly the first broker's rows: nothing about liveness was written.
+    expect(store.dispatches("job")).toEqual(f.store.dispatches("job")); expect(store.dispatches("job").map(row => row.status)).toEqual(["committed", "committed"]);
+    for (const input of [f.request({ body: '{"item":2}' }), f.request({ destinationId: "cloud" }), f.web()]) {
+      await expect(second.request(input), input.destinationId).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    }
+    expect(f.arrivals).toHaveLength(2);
+    // The broker that holds both rows live still admits a third call of the same job, context and purpose.
+    const third = outcome(f.broker.request(f.request({ body: '{"item":3}' }))); await f.arrived(3);
+    f.answerAll();
+    for (const call of [...calls, third]) expect(await call).toMatchObject({ value: { receipt: { status: "settled" } } });
+    // With every row settled, the new broker is admitted as before.
+    await expect(second.request(f.request({ body: '{"item":4}' }))).resolves.toMatchObject({ receipt: { status: "settled" } });
+  });
+
+  it("resolves every row failed when the job is cancelled with three calls in flight, and refuses everything after", async () => {
+    const f = await concurrentFixture();
+    const calls = [0, 1, 2].map(item => outcome(f.broker.request(f.request({ body: `{"item":${item}}` })))); await f.arrived(3);
+    f.broker.cancelJob("job");
+    for (const call of calls) {
+      const settled = await call;
+      expect("error" in settled && settled.error).toBeInstanceOf(BrokerError); expect((settled as { error: BrokerError }).error.code).toBe("request_failed");
+    }
+    expect(f.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([0, 1, 2].map(() => ["failed", "cancelled"]));
+    await expect(f.broker.request(f.request({ body: '{"item":3}' }))).rejects.toMatchObject({ code: "job_cancelled" });
+    expect(f.arrivals).toHaveLength(3);
+  });
+
+  it("closes a retried attempt superseded inside its successor's commit beside a live sibling, and both calls settle", async () => {
+    // Call a's first attempt is cut after it arrives (a confirmed, retryable abort). Sibling b is held until a's second attempt arrives,
+    // so a's successor commits while b's row is committed and live, and a's first attempt is no longer live.
+    const a1 = '{"item":"a"}', b1 = '{"item":"b"}';
+    const f = await concurrentFixture({ recoverable: true, onArrival: (arrival, all) => {
+      const attempts = all.filter(other => other.body === a1), b = all.find(other => other.body === b1);
+      if (arrival.body === a1 && attempts.length === 1) { arrival.cut(); return; }
+      // Whichever of b and a's second attempt arrives last answers both.
+      if (attempts.length === 2 && b && (arrival === attempts[1] || arrival === b)) { b.answer(); attempts[1]!.answer(); }
+    } });
+    const [a, b] = await Promise.all([f.broker.request(f.request({ body: a1 })), f.broker.request(f.request({ body: b1 }))]);
+    const rows = f.store.dispatches("job"), name = (row: DispatchReceipt) => row.packetSha256 === a.receipt.packetSha256 ? "a" : row.packetSha256 === b.receipt.packetSha256 ? "b" : "?";
+    expect(rows.map(row => [name(row), row.status, row.failure?.code, row.failure?.attempt])).toEqual([
+      ["a", "superseded", "upstream_closed", 1], ["b", "settled", undefined, undefined], ["a", "settled", undefined, undefined]]);
+    everySupersededRowHasASuccessor(rows);
+    expect(f.arrivals.map(arrival => arrival.body).filter(body => body === '{"item":"a"}')).toHaveLength(2); expect(f.arrivals).toHaveLength(3);
+  }, 15_000);
+
+  it("resolves a retried attempt failed, never a lone superseded row, when a sibling takes the job's last request during its backoff", async () => {
+    // Two requests in all. Call a's first attempt is cut and its 1 s backoff starts; sibling b then commits beside it (a's row is
+    // committed and live) and takes the last request; a's successor is refused at its commit.
+    const f = await concurrentFixture({ recoverable: true, maxRequests: 2, onArrival: arrival => { if (arrival.body === '{"item":"a"}') arrival.cut(); else arrival.answer(); } });
+    let sibling: Promise<{ value: Awaited<ReturnType<PrivateAgentBroker["request"]>> } | { error: unknown }> | undefined, seen: string | undefined;
+    watchWaits(cleanups, 1000, () => {
+      sibling = outcome(f.broker.request(f.request({ body: '{"item":"b"}' }), () => 0, () => { seen = f.store.dispatches("job")[0]!.status; }));
+    });
+    const error = await f.broker.request(f.request({ body: '{"item":"a"}' })).then(() => undefined, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(BrokerError); expect((error as BrokerError).code).toBe("request_failed");
+    // b's commit saw a's first attempt still committed: it was admitted during the backoff, beside a live row.
+    expect(seen).toBe("committed"); expect(await sibling!).toMatchObject({ value: { receipt: { status: "settled" } } });
+    const rows = f.store.dispatches("job");
+    expect(rows.map(row => [row.status, row.failure?.code, row.failure?.attempt])).toEqual([["failed", "upstream_closed", 1], ["settled", undefined, undefined]]);
+    everySupersededRowHasASuccessor(rows); expect(f.arrivals.map(arrival => arrival.body)).toEqual(['{"item":"a"}', '{"item":"b"}']);
+  }, 15_000);
+
+  it("takes a row it could not close out of the live set, so that row blocks every later call like one a crash left", async () => {
+    const f = await concurrentFixture({ onArrival: arrival => arrival.answer(400, "synthetic rejection") });
+    const spy = vi.spyOn(f.store, "resolveFailure").mockImplementationOnce(() => { throw new Error("synthetic_store_failure"); });
+    cleanups.push(() => spy.mockRestore());
+    await expect(f.broker.request(f.request())).rejects.toThrow("synthetic_store_failure");
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["committed"]);
+    await expect(f.broker.request(f.request({ body: '{"item":1}' }))).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    expect(f.arrivals).toHaveLength(1); expect(f.store.dispatches("job")).toHaveLength(1);
+  });
+
+  /** Store level: what the broker relies on. `admits` commits with the argument and the given live set; each refusal must leave no row. */
+  async function ledger() {
+    const f = await concurrentFixture();
+    const first = f.store.commit({ ...f.preview(), reservedFeeMicrousd: 0, scan }, () => {}, undefined, undefined, { concurrency: { live: new Set() } });
+    const live = new Set([first.id]);
+    const admits = (over: Partial<BrokerRequest>, reservedFeeMicrousd = 0, grantId?: string, set: ReadonlySet<string> = live) =>
+      f.store.commit({ ...f.preview(over), reservedFeeMicrousd, scan }, () => {}, grantId, undefined, { concurrency: { live: set } });
+    return { f, first, live, admits };
+  }
+
+  it("admits a direct commit with the argument only when every condition holds, and refuses each single failed condition with no row", async () => {
+    const { f, first, live, admits } = await ledger();
+    // Every condition holds: admitted beside the live row.
+    const second = admits({ body: '{"item":1}' }); live.add(second.id);
+    const refusals: [string, () => unknown][] = [
+      ["a fee", () => admits({ body: '{"item":2}' }, 1)],
+      ["another context", () => admits({ body: '{"item":2}', contextId: "other-context" })],
+      ["another purpose", () => admits({ body: '{"item":2}', purpose: "research source index" })],
+      ["a blocking row this live set does not hold", () => admits({ body: '{"item":2}' }, 0, undefined, new Set([first.id]))],
+    ];
+    f.store.grant({ ...f.preview({ body: '{"item":"granted"}' }), id: "grant", expiresAt: Date.now() + 60_000, remainingUses: 1, revoked: false });
+    refusals.push(["a grant", () => admits({ body: '{"item":"granted"}' }, 0, "grant")]);
+    const approval = { proposalId: "8a6d0d41-3c9d-4c1e-9a55-7b3f0f6d2c11", proposalSha256: digest("synthetic proposal"), priceProfileSha256: digest("synthetic price profile"), maxFeeMicrousd: 0 };
+    f.store.grant({ ...f.preview({ destinationId: "approved", body: '{"item":"approved"}', approval }), id: "approval-grant", expiresAt: Date.now() + 60_000, remainingUses: 1, revoked: false, approval });
+    refusals.push(["an approval", () => f.store.commit({ ...f.preview({ destinationId: "approved", body: '{"item":"approved"}', approval }), reservedFeeMicrousd: 0, scan }, () => {},
+      "approval-grant", undefined, { concurrency: { live } })]);
+    for (const [name, attempt] of refusals) expect(attempt, name).toThrow("private_agent_unresolved_dispatch");
+    expect(f.store.dispatches("job").map(row => row.id)).toEqual([first.id, second.id]);
+    // Without the argument every blocking row refuses, as before.
+    expect(() => f.store.commit({ ...f.preview({ body: '{"item":3}' }), reservedFeeMicrousd: 0, scan }, () => {})).toThrow("private_agent_unresolved_dispatch");
+    // The grant is still whole: the refusal rolled back before it was used. With nothing blocking, its packet commits and uses it.
+    for (const row of [first, second]) f.store.settle(row.id, 0, digest("reply"));
+    expect(f.store.commit({ ...f.preview({ body: '{"item":"granted"}' }), reservedFeeMicrousd: 0, scan }, () => {}, "grant").status).toBe("committed");
+  });
+
+  it("refuses beside a live row that is unknown or priced, and refuses an assist beside a live assist row", async () => {
+    // An unknown zero-fee row of the same context and purpose, even one a live set names, blocks.
+    const unknown = await ledger();
+    const doubtful = unknown.admits({ body: '{"item":"doubtful"}' }); unknown.live.add(doubtful.id);
+    unknown.f.store.unknown(doubtful.id, { phase: "transport", code: "request_timeout", elapsedMs: 3, timeoutMs: 5000 });
+    expect(() => unknown.admits({ body: '{"item":2}' })).toThrow("private_agent_unresolved_dispatch");
+    // A priced row a live set names blocks.
+    const priced = await concurrentFixture();
+    const reserved = priced.store.commit({ ...priced.preview(), reservedFeeMicrousd: 5, scan }, () => {});
+    expect(() => priced.store.commit({ ...priced.preview({ body: '{"item":1}' }), reservedFeeMicrousd: 0, scan }, () => {}, undefined, undefined,
+      { concurrency: { live: new Set([reserved.id]) } })).toThrow("private_agent_unresolved_dispatch");
+    // An assist is never admitted beside a live row, even a zero-fee assist row of its own context and purpose that a live set names: the
+    // ledger refuses it before the assist rule is reached.
+    const assist = await concurrentFixture();
+    const sealed = assist.store.commit({ ...assist.preview({ destinationId: "cloud", purpose: PLAN_ASSIST_PURPOSE }), reservedFeeMicrousd: 0, scan }, () => {});
+    expect(() => assist.store.commit({ ...assist.preview({ destinationId: "cloud", purpose: PLAN_ASSIST_PURPOSE, body: '{"item":1}' }), reservedFeeMicrousd: 0, scan }, () => {},
+      undefined, undefined, { concurrency: { live: new Set([sealed.id]) } })).toThrow("private_agent_unresolved_dispatch");
+    expect(unknown.f.store.dispatches("job").map(row => row.status)).toEqual(["committed", "unknown"]);
+    expect(priced.store.dispatches("job")).toHaveLength(1); expect(assist.store.dispatches("job")).toHaveLength(1);
+  });
+
+  it("supersedes a retried attempt that is no longer live inside its successor's commit beside a live sibling, and rolls both back when the allowance is spent", async () => {
+    const cut: UnknownRequestDiagnostic = { phase: "transport", code: "upstream_closed", attempt: 1, elapsedMs: 3, timeoutMs: 5000 };
+    for (const maxRequests of [10, 2]) {
+      const f = await concurrentFixture({ maxRequests });
+      const earlier = f.store.commit({ ...f.preview(), reservedFeeMicrousd: 0, scan }, () => {});
+      const sibling = f.store.commit({ ...f.preview({ body: '{"item":1}' }), reservedFeeMicrousd: 0, scan }, () => {}, undefined, undefined, { concurrency: { live: new Set([earlier.id]) } });
+      // As in the broker, the earlier attempt left the live set before its successor commits; its supersede runs before the blocking check.
+      const successor = () => f.store.commit({ ...f.preview(), reservedFeeMicrousd: 0, scan }, () => {}, undefined, undefined,
+        { supersedes: { id: earlier.id, failure: cut, zeroRisk: true }, concurrency: { live: new Set([sibling.id]) } });
+      if (maxRequests === 10) {
+        const next = successor();
+        expect(f.store.dispatches("job").map(row => [row.id, row.status])).toEqual([[earlier.id, "superseded"], [sibling.id, "committed"], [next.id, "committed"]]);
+        everySupersededRowHasASuccessor(f.store.dispatches("job"));
+      } else {
+        expect(successor).toThrow("private_agent_budget_denied");
+        expect(f.store.dispatches("job").map(row => [row.id, row.status])).toEqual([[earlier.id, "committed"], [sibling.id, "committed"]]);
+      }
+    }
+  });
+});

@@ -335,6 +335,12 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
 export class PrivateAgentBroker {
   private readonly destinations = new Map<string, BrokerDestination>();
   private readonly active = new Map<string, Set<AbortController>>();
+  /**
+   * Backlog item 8 (8.1): per job, the ids of this broker's committed zero-risk local rows whose attempt is in flight. The ledger admits
+   * another such row of the same job, context and purpose beside them (store.ts, `admitsBeside`). Never persisted: after a crash, or in
+   * another process, the set is empty and every committed row blocks as before.
+   */
+  private readonly live = new Map<string, Set<string>>();
   private readonly anthropicRetryDelaysMs: readonly number[];
   private readonly localTokenAdmissions = new Map<string, FlashNextTokenAdmission>();
   /** `anthropicRetryDelaysMs` exists so tests can shorten the waits; the runtime always uses ANTHROPIC_RETRY_DELAYS_MS. */
@@ -496,6 +502,9 @@ export class PrivateAgentBroker {
       grantId: frozen.grantId, approval: packet.preview.approval });
     // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
     const recoverable = packet.destination.recoverable === true && zeroRisk;
+    // Backlog item 8 (8.1): only a zero-risk packet to a local model (so zero-fee, without a grant or approval) is certified for the
+    // ledger's concurrent admission. A public GET is zero-risk but never certified (its fan-out is item 12); cloud never is.
+    const concurrent = zeroRisk && packet.destination.kind === "local_model";
     const anthropic = packet.destination.anthropicVersion !== undefined;
     // E1-R (the retry-wait design entry in docs/BUILD_LOG.md): a retried attempt stays `committed` until the next attempt's commit closes it `superseded` in the same
     // transaction; a retry that does not follow resolves it `failed` with its own diagnostic. Each path has one code for a retry a cancel
@@ -519,6 +528,9 @@ export class PrivateAgentBroker {
       if (attempt > 1 && frozen.signal?.aborted) abandon(() => cancelCode);
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
       let receipt: DispatchReceipt;
+      // 8.1: this job's live set as it stands at this commit. A retried attempt left it in its own `finally` just before, and the
+      // successor's `supersedes` closes it first inside the commit, so no sibling ever sees it committed and not live.
+      const live = concurrent ? this.live.get(frozen.jobId) ?? new Set<string>() : undefined;
       try {
         receipt = this.store.commit({ ...identity, ...disclosure, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt,
           ...(localTokenAdmissionEvidence ? { localTokenAdmission: localTokenAdmissionEvidence } : {}) },
@@ -537,7 +549,7 @@ export class PrivateAgentBroker {
             if (admission) admission.validateAtCommit(localTokenAdmissionEvidence!, frozen.body!, packet.url.href,
               frozen.localReplyContract!.model, frozen.localTokenAdmission!.contextTokens);
             validateAtCommit?.(localTokenAdmissionEvidence);
-          }, frozen.grantId, undefined, pending ? { supersedes: pending } : {});
+          }, frozen.grantId, undefined, { ...(pending ? { supersedes: pending } : {}), ...(live ? { concurrency: { live } } : {}) });
       } catch (error) {
         // E1-R: a retry attempt's commit was refused and rolled back, so the attempt it would have replaced is still `committed`. Its row
         // was committed, so the request counts as dispatched: every refusal here ends it as a failed request, never as a pre-dispatch code
@@ -556,6 +568,8 @@ export class PrivateAgentBroker {
         throw error;
       }
       pending = undefined;
+      // 8.1: live from its commit, with no await between, until this attempt's `finally`, after its row is settled or resolved.
+      if (live) { live.add(receipt.id); this.live.set(frozen.jobId, live); }
       const controller = new AbortController();
       const group = this.active.get(frozen.jobId) ?? new Set<AbortController>();
       group.add(controller); this.active.set(frozen.jobId, group);
@@ -605,7 +619,9 @@ export class PrivateAgentBroker {
           return deny("transport_or_settlement_unknown");
         }
         // Another attempt needs a free session request: an advisory check, since the successor's commit decides. The row stays
-        // `committed` through the wait and becomes `superseded` only inside the successor's commit (E1-R).
+        // `committed` through the wait and becomes `superseded` only inside the successor's commit (E1-R). A certified row stays live
+        // through the wait as well (8.1), so a sibling may commit meanwhile and take the last request; the successor's refused commit
+        // then resolves this row `failed` with `request_failed`, E1-R's give-up code, which the item 8 design entry keeps for that case.
         const admissible = this.store.dispatches(frozen.jobId).length < this.store.policy(frozen.jobId).maxRequests;
         // The wait listens to this attempt's controller, which the caller's signal and `cancelJob` both abort; a cancel another host
         // recorded is read from the job before the wait and when it ends (E1-R).
@@ -634,6 +650,9 @@ export class PrivateAgentBroker {
         frozen.signal?.removeEventListener("abort", cancel);
         group.delete(controller);
         if (!group.size) this.active.delete(frozen.jobId);
+        // 8.1: a row this attempt could not close (a store failure while resolving it) stays `committed` and, no longer live, blocks
+        // every later commit of the job like a row a crash left.
+        if (live) { live.delete(receipt.id); if (!live.size) this.live.delete(frozen.jobId); }
       }
     }
   }

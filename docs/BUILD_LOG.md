@@ -38831,3 +38831,78 @@ Next gate: The code and the correction in this pull request, then the coordinato
 - The 5 s window for a repeated signal. Default: 5 s.
 
 References: BL-20261114-1344-experiment-launcher-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261101-0135-h5-held-closure-supervision; the light review of #98 and its skeptic check.
+
+### BL-20261114-1438-correction-experiment-launcher-review -- 2026-11-14 -- Correction: plan 11.5 after its light review: a loop killed or lost before it finishes its record is invoked again on any invocation, the superseding signal and cap decisions are implemented, and the review's eight minor findings are fixed
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct, without editing it, decision (b) of BL-20261114-1345-experiment-launcher-implemented, and implement BL-20261114-1431-experiment-launcher-signals-design. Together they fix what the light review of #98 found: three major and eight minor findings. The review's skeptic check confirmed all three majors.
+- Decision (b) of the implementation entry says a loop killed or lost before it saved resumes like an interrupted one. That held only on a loop's first invocation (finding 3, major). On a later invocation, the record the loop left with `finishedAt: null` differed from the earlier invocation's finish time. The launcher took it for the new invocation's finished record and ended the loop instead of invoking it again.
+- The two majors on signals (findings 1 and 2) are decided in BL-20261114-1431-experiment-launcher-signals-design, which supersedes decision (5) of BL-20261114-1344-experiment-launcher-design. So is the loop's cap (finding 6), which supersedes the cap rule in that entry's decision (2).
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) A repeated signal (finding 1, major).** Implements decision (1) of BL-20261114-1431-experiment-launcher-signals-design. `SIGNAL_REPEAT_MS` is 5 s. A second signal within it of the first is recorded as `signal_repeated`, with the run and attempt when a run is in progress. Only a later one escalates to SIGKILL. LAUNCHER.md gives the direct `node --import tsx` command first, and `pnpm launcher` stays.
+- **(2) A hangup (finding 2, major).** Implements decision (2) of the same entry. A hangup reaches the run's group as SIGTERM, recorded with `received: "SIGHUP"`, and its second delivery is recorded as `signal_repeated`. `caffeinate` is spawned detached. LAUNCHER.md recommends tmux or screen, and says that nohup does not help.
+- **(3) Which loop record counts (finding 3, major).** Corrects decision (b) of BL-20261114-1345-experiment-launcher-implemented.
+  - A loop record is the invocation's own only once its `finishedAt` is set and differs from the value at the admission. The loop saves `finishedAt: null` when it starts and before each stage, and sets it in its `finally`, which SIGKILL, a hangup or a power loss skips.
+  - A loop that was signalled, ended by a signal, or lost with the launcher before it finished its record is invoked again on any invocation, not only its first, within the cap of 4 re-invocations. A loop ended by a signal the launcher did not send counts too.
+  - A locked or terminal loop is still never invoked again.
+- **(4) The checks before each admission (finding 4).** The tree, the commit and the commit's place on `main` are checked again before each admission. The launcher stops with `tree_dirty`, `commit_changed`, `commit_unknown`, `main_unknown` or `head_not_on_main` rather than start the run.
+- **(5) The decided values (finding 5).** The tests pin 3 observations, 20 s, 60 s, 120 s, 10 s, 4 re-invocations and 5 s as literals, not through the module's constants.
+- **(6) The queue's arguments (findings 6 and 7).** Implements decision (3) of BL-20261114-1431-experiment-launcher-signals-design.
+  - A loop's argv goes through `parseLoopArguments`, and a run's through the driver's `parseLocalArtifactScreenArguments`. A run the script would refuse, including one without `--execute-synthetic-local`, is refused when the queue is read.
+  - A loop's cap covers its arguments' cap once, as a run's does.
+- **(7) The job id (finding 8).** A single run's `run_finished` and `run_lost` carry its `jobId`, so plan 11.4's join can credit a signal to a run that was lost or never reaped.
+- **(8) The ledger write (finding 9).** The run is signalled before the ledger is written. A failed write never escapes the signal handler: the launcher stops once the run has exited, with `ledger_unwritable`.
+- **(9) The finish time (finding 10).** A loop record's `finishedAt` is kept only as an ISO instant, so nothing else from the record reaches the ledger.
+- **(10) The documentation (finding 11).** LAUNCHER.md now matches the code: the idle result `unavailable`, the full refusal list with `ledger_unreadable` and the checks before each admission, the stderr failure line, the loop rule above, the signal rules, and removing the STOP file before starting again.
+
+Changes:
+- scripts/experiment-launcher.ts.
+- tests/unit/experiment-launcher.test.ts: 21 tests, 6 of them new.
+- docs/experiments/LAUNCHER.md: rewritten.
+
+The code is in commits f9a29aa and 3c659a7. No source-freeze or registry file changes, so neither the runtime hash nor the research protocol hash moves.
+
+Evidence:
+- **The launcher tests.** tests/unit/experiment-launcher.test.ts passes 21 of 21 at 3c659a7. The 6 new tests cover:
+  - the pinned values;
+  - one Ctrl-C delivered twice in the same tick: SIGINT, the repeat recorded, and SIGKILL only 120 s later;
+  - one hangup delivered twice in the same tick: one SIGTERM recorded with `received: "SIGHUP"`, the repeat recorded, and no SIGKILL;
+  - a loop's second invocation killed by SIGKILL, and one lost with the launcher, each leaving its record with `finishedAt: null`. Each is invoked a third time;
+  - the checks before an admission: a dirty tree, a moved HEAD, an unknown commit, a commit no longer on `main`, and a `main` check git cannot answer each stop the launcher before the second run;
+  - the job id on a run's finish and on its loss, and a loop record's non-instant `finishedAt` kept out of the ledger;
+  - a ledger turned unwritable mid-signal: the run is still signalled, and the launcher stops with `ledger_unwritable` after the run exits.
+- **Mutants.** Twelve single-edit mutants of the fixes each fail exactly one test. Each was restored with `git checkout` from the commit before the next. The mutants:
+  - no repeat window;
+  - SIGHUP sent as SIGHUP;
+  - the old freshness rule;
+  - a loop ended by a signal not invoked again;
+  - no checks before an admission;
+  - no `main` check before an admission;
+  - the throwing ledger writer in the signal handler;
+  - no `ledger_unwritable` stop;
+  - no job id on a run's finish;
+  - none on a lost run;
+  - an unsanitised finish time;
+  - the old three-times loop cap.
+- **The full suite.** At f9a29aa, on Node 22.22.2 and pnpm 10.12.4, `pnpm exec vitest run` ran 198 files and 3,700 tests: 3,614 passed, 86 were skipped and none failed. 3c659a7 changes only the launcher test file.
+- **The checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, and `pnpm typecheck` and `pnpm validate:readiness` pass.
+
+Failures or blockers: The first run of the new loop test failed: its first half had advanced the fake clock past the second half's window. The test resets the clock between the halves; the launcher was not at fault.
+
+Limitations and non-claims:
+- Still Implemented, not Verified. The tests run on fakes: no real terminal, pnpm, signal delivery, `caffeinate` or child process was used here.
+- The double deliveries are the review's and its skeptic's measurements, not ones made here: 1 to 2 ms apart under pnpm, and about 3 ms apart on a hangup.
+- The 5 s window and the handling of SIGHUP are the defaults of BL-20261114-1431-experiment-launcher-signals-design, whose owner questions may change them. Two separate signals less than 5 s apart count as one.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on #98, and the coordinator's re-check of the delta.
+- The merge under the standing go-ahead, with this branch's entries re-stamped if `main`'s tail has moved.
+- Then 11.4 (#104) wires the launcher's records into the registry.
+
+References: BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261114-1344-experiment-launcher-design; BL-20261114-1407-correction-experiment-launcher-ids; the light review of #98 and its skeptic check.

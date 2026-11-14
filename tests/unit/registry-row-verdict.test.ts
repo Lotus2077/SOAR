@@ -107,7 +107,7 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
     expect(row).toEqual({ id: "oaj-20261107-document-review-1", batch: "owner-real-jobs", task: "owner-00000000", family: "document_review", exposure: "fresh", arm: "local-heavy",
       date: "2026-11-07", git: row.git, taskJobSha256: h("a"), profile: "heavy", thinking: "medium", maxOutputTokens: 16384, runStatus: "submitted", terminalCause: "submitted",
       modelCalls: 19, toolCalls: 19, wallSeconds: 493.3, inputTokens: 1200, outputTokens: 300, cachedTokens: 400, cacheWriteTokens: 0, lengthStops: 1, usd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0,
-      entailment: null, cloudModel: null, cloudApi: null, outcome: "accepted", criticalChecks: "1/1", verdictBy: "owner", ownerMinutes: 8, interventions: 1, exportedThroughApp: true, verdictAt: "2026-11-07T09:00:00Z",
+      entailment: null, hostFlags: null, cloudModel: null, cloudApi: null, outcome: "accepted", criticalChecks: "1/1", verdictBy: "owner", ownerMinutes: 8, interventions: 1, exportedThroughApp: true, verdictAt: "2026-11-07T09:00:00Z",
       lesson: "owner accepted with one edit pass", gitSource: "row_written", gitDirty: null });
     expect(row.git).toMatch(/^[a-f0-9]{12}$/u);
     const text = JSON.stringify(row);

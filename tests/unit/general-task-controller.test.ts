@@ -16,6 +16,7 @@ import type { BrokerDestination } from "../../src/main/private-agent/broker";
 import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
 import { workspaceListing } from "../helpers/workspace-listing";
 import { retainPublicSource } from "../../src/main/private-agent/public-sources";
+import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -27,7 +28,7 @@ function fixture(cleanupConfirmed = true) {
     vllm: { baseUrl: "http://127.0.0.1:9999/v1", apiKey: "host-key-a", model: "unit-fixture", costPolicy: "local_zero_cost", maxOutputTokens: 8192, timeoutMs: 300000 },
     limits: { inferenceRounds: 24, toolCalls: 24 }, context: { maxInputTokens: 32000, safetyMargin: 0.2 } };
   let runtimeIdentity = digest("runtime-v1"), imageId: string | undefined = `sha256:${"a".repeat(64)}`;
-  let paused = false, cancelled = false, failModel = false, narrate = false, release: (() => void) | undefined;
+  let paused = false, cancelled = false, failModel = false, narrate = false, report = "unit artifact", release: (() => void) | undefined;
   let hold: Promise<void> | undefined;
   const executions: GeneralJobOptions[] = [];
   const factory: NonNullable<NonNullable<GeneralTaskControllerOptions["testing"]>["runnerFactory"]> = args => ({
@@ -48,7 +49,7 @@ function fixture(cleanupConfirmed = true) {
       }
       // The reply's usage and finish reason, as the runner records them (the verdict receipt sums these).
       store.append(jobId, { type: "model_finished", contextId, operationId: op, finishReason: "stop", usage: { inputTokens: 120, outputTokens: 30, cacheReadTokens: 40, cacheWriteTokens: 0 } });
-      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("unit artifact") }]);
+      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from(report) }]);
       store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
       const status = cancelled || signal?.aborted ? "incomplete" : paused ? "paused" : "completed";
       const checks = [{ id: "desktop_artifact_structure", passed: true }];
@@ -83,6 +84,7 @@ function fixture(cleanupConfirmed = true) {
   const controller = new GeneralTaskController(options); cleanup.push(() => controller.close());
   const create = () => controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([input]).id, outputName: "report.md", publicOrSynthetic: true });
   return { root, db, input, config, controller, options, executions, create, set failModel(value: boolean) { failModel = value; }, set narrate(value: boolean) { narrate = value; },
+    set report(value: string) { report = value; },
     changeRuntime() { runtimeIdentity = digest("runtime-v2"); }, removeImage() { imageId = undefined; },
     hold() { hold = new Promise<void>(yes => { release = yes; }); }, release() { release?.(); hold = undefined; }, resetPaused() { paused = false; } };
 }
@@ -349,6 +351,34 @@ describe("desktop general-task host controller", () => {
       endpoint: `${f.config.vllm.baseUrl}/chat/completions`, accountId: "owner_declared_local_server",
       credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true, maxResponseBytes: 256 * 1024, timeoutMs: 900_000, maxRequestBytes: 640 * 1024 })));
     expect(f.controller.get(task.id)).toMatchObject({ status: "submitted" });
+  });
+  it("shows a research submission's host flags in its timeline and its reported issues, and says when they were not recorded (backlog item 7(d), part C)", async () => {
+    const f = fixture(), url = "https://public.example.test/facts";
+    const research = () => f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
+      publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } });
+    // The report the session's host flags pass scans (7d.B): one uncited absence claim on its second line.
+    f.report = "# Findings\nNone of the sources quantify the cost.";
+    const flagged = research(); f.controller.start(flagged.id); await f.controller.wait(flagged.id);
+    const view = f.controller.get(flagged.id);
+    expect(view.status).toBe("submitted");
+    expect(view.events.find(event => event.type === "host_flags")?.summary).toBe("Host flags recorded for the owner's attention; they decide nothing.");
+    expect(view.reportedIssues).toContain("1 sentence of the report, at line 2, asserts that the sources lack something (absence rules v1); it cites no claim.");
+    // A research submission whose event was lost says so; silence would read as "no flags".
+    const append = PrivateAgentStore.prototype.append;
+    const spy = vi.spyOn(PrivateAgentStore.prototype, "append").mockImplementation(function (this: PrivateAgentStore, jobId: string, event: Record<string, unknown>) {
+      if (event.type === "host_flags") throw new Error("store unavailable");
+      return append.call(this, jobId, event);
+    });
+    try {
+      const lost = research(); f.controller.start(lost.id); await f.controller.wait(lost.id);
+      expect(f.controller.get(lost.id)).toMatchObject({ status: "submitted" });
+      expect(f.controller.get(lost.id).events.some(event => event.type === "host_flags")).toBe(false);
+      expect(f.controller.get(lost.id).reportedIssues).toContain("The host flags of this submission were not recorded.");
+    } finally { spy.mockRestore(); }
+    // A plain task requires neither check, so no event is expected and no line is given.
+    const plain = f.create(); f.controller.start(plain.id); await f.controller.wait(plain.id);
+    expect(f.controller.get(plain.id).events.some(event => event.type === "host_flags")).toBe(false);
+    expect(f.controller.get(plain.id).reportedIssues).toEqual([]);
   });
   it("requires a host-checked claims ledger for research tasks with exact public sources", async () => {
     const f = fixture();

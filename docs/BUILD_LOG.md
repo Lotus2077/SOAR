@@ -39145,3 +39145,105 @@ References:
 - BL-20261114-1346-research-role-policy-design, BL-20261114-1405-research-role-policy-implemented and BL-20261114-1447-correction-research-role-policy-review (7a.2, #103);
 - BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
 - BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented.
+
+### BL-20261114-1728-correction-research-structured-output-review -- 2026-11-14 -- Correction to BL-20261114-1703-research-structured-output-implemented and BL-20261114-1650-research-structured-output-design after the light review of #108: the reader refuses a flagged attempt at a cap P10 did not measure, the request-settings gap is stated, and a flagged synthesis payload's protocol hash is named
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261114-1703-research-structured-output-implemented and BL-20261114-1650-research-structured-output-design. The coordinator's light review of #108 at a14de97 was clean: no blocker or major finding, three minor findings and a nit.
+- **What the review also confirmed:**
+  - in eight offline scenarios, the default path is byte-identical to #103's;
+  - the schema digests are unchanged, so E0's P10 evidence stays valid.
+- **What this entry covers.** It records findings 1 to 3. Finding 4 is two comments, fixed in the commit below.
+- Neither entry is edited.
+
+Decisions:
+(1) **Finding 1: a flagged attempt must use the cap its P10 cell measured.**
+- **The gap.** 1650 listed "Other caps" as not refused, because the reader's flagged-mode loop never read a cell's `maxTokens`. The review showed the effect:
+  - the writer's synthetic card, adopted as written but with extract's caps set to [256, 256], resolved;
+  - so every extract call would send 256 tokens with `response_format`, against a cell measured at 2,048.
+- **The fix.** Within each flagged mode, every attempt of the role whose thinking maps to that mode must send the cell's `maxTokens` as its cap. Otherwise the reader refuses `serving_card_structured_output_cap_unmeasured`, at `roles.<role>.maxOutputTokens[<attempt>]`.
+  - **The mapping.** `disabled` is off and `model` is on. Research roles run under the heavy profile alone, whose thinking is medium; the driver refuses `--pipeline research` under any other profile.
+  - **Attempts outside the mode.** An attempt that sends no format in that mode may change its cap. An example is plan attempt 1 with thinking off under a thinking-on flag.
+  - **Synthesis.** The check also keeps a flagged attempt's length cap on the rule P10's body used, because the length cap is computed from the attempt's cap and thinking.
+- **Why it is safe:**
+  - The writer proposes the export's caps, which equal every cell's `maxTokens`. So the writer's own card (R1) still resolves.
+  - No hash, no request body and nothing without a card changes.
+  - It refuses only a hand-edited adoption. That is SC's direction: the reader refuses a value its card's own evidence does not back.
+- **A default in force, needing no owner decision.** A flagged role never runs at a cap P10 did not measure. Relaxing that later, by measuring more caps, is the owner's call.
+- **What it supersedes.** This replaces 1650's limitation "Other caps … Item 9 does not refuse".
+
+(2) **Finding 2: P10 evidence is not tied to the request settings.**
+- **The gap:**
+  - The card keeps no request settings and no body digest from P10 (`P10EvidenceSchema`), although the probe records both.
+  - The reader's identity check covers only the served model and, under `flash_next_v1`, the context.
+  - The export always includes the cache salt, while `--cache-salt false` drops it from research bodies.
+- **The effect:**
+  - A card measured on legacy bodies resolves for a `flash_next_v1` run, and the reverse.
+  - `SOAR_STREAMING` and the cache salt can also differ.
+  - In each case, a flagged call sends a body no P10 cell measured.
+  - Item 9 is the first PR whose request bodies depend on this evidence.
+- **The rule until the settings are bound.**
+  - Run a card with structured output only under the settings the export used.
+  - After changing the reply contract, `SOAR_STREAMING` or `--cache-salt`: re-export, re-run P1, P10, P11 and the adapter together, and adopt a new card.
+  - docs/experiments/README.md says so under "What the gates do not show".
+- **The binding is SC's follow-up.** It is a card-format change, assigned next by the coordinator:
+  - the writer copies P10's request settings, or its per-cell body digests, into `evidence.p10`;
+  - the reader compares them with the run's settings.
+
+  It is to land before E0's card is adopted.
+
+(3) **Finding 3: "only `response_format` added" is not exact for synthesis.**
+- **The extra difference.** A flag moves `researchProtocolSha256`, and the synthesis payload carries that hash in `coverage.protocolSha256`.
+  - So a flagged synthesis call's user message differs from the unflagged one in that one value.
+  - The pipeline test compares every other byte and skips exactly that field.
+  - The index, plan and extract payloads carry no hash.
+- **The same value differs from P10's synthesis body**, whose coverage names the default hash. It is one 64-hex value of the same length.
+- **How to read the earlier entries.** 1650's (1) and its hypothesis, and 1703's evidence, say "only `response_format`". Read them with this exception.
+- **The bound text changes.** `RESEARCH_STRUCTURED_OUTPUT_APPLICATION.body` now reads `response_format_added_and_the_synthesis_payload_coverage_carries_the_flagged_protocol_hash`.
+  - This moves only the hash under a card that sets a flag, and no such card, run or evidence exists.
+  - The default hash stays 505c385a…, and a card of caps and thinking alone keeps 7a.2's binding.
+
+(4) **Finding 4.** The comments on the pipeline's `roles` input and on `buildLocalScreenServingCard` now name the structured-output flags.
+
+Changes:
+- **Commit 0f8165c:**
+  - src/main/private-agent/serving-card.ts: the check, and `serving_card_structured_output_cap_unmeasured` in `SERVING_CARD_CODES`, which now has 15 codes;
+  - src/main/private-agent/research-pipeline.ts: the `body` text and a comment;
+  - scripts/private-agent-local-screen.ts: a comment;
+  - docs/experiments/README.md: the cap rule, the synthesis hash value and the settings gap;
+  - tests/unit/serving-card-reader.test.ts: a row in R2's table and the code count. A new case resolves a changed cap on an attempt without the format, and refuses the same change on the attempt with it.
+- This entry.
+
+Evidence: At 0f8165c:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related suites.** 13 files, 350 tests pass: the reader, writer, probe-helper, export, pipeline, session, model, driver-configuration, identity-golden, seed and planner-fixture suites.
+- **R1.** The writer's own card, adopted as written, still resolves.
+- **Mutants.** Four single edits of the new check each fail a test:
+  - removing it;
+  - inverting the mode mapping;
+  - checking every attempt regardless of mode;
+  - comparing attempt 1's cap for every attempt.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/feat/7a.2-role-policy` passes; that is the PR's base.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists.
+- The settings gap in (2) stays open until SC's follow-up merges. Until then, the rule in (2) is procedural only.
+- 1650's other limits stand:
+  - attempt 2's payloads;
+  - P10's small synthetic payloads;
+  - the Flash-Next admission helper (finding C7).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the coordinator's check of the fixes, with #108 still a draft;
+- the merge after 7a.2 (#103), then `main` merged in and the entries re-stamped.
+
+References:
+- BL-20261114-1703-research-structured-output-implemented and BL-20261114-1650-research-structured-output-design (corrected);
+- BL-20261108-1459-serving-card-reader-design;
+- BL-20261113-1011-p10-align-design;
+- the light review of #108.

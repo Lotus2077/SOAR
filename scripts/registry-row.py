@@ -509,10 +509,23 @@ def safe_integer(value):
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 DISPATCH_STATUSES = ("committed", "settled", "unknown", "superseded", "failed")
 HOST_TOKEN = re.compile(r"^[a-z][a-z0-9 _-]{0,63}$")
+# BL-20261114-1447, decision (1): the runner's closed set of tool names, runner.ts's tools with every option on and observations.ts's
+# read_observation. tests/unit/registry-row-columns.test.ts checks this mirror against the runner's own definitions. A tool_started
+# event records the name the model chose before the runner checks it, so any other name counts as `other` and never reaches a row.
+RUNNER_TOOLS = ("append_file", "check_claims", "execute", "fetch_public", "finish", "read_observation", "remember_plan", "request_consultation", "str_replace", "write_file")
 
 
-def is_count(value) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+def source_key(url: str) -> str:
+    """A retained source's URL as `urls` counts it (BL-20261114-1447, decision (2)). Each run's snapshot receiver listens on its own
+    loopback port, so a loopback URL is counted without its port, and one source read by two runs of a loop counts once."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return url
+    if host not in LOOPBACK_HOSTS:
+        return url
+    return urllib.parse.urlunsplit((parts.scheme, f"[{host}]" if ":" in host else host, parts.path, parts.query, parts.fragment))
 
 
 def depth_parts(events: list, dispatches: list) -> dict:
@@ -530,16 +543,20 @@ def depth_parts(events: list, dispatches: list) -> dict:
         kind = item.get("destinationKind")
         if kind == "cloud_model" or (kind is None and item.get("destinationId") == "cloud_coordinator"):
             purpose, status = item.get("purpose"), item.get("status")
-            cloud.append({"purpose": purpose if isinstance(purpose, str) and HOST_TOKEN.fullmatch(purpose) else "other",
-                          "status": status if status in DISPATCH_STATUSES else "other",
-                          "feeUsd": count(item.get("feeMicrousd")) / 1_000_000, "reservedUsd": count(item.get("reservedFeeMicrousd")) / 1_000_000,
-                          "bodyBytes": item["bodyBytes"] if is_count(item.get("bodyBytes")) else None})
+            # Kept with its commit time for the row's commit order. Only the store's settle records a fee, so a call that did not
+            # settle has none (BL-20261114-1447, decisions (3) and (4)).
+            cloud.append((safe_integer(item.get("committedAt")), {
+                "purpose": purpose if isinstance(purpose, str) and HOST_TOKEN.fullmatch(purpose) else "other",
+                "status": status if status in DISPATCH_STATUSES else "other",
+                "feeUsd": item["feeMicrousd"] / 1_000_000 if is_count(item.get("feeMicrousd")) else None,
+                "reservedUsd": count(item.get("reservedFeeMicrousd")) / 1_000_000,
+                "bodyBytes": item["bodyBytes"] if is_count(item.get("bodyBytes")) else None}))
     named = {event.get("operationId"): event.get("name") for event in events if event.get("type") == "tool_started" and isinstance(event.get("operationId"), str)}
     tools = {}
     for event in events:
         if event.get("type") == "tool_finished":
             name = named.get(event.get("operationId"))
-            name = name if isinstance(name, str) and HOST_TOKEN.fullmatch(name) else "other"
+            name = name if name in RUNNER_TOOLS else "other"
             tools[name] = tools.get(name, 0) + 1
     retained = [event for event in events if event.get("type") == "public_source_retained"]
     stages = [event for event in events if event.get("type") == "research_stage"]
@@ -553,19 +570,21 @@ def depth_parts(events: list, dispatches: list) -> dict:
         "pinned": sum(count(item.get("reservedFeeMicrousd")) for item in rows if item.get("status") in ("committed", "unknown")),
         "committed": sum(1 for item in rows if item.get("status") == "committed"),
         "cloud": cloud, "packets": packets, "complete": complete,
-        "urls": {event["url"] for event in retained if isinstance(event.get("url"), str)},
+        "urls": {source_key(event["url"]) for event in retained if isinstance(event.get("url"), str)},
         "retainedBytes": sum(count(event.get("bytes")) for event in retained),
         "tools": tools, "fetchReceipts": len(retained),
-        # "Read" on a closed corpus (HARN-27): the sources the reading stage indexed; item 12 revises it.
-        "sourcesRead": count(index.get("sourcesIndexed")) if index is not None else None,
+        # "Read" on a closed corpus (HARN-27): the sources the reading stage indexed, and null unless it recorded the count, which a
+        # denied index stage does not (BL-20261114-1447, decision (3)); item 12 revises it.
+        "sourcesRead": index["sourcesIndexed"] if index is not None and is_count(index.get("sourcesIndexed")) else None,
         "fallback": {"plan": "host_plan" if (plan or {}).get("fallback") == "host_plan" else "none",
                      "synthesis": "skeleton" if (synthesis or {}).get("fallback") == "skeleton" else "none"} if stages else None,
     }
 
 
 def depth_columns(parts: list, fallback) -> dict:
-    """Plan 11.4's columns from one or several runs' parts: amounts and counts summed, cloud calls in order, URLs and hostnames
-    counted over the union; `domains` drops a leading www. and loopback hosts, and is approximate (hostnames, not registrable domains)."""
+    """Plan 11.4's columns from one or several runs' parts: amounts and counts summed, cloud calls in commit order, URLs and
+    hostnames counted over the union; `domains` drops a leading www. and loopback hosts, and is approximate (hostnames, not
+    registrable domains)."""
     packets, urls, tools = {}, set(), {}
     for part in parts:
         for packet, disclosed in part["packets"].items():
@@ -586,7 +605,8 @@ def depth_columns(parts: list, fallback) -> dict:
         "reservedUsd": sum(part["reserved"] for part in parts) / 1_000_000,
         "pinnedUsd": sum(part["pinned"] for part in parts) / 1_000_000,
         "committedDispatches": sum(part["committed"] for part in parts),
-        "cloudCalls": [call for part in parts for call in part["cloud"]],
+        # BL-20261114-1447, decision (4): commit order across the runs; a call without a commit time keeps the scan's order, after the others.
+        "cloudCalls": [call for _, call in sorted((entry for part in parts for entry in part["cloud"]), key=lambda entry: (entry[0] is None, entry[0] or 0))],
         "disclosedBytes": sum(packets.values()) if all(part["complete"] for part in parts) else None,
         "urls": len(urls), "domains": len(hosts),
         "retainedBytes": sum(part["retainedBytes"] for part in parts),

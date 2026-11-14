@@ -1,10 +1,12 @@
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
 import { canonical } from "../../src/main/private-agent/contracts";
+import { PROMPT_LAYOUT_VERSIONS, promptProtocol, type PromptProtocolOptions } from "../../src/main/private-agent/runner";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 /**
@@ -31,7 +33,7 @@ function runDirectory(root: string, name: string, input: Run = {}) {
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["owned_local_model"], maxRequests: 50, maxFeeMicrousd: 0 });
   store.append(jobId, { type: "model_finished", contextId: "p", operationId: "m0", usage: { inputTokens: 100, outputTokens: 10 }, finishReason: "stop" });
   for (const event of input.events ?? []) store.append(jobId, event);
-  dispatches.forEach((row, i) => db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run(`d${i}`, jobId, canonical({ ...row, jobId, committedAt: 1_000 + i })));
+  dispatches.forEach((row, i) => db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run(`d${i}`, jobId, canonical({ committedAt: 1_000 + i, ...row, jobId })));
   db.close();
   return dir;
 }
@@ -51,6 +53,16 @@ const tool = (operationId: string, name?: string) => [...(name ? [{ type: "tool_
 const stage = (name: string, over: Record<string, unknown> = {}) => ({ type: "research_stage", contextId: "r", stage: name, calls: 1, invalidReplies: 0, usage: { inputTokens: 10, outputTokens: 1 }, ...over });
 
 describe("registry columns (plan 11.4)", () => {
+  it("keys actions.tools by the runner's closed set of tool names, which the registry script mirrors exactly", () => {
+    // Every tool the runner can offer: its base tools, with public fetches, a consultation and the claims check all enabled.
+    const options = { contract: { version: 1, goal: "Synthetic.", requiredArtifacts: [{ path: "output.txt", description: "Output" }], requiredChecks: [CLAIMS_LEDGER_CHECK_ID],
+      maxModelCalls: 1, maxToolCalls: 1, maxElapsedMs: 1000 }, imageId: `sha256:${h("a")}`, checks: [{ id: CLAIMS_LEDGER_CHECK_ID, python: "# synthetic" }],
+      webDestinations: ["public-docs"], maxPublicFetches: 1, consultation: { identity: "synthetic" },
+      model: { config: { destinationId: "model", model: "synthetic", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" } } } as unknown as PromptProtocolOptions;
+    const names = [...new Set(PROMPT_LAYOUT_VERSIONS.flatMap(version => promptProtocol(options, version).definitions.map(tool => tool.function.name)))].sort();
+    expect(names).toEqual(["append_file", "check_claims", "execute", "fetch_public", "finish", "read_observation", "remember_plan", "request_consultation", "str_replace", "write_file"]);
+    expect(readFileSync(SCRIPT, "utf8")).toContain(`RUNNER_TOOLS = (${names.map(name => `"${name}"`).join(", ")})`);
+  });
   it("adds reserved and pinned USD, committed rows, cloud calls, disclosure by packet, retained URLs and hostnames, actions and the fallback markers to a run's row", () => {
     const root = scratch();
     const dir = runDirectory(root, "run", {
@@ -61,21 +73,23 @@ describe("registry columns (plan 11.4)", () => {
         local({ status: "committed", packetSha256: "p3", bodyBytes: 900, disclosedBytes: 0 }),
         { destinationId: "approved_public_snapshots", destinationKind: "public_web", purpose: "public source retrieval", status: "settled", feeMicrousd: 0, reservedFeeMicrousd: 0, packetSha256: "p4", bodyBytes: 0, disclosedBytes: 0 },
       ],
-      events: [...tool("t1", "execute"), ...tool("t2", "fetch_public"), ...tool("t3"),
+      // t4: the runner records the name the model chose before it checks the tool, so a made-up name must never reach the row.
+      events: [...tool("t1", "execute"), ...tool("t2", "fetch_public"), ...tool("t3"), ...tool("t4", "email jane doe re acme merger 4417"),
         retained("http://127.0.0.1:5555/a", 100), retained("https://www.Example.org/x", 200), retained("https://example.org/y", 300), retained("https://docs.example.net/z", 50),
         stage("index", { sourcesIndexed: 7 }), stage("plan", { fallback: "host_plan" }), stage("synthesise")],
     });
     const written = row(["--run-dir", dir], "accepted");
     // Every attempt's reservation (two of the retried packet, one of the unknown call); pinned: the unknown call and the committed local row.
     expect(written).toMatchObject({ usd: 0.12, reservedUsd: 0.42, pinnedUsd: 0.1, committedDispatches: 1, disclosedBytes: 2548, urls: 4, domains: 2, retainedBytes: 650, queries: null,
-      actions: { tools: { execute: 1, fetch_public: 1, other: 1 }, fetchReceipts: 4, sourcesRead: 7 }, researchFallback: { plan: "host_plan", synthesis: "none" } });
+      actions: { tools: { execute: 1, fetch_public: 1, other: 2 }, fetchReceipts: 4, sourcesRead: 7 }, researchFallback: { plan: "host_plan", synthesis: "none" } });
+    // A fee only where the store settled one: the superseded and the unknown call have none.
     expect(written.cloudCalls).toEqual([
-      { purpose: "research plan", status: "superseded", feeUsd: 0, reservedUsd: 0.16, bodyBytes: 2048 },
+      { purpose: "research plan", status: "superseded", feeUsd: null, reservedUsd: 0.16, bodyBytes: 2048 },
       { purpose: "research plan", status: "settled", feeUsd: 0.12, reservedUsd: 0.16, bodyBytes: 2048 },
-      { purpose: "agent reasoning and tool selection", status: "unknown", feeUsd: 0, reservedUsd: 0.1, bodyBytes: 500 }]);
-    // Counts and host enums only: no URL, hostname or port reaches the row.
+      { purpose: "agent reasoning and tool selection", status: "unknown", feeUsd: null, reservedUsd: 0.1, bodyBytes: 500 }]);
+    // Counts and host enums only: no URL, hostname, port or model-chosen tool name reaches the row.
     const text = JSON.stringify(written);
-    for (const leaked of ["example", "127.0.0.1", "5555", "http"]) expect(text).not.toContain(leaked);
+    for (const leaked of ["example", "127.0.0.1", "5555", "http", "jane", "acme", "merger", "4417"]) expect(text).not.toContain(leaked);
   });
   it("reads rows written before plan 11.4: a cloud call by its destination, no disclosure, no body bytes, and nothing for a run without a reading stage", () => {
     const root = scratch();
@@ -86,13 +100,20 @@ describe("registry columns (plan 11.4)", () => {
     // A malformed field is never summed as a count: the disclosure becomes unknown.
     const odd = runDirectory(root, "odd", { dispatches: [local({ status: "settled", feeMicrousd: 0, packetSha256: "p1", bodyBytes: -1, disclosedBytes: "9" })] });
     expect(row(["--run-dir", odd], "accepted")).toMatchObject({ disclosedBytes: null });
+    // A reading stage that recorded no count, as a denied index stage does, reads null, not 0.
+    const denied = runDirectory(root, "denied", { events: [stage("index"), stage("plan"), stage("synthesise")] });
+    expect(row(["--run-dir", denied], "accepted")).toMatchObject({ actions: { sourcesRead: null }, researchFallback: { plan: "none", synthesis: "none" } });
   });
   it("sums a loop's runs, a moved run and the critique included, counts URLs and hostnames over their union, and takes the fallback from the run whose reading stage made the packet", () => {
     const root = scratch(), loop = join(root, "loop");
-    runDirectory(loop, "a", { start: 8, end: 12, dispatches: [cloud({ status: "settled", feeMicrousd: 90_000, packetSha256: "c1", bodyBytes: 1000, disclosedBytes: 1000 })],
-      events: [retained("https://www.example.org/a", 100), stage("index", { sourcesIndexed: 5 }), stage("plan", { fallback: "host_plan" }), stage("synthesise", { fallback: "skeleton" })] });
+    // Each run's snapshot receiver listens on its own loopback port: the same two sources, read by a and b, count once each.
+    runDirectory(loop, "a", { start: 8, end: 12, dispatches: [cloud({ status: "settled", feeMicrousd: 90_000, packetSha256: "c1", bodyBytes: 1000, disclosedBytes: 1000, committedAt: 9_000 })],
+      events: [retained("https://www.example.org/a", 100), retained("http://127.0.0.1:50001/sources/s1", 10), retained("http://[::1]:50001/sources/s2", 10),
+        stage("index", { sourcesIndexed: 5 }), stage("plan", { fallback: "host_plan" }), stage("synthesise", { fallback: "skeleton" })] });
     runDirectory(loop, "b.infra-1", { start: 1, end: 3, dispatches: [local({ status: "committed", packetSha256: "l1", bodyBytes: 200, disclosedBytes: 0 })], events: [retained("https://example.org/a", 40)] });
-    runDirectory(loop, "b", { start: 12, end: 16, events: [retained("https://www.example.org/a", 100), ...tool("t1", "execute")] });
+    // b's call was committed before a's, so it comes first although b's directory sorts after a's.
+    runDirectory(loop, "b", { start: 12, end: 16, dispatches: [cloud({ status: "settled", feeMicrousd: 30_000, packetSha256: "c2", bodyBytes: 400, disclosedBytes: 400, committedAt: 2_000 })],
+      events: [retained("https://www.example.org/a", 100), retained("http://127.0.0.1:50002/sources/s1", 10), retained("http://[::1]:50002/sources/s2", 10), ...tool("t1", "execute")] });
     runDirectory(loop, "repair", { start: 20, end: 26 });
     mkdirSync(join(loop, "critique")); writeFileSync(join(loop, "critique", "critique.json"), `${canonical({ critiqueSha256: h("e"), usage: { inputTokens: 700, outputTokens: 60 }, feeMicrousd: 0, finishReason: "stop" })}\n`);
     const counts = { modelCalls: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0,
@@ -106,9 +127,11 @@ describe("registry columns (plan 11.4)", () => {
       seeded: { a: false, b: true, repair: true, snapshotSha256: h("f") }, writeIdentityEqual: null, critique: { critiqueSha256: h("e"), modelCalls: 1 },
       selected: { stage1: { candidate: "a", step: "tie" }, final: { candidate: "a", step: "tie" } }, totals: counts, failure: null, failedStage: null, stopped: null })}\n`);
     const loopRow = row(["--loop-dir", loop], "accepted");
-    expect(loopRow).toMatchObject({ reservedUsd: 0.16, pinnedUsd: 0, committedDispatches: 1, disclosedBytes: 1000, urls: 2, domains: 1, retainedBytes: 240, queries: null,
-      cloudCalls: [{ purpose: "research plan", status: "settled", feeUsd: 0.09, reservedUsd: 0.16, bodyBytes: 1000 }],
-      actions: { tools: { execute: 1 }, fetchReceipts: 3, sourcesRead: 5 }, researchFallback: { plan: "host_plan", synthesis: "skeleton" } });
+    expect(loopRow).toMatchObject({ reservedUsd: 0.32, pinnedUsd: 0, committedDispatches: 1, disclosedBytes: 1400, urls: 4, domains: 1, retainedBytes: 280, queries: null,
+      cloudCalls: [{ purpose: "research plan", status: "settled", feeUsd: 0.03, reservedUsd: 0.16, bodyBytes: 400 }, { purpose: "research plan", status: "settled", feeUsd: 0.09, reservedUsd: 0.16, bodyBytes: 1000 }],
+      actions: { tools: { execute: 1 }, fetchReceipts: 7, sourcesRead: 5 }, researchFallback: { plan: "host_plan", synthesis: "skeleton" } });
+    const text = JSON.stringify(loopRow);
+    for (const leaked of ["example", "127.0.0.1", "::1", "50001", "50002", "http", "sources/s"]) expect(text).not.toContain(leaked);
   });
   it("classes a single run's cancelled end as the operator's stop only when the launcher's ledger says it forwarded a signal, and refuses a ledger without exactly one exit for the run", () => {
     const root = scratch();

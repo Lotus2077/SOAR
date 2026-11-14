@@ -38906,3 +38906,50 @@ Next gate:
 - Then 11.4 (#104) wires the launcher's records into the registry.
 
 References: BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261114-1344-experiment-launcher-design; BL-20261114-1407-correction-experiment-launcher-ids; the light review of #98 and its skeptic check.
+
+### BL-20261114-1503-correction-experiment-launcher-hangup -- 2026-11-14 -- Correction: plan 11.5 after the skeptic's re-check: a hangup never escalates to SIGKILL, and a dead terminal no longer turns the launcher's exit code into a refusal's
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct, without editing them, decision (1) of BL-20261114-1431-experiment-launcher-signals-design and the launcher's main block, which BL-20261114-1438-correction-experiment-launcher-review left as it was. The skeptic re-checked #98 at bcb83b4: all three majors are fixed, with no regression. It found two new minor findings:
+- **A hangup after a Ctrl-C.** A hangup 5 s or more after a Ctrl-C still escalated to SIGKILL. In its cases P and Q, a Ctrl-C followed by closing the terminal 6 s later, while the run was still stopping, gave `kill_sent` and SIGKILL.
+- **The exit code after a hangup.** The launcher exited with 1, a refusal's code, instead of 2. Its final stdout write hit EIO on the dead terminal and became an uncaught exception. The ledger, the lock and `caffeinate` were already released.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) A hangup never escalates.** Corrects decision (1) of BL-20261114-1431-experiment-launcher-signals-design.
+  - A SIGHUP after the first signal is recorded as `signal_repeated` at any distance from it, so closing the terminal while a run stops gracefully is not a second press.
+  - Only a SIGINT or SIGTERM 5 s or more after the first signal escalates to SIGKILL.
+  - A first SIGHUP is still forwarded as SIGTERM.
+- **(2) The final line.** `writeFinalLine` ignores EIO and EPIPE when the launcher writes its last line to stdout, or its failure line to stderr.
+  - The exit code is set before the write: 0 when done, 2 when stopped, and 1 on a refusal or a failure.
+  - Any other write error still ends the launcher with an uncaught exception, as before.
+
+Changes:
+- scripts/experiment-launcher.ts: the signal gate, `writeFinalLine` and the main block.
+- tests/unit/experiment-launcher.test.ts: 23 tests, 2 of them new.
+- docs/experiments/LAUNCHER.md: the exit code and the Stopping section.
+
+The code is in commit aabd258.
+
+Evidence:
+- tests/unit/experiment-launcher.test.ts passes 23 of 23 at aabd258. The 2 new tests show:
+  - a Ctrl-C, then a double hangup 6 s later while the run ignores the Ctrl-C: SIGKILL only 120 s after the Ctrl-C, and both hangups recorded as `signal_repeated`;
+  - EIO and EPIPE ignored on the final line, whether the write throws them or the stream emits them, and another error code still thrown.
+- Two single-edit mutants, each restored with `git checkout`, each fail exactly one test: a SIGHUP that escalates like any other signal, and the final write without the guard.
+- At aabd258, on Node 22.22.2 and pnpm 10.12.4, `pnpm typecheck` passes. `pnpm exec vitest run` ran 198 files and 3,702 tests: 3,616 passed, 86 were skipped and none failed.
+- At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, and `pnpm validate:readiness` passes.
+
+Failures or blockers: None in this change.
+
+Limitations and non-claims:
+- Implemented, not Verified. The tests run on fakes.
+- The main block is not unit-tested: only `writeFinalLine` is. Its behaviour on a real dead terminal was the skeptic's probe, not one made here.
+- Since a hangup no longer escalates, a run that ignores its SIGTERM after a hangup is killed only at the 120 s bound.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #98, and its merge under the standing go-ahead while `main` is still at 19d7826; otherwise this branch's entries are re-stamped after `main`'s tail.
+
+References: BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1438-correction-experiment-launcher-review; the skeptic's re-check of #98.

@@ -556,7 +556,7 @@ describe("E1 recoverability: a research stage stopped mid-call on the real broke
    */
   async function stoppedAt(stage: (typeof stages)[number], mode: Mode, nth = 1, streams?: number) {
     const f = await fixture(), runs: Run[] = [], jobId = `job-${mode.replace(" ", "-")}-${stage[0]}-${nth}${streams ? `-k${streams}` : ""}`;
-    const withStreams = (config: GeneralSessionOptions) => streams ? { ...config, research: { ...config.research!, localStreams: streams } } : config;
+    const withStreams = (config: GeneralSessionOptions) => streams ? { ...config, localStreams: streams } : config;
     const phaseOf = (config: GeneralSessionOptions) => withStreams(nth > 1 ? withSecondSource(config) : config), config = phaseOf(options(f, jobId, runs));
     if (mode === "session deadline") config.limits = { ...config.limits!, maxElapsedMs: 400 };
     const session = new GeneralAgentSession(config), external = new AbortController();
@@ -769,7 +769,7 @@ describe("backlog item 8.2b: the session's K reaches the reader's loops and the 
     const peaks: Record<string, number[]> = {};
     const configure = (jobId: string, streams: number | undefined) => {
       const config = withSources(options(f, jobId, []), 4), runner = config.trustedHostRunnerFactory!;
-      if (streams !== undefined) config.research = { ...config.research!, localStreams: streams };
+      if (streams !== undefined) config.localStreams = streams;
       // The writer records four verified claims for the entailment pass, as the real runner's finish-time check does.
       config.trustedHostRunnerFactory = input => { const inner = runner(input); return { ...inner, run: (...args: Parameters<typeof inner.run>) => {
         f.store.append(jobId, { type: "claims_verified", contextId: input.contextId, version: 1, claims: [1, 2, 3, 4].map(i => ({ id: `C${i}`, sentence: `s${i}`, quote: `q${i} long enough`, context: `c${i}` })) });

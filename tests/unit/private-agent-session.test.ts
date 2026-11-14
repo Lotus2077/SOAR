@@ -113,6 +113,27 @@ describe("general isolated phase session", () => {
       expect(judge).toHaveLength(2); expect(f.store.events("judged").filter(e => e.type === "claims_entailment")).toHaveLength(1);
     } finally { spy.mockRestore(); }
   });
+  it("8.2b: judges the claims K at a time in a run with no research stage, with the same verdicts as one at a time", async () => {
+    // #110's review: the judge took K only from the research options, so a run without a pipeline judged one claim at a time.
+    const f = await fixture();
+    let live = 0, peak = 0;
+    const spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => {
+      live++; peak = Math.max(peak, live); await new Promise(resolve => setTimeout(resolve, 30)); live--;
+      return { content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 };
+    });
+    try {
+      const peaks: number[] = [];
+      for (const [jobId, streams] of [["judged-serial", undefined], ["judged-k2", 2]] as const) {
+        const config: GeneralSessionOptions = { ...options(f, jobId, "PRIVATE-K"), ...(streams ? { localStreams: streams } : {}) };
+        expect(config.research).toBeUndefined();
+        expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+        peaks.push(peak); peak = 0;
+      }
+      expect(peaks).toEqual([1, 2]);
+      const judged = (jobId: string) => f.store.events(jobId).filter(event => event.type === "claims_entailment").map(({ contextId: _context, ...rest }) => rest);
+      expect(judged("judged-k2")).toEqual(judged("judged-serial")); expect(judged("judged-k2")).toMatchObject([{ entailmentCalls: 2, truncated: false, counts: { supported: 2 } }]);
+    } finally { spy.mockRestore(); }
+  });
   it("submits before the pass, so a judge that outlives the session deadline cannot revoke the submission", async () => {
     const f = await fixture();
     const spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => { await new Promise(resolve => setTimeout(resolve, 700)); return { content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 }; });

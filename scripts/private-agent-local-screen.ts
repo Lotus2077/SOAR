@@ -235,8 +235,11 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
 export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): LoadedServingCard | undefined {
   return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
 }
-/** 8.2b: the research loops' K, the pair's card's `localStreams`; without a card, none, so the loops run one call at a time. freeze.json records the same value. */
-export function localScreenResearchStreams(servingCard: LoadedServingCard | undefined): { localStreams?: number } {
+/**
+ * 8.2b: the session's K, the pair's card's `localStreams`, in every run with a card: the research loops and the claims judge run that
+ * many zero-risk local calls at a time. Without a card, none, so they run one call at a time. freeze.json records the same value.
+ */
+export function localScreenStreams(servingCard: LoadedServingCard | undefined): { localStreams?: number } {
   return servingCard ? { localStreams: servingCard.policy.localStreams } : {};
 }
 /**
@@ -496,9 +499,9 @@ configOptions?: LoadConfigOptions) {
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
       ...(pipeline ? { research: { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, localModelConfig, jobId, contextId),
         planner: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId), synthesiser: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId) }),
-        ...(diagnostics ? { diagnostics } : {}),
-        // 8.2b: the card's K reaches the research loops and the judge; freeze.json records it (servingCardFreeze).
-        ...localScreenResearchStreams(servingCard) } } : {}),
+        ...(diagnostics ? { diagnostics } : {}) } } : {}),
+      // 8.2b: the card's K reaches the research loops and the claims judge, with or without a pipeline; freeze.json records it (servingCardFreeze).
+      ...localScreenStreams(servingCard),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;

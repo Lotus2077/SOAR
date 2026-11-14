@@ -1313,6 +1313,18 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
     expect(serial.events.at(-1)).toMatchObject({ stage: "extract", calls: 2, denied: "budget_denied" }); expect(one.calls.filter(c => c.stage === "extract")).toHaveLength(3);
   });
 
+  it("can end a stage on another call's denial than K = 1 does, so the run class flips either way (#110's review; the correction to 1645 decision 5)", async () => {
+    // Chunk 0 fails request_failed (infrastructure) after 30 ms; chunk 2 is refused budget_denied (task) at once.
+    const script: Script = (stage, input, n, system) => stage === "extract" && n === 0 ? new BrokerError("request_failed") : stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const hold = (stage: Stage, n: number) => stage !== "extract" ? 0 : n === 0 ? 30 : n === 2 ? 1 : 5;
+    const serial = await observe(fanned(script, hold)), four = fanned(script, hold), fannedOut = await observe(four, { localStreams: 4 });
+    // K = 1: chunk 0's own failure ends the stage before chunk 2 launches.
+    expect(serial.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "request_failed" });
+    // K = 4: chunk 2's refusal aborts chunk 0 first. Chunk 0 then answers cancelled, a sibling stop, so the stage's denial is chunk 2's.
+    expect(fannedOut.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "budget_denied" });
+    expect(four.calls.find(c => c.stage === "extract" && c.n === 0)!.signal.aborted).toBe(true);
+  });
+
   it("takes a lower-index call that failed for its own reason as the stage's denial, though a higher one's abort reached it first (#71's review F3)", async () => {
     // Chunks 0 and 2 fail, 2 first. In one synchronous block, the pool reads both labels before 2's interrupt aborts: neither is marked. One
     // microtask later, 0's call() reads its signal before that abort and the pool reads 0's label after it: 0 is applied with afterAbort,

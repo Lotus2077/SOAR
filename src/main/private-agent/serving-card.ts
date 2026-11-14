@@ -284,7 +284,10 @@ export function loadServingCard(descriptor: ServingCardDescriptor, expectation: 
     identity: deepFreeze(card.identity), evidence: deepFreeze(card.evidence), policy: deepFreeze(policy), bytes: Buffer.from(bytes) });
 }
 
-/** 8.2b: `localStreams` is the K the research loops ran at (ASSIST-M2's default: freeze.json, not yet the registry). */
+/**
+ * 8.2b: `localStreams` is the card's K, which the driver passes to the session in every run with a card: the research loops and the claims
+ * judge run K calls at a time on a zero-risk local model, and one at a time otherwise (ASSIST-M2's default: freeze.json, not yet the registry).
+ */
 export interface ServingCardFreeze { sha256: string; version: 1; date: string; entry: string; localStreams: number }
 /** The freeze.json fragment: {} without a card; never the path. */
 export function servingCardFreeze(loaded: LoadedServingCard | undefined): { servingCard?: ServingCardFreeze } {

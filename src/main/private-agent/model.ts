@@ -124,11 +124,22 @@ export interface GeneralToolDefinition {
 }
 /** Backlog item 10 (BL-20261113-0920-assist-wrapper-design, decision 1): the only cache mode an assist may carry. */
 export const ASSIST_CACHE_MODE = "assist_no_cache_write_v1" as const;
+/**
+ * Item 9 (BL-20261114-1650-research-structured-output-design): a JSON-schema reply format for one call. `strict` true sends
+ * `strict: true`; false omits the key, as probe P10's non-strict variant does.
+ */
+export interface ModelResponseFormat { name: string; schema: Record<string, unknown>; strict: boolean }
+/** The `response_format` value: the ReviewResultV1 shape (review-result-contract.ts, `reviewResultV1ResponseFormat`). */
+export function jsonSchemaResponseFormat(format: ModelResponseFormat) {
+  return { type: "json_schema" as const, json_schema: { name: format.name, schema: format.schema, ...(format.strict ? { strict: true as const } : {}) } };
+}
 /** Per-call narrowing of the configured model; nothing here widens a configured value. */
 export interface ModelCallOverrides {
   thinking?: "disabled"; maxOutputTokens?: number; purpose?: string; trailingTurnMessage?: boolean;
   /** A lower request-body cap for this call (the assist bounds); the configured cap still applies when it is lower. */
   maxRequestBytes?: number;
+  /** Item 9: a reply format, on the owned vLLM shape without tools only; refused before any body exists otherwise. */
+  responseFormat?: ModelResponseFormat;
 }
 export interface PrivateModelConfig {
   destinationId: string;
@@ -388,6 +399,12 @@ export class PrivateAgentModel {
           message.tool_calls?.length || message.tool_call_id !== undefined))) {
       throw new Error("private_model_assist_request_invalid");
     }
+    // Item 9: a reply format reaches the owned vLLM shape alone, on a tool-less call, with a name and an object schema; every
+    // other shape would drop it or answer it differently, so it is refused here, before any body exists and so before any dispatch.
+    const format = overrides?.responseFormat;
+    if (format !== undefined && ((this.config.api !== undefined && this.config.api !== "vllm") || tools.length)) throw new Error("private_model_response_format_unsupported");
+    if (format !== undefined && (typeof format.name !== "string" || !/^[A-Za-z0-9_-]{1,64}$/u.test(format.name) || format.schema === null || typeof format.schema !== "object" ||
+        Array.isArray(format.schema) || typeof format.strict !== "boolean")) throw new Error("private_model_response_format_invalid");
     const openai = this.config.api === "openai";
     // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
     // The OpenAI shape uses max_completion_tokens and top-level reasoning_effort only; vLLM-only fields never leave for a cloud API.
@@ -414,6 +431,7 @@ export class PrivateAgentModel {
           : thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
         ...(this.config.localReplyContract ? { chat_template_kwargs: { enable_thinking: thinking !== "disabled", preserve_thinking: false } } : {}),
         ...(this.config.promptCaching === "vllm_job_salt_v1" ? { cache_salt: vllmCacheSalt(this.jobId) } : {}),
+        ...(format ? { response_format: jsonSchemaResponseFormat(format) } : {}),
       });
     return { body, maxOutputTokens, thinking };
   }

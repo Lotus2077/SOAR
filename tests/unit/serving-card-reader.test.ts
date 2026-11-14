@@ -43,13 +43,17 @@ function editedText(edit: (text: string) => string): Buffer {
 }
 
 describe("serving-card reader (SC)", () => {
-  it("R1: round-trips the writer's card: proposed is refused, adopted as written is refused as unconsumed, adopted all-default is accepted", () => {
+  it("R1: round-trips the writer's card: proposed is refused, adopted as written resolves since item 9, adopted all-default is accepted", () => {
     const card = proposed(), dir = workspace();
     expect(card.decision).toEqual({ status: "proposed", entry: null });
     expect(refusal(() => loadFrom(card)(dir))).toMatchObject({ code: "serving_card_not_adopted", parameter: "decision" });
-    // The writer's proposal passes every evidence gate (plan/on 19/20, extract 20/20, synthesis/off 19/20) and stops at the fail-closed step.
-    expect(refusal(() => loadServingCard(writeCard(dir, adopt(card), "adopted.json"), EXPECT)))
-      .toMatchObject({ code: "serving_card_parameter_unconsumed", parameter: "roles.plan.structuredOutput" });
+    // The writer's proposal passes every evidence gate (plan/on 19/20, extract 20/20, synthesis/off 19/20). Since item 9
+    // (BL-20261114-1650-research-structured-output-design) structured output is consumed, so it resolves to the writer's proposed flags.
+    const adopted = loadServingCard(writeCard(dir, adopt(card), "adopted.json"), EXPECT);
+    expect(adopted.policy.roles).toEqual(card.roles);
+    expect(STRUCTURED_OUTPUT_ROLES.map(role => adopted.policy.roles[role].structuredOutput)).toEqual([{ variant: "strict", thinkingOff: false, thinkingOn: true },
+      { variant: "strict", thinkingOff: true, thinkingOn: true }, { variant: "strict", thinkingOff: true, thinkingOn: false }]);
+    expect(adopted.policy).toMatchObject({ localStreams: 1, admission: { basis: "none" } });
     const written = writeCard(dir, allDefault(), "all-default.json"), loaded = loadServingCard(written, EXPECT);
     expect(loaded.policy).toEqual(DEFAULT_SERVING_POLICY);
     expect(loaded.sha256).toBe(written.sha256);
@@ -126,11 +130,13 @@ describe("serving-card reader (SC)", () => {
       card.evidence.p10.cells["extract/off"].variant = "non_strict"; }))],
     ["serving_card_structured_output_below_rule", "18/20", loadFrom(edited(flag("synthesis", false, true))), "roles.synthesis.structuredOutput.thinkingOn"],
     ["serving_card_structured_output_below_rule", "19/19", loadFrom(edited(card => { flag("extract", true, false)(card); Object.assign(card.evidence.p10.cells["extract/off"], { total: 19, valid: 19 }); }))],
+    // Item 9's review: extract sends the format with thinking off on both attempts, and its cell ran at 2,048 tokens.
+    ["serving_card_structured_output_cap_unmeasured", "an extract cap P10 did not measure", loadFrom(edited(card => { flag("extract", true, false)(card); card.roles.extract.maxOutputTokens = [1024, 2048]; })),
+      "roles.extract.maxOutputTokens[0]"],
     ["serving_card_streams_unproven", "K 4 with no burst", loadFrom(edited(card => { card.concurrency.localStreams = 4; delete card.evidence.p11.kStreams["4"]; })), "concurrency.localStreams"],
     ["serving_card_streams_unproven", "one error", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].errors = 1; }))],
     ["serving_card_streams_unproven", "3 streams", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].streams = 3; }))],
     ["serving_card_streams_unproven", "K 2 without P11", loadFrom(edited(card => { card.concurrency.localStreams = 2; card.evidence.p11 = null; card.evidence.bounds = null; }))],
-    ["serving_card_parameter_unconsumed", "structured output", loadFrom(edited(flag("extract", true, true))), "roles.extract.structuredOutput"],
     ["serving_card_parameter_unconsumed", "K", loadFrom(edited(card => { card.concurrency.localStreams = 4; })), "concurrency.localStreams"],
     ["serving_card_parameter_unconsumed", "admission", loadFrom(edited(card => { card.admission.basis = "serving_card"; })), "admission.basis"],
   ];
@@ -146,16 +152,27 @@ describe("serving-card reader (SC)", () => {
     if (parameter !== undefined) expect(error.parameter).toBe(parameter);
   });
 
-  it("R2 since 7a.2 (BL-20261114-1346-research-role-policy-design): caps and per-attempt thinking are consumed, so a card that sets them resolves; structured output is still refused", () => {
+  it("R2 since 7a.2 (BL-20261114-1346-research-role-policy-design) and item 9 (BL-20261114-1650-research-structured-output-design): caps, per-attempt thinking and structured output are consumed, so a card that sets them resolves; K is still refused", () => {
     const loaded = loadFrom(edited(card => { card.roles.plan.maxOutputTokens = [4096, 8192]; card.roles.plan.thinking = ["disabled", "model"]; card.roles.extract.maxOutputTokens = [1024, 2048]; }))(workspace());
     expect(loaded.policy.roles.plan).toEqual({ maxOutputTokens: [4096, 8192], thinking: ["disabled", "model"], structuredOutput: null });
     expect(loaded.policy.roles.extract.maxOutputTokens).toEqual([1024, 2048]);
-    expect(refusal(() => loadFrom(edited(card => { card.roles.plan.thinking = ["disabled", "model"]; flag("extract", true, true)(card); }))(workspace())))
-      .toMatchObject({ code: "serving_card_parameter_unconsumed", parameter: "roles.extract.structuredOutput" });
+    const flagged = loadFrom(edited(card => { card.roles.plan.thinking = ["disabled", "model"]; flag("extract", true, true)(card); }))(workspace());
+    expect(flagged.policy.roles.extract.structuredOutput).toEqual({ variant: "strict", thinkingOff: true, thinkingOn: true });
+    expect(flagged.policy.roles.plan.thinking).toEqual(["disabled", "model"]);
+    expect(refusal(() => loadFrom(edited(card => { flag("extract", true, true)(card); card.concurrency.localStreams = 4; }))(workspace())))
+      .toMatchObject({ code: "serving_card_parameter_unconsumed", parameter: "concurrency.localStreams" });
+  });
+  it("R2 since item 9's review: an attempt that sends the format must use the cap its P10 cell measured; another attempt may change its cap", () => {
+    // Plan sends the format with thinking on only; its first attempt has thinking off, so its cap may differ from the plan/on cell's 8,192.
+    const plan = (caps: [number, number]) => edited(card => { flag("plan", false, true)(card); card.roles.plan.thinking = ["disabled", "model"]; card.roles.plan.maxOutputTokens = caps; });
+    expect(plan([8192, 8192]).evidence.p10!.cells["plan/on"]!.maxTokens).toBe(8192);
+    expect(loadFrom(plan([4096, 8192]))(workspace()).policy.roles.plan).toEqual({ maxOutputTokens: [4096, 8192], thinking: ["disabled", "model"],
+      structuredOutput: { variant: "strict", thinkingOff: false, thinkingOn: true } });
+    expect(refusal(() => loadFrom(plan([8192, 4096]))(workspace()))).toMatchObject({ code: "serving_card_structured_output_cap_unmeasured", parameter: "roles.plan.maxOutputTokens[1]" });
   });
   it("R2: the table covers every refusal code, and a key path outside the allowlist never reaches an error", () => {
     expect(new Set(CASES.map(([code]) => code))).toEqual(new Set(SERVING_CARD_CODES));
-    expect(SERVING_CARD_CODES).toHaveLength(14);
+    expect(SERVING_CARD_CODES).toHaveLength(15);
     for (const code of SERVING_CARD_CODES) expect(code).toMatch(/^[a-z0-9_]{1,79}$/u);
     expect(new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json").parameter).toBeUndefined();
     expect(new ServingCardError("serving_card_not_adopted", "decision").parameter).toBe("decision");
@@ -186,7 +203,7 @@ describe("serving-card reader (SC)", () => {
     expect(() => pinned(relative(process.cwd(), written.path), written.sha256)).toThrow(LocalTokenAdmissionError);
   });
 
-  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, only 7a.2's flags are true and the rule matches the writer", () => {
+  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, only 7a.2's and item 9's flags are true and the rule matches the writer", () => {
     for (const role of RESEARCH_ROLES) {
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].maxOutputTokens).toEqual([OUTPUT_TOKENS[role], OUTPUT_TOKENS[role]]);
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].thinking).toEqual([THINKING[role], THINKING[role]]);
@@ -195,8 +212,9 @@ describe("serving-card reader (SC)", () => {
     for (const role of STRUCTURED_OUTPUT_ROLES) expect(DEFAULT_RESEARCH_ROLE_POLICY[role].structuredOutput).toBeNull();
     expect(Object.isFrozen(DEFAULT_RESEARCH_ROLE_POLICY.plan.maxOutputTokens) && Object.isFrozen(DEFAULT_SERVING_POLICY.admission)).toBe(true);
     expect(DEFAULT_SERVING_POLICY).toEqual({ roles: DEFAULT_RESEARCH_ROLE_POLICY, localStreams: 1, admission: { basis: "none" } });
-    // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b). 7a.2 flipped the caps and thinking.
-    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: false, localStreams: false, admission: false });
+    // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b). 7a.2 flipped the caps and thinking,
+    // item 9 structured output.
+    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: true, localStreams: false, admission: false });
     const writer = JSON.parse(execFileSync("python3", ["-I", "-c", ["import importlib.util, json, sys",
       "spec = importlib.util.spec_from_file_location('serving_card', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
       "print(json.dumps({'minCalls': module.P10_MIN_CALLS, 'minValidPercent': module.P10_RULE_PERCENT}))"].join("\n"), SERVING_CARD_WRITER],

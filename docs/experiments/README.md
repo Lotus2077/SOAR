@@ -33,9 +33,9 @@ This folder holds the committed, sanitized record of live trials (see
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
   - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 9 for structured output, 8
-    for K and 7(b) for admission. Until then, adopt a card that keeps those
-    values at their defaults, or leave the pair unset.
+    refused until the backlog item that uses it merges: 8 for K and 7(b) for
+    admission. Until then, adopt a card that keeps those values at their defaults,
+    or leave the pair unset.
   - **Caps and thinking are read since 7a.2** (BL-20261114-1346-research-role-policy-design).
     The research stage sends each local role's attempts the card's caps and
     thinking: attempt 1 is a role's first call, attempt 2 its repair or second
@@ -44,6 +44,19 @@ This folder holds the committed, sanitized record of live trials (see
     model's limit, or when a synthesis attempt's length ceiling falls below 100
     words. A non-default policy changes the research protocol hash, the session
     identity and freeze.json's pipeline block. Without a card, nothing changes.
+  - **Structured output is read since item 9**
+    (BL-20261114-1650-research-structured-output-design). A local plan, extract or
+    synthesis call whose effective thinking mode the card flags sends the body it
+    would send without the flag, plus `response_format`: the role's schema under
+    P10's name, and `strict: true` for the strict variant. One more value differs:
+    a flag changes the research protocol hash, which a synthesis payload carries in
+    `coverage.protocolSha256`. Thinking counts as off when the attempt or the role
+    model disables it. Index, a cloud role and the assists never send it. The
+    reader refuses a flag when an attempt that would send it has another cap than
+    its P10 cell measured (`serving_card_structured_output_cap_unmeasured`). A flag
+    also changes the session identity and freeze.json's pipeline block, and a stage
+    row counts the calls that carried it (`structuredOutputCalls`). Without a card,
+    nothing changes.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and
@@ -53,11 +66,16 @@ This folder holds the committed, sanitized record of live trials (see
     under the desktop's settings (`.env.local`). The probe only adds
     `response_format`, and it reads a streamed reply as events. A passing cell
     still shows nothing about requests without `response_format`, which is what
-    the pipeline sends until backlog item 9. It also shows nothing about real
-    corpus sizes or repair requests, since the payloads are synthetic and small.
-    Re-export after changing those settings: the probe refuses an export for
-    another model. The K bursts use a one-sentence prompt and show decode
-    concurrency only.
+    an unflagged call sends. It also shows nothing about real corpus sizes or
+    repair requests, since the payloads are synthetic and small. Re-export after
+    changing those settings: the probe refuses an export for another model. The
+    card does not yet record the settings the export built its bodies under (the
+    Flash reply contract, `SOAR_STREAMING` and the cache salt), and the reader
+    checks only the served model and, under `flash_next_v1`, the context. So run a
+    card with structured output only under the export's settings, and after
+    changing the reply contract, `SOAR_STREAMING` or `--cache-salt`, re-export,
+    re-run P1, P10, P11 and the adapter together, and adopt a new card. The K
+    bursts use a one-sentence prompt and show decode concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
     entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
     no run directory. The driver's and the loop's failure lines, and the loop's

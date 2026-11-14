@@ -12,7 +12,8 @@ export type ServingCardParameter = (typeof SERVING_CARD_PARAMETERS)[number];
  * Flipped to true only by the consumer PR that makes the value reach a request or a decision, in that PR, with a test of the
  * value applied: item 7(a)'s caps-and-thinking PR (maxOutputTokens, thinking), item 9 (structuredOutput), item 8's loop PR
  * (localStreams) and item 7(b)'s admission PR (admission). 7a.2 (BL-20261114-1346-research-role-policy-design) flipped the caps
- * and thinking: the research pipeline sends them to each local role's attempts.
+ * and thinking: the research pipeline sends them to each local role's attempts. Item 9 (BL-20261114-1650-research-structured-output-design)
+ * flipped structured output: a local plan, extract or synthesis call whose effective thinking mode a flag names sends `response_format`.
  */
 export const SERVING_CARD_CONSUMED: Readonly<Record<ServingCardParameter, boolean>> =
-  Object.freeze({ maxOutputTokens: true, thinking: true, structuredOutput: false, localStreams: false, admission: false });
+  Object.freeze({ maxOutputTokens: true, thinking: true, structuredOutput: true, localStreams: false, admission: false });

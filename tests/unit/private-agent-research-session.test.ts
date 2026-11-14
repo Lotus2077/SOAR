@@ -33,17 +33,20 @@ function phase(): SessionPhase {
  */
 /** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply, or "hold" to never answer. */
 async function fixture(options: { reply?: (system: string) => string | undefined; recoverable?: boolean } = {}) {
-  // 7a.2's review: each request's output cap and thinking fields too, so a test can see a card's policy reach the bodies.
-  const bodies: { system: string; user: string; maxTokens?: number; thinking: string }[] = [];
+  // 7a.2's review: each request's output cap and thinking fields too, so a test can see a card's policy reach the bodies; item 9: its
+  // response_format, as [name, true for strict or "non_strict" when the key is absent].
+  const bodies: { system: string; user: string; maxTokens?: number; thinking: string; responseFormat?: [string, true | "non_strict"] }[] = [];
   const hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" | "hold"; onCloud?: (response: http.ServerResponse) => void } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
       // The cloud destination (E1) never answers inside its timeout unless a test answers it itself.
       if (request.url?.startsWith("/cloud")) { hooks.onCloud?.(response); return; }
-      const body = JSON.parse(raw) as { messages: { content: string }[]; max_tokens?: number; reasoning_effort?: string; chat_template_kwargs?: { enable_thinking?: boolean } },
+      const body = JSON.parse(raw) as { messages: { content: string }[]; max_tokens?: number; reasoning_effort?: string; chat_template_kwargs?: { enable_thinking?: boolean };
+        response_format?: { json_schema: { name: string; strict?: true } } },
         system = body.messages[0]!.content, user = body.messages[1]!.content;
       bodies.push({ system, user, ...(body.max_tokens !== undefined ? { maxTokens: body.max_tokens } : {}),
-        thinking: body.reasoning_effort ?? (body.chat_template_kwargs?.enable_thinking === false ? "off" : "model_default") });
+        thinking: body.reasoning_effort ?? (body.chat_template_kwargs?.enable_thinking === false ? "off" : "model_default"),
+        ...(body.response_format ? { responseFormat: [body.response_format.json_schema.name, body.response_format.json_schema.strict ?? "non_strict"] as [string, true | "non_strict"] } : {}) });
       const decision = hooks.onRequest?.(system, request);
       if (decision === "destroy") { request.socket.destroy(); return; }
       if (decision === "hold") return;
@@ -219,6 +222,21 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(bare).run()).toMatchObject({ status: "submitted" });
     const defaulted = options(f, "job-default", runs); defaulted.research = { ...defaulted.research!, roles: structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy };
     expect(await new GeneralAgentSession(defaulted).run()).toMatchObject({ status: "submitted" });
+  });
+  it("item 9: a card's structured-output flag reaches the request bodies through the session (BL-20261114-1650-research-structured-output-design)", async () => {
+    // Every cap fits the fixture's 4,096-token role models, whose own thinking is disabled: each call's effective mode is off, so the
+    // extract flag for that mode applies and the synthesis flag, for thinking on only, does not.
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy;
+    roles.plan.maxOutputTokens = [4096, 4096]; roles.synthesis.maxOutputTokens = [4096, 4096];
+    roles.extract.structuredOutput = { variant: "strict", thinkingOff: true, thinkingOn: false }; roles.synthesis.structuredOutput = { variant: "non_strict", thinkingOff: false, thinkingOn: true };
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-structured", runs); config.research = { ...config.research!, roles };
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
+    const sent = (prefix: string) => f.bodies.filter(body => body.system.startsWith(prefix)).map(body => body.responseFormat ?? null);
+    expect(sent("You index")).toEqual([null]); expect(sent("You plan")).toEqual([null]);
+    expect(sent("You extract")).toEqual([["research_extraction", true]]); expect(sent("You write")).toEqual([null]);
+    // The ledger's stage rows count the calls that carried it.
+    const stages = f.store.events("job-structured").filter(event => event.type === "research_stage") as { stage: string; structuredOutputCalls?: number }[];
+    expect(stages.map(stage => [stage.stage, stage.structuredOutputCalls])).toEqual([["index", undefined], ["plan", undefined], ["extract", 1], ["synthesise", undefined]]);
   });
   it("refuses a cloud-shaped planner on a private lineage at the broker, stops the stage with the denial code, and dispatches nothing to it", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-private", runs, "private-model");

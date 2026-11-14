@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_POLICY_APPLICATION, RESEARCH_ROLE_SCHEMAS, RESEARCH_STRUCTURED_OUTPUT_APPLICATION, SYNTHESIS_SYSTEM, normalizeQuoteText, researchRolePolicyBinding, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
 import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
@@ -54,7 +54,9 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   // 7(c) (BL-20261113-0927-research-v5-design): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
   "fallback", "synthesisAttempts",
   // 7a.2 (BL-20261114-1346-research-role-policy-design): attempt 2's synthesis length cap, only when a role policy makes it differ; a count.
-  "secondAttemptLengthCapWords"]);
+  "secondAttemptLengthCapWords",
+  // Item 9 (BL-20261114-1650-research-structured-output-design): the stage's calls that carried a response_format, only when one did; a count.
+  "structuredOutputCalls"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
     expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
@@ -1280,5 +1282,75 @@ describe("item 7a.2: per-role caps and per-attempt thinking from an adopted card
     const without = await run(bare, {}, bareEvents), withDefault = await run(carded, { roles: rolePolicy() }, cardEvents);
     expect(carded.calls.map(c => canonical(c.body))).toEqual(bare.calls.map(c => canonical(c.body)));
     expect(canonical(cardEvents)).toBe(canonical(bareEvents)); expect(canonical(withDefault.files.map(f => [f.path, f.bytes.toString()]))).toBe(canonical(without.files.map(f => [f.path, f.bytes.toString()])));
+  });
+});
+
+/** Item 9 (BL-20261114-1650-research-structured-output-design): CARD's caps and thinking, with a structured-output flag on each schema role. */
+const FLAGGED = rolePolicy(r => { Object.assign(r, structuredClone(CARD)); r.plan.structuredOutput = { variant: "strict", thinkingOff: true, thinkingOn: false };
+  r.extract.structuredOutput = { variant: "non_strict", thinkingOff: true, thinkingOn: true }; r.synthesis.structuredOutput = { variant: "strict", thinkingOff: false, thinkingOn: true }; });
+/** Each call's format in a stage: [name, true for strict or "non_strict" when the key is absent], or null without one. */
+const formats = (m: ReturnType<typeof models>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => c.body.response_format === undefined ? null
+  : [c.body.response_format.json_schema.name, c.body.response_format.json_schema.strict ?? "non_strict"]);
+
+describe("item 9: structured output from an adopted card (BL-20261114-1650-research-structured-output-design)", () => {
+  it("sends a schema role's attempt response_format exactly when the flag for its effective thinking mode is set, and adds nothing else", async () => {
+    const m = models(twoAttempts), events: ResearchStageCounts[] = [], result = await run(m, { roles: FLAGGED }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    // CARD sends plan and synthesis attempt 1 with thinking off and attempt 2 with it on, extract off throughout; index has no schema.
+    expect(formats(m, "index")).toEqual([null, null]);
+    expect(formats(m, "plan")).toEqual([["research_plan", true], null]);
+    expect(formats(m, "extract")).toEqual([["research_extraction", "non_strict"], ["research_extraction", "non_strict"], ["research_extraction", "non_strict"]]);
+    expect(formats(m, "synthesise")).toEqual([null, ["research_synthesis", true]]);
+    const schemaOf: Record<string, unknown> = { plan: RESEARCH_ROLE_SCHEMAS.plan.schema, extract: RESEARCH_ROLE_SCHEMAS.extract.schema, synthesise: RESEARCH_ROLE_SCHEMAS.synthesis.schema };
+    for (const c of m.calls.filter(c => c.body.response_format)) expect(c.body.response_format).toEqual({ type: "json_schema", json_schema: { ...c.body.response_format.json_schema, schema: schemaOf[c.stage] } });
+    // The same card without the flags sends the same calls in the same order, and each body differs by response_format alone. The
+    // synthesis payload's coverage names the protocol hash, which the flags change, so that one value is left out of the comparison.
+    const plain = models(twoAttempts); await run(plain, { roles: CARD });
+    expect(m.calls.map(c => c.stage)).toEqual(plain.calls.map(c => c.stage));
+    const withoutHash = (input: any) => input.coverage ? { ...input, coverage: { ...input.coverage, protocolSha256: null } } : input;
+    m.calls.forEach((c, index) => {
+      const { response_format: _format, messages, ...rest } = c.body, { messages: plainMessages, ...plainRest } = plain.calls[index]!.body;
+      expect(rest).toEqual(plainRest); expect(messages[0]).toEqual(plainMessages[0]);
+      expect(withoutHash(c.input)).toEqual(withoutHash(plain.calls[index]!.input));
+      if (c.stage !== "synthesise") expect(messages[1]).toEqual(plainMessages[1]);
+    });
+    // The counter: absent on index, and on each schema stage the settled calls that carried a format.
+    expect(events.map(e => e.structuredOutputCalls)).toEqual([undefined, 1, 3, 1]); for (const event of events) hashOnlyStageRow(event);
+    expect(parsed(result, RESEARCH_FILES.summary).stages.map((stage: ResearchStageCounts) => stage.structuredOutputCalls)).toEqual([undefined, 1, 3, 1]);
+    expect(result.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, FLAGGED));
+    expect(result.summary.protocolSha256).not.toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD));
+  });
+  it("never sends it from a cloud planner or synthesiser, and counts a local role model's own disabled thinking as off", async () => {
+    const m = models(twoAttempts), priced = { inputUsdPerMillion: 1, outputUsdPerMillion: 1 };
+    const result = await run(m, { roles: FLAGGED, models: { reader: m.models.reader, planner: modelOf(m, priced), synthesiser: modelOf(m, priced) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(formats(m, "plan")).toEqual([null, null]); expect(formats(m, "synthesise")).toEqual([null, null]);
+    expect(formats(m, "extract")).toEqual([["research_extraction", "non_strict"], ["research_extraction", "non_strict"], ["research_extraction", "non_strict"]]);
+    // Extract's thinking follows the model; the reader's own thinking decides the mode, as P10's `<role>/off` and `<role>/on` cells.
+    const flag = (thinkingOff: boolean, thinkingOn: boolean) => rolePolicy(r => { r.extract.thinking = ["model", "model"]; r.extract.structuredOutput = { variant: "strict", thinkingOff, thinkingOn }; });
+    const cases: [ResearchRolePolicy, "disabled" | "medium", unknown][] = [[flag(false, true), "disabled", null], [flag(true, false), "disabled", ["research_extraction", true]],
+      [flag(false, true), "medium", ["research_extraction", true]], [flag(true, false), "medium", null]];
+    for (const [roles, thinking, expected] of cases) {
+      const n = models(), outcome = await run(n, { roles, models: { reader: modelOf(n, { thinking }), planner: n.models.planner, synthesiser: n.models.synthesiser } });
+      expect(outcome.status).toBe("completed");
+      const extract = n.calls.filter(c => c.stage === "extract");
+      expect(extract.length).toBeGreaterThan(0); expect(formats(n, "extract")).toEqual(extract.map(() => expected));
+      expect(extract.map(c => c.body.chat_template_kwargs?.enable_thinking ?? c.body.reasoning_effort)).toEqual(extract.map(() => thinking === "disabled" ? false : "medium"));
+    }
+  });
+  it("binds the structured-output rule only when a flag is set: a caps-and-thinking card keeps 7a.2's binding, and without a card nothing changes", async () => {
+    expect(researchRolePolicyBinding(DEFAULT_RESEARCH_ROLE_POLICY)).toBeUndefined(); expect(researchRolePolicyBinding(rolePolicy())).toBeUndefined();
+    // Exactly 7a.2's binding, so a card of caps and thinking alone keeps the hash 7a.2 gave it.
+    expect(researchRolePolicyBinding(CARD)).toStrictEqual({ roles: CARD, application: RESEARCH_ROLE_POLICY_APPLICATION });
+    expect(researchRolePolicyBinding(FLAGGED)).toStrictEqual({ roles: FLAGGED, application: RESEARCH_ROLE_POLICY_APPLICATION, structuredOutput: RESEARCH_STRUCTURED_OUTPUT_APPLICATION });
+    expect(RESEARCH_STRUCTURED_OUTPUT_APPLICATION.names).toEqual({ plan: "research_plan", extract: "research_extraction", synthesis: "research_synthesis" });
+    // One flag alone is a non-default policy (research-roles.ts's nonDefaultRoleParameters): it binds the rule, and its variant is part of the hash.
+    const one = (variant: "strict" | "non_strict") => rolePolicy(r => { r.extract.structuredOutput = { variant, thinkingOff: true, thinkingOn: false }; });
+    expect(researchRolePolicyBinding(one("strict"))).toHaveProperty("structuredOutput", RESEARCH_STRUCTURED_OUTPUT_APPLICATION);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, one("strict"))).not.toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, one("strict"))).not.toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, one("non_strict")));
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+    const bare = models(twoAttempts), bareEvents: ResearchStageCounts[] = []; await run(bare, {}, bareEvents);
+    expect(bare.calls.some(c => "response_format" in c.body)).toBe(false); expect(bareEvents.some(e => "structuredOutputCalls" in e)).toBe(false);
   });
 });

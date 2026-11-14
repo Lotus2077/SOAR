@@ -10,7 +10,7 @@ import { QUALIFIED_IMAGE } from "../src/main/private-agent/capabilities";
 import { DockerSandbox } from "../src/main/private-agent/sandbox";
 import { loadEnvironmentFiles, vllmEndpointPolicyIssue } from "../src/main/config";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, isCoordinatorProfileName } from "../src/main/private-agent/profiles";
-import { loadServingCard, looksLikePath, servingCardRefusal, type LoadedServingCard, type ServingCardExpectation } from "../src/main/private-agent/serving-card";
+import { loadServingCard, looksLikePath, servingCardRefusal, servingCardRequestSettings, type LoadedServingCard, type ServingCardExpectation } from "../src/main/private-agent/serving-card";
 
 /**
  * `pnpm setup:general`: a read-only doctor for the general task runtime, plus `--write` to record the
@@ -22,7 +22,7 @@ import { loadServingCard, looksLikePath, servingCardRefusal, type LoadedServingC
  * path.
  */
 export const GENERAL_SETUP_KEYS = ["SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL", "SOAR_VLLM_API_KEY", "SOAR_VLLM_COST_POLICY", "SOAR_ALLOW_INSECURE_VLLM_HTTP", "SOAR_GENERAL_TASK_IMAGE_ID", "SOAR_GENERAL_TASK_PROFILE",
-  "SOAR_VLLM_REPLY_CONTRACT", "SOAR_VLLM_CONTEXT_TOKENS", "SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256"] as const;
+  "SOAR_VLLM_REPLY_CONTRACT", "SOAR_VLLM_CONTEXT_TOKENS", "SOAR_STREAMING", "SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256"] as const;
 export type GeneralSetupKey = typeof GENERAL_SETUP_KEYS[number];
 export const REQUIRED_NODE_MAJOR = 22;
 export const SETUP_PROBE_TIMEOUT_MS = 30_000;
@@ -95,10 +95,17 @@ export function configuredContext(settings: Partial<Record<GeneralSetupKey, stri
   return Number.isSafeInteger(tokens) && tokens > 16_384 ? { tokens }
     : { issue: "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1 requires SOAR_VLLM_CONTEXT_TOKENS, an integer above 16,384." };
 }
-/** What the reader expects (servingCardExpectation): the configured alias and, under a valid flash_next_v1 pair, the configured context. */
+/**
+ * What the headless driver's reader expects (servingCardExpectation): the configured alias, under a valid flash_next_v1 pair the
+ * configured context, and the run's request settings, which a flagged structured-output mode must equal
+ * (BL-20261114-2301-serving-card-request-settings-design). SOAR_STREAMING is read as the app reads it (default true), and the cache
+ * salt is the driver's default, on, the only one the role export measures.
+ */
 function cardExpectation(settings: Partial<Record<GeneralSetupKey, string>>): ServingCardExpectation {
-  const context = configuredContext(settings).tokens;
-  return { model: settings.SOAR_VLLM_MODEL ?? "", ...(context !== undefined ? { contextTokens: context } : {}) };
+  const model = settings.SOAR_VLLM_MODEL ?? "", context = configuredContext(settings).tokens;
+  const flash = context !== undefined ? { localReplyContract: "flash_next_v1" as const, localContextTokens: context } : {};
+  return { model, ...(context !== undefined ? { contextTokens: context } : {}),
+    requestSettings: servingCardRequestSettings({ vllm: { model, ...flash }, streamingEnabled: (settings.SOAR_STREAMING ?? "true") === "true" }, true) };
 }
 const PRINT_RULE: Record<IdentityField, { max: number; kind: "text" | "basename" }> = { servedModel: { max: 256, kind: "text" }, modelRootBasename: { max: 256, kind: "basename" },
   engineVersion: { max: 128, kind: "text" }, contextTokens: { max: 0, kind: "text" } };

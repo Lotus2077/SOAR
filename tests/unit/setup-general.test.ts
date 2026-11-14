@@ -209,6 +209,22 @@ describe("pnpm setup:general doctor", () => {
         "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=131072\n");
       expect(context.card).toMatchObject({ status: "refused", code: "serving_card_context_mismatch" }); expect(context.ready).toBe(false);
     });
+    it("gives the reader the run's request settings for a flagged card, as the headless driver does", async () => {
+      // BL-20261114-2301-serving-card-request-settings-design: a structured-output flag needs P10's settings to equal the run's.
+      // Under the app's SOAR_STREAMING (default true) and the driver's default cache salt the card meets today's fail-closed step;
+      // with SOAR_STREAMING=false it is refused as measured under other settings, before any field comparison.
+      const flagged = writeCard(cardDir(), adopt(proposedServingCard())), pair = { SOAR_SERVING_CARD_FILE: flagged.path, SOAR_SERVING_CARD_SHA256: flagged.sha256 };
+      const same = await doctor(pair);
+      expect(same.card).toMatchObject({ status: "refused", code: "serving_card_parameter_unconsumed" }); expect(same.ready).toBe(false);
+      const streamed = await doctor(pair, { id: ALIAS, ...CARD_IDENTITY }, ALIAS, "SOAR_STREAMING=true\n");
+      expect(streamed.card).toMatchObject({ status: "refused", code: "serving_card_parameter_unconsumed" });
+      const unstreamed = await doctor(pair, { id: ALIAS, ...CARD_IDENTITY }, ALIAS, "SOAR_STREAMING=false\n");
+      expect(unstreamed.card).toMatchObject({ status: "refused", code: "serving_card_p10_settings_drift" }); expect(unstreamed.ready).toBe(false);
+      expect(unstreamed.settings.present).toContain("SOAR_STREAMING");
+      // Under flash_next_v1 at the card's own context the context check passes, and the contract alone differs from P10's settings.
+      const flash = await doctor(pair, { id: ALIAS, ...CARD_IDENTITY }, ALIAS, "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=262144\n");
+      expect(flash.card).toMatchObject({ status: "refused", code: "serving_card_p10_settings_drift" }); expect(flash.ready).toBe(false);
+    });
     it("compares a withheld value on its raw bytes and prints neither side, and does not block on a field the card left unknown", async () => {
       // The configured host appears inside the basename on both sides: equal raw values match, and neither is printed.
       const written = writeCard(cardDir(), adoptedCard());

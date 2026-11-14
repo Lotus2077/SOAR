@@ -40772,3 +40772,426 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main` after #91's and #90's, on green CI. If any other entry reaches `main` first, the entries re-stamp again with a further correction.
 
 References: BL-20261114-2258-correction-handoff-hash-line-e0-steps; BL-20261114-2259-correction-handoff-hash-line-review; BL-20261114-2257-correction-doctor-endpoint-identity-second-restamp; BL-20261114-2254-correction-judge-fixture-second-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; pull requests #90, #91 and #106.
+
+### BL-20261114-2301-serving-card-request-settings-design -- 2026-11-14 -- SC settings binding decided: a serving card records the request settings P10's bodies were built under, and the reader refuses a structured-output flag when the run's settings differ; the card format gains an optional field, with no version bump
+
+Status: `Proposed`
+
+Scope or hypothesis: A follow-up to SC, the serving-card reader (BL-20261108-1459-serving-card-reader-design, implemented in BL-20261108-1649-serving-card-reader-implemented).
+- **Where it comes from.** It is finding 2 of the light review of #108 (item 9, structured output). #108's Correction records the gap; it is cited here by PR because #108 is not on `main`. The coordinator assigned this follow-up, to land before E0's card is adopted.
+- **The gap.**
+  - Since P10-align (BL-20261113-1011-p10-align-design), probe P10 sends the role export's bodies. It records the settings the export built them under (`request_settings`: the model, streaming, the Flash reply contract and its context, the profile and the cache salt) and a body digest per cell.
+  - The card writer drops both. The reader checks only the served model and, under `flash_next_v1`, the context.
+  - So a card measured under one set of settings resolves for a run under another. Item 9's flagged calls would then send bodies no P10 cell measured.
+
+The hypothesis: if the card carries the settings and the reader refuses a structured-output flag unless the run's settings equal them, then a flag resolves only for runs whose flagged bodies are built as the ones P10 measured.
+
+Decisions:
+(1) **What is bound: the settings, not the body digests.**
+- **The record.** The writer copies P10's `request_settings` into `evidence.p10.requestSettings`: `{model, streaming, localReplyContract, localContextTokens, profile, cacheSalt}`, the export's own record.
+- **Why not the digests.** The reader could compare a per-cell `request_body_sha256` only by rebuilding the export's synthetic bodies, which live in scripts/, inside src/. The settings are what a run can name: its configuration and the driver's `--cache-salt`. The protocol hash and the schema digests already bind the prompts and the schemas.
+- **What stays unbound** is the model layer's own construction of the owned vLLM body. A change to it changes P10's bodies without changing any of these, so such a PR must state that it invalidates earlier cards' structured-output evidence, as SC already requires of a protocol-hash change.
+
+(2) **The card format: an optional field, no version bump.**
+- **The field.** `P10EvidenceSchema` gains `requestSettings`, optional and nullable. When present, it is an object of exactly these keys:
+  - `model`: plain text that does not look like a path, at most 256 characters, as the served alias;
+  - `streaming`: a boolean;
+  - `localReplyContract`: `"flash_next_v1"` or null;
+  - `localContextTokens`: a positive integer, or null;
+  - `profile`: `"heavy"`;
+  - `cacheSalt`: a boolean.
+
+  It is null when the probe recorded none.
+- **Why no bump.**
+  - Every version-1 card still parses, and nothing in it changes meaning but its structured-output flags.
+  - No merged code consumes a flag yet: the consumer is item 9 (#108), unmerged. Under (4), an older card's flags are refused.
+  - A bump would refuse every older card outright, all-default ones included, for no safety gain.
+  - No adopted card exists yet.
+- **Forward compatibility.** A reader without this change refuses a card that carries the field as `serving_card_invalid`, because the schema is strict. The writer and the reader change together, here.
+- **Privacy.** The field holds no address, path or key. The model is the served alias the identity already holds; the rest are booleans, an enum and an integer.
+
+(3) **The writer** (scripts/serving-card.py):
+- it copies and checks the record, refusing a malformed one at `$.P10.request_settings` before any file exists;
+- it writes null when the probe has none. That is a probe from before P10-align, whose cells measured the probe's own bodies;
+- it proposes structured output only when the record is present, because the reader refuses a flag without one. SC-4's default stands: it proposes by the 95% rule, now from evidence the reader can bind;
+- the Markdown card does not change.
+
+(4) **The reader** (src/main/private-agent/serving-card.ts).
+- **The check.** For each flagged mode, right after the protocol check, it refuses `serving_card_p10_settings_drift` at the flag's key path unless `evidence.p10.requestSettings` is present and canonically equal to the run's settings.
+- **The run's settings** come from one function, `servingCardRequestSettings(config, cacheSalt)`. It returns the served model, `SOAR_STREAMING`, the Flash reply contract and, only under it, the context, the heavy profile and the run's cache salt. Research runs only under the heavy profile.
+- **The export shares the function.** The role export (scripts/export-role-schemas.ts) builds its `requestSettings` record with it, cache salt true, so the record and the comparison cannot drift apart. The export's bytes are unchanged.
+- **The expectation.** `ServingCardExpectation` gains a required `requestSettings`. `servingCardExpectation(config, cacheSalt)` builds it, and the driver passes the run's `--cache-salt`.
+- **Only flagged structured output is checked.** P10's evidence backs nothing else, so a card without flags resolves under any settings, as today.
+- **Every run is checked, whatever its pipeline**, as the served-model check is. So a run under other settings with a flagged card pinned is refused even when it would send no flagged call; the unsalted arm of the isolation probe is an example. That keeps the rule a property of the card and the environment, fail-closed.
+
+(5) **Order against #103 and #108.**
+- This branch starts from `main` and is independent of #102, #103 and #108, so it may merge before E0's export.
+- **On `main` today.** A flagged card is refused as unconsumed after the evidence checks. With this change, a flagged card under other settings is refused earlier, as `serving_card_p10_settings_drift`.
+- **The shared file.** #108 edits the same mode loop and code list in serving-card.ts. Whichever merges second merges `main` in and keeps both checks in the loop.
+- **The README.** #108's sentence on the settings gap in docs/experiments/README.md is then replaced by this change's text.
+
+(6) **What does not change.**
+- No protocol hash, request body, session identity or freeze changes, and nothing changes without a card.
+- **The source freeze rotates.** serving-card.ts and the driver are hashed by `localScreenSourceFreeze()`, so no loop or E-run may span the merge.
+
+(7) **Tests, offline only.**
+- **The writer:**
+  - it copies the record;
+  - it writes null and proposes no flag without one;
+  - it refuses a malformed record.
+- **The reader:**
+  - the writer's card, adopted as written, reaches today's fail-closed step under the run's settings;
+  - it is refused as `serving_card_p10_settings_drift` under each changed setting (model, streaming, the reply contract with its context, the cache salt) and without the record;
+  - a card without flags resolves under other settings;
+  - R2's table gains the new code.
+- **The export:** its record equals `servingCardRequestSettings(settings, true)` for plain, streamed and Flash settings.
+- **The driver:** the expectation carries the run's cache salt.
+
+Changes: Planned:
+- scripts/serving-card.py and src/main/private-agent/serving-card.ts;
+- scripts/export-role-schemas.ts and scripts/private-agent-local-screen.ts;
+- docs/experiments/README.md;
+- tests/helpers/serving-probe-fixture.ts, whose synthetic P10 record gains the `request_settings` P10-align writes;
+- the writer, reader, export and driver-configuration tests.
+
+Evidence: Read at `main` 6c5e931:
+- scripts/serving-probe.py's P10 record (`request_settings`, the per-cell `request_body_sha256`);
+- scripts/serving-card.py's `p10_evidence` and `proposed_structured_output`;
+- serving-card.ts's `P10EvidenceSchema`, `servingCardExpectation` and `resolveServingCard`;
+- scripts/export-role-schemas.ts's `requestSettingsOf` and its `requestSettings` record;
+- the driver's `buildLocalScreenServingCard` and `--cache-salt`;
+- the light review of #108, finding 2.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims:
+- This is `Proposed`. Nothing is implemented, and nothing runs against an endpoint. No adopted card exists.
+- **The model layer's body construction stays unbound** ((1)).
+- **The token-admission helper is not bound.** It does not shape the body.
+- **The payloads stay synthetic.** P10's are small and synthetic; this binds how a body is built, not what a run's payload holds.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the implementation, with its offline tests and an `Implemented` entry;
+- one light review;
+- CI green;
+- the merge, before E0's card is adopted.
+
+References:
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- #108 and its light review, finding 2.
+
+### BL-20261114-2302-serving-card-request-settings-implemented -- 2026-11-14 -- SC settings binding implemented: the card copies P10's request settings, and the reader refuses a structured-output flag under other settings; nothing changes for a card without flags
+
+Status: `Implemented`
+
+Scope or hypothesis: The implementation of BL-20261114-2301-serving-card-request-settings-design. The branch starts from `main` 6c5e931 and is independent of #102, #103 and #108.
+
+Decisions: As designed, with no deviation. What was built:
+(1) **The writer** (scripts/serving-card.py).
+- `P10_SETTINGS_KEYS` and `p10_request_settings` copy and check `$.P10.request_settings` into `evidence.p10.requestSettings`, or write null when there is none.
+- `proposed_structured_output` proposes nothing without a record.
+
+(2) **The reader** (serving-card.ts).
+- `P10RequestSettingsSchema` is strict, and a reply contract and its context are present together. It is optional and nullable in `P10EvidenceSchema`.
+- `ServingCardRequestSettings` and `servingCardRequestSettings(config, cacheSalt)`.
+- `ServingCardExpectation.requestSettings`, which is required, and `servingCardExpectation(config, cacheSalt)`.
+- The check, after the protocol check, with `serving_card_p10_settings_drift` added to `SERVING_CARD_CODES`, which now has 15 codes.
+
+(3) **The driver** calls `buildLocalScreenServingCard(config, cacheSalt)` with the run's `--cache-salt`.
+
+(4) **The role export** builds its `requestSettings` with `servingCardRequestSettings(settings, true)`. Its bytes are unchanged.
+
+(5) **The fixture and the docs.**
+- The synthetic probe fixture's P10 record gains the `request_settings` a P10-align probe writes.
+- docs/experiments/README.md describes the binding.
+
+Changes:
+- **Commit b176773:**
+  - scripts/serving-card.py and src/main/private-agent/serving-card.ts;
+  - scripts/export-role-schemas.ts and scripts/private-agent-local-screen.ts;
+  - docs/experiments/README.md;
+  - tests/helpers/serving-probe-fixture.ts;
+  - the reader, partial-flags, consumed-flags, writer, export and driver-configuration tests.
+- This entry.
+
+Evidence: At b176773:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related suites.** The serving-card reader and writer, export, probe-helper and driver-configuration suites pass: 7 files, 162 tests.
+- **The Markdown card is unchanged.** The writer's Markdown digests (W1) still hold, because the Markdown does not read the new record.
+- **What the tests show.**
+  - **The writer.**
+    - It copies the record in the reader's key order, and it copies a Flash record.
+    - Without a record it writes null and proposes no flag.
+    - It refuses four malformed records: one with another key, one with a path-like model, a reply contract without its context, and another profile.
+  - **The reader.**
+    - Under the run's settings, the writer's card reaches today's fail-closed step.
+    - Changing any one setting (the model, streaming, the reply contract with its context, the cache salt) refuses at the first flagged mode. So does a missing or null record.
+    - A card without flags resolves under other settings.
+    - An unknown key, or a contract without its context, is invalid.
+    - With every flag consumed (mocked), a streaming change still refuses.
+  - **The export.** Its record equals the reader's function for plain, streamed and Flash settings.
+  - **The driver.**
+    - The expectation carries the run's cache salt and, only under the contract, the context.
+    - Through the real driver, the writer's card stops at the fail-closed step with the salt, and at the settings check without it. Neither leaves an output directory.
+- **Mutants.** Nine single edits each fail a test:
+  - **The reader:** no settings check; a check that passes a card without a record; run settings that ignore the cache salt; a schema that accepts a contract without its context.
+  - **The driver:** it drops `--cache-salt`.
+  - **The writer:** it drops the record; it proposes flags without a record; it accepts any profile.
+  - **The export:** it records another salt.
+- **The full suite.** `pnpm exec vitest run` at b176773: 186 files and 3,644 tests pass, 13 files and 86 tests are skipped, and none fails.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists.
+- **The design's limits stand:**
+  - the model layer's own body construction stays unbound;
+  - the token-admission helper is not bound;
+  - the payloads stay synthetic.
+- **On `main` without item 9**, structured output is still unconsumed. This change alters which refusal a flagged card meets, not whether it resolves.
+- **#108 edits the same loop and code list** in serving-card.ts. Whichever of the two merges second merges `main` in and keeps both checks.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review;
+- CI green;
+- the merge, before E0's card is adopted, and before E0's export if the owner chooses.
+
+References:
+- BL-20261114-2301-serving-card-request-settings-design (implemented here);
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- #108 and its light review, finding 2.
+
+### BL-20261114-2303-correction-serving-card-request-settings-restamp -- 2026-11-14 -- Correction: the SC settings binding's two entries are re-stamped after `main`'s new tail from #109; their earlier IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #109 (the claims check's linear strips) merged into `main` before this branch.
+- **`main`'s new tail.** `main`'s last ID is now BL-20261114-1757-correction-claims-check-linear-strips-review. #109's entries hold 17:11, 17:24 and 17:57.
+- **This branch's entries.** They carried 17:34 and 17:42.
+- **The move.** At this merge of `main` (a38a88e), the entries move after the new tail. The rule is the owner's: BL-20261113-0937-owner-decision-restamp-unmerged-entries, and for dates, BL-20261113-0938-correction-restamp-rule-dates.
+
+Each entry, with its earlier ID and its authoring time, both on 2026-11-14:
+- **The design entry.** Authored at 17:34 UTC under that minute; it is now BL-20261114-2301-serving-card-request-settings-design.
+- **The implemented entry.** Authored at 17:42 UTC under that minute; it is now BL-20261114-2302-serving-card-request-settings-implemented.
+
+Decisions:
+- **Minutes are written as times.** This entry writes the earlier minutes as times, not short IDs, so no short form can read as another entry.
+- **What changed in the log.** Only the two headings' IDs changed, together with the references to them.
+  - **In the log:** four references, the headings included.
+  - **Outside it, 15 more, in comments, test names and the README:**
+    - three in src/main/private-agent/serving-card.ts;
+    - two each in tests/unit/private-agent-local-role-config.test.ts, serving-card-reader.test.ts and serving-card-writer.test.ts;
+    - one each in scripts/serving-card.py, scripts/private-agent-local-screen.ts, tests/helpers/serving-probe-fixture.ts, tests/unit/role-schema-export.test.ts, tests/unit/serving-card-reader-consumed.test.ts and docs/experiments/README.md.
+  - **Not changed:** no citation of #109's entries.
+- **The merge.**
+  - Only docs/BUILD_LOG.md conflicted, at the tail, where both branches appended.
+  - #109's files (src/main/private-agent/claims.ts, its fixtures and its tests) merged without a conflict and touch none of this branch's files.
+- **`main`'s log** is kept whole, as a byte prefix of this branch's.
+- **The review's Correction** was written before this merge and is committed after it. It follows this entry and cites the new IDs.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, their references and this entry.
+- The citations in the ten files above.
+
+Nothing changes at run time beyond the merge itself.
+
+Evidence:
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit, which is the merge commit.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Byte identity.** With the two new IDs mapped back to the earlier ones, this branch's part of the log is byte-identical to the part it had before the merge, at ee8ac8c.
+- **No earlier ID remains.** `git grep` finds neither earlier full ID anywhere in the tree.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is a record correction. Nothing is implemented, verified or released by it.
+- Commit messages and #111's earlier descriptions keep the IDs they had.
+- If another branch's entries reach `main` first again, these entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #111, and its merge under the standing go-ahead.
+
+References:
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261114-1757-correction-claims-check-linear-strips-review.
+
+### BL-20261114-2304-correction-serving-card-request-settings-review -- 2026-11-14 -- Correction to BL-20261114-2302-serving-card-request-settings-implemented and BL-20261114-2301-serving-card-request-settings-design after the light review of #111: a flagged card binds only salted runs, the heavy profile's values stay unbound, and four test rows close four surviving mutants
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261114-2302-serving-card-request-settings-implemented and BL-20261114-2301-serving-card-request-settings-design.
+- **The review.** The coordinator's light review of #111 at 18d4ea8 was clean: no blocker or major finding, three minor findings.
+- **What it also confirmed:**
+  - the binding covers every setting a run can change;
+  - the export's bytes are unchanged for five settings, so E0's P10 evidence stays valid;
+  - every existing version-1 card still parses;
+  - the refusal comes before any output.
+- **What this entry does.** It records the three findings. Neither earlier entry is edited, and no source file under src/ or scripts/ changes.
+
+Decisions:
+(1) **Finding 1: a flagged card binds only salted runs.**
+- **The error.** docs/experiments/README.md said a cache-salt change is fixed by re-exporting and re-probing. It cannot be. The role export always salts:
+  - its record comes from `servingCardRequestSettings(settings, true)`;
+  - its bodies are built with the salt on;
+  - its command line takes only `--out`.
+- **The consequence.** Every card carries `cacheSalt: true`. A `--cache-salt false` run with a flagged card is therefore always refused with `serving_card_p10_settings_drift`.
+- **What stands.** The design entry's (4) says this correctly; its decisions stand. The README now says:
+  - a flagged card binds only salted runs, with `--cache-salt` true, the default;
+  - run the unsalted arm with an all-default card, or without the pair;
+  - after changing the model, the reply contract or its context, or `SOAR_STREAMING`: re-export, re-run P1, P10, P11 and the adapter together, and adopt a new card.
+
+(2) **Finding 2: `profile: "heavy"` binds only the name.**
+- **What shapes the bodies.** The heavy profile's values shape every P10 body:
+  - its sampling (temperature 1, top_p 0.95, top_k 20) and its thinking shape every thinking-on body;
+  - its 16,384-token output cap bounds every `max_tokens`;
+  - `buildLocalScreenModelConfig` builds the role model's configuration from it.
+- **Why they are unbound.** `researchProtocolSha256` covers neither the profiles nor that function. A change to either changes P10's bodies without moving any recorded value.
+- **The unbound list.** The design entry's (1) named the model layer's construction of the body as unbound. `COORDINATOR_PROFILES.heavy` and `buildLocalScreenModelConfig` join it, under the same rule: a PR that changes any of them must state that it invalidates earlier cards' structured-output evidence.
+- **`profile` is a constant on both sides.** The export records `heavy`, and `servingCardRequestSettings` returns `heavy`.
+- **The run's profile name is not passed in, by choice.**
+  - The driver already refuses `--pipeline research` and `--research-from` without the heavy profile, so no run that sends a flagged call can differ.
+  - Passing it would refuse a flagged card on every standard-profile run, which sends no flagged call.
+- **Where it is said.** The README says this under "What the gates do not show".
+
+(3) **Finding 3: four mutants survived, each failing closed.** New test rows now kill each one:
+- **The driver salting only when told to.** A row in the driver's L2 test omits `cacheSalt`. Such a run is salted, so the writer's card meets today's fail-closed step.
+- **The reader ignoring the context.** An R2 row has a Flash record whose context alone differs from the run's.
+- **The writer accepting any reply contract, or a non-boolean salt.** Two W4 rows refuse each one.
+
+Changes:
+- **Commit ee8ac8c:**
+  - docs/experiments/README.md: the salt rule and the unbound list;
+  - tests/unit/private-agent-local-role-config.test.ts, serving-card-reader.test.ts and serving-card-writer.test.ts: the four rows.
+- This entry.
+
+Evidence: At ee8ac8c, before the merge of `main` that BL-20261114-2303-correction-serving-card-request-settings-restamp records; the merge changed none of these files but the citations:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related suites.** The reader, partial-flags, consumed-flags, writer, export, probe-helper and driver-configuration suites pass: 7 files, 165 tests.
+- **Mutants.** The review's four surviving mutants each fail a test now:
+  - the driver's `input.cacheSalt !== false` changed to `=== true`;
+  - the reader comparing everything but `localContextTokens`;
+  - the writer accepting any `localReplyContract`;
+  - the writer accepting a non-boolean `cacheSalt`.
+- **The log.** At this entry's commit, after the merge, `pnpm --silent validate:build-log -- --base-ref origin/main` passes against `main` a38a88e.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists.
+- **The unbound list in (2) is procedural only.** No check enforces it; a reviewer must catch a PR that changes those values.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green;
+- the coordinator's merge under the standing go-ahead. #111 lands before #108.
+
+References:
+- BL-20261114-2302-serving-card-request-settings-implemented and BL-20261114-2301-serving-card-request-settings-design (corrected);
+- BL-20261108-1459-serving-card-reader-design;
+- the light review of #111.
+
+### BL-20261114-2305-correction-serving-card-request-settings-second-restamp -- 2026-11-14 -- Correction: the SC settings binding's four entries are re-stamped after `main`'s tail from #106, and #90's doctor gives the serving-card reader the run's request settings
+
+Status: `Implemented`
+
+Scope or hypothesis: #91, #90 and #106 merged into `main` (5c0c574) before this branch.
+- **`main`'s new tail.** `main`'s last ID is now BL-20261114-2300-correction-handoff-hash-line-restamp.
+- **This branch's four entries.** They carried 17:58, 17:59, 18:04 and 18:05 on 2026-11-14.
+- **The move.** At this merge of `main`, they move after the new tail. The rule is the owner's: BL-20261113-0937-owner-decision-restamp-unmerged-entries, and for dates, BL-20261113-0938-correction-restamp-rule-dates. The tail is on the same day, so no heading date moves.
+- **The doctor.** The merge brings #90's doctor, `pnpm setup:general` (BL-20261114-2255-doctor-endpoint-identity-implemented).
+  - It builds its own `ServingCardExpectation`.
+  - This branch made that type's `requestSettings` required, so without a change to the doctor the merge does not typecheck.
+  - A local trial merge found this before #90 merged, at the coordinator's request.
+
+Each entry, with its earlier minutes, all on 2026-11-14:
+- **The design entry.** Authored at 17:34 UTC and re-stamped to 17:58 at the merge of a38a88e. It is now BL-20261114-2301-serving-card-request-settings-design.
+- **The implemented entry.** Authored at 17:42 UTC and re-stamped to 17:59. It is now BL-20261114-2302-serving-card-request-settings-implemented.
+- **The first re-stamp Correction.** Authored at 18:04 UTC under that minute. It is now BL-20261114-2303-correction-serving-card-request-settings-restamp.
+- **The review Correction.** Authored at 18:05 UTC under that minute. It is now BL-20261114-2304-correction-serving-card-request-settings-review.
+
+Decisions:
+(1) **The re-stamp.**
+- **Minutes are written as times,** as in the first re-stamp, so no short form can read as another entry.
+- **What changed in the log.** Only the four headings' IDs changed, together with the references to them: 15 in the log, the headings included.
+- **Outside the log,** the same 15 references in the same ten files as at the first re-stamp:
+  - three in src/main/private-agent/serving-card.ts;
+  - two each in tests/unit/private-agent-local-role-config.test.ts, serving-card-reader.test.ts and serving-card-writer.test.ts;
+  - one each in scripts/serving-card.py, scripts/private-agent-local-screen.ts, tests/helpers/serving-probe-fixture.ts, tests/unit/role-schema-export.test.ts, tests/unit/serving-card-reader-consumed.test.ts and docs/experiments/README.md.
+
+(2) **The doctor gives the reader the run's request settings.**
+- **Why.** The doctor reads the pinned card "as the headless driver would". It must therefore expect what the driver expects.
+  - Without `requestSettings`, it does not compile.
+  - With a guessed value, it would report another refusal than the driver for a card with structured-output flags.
+- **What.** `cardExpectation` adds `requestSettings` from `servingCardRequestSettings`, the function the driver's expectation and the role export use. Its inputs:
+  - the configured model;
+  - under a valid flash_next_v1 pair, the contract and its context;
+  - `SOAR_STREAMING` as the app reads it. `GENERAL_SETUP_KEYS` gains it, so `resolveSettings` takes it through the app's own loader and precedence. Unset means true, the app's default;
+  - the cache salt on, which is the driver's default and the only salt the role export measures;
+  - the profile, the constant `heavy`.
+- **What it changes.** Only a card with structured-output flags.
+  - On `main` without item 9, such a card is refused either way. Under the run's settings it meets today's fail-closed step, `serving_card_parameter_unconsumed`. Under other settings it is refused with `serving_card_p10_settings_drift`.
+  - An all-default card reports as before. Every card in the doctor's earlier tests is one.
+- **`SOAR_STREAMING` in the report.** When set, it now appears in the report's `present` list. The doctor reads it for the card only; its one-token completion probe still sends `stream: false`.
+
+(3) **The merge.**
+- Only docs/BUILD_LOG.md conflicted, at the tail.
+- docs/experiments/README.md, which #91 and #106 also changed, merged without a conflict.
+- `main`'s log is kept whole, as a byte prefix of this branch's.
+
+Changes:
+- docs/BUILD_LOG.md: the four headings, their references and this entry.
+- The citations in the ten files above.
+- scripts/setup-general.ts: the import, `GENERAL_SETUP_KEYS` and `cardExpectation`.
+- tests/unit/setup-general.test.ts: one row for a flagged card, under the default settings, an explicit `SOAR_STREAMING=true`, `SOAR_STREAMING=false`, and flash_next_v1 at the card's own context.
+
+Evidence:
+- **The trial merge.** It merged #106's head 76622d4, which carried #90 and #91, into 379d230. It was not pushed and was removed afterwards.
+  - `pnpm typecheck` failed with TS2741 at the doctor's `cardExpectation`.
+  - `pnpm validate:readiness` passed.
+  - The serving-card, doctor, judge-fixture, export, driver-configuration and probe-helper suites passed: 9 files, 192 tests. They passed because the doctor's tests use only all-default cards.
+- **At this entry's commit, the merge commit:**
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 against `main` 5c0c574;
+  - `pnpm typecheck` and `pnpm validate:readiness` pass;
+  - the same nine suites pass: 9 files, 193 tests.
+- **Byte identity.** With the four new IDs mapped back, this branch's part of the log is byte-identical to the part it had at 379d230.
+- **No earlier ID remains.** `git grep` finds none of the four earlier IDs, full or short, anywhere in the tree.
+- **Mutants.** Five single edits to the doctor's expectation each fail the doctor suite:
+  - streaming ignored;
+  - the cache salt off;
+  - `SOAR_STREAMING` not resolved;
+  - the Flash contract dropped from the settings;
+  - no request settings, which is `main`'s expectation.
+
+Failures or blockers: Before the doctor change, the merge did not typecheck (TS2741). The trial merge found it, and this merge commit fixes it. No commit with the failure was pushed.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists.
+- **The doctor assumes the driver's default cache salt.** The driver refuses a flagged card for a `--cache-salt false` run; the doctor reports what a default run would meet.
+- **An invalid `SOAR_STREAMING`.** A value other than `true` or `false` makes the app's loader refuse the configuration. The doctor reads it as off and does not report that refusal.
+- **Review.** The doctor change has not had a review yet. It is the only code in this merge that #111's light review did not see.
+- Commit messages and #111's earlier descriptions keep the IDs they had.
+- If another branch's entries reach `main` first again, these entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on #111;
+- a light review of the doctor change;
+- the merge under the standing go-ahead.
+
+References:
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261114-2300-correction-handoff-hash-line-restamp;
+- BL-20261114-2255-doctor-endpoint-identity-implemented;
+- BL-20261114-2301-serving-card-request-settings-design, BL-20261114-2302-serving-card-request-settings-implemented, BL-20261114-2303-correction-serving-card-request-settings-restamp and BL-20261114-2304-correction-serving-card-request-settings-review (re-stamped here).

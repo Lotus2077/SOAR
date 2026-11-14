@@ -39932,3 +39932,93 @@ Next gate:
 - K > 1 becomes `Verified` only after the owner's zero-fee E0 run.
 
 References: BL-20261114-1645-local-fanout-design; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented.
+
+### BL-20261114-1801-correction-local-fanout-review -- 2026-11-14 -- Correction to BL-20261114-1645-local-fanout-design and BL-20261114-1729-local-fanout-implemented after the light review of #110: at K > 1 the run class can flip in either direction, and K now reaches the claims judge in every run with a card
+
+Status: `Implemented`
+
+Scope or hypothesis: The light review of #110 at 3332919 is clean, with no blocker or major finding.
+- Its randomized check ran 1,200 pipeline runs over 150 corpora, at K = 2, 3, 4 and 8, with random reply delays.
+  - Every run matched K = 1 byte for byte, including the request bodies in launch order.
+  - The calls in flight never exceeded K.
+  - A completion-order mutant failed 31 of 32 runs.
+- It found two minors. This entry corrects both in one push, without a re-stamp, as the orchestrator asked. The code and tests are commit 2662aa9.
+
+Decisions:
+1. **The run class at K > 1 can flip in either direction** (the review's minor 1).
+   - 1645's decision 5 recorded one flip: a sibling takes the last request during a D4 backoff. That makes the run `research_request_failed` (infrastructure), where the serial loop is denied `budget_denied` (task).
+   - **The reverse also happens.** A higher-index call's genuine denial aborts the earlier calls still in flight. Each of them then answers `cancelled` after the abort, which is a sibling stop, so the earlier call's own denial never happens.
+   - **Example, now a test.** Chunk 0 fails `request_failed` after 30 ms, and chunk 2 is refused `budget_denied` at once:
+     - at K = 1 the extract row says `denied: request_failed` (infrastructure);
+     - at K = 4 it says `denied: budget_denied` (task).
+   - **For real:** a fresh call refused `budget_denied`, or a per-chunk `local_token_context_exceeded`, while an earlier call is in its D4 backoff or failing slowly.
+   - **The rule, stated plainly.** At K > 1 the stage's `denied` is the lowest-index denial among the calls that were not aborted. When two calls in one window would each be denied, the class depends on which settles first, in either direction.
+   - **The code is unchanged.** Abort and drain is ASSIST-1's default. Decision 5's reasons for not reclassing still hold: it would need a broker code or a change to the persisted classification contract.
+   - **What this corrects.** That the class at K > 1 may differ from the serial path's only in one direction. The places:
+     - 1645's decision 5 heading, "kept as infrastructure";
+     - 1645's limitation "The run class of decision 5 differs from the serial path's";
+     - 1729's limitation "The run class at K > 1 stays infrastructure".
+
+     Both entries stay as written. The orchestrator amends the owner's default line.
+2. **K reaches the claims judge in every run with a card** (the review's minor 2).
+   - **The gap.** The judge read K from `options.research`, which the headless driver builds only when `--pipeline research` is set. freeze.json, however, records the card's K for every run with a card. So a seeded H4 write phase with a claims ledger and no pipeline judged at K = 1 while its freeze.json said `localStreams: 4`.
+   - **The fix taken.** Of the review's two fixes, this takes the first:
+     - K moves from `research.localStreams` to a top-level session option, `localStreams`;
+     - the driver passes it in every run with a card, through `localScreenStreams`, which was named `localScreenResearchStreams`;
+     - the research pipeline and the judge read it as before, each only for a zero-risk model.
+   - K stays out of the session identity, the protocol hash, the budget and the counts.
+   - The comment on `ServingCardFreeze` in serving-card.ts now calls the field the card's K, which the loops and the judge apply on a zero-risk local model. Before, it said "the K the research loops ran at".
+   - **What this corrects.** Each place that names `research.localStreams` or `localScreenResearchStreams` now reads the top-level `localStreams` and `localScreenStreams`:
+     - 1645's decision 4, "a new optional session option, `research.localStreams`, beside `research.diagnostics`";
+     - 1729's decision 1;
+     - 1729's Changes;
+     - 1729's card evidence;
+     - 1729's limitation on the driver's wiring.
+
+Changes:
+- src/main/private-agent/session.ts: `localStreams` is a top-level option, and the research pipeline and the judge read it there.
+- scripts/private-agent-local-screen.ts: `localScreenStreams`, spread at the session's top level in every run with a card.
+- src/main/private-agent/serving-card.ts: the `ServingCardFreeze` comment.
+- Tests:
+  - tests/unit/private-agent-research-pipeline.test.ts: the reverse run-class case;
+  - tests/unit/private-agent-session.test.ts: a run with no research stage judges its claims K at a time;
+  - tests/unit/private-agent-research-session.test.ts and tests/unit/private-agent-local-role-config.test.ts: the option's new place and the helper's new name.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The reverse case.** At K = 1 the extract row records `calls: 0, denied: request_failed`. At K = 4 it records `calls: 0, denied: budget_denied`, and chunk 0's signal was aborted.
+- **A run with no research stage.** The general session fixture has two verified claims on a zero-fee local model, and the judge's calls are held 30 ms each.
+  - The judge's calls in flight peak at 1 without K, and at 2 with `localStreams: 2`.
+  - The `claims_entailment` events are equal.
+- **The research-session tests**, with K at its new place:
+  - K = 3 peaks at 2, 3 and 3, and at 1 when no model is zero-risk;
+  - the session identity is unchanged;
+  - E1-T3's 19 K = 2 cases pass.
+- **The nine affected test files:** 355 passed, 1 skipped.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref bc6c61b`: exit 0, append-only.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - `pnpm exec vitest run` at 2662aa9: 186 files passed and 13 skipped; 3,678 tests passed, 86 skipped and 0 failed.
+
+Failures or blockers:
+- 1645 recorded only one direction of the run-class flip, and 1729 repeated it. The review's scratch run found the other.
+- 1645 put K in the research options, so a run without a pipeline never applied it to the judge, though freeze.json recorded it. Neither 1645 nor 1729 noticed.
+
+Limitations and non-claims:
+- **Timing decides the class.** Which call settles first decides the class at K > 1, and on a live server that is timing. The tests pin one example in each direction, on fixture timing only.
+- **The driver's wiring.** Its top-level spread of `localScreenStreams` is still one line that no unit test reaches.
+- **1729's other limitations stand:**
+  - fixture replies only;
+  - K > 1 stays `Implemented` under ASSIST-S4 until the owner's zero-fee E0 run;
+  - no live, Docker, cloud or paid call ran;
+  - every merge changes the harness source-freeze digest, so no owner loop or E-run may span it.
+- **The validation base.** This push is validated against the branch's base, bc6c61b, as 1729's was. `main` has moved to 6c5e931. The merge of `main` and the re-stamp wait for the scheduled merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- #110 stays a draft until item 9 (#108) merges.
+- Then `main` is merged in, and 1645, 1729 and this entry are re-stamped after its tail with a Correction.
+- Then CI runs, and the PR merges.
+
+References: BL-20261114-1645-local-fanout-design; BL-20261114-1729-local-fanout-implemented; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries.

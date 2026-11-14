@@ -38832,3 +38832,67 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The code and the correction in this pull request, then the coordinator's re-check of the delta. No owner question is added.
 
 References: BL-20261114-1343-registry-columns-design; BL-20261114-1405-registry-columns-implemented; the light review of #104; HARN-27.
+
+### BL-20261114-1455-correction-registry-columns-review -- 2026-11-14 -- Correction: plan 11.4 after its light review: a tool name reaches a row only from the runner's closed set, the superseding column rules are implemented, and the entries' two omissions are stated
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct, without editing it, decision (c) of BL-20261114-1405-registry-columns-implemented, and implement BL-20261114-1447-registry-columns-review-design. Together they fix what the light review of #104 found: one major and five minor findings. The coordinator checked the major independently.
+- Decision (c) says a tool name, like a cloud call's purpose, is recorded only when it is a fixed host token. For tool names that is wrong (the major finding). The pattern admits any lowercase phrase of up to 64 characters, and a `tool_started` name is the model's choice, recorded before the runner checks it. So model-chosen text could reach a public row.
+- The other column rules the review found wrong are superseded in BL-20261114-1447-registry-columns-review-design.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Tool names (finding 1, major).** Corrects decision (c) of BL-20261114-1405-registry-columns-implemented, and implements decision (1) of BL-20261114-1447-registry-columns-review-design.
+  - `actions.tools` keys a finished call by its name only when the name is in `RUNNER_TOOLS`, the runner's closed set of ten tool names. Any other name counts as `other`, as a call whose start was not recorded already did.
+  - A cloud call's purpose and status keep decision (c)'s rules: a purpose is a host constant, never model text.
+- **(2) Loopback sources (finding 2).** Implements decision (2) of the same entry. `source_key` drops a loopback URL's port before the union.
+- **(3) Values never recorded (finding 3).** Implements decision (3). `feeUsd` is null unless the row records a fee, and `sourcesRead` is null unless the reading stage records `sourcesIndexed`.
+- **(4) The duplicate (finding 4).** The first `is_count` definition, shadowed by the later identical one, is removed.
+- **(5) Order (finding 5).** Implements decision (4). A row's `cloudCalls` are sorted by `committedAt`, stably, with calls that lack it last.
+- **(6) The entries' omissions (finding 6).**
+  - Besides a run's `dispatchesSha256`, the research producer binds each receipt's own `sha256`, a digest of the whole stored row (research-producer.ts:85), into the research packet. The review reports that a seeded run checks it again when it loads its seed.
+    - A row written once the receipt fields merge has its digest over them too.
+    - The digest is computed and checked over the same stored row, so nothing breaks. Decision (1) of BL-20261114-1343-registry-columns-design should have named it.
+  - The column tests build their events and dispatch rows by hand. No test ties the field names the registry reads to the code that writes them: `tool_started`, `operationId`, `public_source_retained`, `research_stage`, `sourcesIndexed` and `fallback`. That is a limit of this evidence.
+
+Changes:
+- scripts/registry-row.py: `RUNNER_TOOLS` and `source_key`; the fee, read-count and order rules; one `is_count` removed.
+- tests/unit/registry-row-columns.test.ts: 5 tests, 1 of them new; the run, pre-11.4 and loop tests extended.
+- docs/experiments/README.md: the `cloudCalls`, `urls` and `actions` rows.
+
+The code is in commit ec1c39a. registry-row.py is outside the source freeze, so this commit moves neither the runtime hash nor the research protocol hash. The freeze still rotates at the merge, for store.ts and broker.ts, as BL-20261114-1405-registry-columns-implemented says.
+
+Evidence:
+- **The column tests.** tests/unit/registry-row-columns.test.ts passes 5 of 5 at ec1c39a. They show:
+  - the runner's tool names, taken from `promptProtocol` with every option on, equal to the script's `RUNNER_TOOLS` line;
+  - a made-up tool name, `email jane doe re acme merger 4417`, counted as `other`, with none of its words in the row;
+  - no fee on a superseded or an unknown call;
+  - a null `sourcesRead` for a reading stage that recorded no count;
+  - two loop runs reading the same two sources on loopback ports 50001 and 50002, over IPv4 and IPv6, counted as 2 URLs, with no address or port in the row;
+  - a loop's cloud calls in commit order, against the order of its run directories.
+- **Mutants.** Seven single-edit mutants of the fixes were each restored with `git checkout` from ec1c39a before the next.
+  - Six fail exactly one test: the old name pattern; a name missing from the mirror; the port kept; a fee of 0 on an unsettled call; a read count of 0 when none was recorded; the scan's order.
+  - The seventh, an IPv6 key without brackets, passes. It is equivalent: the key never leaves the process, and it still drops the port.
+- **The related tests.** The registry row, registry and dispatch-purpose tests pass 86 of 86, in 9 files, at ec1c39a.
+- **The full suite.** At ec1c39a, on Node 22.22.2 and pnpm 10.12.4, `pnpm exec vitest run` ran 198 files and 3,687 tests: 3,601 passed, 86 were skipped and none failed.
+- **The checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, and `pnpm typecheck` and `pnpm validate:readiness` pass.
+
+Failures or blockers: Decision (c) as first written let a model-chosen tool name through. The review's probe found it; no committed registry row holds the column.
+
+Limitations and non-claims:
+- Implemented, not Verified: no run under this code exists yet.
+- The column tests use hand-built events, as decision (6) says.
+- `cloudCalls[].purpose` keeps the host-token pattern rather than a closed set, which the review left optional.
+- A loop row's `sourcesRead` sums the counts its runs recorded, so a run whose reading stage recorded none adds nothing.
+- `main` is merged in after 8.1 lands, which may change this code at the conflict points.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on #104, and the coordinator's re-check of the delta.
+- `main` merged in after 8.1 (#101), if it lands first, with the checks run again.
+- The merge under the standing go-ahead, with this branch's entries re-stamped after `main`'s tail. Whichever of #98 and #104 merges second updates #104's reference to `BL-20261114-1250 (pull request #98)`.
+
+References: BL-20261114-1447-registry-columns-review-design; BL-20261114-1405-registry-columns-implemented; BL-20261114-1343-registry-columns-design; the light review of #104; HARN-27.

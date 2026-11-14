@@ -11,8 +11,8 @@ import { PrivateAgentModel, vllmCacheSalt } from "../../src/main/private-agent/m
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
-import { FIXTURE_JOB_ID, buildJudgeBody, buildJudgeMessages, flipRate, harvestClaims, meetsAgreementLevel, originSidecarPath, parseJudgeReply, reversedSystemPrompt, runJudgeFixture,
-  scoreVerdicts, verifyJudgeFixtureInputs, type FixtureClaim, type JudgeCondition } from "../../scripts/judge-fixture";
+import { FIXTURE_JOB_ID, buildJudgeBody, buildJudgeMessages, commandArguments, flipRate, harvestClaims, meetsAgreementLevel, originSidecarPath, parseJudgeReply, reversedSystemPrompt,
+  runJudgeFixture, scoreVerdicts, verifyJudgeFixtureInputs, type FixtureClaim, type JudgeCondition } from "../../scripts/judge-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
@@ -286,6 +286,23 @@ describe("judge fixture harvest and command line", () => {
     expect(JSON.parse(stdout)).toMatchObject({ dryRun: true, manifestSha256: digest(canonical(f.manifest)), replyContract: "legacy", activationCondition: "j1-legacy", conditions: ["j1-legacy"],
       repeats: 1, claims: 8, agreement: { measure: "established", level: 0.7 }, retained: null });
     expect(stdout).not.toContain("127.0.0.1"); expect(stdout).not.toContain("orchard");
+  });
+  it("reaches the harvest with pnpm's argument shape: pnpm 10 passes the `--` of `pnpm fixture:judge -- harvest` through", () => {
+    expect(commandArguments(["node", "judge-fixture.ts", "--", "harvest", "--runs", "r"])).toEqual(["harvest", "--runs", "r"]);
+    expect(commandArguments(["node", "judge-fixture.ts", "harvest", "--runs", "r"])).toEqual(["harvest", "--runs", "r"]);
+    // Only one leading `--` is dropped, and a `--` later in the line is left alone.
+    expect(commandArguments(["node", "judge-fixture.ts", "--", "--", "harvest"])).toEqual(["--", "harvest"]);
+    expect(commandArguments(["node", "judge-fixture.ts", "--claims", "c", "--", "x"])).toEqual(["--claims", "c", "--", "x"]);
+    const root = tempDir();
+    const run = runDirectory(root, "run-a", [{ event: verified("ctx", [{ id: "C1", sentence: "kept", quote: "twelve healthy trees", context: PASSAGE_A }]) }]);
+    const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SOAR_ENV_FILE: join(root, "none.env") };
+    const target = join(root, "e0-judge", "claims.json");
+    // The argv pnpm produces for `pnpm fixture:judge -- harvest ...`: the literal `--` sits where the subcommand is read.
+    const harvested = spawnSync(process.execPath, ["--import", "tsx", "scripts/judge-fixture.ts", "--", "harvest", "--runs", run, "--task", "synthetic", "--out", target],
+      { cwd: ROOT, encoding: "utf8", env });
+    expect(harvested.status).toBe(0);
+    expect(JSON.parse(harvested.stdout)).toMatchObject({ claims: 1, sha256: digest(readFileSync(target)) });
+    expect(harvested.stderr).not.toContain("usage: --claims");
   });
 });
 

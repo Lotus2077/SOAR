@@ -362,9 +362,15 @@ export function harvestClaims(runDirectories: readonly string[], task: string): 
 export function originSidecarPath(claimsPath: string): string { return claimsPath.endsWith(".json") ? `${claimsPath.slice(0, -5)}.origin.json` : `${claimsPath}.origin.json`; }
 
 function argument(name: string): string | undefined { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : undefined; }
+/**
+ * The command's own arguments. pnpm 10 passes the `--` of `pnpm fixture:judge -- harvest ...` through to the script (as
+ * scripts/serving-card.py notes), so one leading `--` is dropped before the subcommand is read. Flags are found by name, so
+ * dropping it changes no invocation that worked before.
+ */
+export function commandArguments(argv: readonly string[]): string[] { const rest = argv.slice(2); return rest[0] === "--" ? rest.slice(1) : rest; }
 
 async function main(): Promise<number> {
-  if (process.argv[2] === "harvest") {
+  if (commandArguments(process.argv)[0] === "harvest") {
     const runs = argument("--runs"), task = argument("--task"), out = argument("--out");
     if (!runs || !task || !out) { process.stderr.write("usage: harvest --runs <runDir>[,<runDir>...] --task <name> --out <claims.json>\n"); return 2; }
     const harvested = harvestClaims(runs.split(",").map(item => item.trim()).filter(Boolean), task), sidecar = originSidecarPath(out);

@@ -1,10 +1,11 @@
 import Database from "better-sqlite3";
+import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDLE_OBSERVATIONS, IDLE_RETRY_MS, IDLE_SPACING_MS, MAX_LOOP_REINVOCATIONS, REAP_WAIT_MS, SIGNAL_REPEAT_MS, TERM_WAIT_MS, directoryExposure, parseLauncherArguments, parseMetrics, parseQueue,
-  readLoopView, runLauncher, type ChildExit, type ForwardedSignal, type LauncherDependencies, type QueueRun } from "../../scripts/experiment-launcher";
+  readLoopView, runLauncher, writeFinalLine, type ChildExit, type ForwardedSignal, type LauncherDependencies, type QueueRun } from "../../scripts/experiment-launcher";
 
 /**
  * Plan 11.5 (BL-20261114-1344-experiment-launcher-design): the launcher's rules on fakes for the clock (vitest's fake timers), the
@@ -453,5 +454,28 @@ describe("experiment launcher after its light review (PR #98)", () => {
     } }) });
     expect(await launch(h, writeQueue(root, [singleRun("r1"), singleRun("r2")]), state)).toMatchObject({ state: "stopped", code: "ledger_unwritable" });
     expect(h.sent.map(item => item.signal)).toEqual(["SIGINT"]); expect(h.spawned.map(item => item.run)).toEqual(["r1"]);
+  });
+});
+
+describe("experiment launcher after the skeptic's re-check (PR #98)", () => {
+  it("never escalates on a hangup: a Ctrl-C, then the terminal closed 6 s later while the run stops, sends SIGKILL only after 120 s", async () => {
+    const root = workspace(), state = join(workspace(), "state");
+    let h!: ReturnType<typeof harness>;
+    h = harness(root, { scripts: () => ({ ms: 5 * H, ignore: true, start: () => {
+      setTimeout(() => h.emit("SIGINT"), 5 * M);
+      setTimeout(() => { h.emit("SIGHUP"); h.emit("SIGHUP"); }, 5 * M + 6_000);
+    } }) });
+    await launch(h, writeQueue(root, [singleRun("r1")]), state);
+    expect(h.sent.map(item => item.signal)).toEqual(["SIGINT", "SIGKILL"]); expect(h.sent[1]!.at - h.sent[0]!.at).toBe(120_000);
+    expect(named(state, "signal_repeated")).toEqual([expect.objectContaining({ signal: "SIGHUP", run: "r1", attempt: 1 }),
+      expect.objectContaining({ signal: "SIGHUP", run: "r1", attempt: 1 })]);
+  });
+  it("ignores EIO and EPIPE on its final line, as a hangup's dead terminal gives them, and no other write error", () => {
+    const stream = (code: string, how: "throw" | "emit") => {
+      const emitter = new EventEmitter();
+      return Object.assign(emitter, { write: () => { const error = Object.assign(new Error(code), { code }); if (how === "throw") throw error; emitter.emit("error", error); return false; } });
+    };
+    for (const code of ["EIO", "EPIPE"]) for (const how of ["throw", "emit"] as const) expect(() => writeFinalLine(stream(code, how), "{}\n")).not.toThrow();
+    for (const how of ["throw", "emit"] as const) expect(() => writeFinalLine(stream("EACCES", how), "{}\n")).toThrow("EACCES");
   });
 });

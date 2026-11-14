@@ -94,6 +94,16 @@ export interface LauncherDependencies {
 }
 export interface LauncherOutcome { state: "done" | "stopped" | "refused"; code: string; finished: number; deferred: number; pending: number; spentMicrousd: number | null }
 
+/**
+ * Writes the launcher's last line. After a hangup the terminal is gone, and the write fails with EIO (EPIPE on a closed pipe). That
+ * is ignored, so the exit code already set stands (the skeptic's re-check of #98). Any other write error still ends the launcher.
+ */
+export function writeFinalLine(stream: { on(event: "error", listener: (error: unknown) => void): unknown; write(line: string): unknown }, line: string): void {
+  const ignorable = (error: unknown) => { const code = (error as { code?: unknown } | null)?.code; return code === "EIO" || code === "EPIPE"; };
+  stream.on("error", (error: unknown) => { if (!ignorable(error)) throw error; });
+  try { stream.write(line); } catch (error) { if (!ignorable(error)) throw error; }
+}
+
 /** `--queue QUEUE.json --state-directory DIR`, nothing else; one leading `--`, which `pnpm launcher -- ...` passes on, is dropped. */
 export function parseLauncherArguments(input: readonly string[]): LauncherInput {
   const args = input[0] === "--" ? input.slice(1) : input;
@@ -306,12 +316,13 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
     note({ event: "signal_forwarded", run: running.run.id, attempt: running.attempt, signal: sent, ...(sent === signal ? {} : { received: signal }) });
   };
   let firstSignalAt = 0;
-  // BL-20261114-1431, decision (1): the first signal is forwarded to the run's group and stops new starts. A second escalates to
-  // SIGKILL only when it comes SIGNAL_REPEAT_MS or more after the first; a nearer one is the same signal delivered twice.
+  // BL-20261114-1431, decision (1), as corrected after the skeptic's re-check: the first signal is forwarded to the run's group and
+  // stops new starts. A later SIGINT or SIGTERM escalates to SIGKILL only when it comes SIGNAL_REPEAT_MS or more after the first; a
+  // nearer one is the same signal delivered twice. A later hangup never escalates: closing the terminal while a run stops is no press.
   const unsubscribe = signals.subscribe(signal => {
     const at = deps.now();
     if (stopSignal === null) { stopSignal = signal; firstSignalAt = at; stop.abort(); if (current) forward(current, signal); return; }
-    if (at - firstSignalAt < SIGNAL_REPEAT_MS) { note({ event: "signal_repeated", signal, ...(current ? { run: current.run.id, attempt: current.attempt } : {}) }); return; }
+    if (signal === "SIGHUP" || at - firstSignalAt < SIGNAL_REPEAT_MS) { note({ event: "signal_repeated", signal, ...(current ? { run: current.run.id, attempt: current.attempt } : {}) }); return; }
     current?.escalate.resolve();
   });
   const windowAt = (at: number) => queue.windows.find(window => window.start <= at && at < window.end) ?? null;
@@ -542,11 +553,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const input = parseLauncherArguments(process.argv.slice(2));
     const result = await runLauncher(input, productionLauncherDependencies(), signals);
-    process.stdout.write(`${canonical(result)}\n`);
+    // The exit code is set first, and a dead terminal's EIO on the line leaves it as it is.
     process.exitCode = result.state === "done" ? 0 : result.state === "refused" ? 1 : 2;
+    writeFinalLine(process.stdout, `${canonical(result)}\n`);
   } catch (error) {
-    process.stderr.write(`${canonical({ state: "failed", code: error instanceof Error && CODE.test(error.message) ? error.message : "launcher_failed" })}\n`);
     process.exitCode = 1;
+    writeFinalLine(process.stderr, `${canonical({ state: "failed", code: error instanceof Error && CODE.test(error.message) ? error.message : "launcher_failed" })}\n`);
   }
   // Once the launcher is done, a signal ends it as usual.
   for (const name of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.removeAllListeners(name);

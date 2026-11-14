@@ -49,7 +49,8 @@ Before each admission it checks the tree, the commit and the commit's place on `
 
 It prints one line on stdout, `{"code":…,"deferred":…,"finished":…,"pending":…,"spentMicrousd":…,"state":…}`. The exit code is 0 when
 the queue is done, 2 when it stopped for another reason, and 1 on a refusal. A failure before it starts, such as invalid arguments or
-an unreadable configuration, prints `{"code":…,"state":"failed"}` on stderr and exits 1.
+an unreadable configuration, prints `{"code":…,"state":"failed"}` on stderr and exits 1. A closed terminal does not change the exit
+code: an EIO or EPIPE on the last line is ignored.
 
 ## The queue
 
@@ -143,8 +144,10 @@ After the fifth invocation, a loop that still stops is left for the operator. En
   - A hangup (SIGHUP) is forwarded as SIGTERM, since neither driver handles SIGHUP; the ledger records `received: "SIGHUP"`. A hangup
     through a shell arrives twice, a few milliseconds apart, and the repeat is recorded rather than escalated.
   - The run gets 120 s to stop; then its group is killed (SIGKILL).
-  - A second signal kills it at once, but only when it comes 5 s or more after the first. A nearer one is recorded as
+  - A second Ctrl-C or SIGTERM kills it at once, but only when it comes 5 s or more after the first. A nearer one is recorded as
     `signal_repeated`; under pnpm one Ctrl-C arrives twice.
+  - A later hangup never kills it. Closing the terminal while the run stops is recorded as `signal_repeated`, and the run keeps its
+    120 s.
   - When no reap follows within 10 s, the launcher stops with `reap_unconfirmed`. Check the processes by hand before starting it again.
 - **Not by the terminal.** The run is in its own process group, so a terminal's Ctrl-C or hangup reaches it only through the launcher.
   `caffeinate` is detached too, and ends with the launcher.

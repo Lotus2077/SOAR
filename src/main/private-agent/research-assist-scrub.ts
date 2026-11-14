@@ -116,6 +116,26 @@ const URL_PATTERNS: readonly RegExp[] = Object.freeze([
   new RegExp(`(?<![a-z0-9_./@-])localhost(?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
   new RegExp(`(?<![a-z0-9_./@:\\]-])\\[(?=[0-9a-f:.]{0,40}::|(?:[0-9a-f]{1,4}:){7})[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\](?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
 ]);
+/**
+ * The provisional path's URL rules (policy 5): policy 4's, widened, each only to hide more.
+ * - A schemed URL takes userinfo through any character but white space, `/` and `@`, up to its last `@` (`https://alice:p"ss@…`).
+ * - The protocol-relative rule starts after any character but a letter or digit of a spaced script, `/`, `\` or `@` (L7).
+ * - The credential rule takes an empty or long user or password, a raw `@` in the password, any letter in host labels,
+ *   `localhost`, a bracketed IPv6 address, a single label with a port or path, a Go DSN host (`tcp(host:3306)`), a query or
+ *   fragment after a host with no path, and starts directly after `:` or `@` (L2).
+ * - The `localhost` and IPv6 rules start after `@` (L6).
+ */
+const URL_PATTERNS_5: readonly RegExp[] = Object.freeze([
+  new RegExp(`(?<![a-z0-9+.-])[a-z][a-z0-9+.-]{0,31}:\\/\\/(?:[^\\s/@]{1,256}@)?${BODY}+`, "giu"),
+  URL_PATTERNS[1]!,
+  new RegExp(`(?<!(?![${SPACELESS}])[\\p{L}\\p{N}]|[/\\\\@])\\/\\/(?=[a-z0-9]|${SL})${BODY}+`, "giu"),
+  URL_PATTERNS[3]!,
+  URL_PATTERNS[4]!,
+  new RegExp(`(?<![a-z0-9_./-])[a-z0-9._~%!$&*+,;=-]{0,64}:[^\\s/"'<>]{0,256}@(?:(?:[\\p{L}\\p{N}_-]+\\.)+[\\p{L}\\p{N}_-]+|localhost|\\[[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\]|[\\p{L}\\p{N}_-]+(?=:\\d|\\/)|[a-z]{2,10}\\([^\\s()"'<>]{1,256}\\))(?::\\d{1,5})?(?:[/?#]${BODY}*)?`, "giu"),
+  URL_PATTERNS[6]!,
+  new RegExp(`(?<![a-z0-9_./-])localhost(?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
+  new RegExp(`(?<![a-z0-9_./:\\]-])\\[(?=[0-9a-f:.]{0,40}::|(?:[0-9a-f]{1,4}:){7})[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\](?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
+]);
 const SEGMENT = `[^\\s/\\\\"'<>${SPACELESS}]`, SEGMENT_Q = `(?:${SEGMENT}|'(?=${SEGMENT}))`;
 /** A path segment character: a segment character, or spaceless-script letters a connector touches. */
 const SEG = `(?:${SEGMENT_Q}|${SL_PIECE})`;
@@ -142,6 +162,12 @@ const PATH_PATTERNS: readonly RegExp[] = Object.freeze([
   new RegExp(`${ROOTED}${GLUED_PREFIX}\\/(?:${SEG}+\\/+){2,}${SEG}*`, "gu"),
   // A rooted path with an extension, under either slash (`/merger-plan.docx`, `\Users\alice\plan.docx`).
   new RegExp(`${ROOTED}${GLUED_PREFIX}[/\\\\](?:${SEG}+[/\\\\]+)*${SEG}+${EXT}`, "gu"),
+]);
+/** The provisional path's path rules (policy 5): policy 4's, with leading empty segments in both rooted-path rules (`///etc/…`). */
+const PATH_PATTERNS_5: readonly RegExp[] = Object.freeze([
+  ...PATH_PATTERNS.slice(0, 5),
+  new RegExp(`${ROOTED}${GLUED_PREFIX}\\/+(?:${SEG}+\\/+){2,}${SEG}*`, "gu"),
+  new RegExp(`${ROOTED}${GLUED_PREFIX}[/\\\\]+(?:${SEG}+[/\\\\]+)*${SEG}+${EXT}`, "gu"),
 ]);
 /**
  * A relative path's run: folder segments (empty ones allowed) and a last one, taken whole from the start of a run of path
@@ -235,33 +261,120 @@ function openingLead(token: string): string {
 type Finder = RegExp | ((view: string) => Iterable<RegExpMatchArray>);
 const findAll = (view: string, finder: Finder): Iterable<RegExpMatchArray> => finder instanceof RegExp ? view.matchAll(finder) : finder(view);
 /**
- * A provisional replacement in a text (see formScanner), and what it becomes when no URL or path rule takes it. An `alias` mark
- * holds a source's alias and takes `placeholder` back. A `url` mark holds `placeholder` and takes the URL's rest after it, and
- * with `slashes` the `//` before it too, as `[url]`.
+ * A provisional source match (see formScanner). On scrub()'s provisional path the text holds the source's alias, or `S0`
+ * standing in for a placeholder, through every pass, so a URL or path rule can take the token it stands in, as it took the
+ * token around an alias before the glue and lead rules. The mark records, in input coordinates (`spanFrom` to `spanTo`), the
+ * span the source rules give the match: a glued file name's run, host labels or userinfo with their `//` and scheme, a folder
+ * prefix, more of a segment glued after a whole path or URL form, or the path, query and fragment after a host-led name or a
+ * name that a query follows. After the last pass scrub() settles each mark: it becomes `placeholder`, or keeps the placeholder
+ * of the rule that took it (`taken`), over every unit beside it that still stands for input inside that span.
+ * On the policy-4 path a mark is policy 4's: an alias that becomes `placeholder`, or a placeholder that, with its URL's rest
+ * (`rest`) and with `slashes` the `//` before it, becomes `[url]`.
  */
-interface Mark { start: number; end: number; kind: "alias" | "url"; placeholder: string; slashes: boolean }
+interface Mark { start: number; end: number; placeholder: string; taken: boolean; spanFrom: number; spanTo: number; rest: boolean; slashes: boolean }
+/** What `S0` stands in for while a mark's placeholder waits: a word to the rules, never a source's alias. */
+const STAND_IN = "S0";
+/** A URL scheme and its colon, glued directly before a position. */
+const SCHEME_BEFORE = /[a-z][a-z0-9+.-]{0,31}:$/iu;
 /** The rest of a URL or path after a position: its body characters, as the URL rules read them. */
 const URL_REST = new RegExp(`${BODY}*`, "uy");
-/** What a rule replaces inside its match: the characters from `from` to `to` become `placeholder`, and the rest of the match stays. */
+/** A replacement in a text: the units from `from` to `to` become `placeholder`. */
 interface Cut { from: number; to: number; placeholder: string }
 /**
- * Replaces, in the text and the view, what `cut` returns for each match (undefined keeps it). A mark the replaced characters
- * touch goes with them; every other mark moves with the text.
+ * A text in the scrub and, for each UTF-16 unit, the span of the normalized input it stands for: a kept unit itself, every unit
+ * of a replacement the whole span it replaced. scrub() keeps one on each of its two paths, so their replacements can be laid
+ * over the one input.
  */
-function replaceBoth(state: { text: string; view: string; marks: readonly Mark[] }, finder: Finder, cut: (original: string, viewed: string) => Cut | undefined): void {
-  let text = "", view = "", last = 0, shift = 0, next = 0, changed = false;
-  const marks: Mark[] = [], moved = (mark: Mark) => marks.push({ ...mark, start: mark.start + shift, end: mark.end + shift });
+interface Tracked { text: string; view: string; from: Int32Array; to: Int32Array; kept: Uint8Array; marks: readonly Mark[] }
+function tracked(text: string): Tracked {
+  const from = new Int32Array(text.length), to = new Int32Array(text.length);
+  for (let i = 0; i < text.length; i++) { from[i] = i; to[i] = i + 1; }
+  return { text, view: wide(text), from, to, kept: new Uint8Array(text.length).fill(1), marks: [] };
+}
+/** Makes each cut (in order, not overlapping) in a tracked text; a replacement's units stand for the input span its cut covered. */
+function applyCuts(state: Tracked, cuts: readonly Cut[]): void {
+  let length = state.text.length, text = "", last = 0, at = 0;
+  for (const cut of cuts) length += cut.placeholder.length - (cut.to - cut.from);
+  const from = new Int32Array(length), to = new Int32Array(length), kept = new Uint8Array(length);
+  const copy = (a: number, b: number) => { from.set(state.from.subarray(a, b), at); to.set(state.to.subarray(a, b), at); kept.set(state.kept.subarray(a, b), at); at += b - a; };
+  for (const cut of cuts) {
+    copy(last, cut.from);
+    const start = state.from[cut.from]!, end = state.to[cut.to - 1]!;
+    for (let i = 0; i < cut.placeholder.length; i++, at++) { from[at] = start; to[at] = end; }
+    text += state.text.slice(last, cut.from) + cut.placeholder; last = cut.to;
+  }
+  copy(last, state.text.length);
+  state.text = text + state.text.slice(last); state.view = wide(state.text); state.from = from; state.to = to; state.kept = kept;
+}
+/**
+ * The marks after `cuts` (in order, not overlapping): each moves with the text. One a cut touches is dropped (policy 4), or
+ * with `transfer` moves onto that cut's placeholder, which it now settles as, with its spans: a rule that takes an alias then
+ * leaves no lead, glue or tail of it behind (`alice:pw@` before a URL rule's `S1/x`).
+ */
+function moveMarks(marks: readonly Mark[], cuts: readonly Cut[], transfer: boolean): Mark[] {
+  const at: number[] = [];
+  let shift = 0;
+  for (const cut of cuts) { at.push(cut.from + shift); shift += cut.placeholder.length - (cut.to - cut.from); }
+  const out: Mark[] = [];
+  let k = 0, before = 0;
+  for (const mark of marks) {
+    while (k < cuts.length && cuts[k]!.to <= mark.start) { before += cuts[k]!.placeholder.length - (cuts[k]!.to - cuts[k]!.from); k++; }
+    let j = k, after = before;
+    while (j < cuts.length && cuts[j]!.from < mark.end) { after += cuts[j]!.placeholder.length - (cuts[j]!.to - cuts[j]!.from); j++; }
+    if (j === k) { out.push({ ...mark, start: mark.start + before, end: mark.end + before }); continue; }
+    if (!transfer) continue;
+    const start = cuts[k]!.from < mark.start ? at[k]! : mark.start + before;
+    const end = cuts[j - 1]!.to >= mark.end ? at[j - 1]! + cuts[j - 1]!.placeholder.length : mark.end + after;
+    const moved: Mark = { ...mark, start, end, placeholder: cuts[k]!.placeholder, taken: true }, prior = out.at(-1);
+    // Two marks one placeholder took become one, with both marks' spans.
+    if (prior && moved.start < prior.end) out[out.length - 1] = { ...prior, end: Math.max(prior.end, moved.end), taken: true, placeholder: prior.taken ? prior.placeholder : moved.placeholder,
+      spanFrom: Math.min(prior.spanFrom, moved.spanFrom), spanTo: Math.max(prior.spanTo, moved.spanTo), rest: prior.rest || moved.rest, slashes: prior.slashes || moved.slashes };
+    else out.push(moved);
+  }
+  return out;
+}
+/** Replaces what `cut` returns for each match of `finder` in the view (undefined keeps it), and moves the marks (see moveMarks). */
+function replaceBoth(state: Tracked, finder: Finder, cut: (original: string, viewed: string) => Cut | undefined, transfer: boolean): void {
+  const cuts: Cut[] = [];
   for (const match of findAll(state.view, finder)) {
     const start = match.index!, swap = cut(state.text.slice(start, start + match[0].length), match[0]);
-    if (swap === undefined) continue;
-    const from = start + swap.from, to = start + swap.to;
-    for (; next < state.marks.length && state.marks[next]!.start < to; next++) if (state.marks[next]!.end <= from) moved(state.marks[next]!);
-    text += state.text.slice(last, from) + swap.placeholder; view += state.view.slice(last, from) + wide(swap.placeholder);
-    shift += swap.placeholder.length - (to - from); last = to; changed = true;
+    if (swap !== undefined) cuts.push({ from: start + swap.from, to: start + swap.to, placeholder: swap.placeholder });
   }
-  if (!changed) return;
-  for (; next < state.marks.length; next++) moved(state.marks[next]!);
-  state.text = text + state.text.slice(last); state.view = view + state.view.slice(last); state.marks = marks;
+  if (!cuts.length) return;
+  state.marks = moveMarks(state.marks, cuts, transfer);
+  applyCuts(state, cuts);
+}
+/** The input spans a path's text replaced, each with what replaced it. */
+function replacedSpans(state: Tracked): { start: number; end: number; text: string }[] {
+  const spans: { start: number; end: number; text: string }[] = [];
+  for (let i = 0; i < state.text.length;) {
+    if (state.kept[i]) { i++; continue; }
+    let j = i + 1;
+    while (j < state.text.length && !state.kept[j] && state.from[j] === state.from[i] && state.to[j] === state.to[i]) j++;
+    spans.push({ start: state.from[i]!, end: state.to[i]!, text: state.text.slice(i, j) });
+    i = j;
+  }
+  return spans;
+}
+/** The placeholders, widest first: where the two paths' spans overlap, the widest of theirs replaces them. */
+const WIDEST: readonly string[] = [ASSIST_PLACEHOLDERS.url, ASSIST_PLACEHOLDERS.file, ASSIST_PLACEHOLDERS.source, ASSIST_PLACEHOLDERS.digest];
+/**
+ * The input with every span that either path replaced replaced. Overlapping spans become one: what both paths gave it when
+ * that is the same (an alias), else the widest placeholder among theirs, else `[source]` (two aliases). It counts what it sends.
+ */
+function union(input: string, a: Tracked, b: Tracked): { text: string; counts: ScrubCounts } {
+  const spans = [...replacedSpans(a), ...replacedSpans(b)].sort((x, y) => x.start - y.start || y.end - x.end);
+  const counts: ScrubCounts = { sources: 0, files: 0, urls: 0, digests: 0 };
+  let text = "", last = 0;
+  for (let i = 0; i < spans.length;) {
+    const { start } = spans[i]!, given = [spans[i]!.text];
+    let { end } = spans[i]!, j = i + 1;
+    for (; j < spans.length && spans[j]!.start < end; j++) { end = Math.max(end, spans[j]!.end); given.push(spans[j]!.text); }
+    const chosen = given.every(value => value === given[0]) ? given[0]! : WIDEST.find(value => given.includes(value)) ?? ASSIST_PLACEHOLDERS.source;
+    if (chosen === ASSIST_PLACEHOLDERS.url) counts.urls++; else if (chosen === ASSIST_PLACEHOLDERS.file) counts.files++; else if (chosen === ASSIST_PLACEHOLDERS.digest) counts.digests++; else counts.sources++;
+    text += input.slice(last, start) + chosen; last = end; i = j;
+  }
+  return { text: text + input.slice(last), counts };
 }
 
 // ---- Source forms ----
@@ -404,7 +517,7 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
    * extension takes the decimal digits glued before it too (`1alpha.md`, a list's NFKC circled number), and every span takes
    * the digits glued after it, so an alias is never followed by a digit (`S1` then `1` would read as `S11`).
    */
-  const entrySpan = (text: string, at: number, raw: number, entry: Entry): { start: number; end: number } | undefined => {
+  const entrySpan = (text: string, at: number, raw: number, entry: Entry, provisional: boolean): { start: number; end: number } | undefined => {
     let start = at, end: number | undefined;
     if (entry.kind === "name") {
       if (entry.dotted) {
@@ -416,7 +529,9 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
       end = gluedBefore(text, start) ? undefined : nameEnd(text, raw, entry.dotted);
     } else if (entry.kind === "host") {
       // A host that goes on to the right is another host (`example.org.evil.test`); what is glued on its left goes with it (matches()).
-      end = gluedAfter(text, raw) || text[raw] === "-" || (text[raw] === "." && isWord(codePointAt(text, raw + 1))) ? undefined : pathEnd(text, raw);
+      // On the provisional path a host that a hyphen follows is the source's host: a word glued after the hyphen goes with it as
+      // `[url]` (L4), and a bare hyphen stays after the alias.
+      end = gluedAfter(text, raw) || (text[raw] === "-" && !provisional) || (text[raw] === "." && isWord(codePointAt(text, raw + 1))) ? undefined : text[raw] === "-" ? raw : pathEnd(text, raw);
     } else end = pathEnd(text, raw);
     return end === undefined ? undefined : { start, end: digitsAfter(text, end) };
   };
@@ -455,13 +570,27 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
   };
   /** A host-label or userinfo character: a letter, digit or mark of a spaced script, or one of `. _ ~ % ! $ & * + , ; = : @ -`. */
   const LEAD_CHAR = new RegExp(`^(?![${SPACELESS}])[\\p{L}\\p{N}\\p{M}._~%!$&*+,;=:@-]$`, "u");
+  /** A userinfo character, as the credential rule reads one: not white space, a quote, an angle bracket, a slash or spaceless. */
+  const USERINFO_CHAR = new RegExp(`^(?![${SPACELESS}])[^\\s/"'<>]$`, "u");
+  /** Whether a `user:password@` stands directly before `start`: an `@`, with a `:` in the userinfo run before it. */
+  const credentialBefore = (text: string, start: number, floor: number) => {
+    if (start - 1 <= floor || text[start - 1] !== "@") return false;
+    let at = start - 1;
+    while (at > floor && USERINFO_CHAR.test(codePointBefore(text, at) ?? "")) at -= (codePointBefore(text, at) ?? "").length;
+    return text.slice(at, start - 1).includes(":");
+  };
+  /** A query or fragment with a body, or a slash and a path segment: what follows a name that names another place. */
+  const NAME_TAIL = new RegExp(`^(?:[?#]${BODY}|/${SEGMENT})`, "u");
   /**
    * Where what is glued before a host-led match starts, back to `floor`: host labels and userinfo (`payroll.intranet.`,
    * `alice:pw@`, `evil-`), then a `//` and the scheme before it. `www` is set when that is a lone `www.`, which keeps the alias.
    */
-  const hostLead = (text: string, start: number, floor: number): { start: number; www: boolean } => {
+  const hostLead = (text: string, start: number, floor: number, widen = false): { start: number; www: boolean } => {
     let at = start;
     while (at > floor && LEAD_CHAR.test(codePointBefore(text, at) ?? "")) at -= (codePointBefore(text, at) ?? "").length;
+    // On the provisional path, once the walk has crossed an `@`, a password's other characters go too (`alice:pa(ss)@`), back to
+    // the token's start: white space, a quote, an angle bracket, a slash or a spaceless-script character (L3).
+    if (widen && text.slice(at, start).includes("@")) while (at > floor && USERINFO_CHAR.test(codePointBefore(text, at) ?? "")) at -= (codePointBefore(text, at) ?? "").length;
     if (at === start) return { start, www: false };
     const www = /^www\.$/iu.test(text.slice(at, start));
     if (at - 2 >= floor && text.slice(at - 2, at) === "//") {
@@ -472,13 +601,30 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
     }
     return { start: at, www };
   };
-  /** Whether the protocol-relative URL rule may start at `at`, its lookbehind read in this view, and not inside an earlier match. */
+  /**
+   * Where a whole path or URL form's token ends when more of its last segment is glued after it (`report.md-old`,
+   * `public-repository`, `doc` then `s/hr/x?employee=alice`): a word, a `-`, `_`, `~`, `+`, `=`, `&`, `%` or `@` with a word after
+   * it, or a `.` and a word that is not a capitalized one (`S1.Then` is a sentence). Then to the end of the token.
+   */
+  const tokenRunEnd = (text: string, end: number) => {
+    const next = codePointAt(text, end) ?? "", after = codePointAt(text, end + 1) ?? "";
+    const glued = isWord(next) || (/^[-_~+=&%@]$/u.test(next) && NAME_WORD.test(after)) || (next === "." && NAME_WORD.test(after) && !/^[A-Z][a-z]/u.test(text.slice(end + 1, end + 3)));
+    if (!glued) return end;
+    AFTER_SLASH.lastIndex = end;
+    return end + trimToken(AFTER_SLASH.exec(text)?.[0] ?? "").core.length;
+  };
+  /** Whether the protocol-relative URL rule may start at `at`, its lookbehind read in this view, and not inside an earlier match (policy 4). */
   const URL_OPENER = new RegExp(`^[\\s"'(\\[<=:,;${SPACELESS}]$`, "u");
   const urlMayStart = (text: string, at: number, floor: number) => at === 0 || (at > floor && URL_OPENER.test(codePointBefore(text, at) ?? ""));
-  /** Every match, leftmost and longest first. Matched in the folded wide view; bounded and extended in the wide view. */
-  const matches = (text: string) => {
-    const shown = wide(text), view = fold(shown), hashOf = spanHasher(view), found: { start: number; end: number; replacement: string; mark?: Omit<Mark, "start" | "end"> }[] = [];
-    let at = 0, floor = 0;
+  const plain = { taken: false, spanFrom: 0, spanTo: 0, rest: false, slashes: false };
+  /**
+   * Every match, leftmost and longest first. Matched in the folded wide view; bounded and extended in the wide view. On the
+   * provisional path a match leaves the source's alias, or `S0` for a placeholder, and is provisional when what the source rules
+   * give it is more (see Mark). On the policy-4 path it is replaced as policy 4 replaced it.
+   */
+  const matches = (text: string, provisional: boolean) => {
+    const shown = wide(text), view = fold(shown), hashOf = spanHasher(view), found: { start: number; end: number; replacement: string; mark?: Omit<Mark, "start" | "end">; span?: { start: number; end: number } }[] = [];
+    let at = 0, floor = 0, reach = 0;
     while (at + ASSIST_NAME_MIN_CHARS <= view.length) {
       const bucket = index.get(view.slice(at, at + ASSIST_NAME_MIN_CHARS));
       let hit: { start: number; end: number; entry: Entry } | undefined;
@@ -487,68 +633,122 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
           if (at + length > view.length) continue;
           for (const entry of bucket.byLength.get(length)!.get(hashOf(at, at + length)) ?? []) {
             if (!view.startsWith(entry.folded, at)) continue;
-            const span = entrySpan(shown, at, at + length, entry);
+            const span = entrySpan(shown, at, at + length, entry, provisional);
             if (!span || span.start < floor) continue;
             hit = { ...span, entry }; break search;
           }
         }
       }
       if (!hit) { at++; continue; }
+      if (provisional) {
+        let { start } = hit, placeholder = hit.entry.replacement, from = hit.start, to = hit.end;
+        const { end } = hit, alias = placeholder.startsWith("[") ? STAND_IN : placeholder;
+        // A match inside an earlier match's spans reads nothing after it (glue, run or tail): that match's placeholder covers it,
+        // and reading the token's rest again for each match would be quadratic in the token.
+        const fresh = end > reach;
+        // A file name glued to more name through `-`, `_` or `.` is another file, not the source: the whole run becomes `[file]`.
+        if (fresh && hit.entry.kind === "name" && hit.entry.dotted) {
+          const before = nameRunStart(shown, start, floor), after = nameRunEnd(shown, end);
+          if (before < start || after > end) { from = before; to = after; placeholder = ASSIST_PLACEHOLDERS.file; }
+        }
+        // Labels, userinfo or another word glued before the source's host make another host or a credential: the whole of it
+        // becomes `[url]`, and a host-led name (a URL source's form that a local copy shares) takes its URL's path, query and
+        // fragment too, as the URL rule did before. A lone `www.` keeps the alias. A `user:password@` written directly before
+        // any source match makes it a URL's host (G6), and once the walk has crossed an `@` the password goes too (L3).
+        let led = false;
+        if (hit.entry.hostLed || credentialBefore(shown, start, floor)) {
+          const lead = hostLead(shown, from, floor, true);
+          if (lead.start < from) { if (lead.www && from === start) start = from = lead.start; else { from = lead.start; led = true; placeholder = ASSIST_PLACEHOLDERS.url; } }
+        }
+        if (hit.entry.kind !== "host") { const folder = absorbPrefix(shown, from, floor); if (from === start) start = folder; from = folder; }
+        // More of a segment glued after a whole path or URL form, or after the source's host through a hyphen, is another one: the
+        // token's rest goes with it (L1, L4). A host-led name, and a name that a query, a fragment, or a slash and a segment
+        // follows, take their URL's or path's rest (G3, G4).
+        if (fresh) {
+          if (hit.entry.kind !== "name") { const after = tokenRunEnd(shown, to); if (after > to) { to = after; if (!led) placeholder = hit.entry.kind === "path" ? ASSIST_PLACEHOLDERS.file : ASSIST_PLACEHOLDERS.url; } }
+          else if (led || NAME_TAIL.test(shown.slice(to, to + 2))) {
+            if (!led && placeholder === hit.entry.replacement) placeholder = shown[to] === "/" ? ASSIST_PLACEHOLDERS.file : ASSIST_PLACEHOLDERS.url;
+            URL_REST.lastIndex = to; to += trimToken(URL_REST.exec(shown)?.[0] ?? "").core.length;
+          }
+        }
+        const provisionalMatch = from < start || to > end || alias === STAND_IN;
+        found.push({ start, end, replacement: alias, ...(provisionalMatch ? { mark: { ...plain, placeholder }, span: { start: from, end: to } } : {}) });
+        at = floor = end; reach = Math.max(reach, to);
+        continue;
+      }
       let { start, end } = hit, replacement = hit.entry.replacement, mark: Omit<Mark, "start" | "end"> | undefined, led = false;
-      // A file name glued to more name through `-`, `_` or `.` is another file, not the source: the whole run is `[file]`.
       if (hit.entry.kind === "name" && hit.entry.dotted) {
         const before = nameRunStart(shown, start, floor), after = nameRunEnd(shown, end);
         if (before < start || after > end) { start = before; end = after; replacement = ASSIST_PLACEHOLDERS.file; }
       }
-      // Labels, userinfo or another word glued before the source's host make another host or a credential: the whole of it is `[url]`.
       if (hit.entry.hostLed) {
         const lead = hostLead(shown, start, floor);
         if (lead.start < start) { start = lead.start; if (!lead.www) { replacement = ASSIST_PLACEHOLDERS.url; led = true; } }
       }
       if (hit.entry.kind !== "host") start = absorbPrefix(shown, start, floor);
+      // Policy 4's marks: a glued file name of one source right after `//` stands as its alias and gets `[file]` back where no rule
+      // takes it; any other placeholder after a `//` where the URL rule could start, and a host-led name's `[url]` (G3), take the
+      // URL's rest, and the `//` before it, as `[url]`.
       if (start - 2 >= floor && shown.slice(start - 2, start) === "//" && replacement.startsWith("[")) {
-        // A placeholder right after `//` is provisional. A glued file name of one source stands as its alias: a rule that takes
-        // the alias takes the whole token as before (`//cdn.other.test/x/q3-report.html?token=…`, `x=1;//…`, `S1:///…`, a relative
-        // path), and where none does, scrub() puts `[file]` back, so no other file is shown as the source (`a//old-alpha.md` is
-        // `a//[file]`). Any other placeholder keeps its place for the rules where the URL rule could start, so a relative path
-        // still takes the word before the `//` with it, and where no rule takes it, scrub() makes the `//`, the placeholder and
-        // the URL's rest `[url]` (`see //cdn.other.test/x/old-report.html?token=…` is `see [url]`).
-        if (replacement === ASSIST_PLACEHOLDERS.file && !hit.entry.replacement.startsWith("[")) { mark = { kind: "alias", placeholder: replacement, slashes: false }; replacement = hit.entry.replacement; led = false; }
-        else if (urlMayStart(shown, start - 2, floor)) { mark = { kind: "url", placeholder: replacement, slashes: true }; led = false; }
+        if (replacement === ASSIST_PLACEHOLDERS.file && !hit.entry.replacement.startsWith("[")) { mark = { ...plain, placeholder: replacement }; replacement = hit.entry.replacement; led = false; }
+        else if (urlMayStart(shown, start - 2, floor)) { mark = { ...plain, placeholder: ASSIST_PLACEHOLDERS.url, rest: true, slashes: true }; led = false; }
       }
-      // A URL source's form that a local copy shares is a name, so the match ends at the name: led like a URL, it keeps its place for
-      // the rules, and where none takes it, scrub() gives it the URL's path, query and fragment, as the URL rule did before.
-      if (led && hit.entry.kind === "name") mark = { kind: "url", placeholder: replacement, slashes: false };
+      if (led && hit.entry.kind === "name") mark = { ...plain, placeholder: ASSIST_PLACEHOLDERS.url, rest: true };
       found.push(mark === undefined ? { start, end, replacement } : { start, end, replacement, mark });
       at = floor = end;
     }
     return found;
   };
   return {
-    /**
-     * The text with every match replaced, their counts (a provisional alias counts as its source), and the marks: each of
-     * `carried` that no match touches, moved with the text, and one for each provisional replacement.
-     */
-    replace(text: string, carried: readonly Mark[]): { text: string; sources: number; files: number; urls: number; marks: Mark[] } {
-      let out = "", last = 0, sources = 0, files = 0, urls = 0, next = 0;
-      const marks: Mark[] = [];
-      const keep = (to: number, from: number) => {
-        for (; next < carried.length && carried[next]!.start < to; next++) {
-          const mark = carried[next]!;
-          if (mark.end <= from) marks.push({ ...mark, start: mark.start - last + out.length, end: mark.end - last + out.length });
+    /** Replaces every match in the text: a carried mark a match touches is dropped, and each provisional match gets a mark. */
+    replace(state: Tracked, provisional: boolean): void {
+      const found = matches(state.text, provisional);
+      if (!found.length) return;
+      const cuts = found.map(match => ({ from: match.start, to: match.end, placeholder: match.replacement })), marks = moveMarks(state.marks, cuts, false);
+      let shift = 0;
+      found.forEach((match, i) => {
+        const at = match.start + shift;
+        if (match.mark) {
+          const span = match.span ?? match;
+          marks.push({ start: at, end: at + match.replacement.length, ...match.mark, spanFrom: state.from[span.start]!, spanTo: state.to[span.end - 1]! });
         }
-      };
-      for (const match of matches(text)) {
-        keep(match.end, match.start);
-        out += text.slice(last, match.start);
-        if (match.mark) marks.push({ start: out.length, end: out.length + match.replacement.length, ...match.mark });
-        if (match.replacement === ASSIST_PLACEHOLDERS.file) files++; else if (match.replacement === ASSIST_PLACEHOLDERS.url) urls++; else sources++;
-        out += match.replacement; last = match.end;
-      }
-      keep(Infinity, Infinity);
-      return { text: out + text.slice(last), sources, files, urls, marks };
+        shift += match.replacement.length - (cuts[i]!.to - cuts[i]!.from);
+      });
+      state.marks = marks.sort((a, b) => a.start - b.start);
+      applyCuts(state, cuts);
     },
-    found: (text: string) => matches(text).length > 0,
+    /**
+     * After the last pass, each mark becomes its placeholder, or keeps the one the rule that took it gave it, over what is still
+     * visible of its spans (see Mark); a mark inside an earlier one's span goes with it. The policy-4 path settles as policy 4 did.
+     */
+    settle(state: Tracked, provisional: boolean): void {
+      const { text } = state, shown = state.view, cuts: Cut[] = [];
+      let last = 0;
+      for (const mark of state.marks) {
+        if (!provisional) {
+          if (mark.start < last) continue;
+          if (!mark.rest) { cuts.push({ from: mark.start, to: mark.end, placeholder: mark.placeholder }); last = mark.end; continue; }
+          const from = mark.slashes && mark.start - 2 >= last && text.slice(mark.start - 2, mark.start) === "//" ? mark.start - 2 : mark.start;
+          URL_REST.lastIndex = mark.end;
+          last = mark.end + trimToken(URL_REST.exec(shown)?.[0] ?? "").core.length;
+          cuts.push({ from, to: last, placeholder: ASSIST_PLACEHOLDERS.url });
+          continue;
+        }
+        let start = Math.max(mark.start, last), end = mark.end;
+        if (end <= last) continue;
+        const inside = (i: number) => state.from[i]! >= mark.spanFrom && state.to[i]! <= mark.spanTo;
+        while (start > last && inside(start - 1)) start--;
+        while (end < text.length && inside(end)) end++;
+        // A scheme glued before a URL is part of it (`localhost:8080s3://S0`: the protocol-relative rule took `//S0` before the
+        // scheme rule could take `s3://S0`, which it reads only once the host before it is `[url]`).
+        if (mark.placeholder === ASSIST_PLACEHOLDERS.url) { const scheme = SCHEME_BEFORE.exec(shown.slice(Math.max(last, start - 33), start)); if (scheme) start -= scheme[0].length; }
+        if (start === mark.start && end === mark.end && text.slice(start, end) === mark.placeholder) continue;
+        cuts.push({ from: start, to: end, placeholder: mark.placeholder }); last = end;
+      }
+      state.marks = [];
+      if (cuts.length) applyCuts(state, cuts);
+    },
+    found: (text: string) => matches(text, false).length > 0,
   };
 }
 
@@ -586,79 +786,78 @@ export function createScrubber(input: { sources: readonly ResearchSourceIdentity
   const isDigest = digestRule(input.knownDigests);
   /**
    * One pass of the URL, path, file-name and digest rules: matched in the wide view, replaced in the text at the same indices.
-   * It returns the provisional marks that no rule took, moved to where they now stand.
+   * The marks move with the text; on the provisional path (`transfer`) a mark a rule takes moves onto its placeholder.
    */
-  const generic = (text: string, scope: "text" | "model", marks: readonly Mark[]) => {
-    const state = { text, view: wide(text), marks }, counts = { urls: 0, files: 0, digests: 0 };
+  const generic = (state: Tracked, scope: "text" | "model", transfer: boolean) => {
     /** A token's placeholder, keeping the sentence punctuation and unbalanced brackets that followed it. */
-    const token = (placeholder: string, kind: "urls" | "files") => (_original: string, viewed: string): Cut | undefined => {
-      const { core } = trimToken(viewed); if (!core) return undefined;
-      counts[kind]++; return { from: 0, to: core.length, placeholder };
+    const token = (placeholder: string) => (_original: string, viewed: string): Cut | undefined => {
+      const { core } = trimToken(viewed);
+      return core ? { from: 0, to: core.length, placeholder } : undefined;
     };
-    for (const pattern of URL_PATTERNS) replaceBoth(state, pattern, token(ASSIST_PLACEHOLDERS.url, "urls"));
-    for (const pattern of PATH_PATTERNS) replaceBoth(state, pattern, (original, viewed) => {
-      if (!QUOTED.test(viewed)) return token(ASSIST_PLACEHOLDERS.file, "files")(original, viewed);
-      counts.files++; return { from: 1, to: original.length - 1, placeholder: ASSIST_PLACEHOLDERS.file };
-    });
+    for (const pattern of transfer ? URL_PATTERNS_5 : URL_PATTERNS) replaceBoth(state, pattern, token(ASSIST_PLACEHOLDERS.url), transfer);
+    for (const pattern of transfer ? PATH_PATTERNS_5 : PATH_PATTERNS) replaceBoth(state, pattern, (original, viewed) => QUOTED.test(viewed) ? { from: 1, to: original.length - 1, placeholder: ASSIST_PLACEHOLDERS.file } : token(ASSIST_PLACEHOLDERS.file)(original, viewed), transfer);
     replaceBoth(state, relativeRuns, (_original, viewed) => {
       const end = relativeEnd(viewed);
       if (end < 0) return undefined;
       // A dotted folder is no extension: when the path goes on after it (`src/com.example.app/ui`), the whole run is the path.
-      const cut = /^[/\\]/u.test(viewed.slice(end)) ? trimToken(viewed).core.length : end, lead = openingLead(viewed.slice(0, cut));
-      counts.files++; return { from: lead.length, to: cut, placeholder: ASSIST_PLACEHOLDERS.file };
-    });
-    if (scope === "model") replaceBoth(state, FILE_NAME_PATTERN, (original, viewed) => { counts.files++; return { from: openingLead(viewed).length, to: original.length, placeholder: ASSIST_PLACEHOLDERS.file }; });
-    replaceBoth(state, HEX_GROUPS, (_, viewed) => { if (!isDigest(viewed, true)) return undefined; counts.digests++; return { from: 0, to: viewed.length, placeholder: ASSIST_PLACEHOLDERS.digest }; });
-    replaceBoth(state, HEX_RUN, (_, viewed) => { if (!isDigest(viewed, false)) return undefined; counts.digests++; return { from: 0, to: viewed.length, placeholder: ASSIST_PLACEHOLDERS.digest }; });
-    return { text: state.text, ...counts, marks: state.marks };
+      // On the provisional path a query or fragment after the extension goes too (`x//cdn.other.test/x/q3.html?token=abc`).
+      const cut = (transfer ? /^[/\\?#]/u : /^[/\\]/u).test(viewed.slice(end)) ? trimToken(viewed).core.length : end, lead = openingLead(viewed.slice(0, cut));
+      return { from: lead.length, to: cut, placeholder: ASSIST_PLACEHOLDERS.file };
+    }, transfer);
+    if (scope === "model") replaceBoth(state, FILE_NAME_PATTERN, (original, viewed) => ({ from: openingLead(viewed).length, to: original.length, placeholder: ASSIST_PLACEHOLDERS.file }), transfer);
+    replaceBoth(state, HEX_GROUPS, (_, viewed) => isDigest(viewed, true) ? { from: 0, to: viewed.length, placeholder: ASSIST_PLACEHOLDERS.digest } : undefined, transfer);
+    replaceBoth(state, HEX_RUN, (_, viewed) => isDigest(viewed, false) ? { from: 0, to: viewed.length, placeholder: ASSIST_PLACEHOLDERS.digest } : undefined, transfer);
+  };
+  /**
+   * One path of the scrub. A replacement can change what its neighbours read as (`example.org.report.md`): passes repeat until
+   * one changes nothing, at most three. The marks go through every pass, so a rule in a later pass can still take one
+   * (`localhost:8080s3://…`: the first pass takes the host and port, the second the `s3:` URL). Then the marks are settled, and
+   * if that changed the text, the passes run once more on what it left.
+   */
+  const run = (input: string, scope: "text" | "model", provisional: boolean): Tracked => {
+    const state = tracked(input);
+    for (let round = 0; round < 2; round++) {
+      state.marks = [];
+      for (let pass = 0; pass < 3; pass++) {
+        const before = state.text;
+        sending[scope].replace(state, provisional);
+        generic(state, scope, provisional);
+        if (state.text === before) break;
+      }
+      const before = state.text;
+      sending[scope].settle(state, provisional);
+      if (state.text === before) break;
+    }
+    return state;
   };
   const holds = (view: string, finder: Finder, accept: (token: string) => boolean) => { for (const match of findAll(view, finder)) if (accept(match[0])) return true; return false; };
   const holdsGeneric = (view: string, scope: "text" | "model") =>
-    [...URL_PATTERNS, ...PATH_PATTERNS].some(pattern => holds(view, pattern, matched => trimToken(matched).core.length > 0)) ||
+    [...URL_PATTERNS_5, ...PATH_PATTERNS_5].some(pattern => holds(view, pattern, matched => trimToken(matched).core.length > 0)) ||
     holds(view, relativeRuns, run => relativeEnd(run) >= 0) || (scope === "model" && holds(view, FILE_NAME_PATTERN, () => true));
   const holdsDigest = (view: string) => holds(view, HEX_GROUPS, run => isDigest(run, true)) || holds(view, HEX_RUN, run => isDigest(run, false));
+  /** What the audit finds in a finished string: source forms in the stricter NFKC view, the rest in the wide view the scrub reads. */
+  const finding = (text: string, scope: "text" | "model"): "source_identity" | "digest" | "url_or_path" | undefined => {
+    if (auditing[scope].found(auditForm(text))) return "source_identity";
+    const view = wide(textForm(text));
+    if (holdsDigest(view)) return "digest";
+    if (holdsGeneric(view, scope)) return "url_or_path";
+    return undefined;
+  };
   return {
+    // Policy 5: the input with what either path replaced replaced (see union). The policy-4 path replaces as policy 4 did, so
+    // nothing policy 4 hid is sent; the provisional path lets the URL and path rules take the tokens around source matches first.
+    // A span one path replaced can unglue what the other left visible (`secretwww.example.org` before the `S` of an alias that
+    // the other path's URL took): while the audit still finds something, the result is scrubbed again, at most twice.
     scrub(raw, scope) {
-      let text = textForm(raw);
-      const counts: ScrubCounts = { sources: 0, files: 0, urls: 0, digests: 0 };
-      // A replacement can change what its neighbours read as (`example.org.report.md`): passes repeat until one changes nothing, at most
-      // three. The provisional marks go through every pass, so each pass reads the text as if they were final, and a rule in a later
-      // pass can still take one (`localhost:8080s3://[source]`: the first pass takes the host and port, the second the `s3:` URL).
-      // Then the marks that no rule took are settled, and if that changed the text, the passes run once more on what it left.
-      for (let round = 0; round < 2; round++) {
-        let marks: readonly Mark[] = [];
-        for (let pass = 0; pass < 3; pass++) {
-          const named = sending[scope].replace(text, marks), linked = generic(named.text, scope, named.marks);
-          counts.sources += named.sources; counts.files += named.files + linked.files; counts.urls += named.urls + linked.urls; counts.digests += linked.digests;
-          marks = linked.marks;
-          if (linked.text === text) break;
-          text = linked.text;
-        }
-        // A provisional alias that no rule took gets its placeholder back. A placeholder that no rule took takes the URL's rest after
-        // it, and the `//` before it when it had one, as `[url]`; a mark inside that rest goes with it.
-        const shown = wide(text);
-        let settled = "", last = 0;
-        for (const mark of marks) {
-          if (mark.start < last) continue;
-          if (mark.kind === "alias") { settled += text.slice(last, mark.start) + mark.placeholder; last = mark.end; counts.sources--; counts.files++; continue; }
-          const from = mark.slashes && mark.start - 2 >= last && text.slice(mark.start - 2, mark.start) === "//" ? mark.start - 2 : mark.start;
-          URL_REST.lastIndex = mark.end;
-          settled += text.slice(last, from) + ASSIST_PLACEHOLDERS.url; last = mark.end + trimToken(URL_REST.exec(shown)?.[0] ?? "").core.length;
-          if (mark.placeholder !== ASSIST_PLACEHOLDERS.url) { counts.urls++; if (mark.placeholder === ASSIST_PLACEHOLDERS.file) counts.files--; else counts.sources--; }
-        }
-        settled += text.slice(last);
-        if (settled === text) break;
-        text = settled;
+      let input = textForm(raw), result = union(input, run(input, scope, false), run(input, scope, true));
+      for (let again = 0; again < 2 && finding(result.text, scope) !== undefined; again++) {
+        input = result.text;
+        const next = union(input, run(input, scope, false), run(input, scope, true)), { counts } = result;
+        result = { text: next.text, counts: { sources: counts.sources + next.counts.sources, files: counts.files + next.counts.files, urls: counts.urls + next.counts.urls, digests: counts.digests + next.counts.digests } };
       }
-      return { text, counts };
+      return result;
     },
-    finding(text, scope) {
-      if (auditing[scope].found(auditForm(text))) return "source_identity";
-      const view = wide(textForm(text));
-      if (holdsDigest(view)) return "digest";
-      if (holdsGeneric(view, scope)) return "url_or_path";
-      return undefined;
-    },
+    finding,
   };
 }
 
@@ -720,18 +919,21 @@ export function cutWhole(text: string, max: number): string {
 
 /** The rules and patterns, bound into the assist protocol block. */
 export const SCRUB_POLICY = Object.freeze({
-  version: 4, text: "mark_runs_cut_at_30; NFC_without_default_ignorables_with_unicode_hyphens_as_ascii", view: "full_width_ascii_as_ascii_index_preserving",
+  version: 5, text: "mark_runs_cut_at_30; NFC_without_default_ignorables_with_unicode_hyphens_as_ascii", view: "full_width_ascii_as_ascii_index_preserving",
   audit: "source_forms_in_NFKC; digests_urls_and_paths_in_the_wide_view", fold: "lowercase_with_turkish_i_letters_folded_and_final_sigma_as_sigma",
   boundary: "a_letter_or_decimal_digit_of_the_edge_script_glues_and_a_digit_glues_to_a_letter; nothing_glues_to_a_spaceless_letter; an_escape_or_percent_byte_before_is_a_boundary",
   forms: "ids_paths_%2F_paths_url_variants(scheme,slash,decoded,unicode_host)_without_query_dotted_hosts_with_and_without_www_last_2_and_3_segments_file_names_query_and_fragment_file_names; model_text_also_distinctive_stems_single_label_hosts_opaque_segments_distinctive_query_and_fragment_names; host_appended_paths_and_file_names_[file]",
   matching: "rolling_hashes_by_first_4_and_length_leftmost_longest; names_absorb_up_to_4_extensions_the_longest_unglued_and_a_folder_prefix_before; hosts_urls_paths_absorb_a_path_after; shared_form_[source]",
-  glued: "a_file_name_glued_to_more_name_by_-_or__or_._on_either_side_is_[file]; a_host_led_form_glued_after_labels_userinfo_or_a_word_with_its_//_and_scheme_is_[url]; a_lone_www._keeps_the_alias",
+  glued: "a_file_name_glued_to_more_name_by_-_or__or_._on_either_side_is_[file]; a_host_led_form_glued_after_labels_userinfo_or_a_word_with_its_//_and_scheme_is_[url]_and_a_host_led_name_takes_its_url's_rest; a_lone_www._keeps_the_alias; on_the_provisional_path_userinfo_goes_back_through_a_password's_characters_once_an_@_is_crossed_and_a_user:password@_before_any_source_match_makes_it_host_led; a_whole_path_or_url_form_with_more_of_its_segment_glued_after_it_and_a_host_with_a_hyphenated_word_take_the_token's_rest; a_name_a_query_fragment_or_slash_and_segment_follows_takes_them",
+  union: "two_paths_over_one_normalized_input_each_tracking_the_input_span_of_every_unit_of_its_text; the_policy_4_path_replaces_as_version_4; the_sent_text_replaces_every_span_either_path_replaced; overlapping_spans_become_one_with_the_alias_both_gave_else_the_widest_placeholder_url_file_source_digest; scrubbed_again_while_the_audit_finds_something_at_most_twice; counts_are_those_of_the_sent_text",
+  provisional: "a_match_leaves_the_alias_or_S0_for_a_placeholder; a_provisional_mark_records_its_glue_lead_prefix_run_and_tail_spans_moves_with_the_text_and_onto_the_placeholder_of_a_rule_that_takes_it; after_the_last_pass_each_mark_becomes_its_placeholder_or_its_rule's_over_what_is_still_visible_of_its_spans_with_a_scheme_glued_before_a_url; its_own_url_and_path_rules_and_a_relative_path's_query_or_fragment_after_the_extension",
   spacelessInPaths: "spaceless_letters_inside_urls_paths_and_file_names_only_where_a_connector_touches_them",
   extensions: "2_to_16_letters_and_digits_with_a_letter_not_a_capitalized_word_not_a_decimal",
   relative: "whole_run_from_a_run_start_cut_after_the_longest_extension_whole_when_a_separator_follows_it",
   order: "source_forms_then_urls_then_paths_(model_text_also_bare_file_names)_then_digests_repeated_until_unchanged_at_most_3_passes",
   spaceless: SPACELESS, connectors: CONNECT, tlds: TLDS, notTlds: NOT_TLDS, fileExtensions: ASSIST_FILE_EXTENSIONS,
   patterns: { url: URL_PATTERNS.map(pattern => pattern.source), path: PATH_PATTERNS.map(pattern => pattern.source), relative: { run: RELATIVE_RUN.source, extension: EXTENSION_AT.source },
+    provisional: { url: URL_PATTERNS_5.map(pattern => pattern.source), path: PATH_PATTERNS_5.map(pattern => pattern.source) },
     fileName: FILE_NAME_PATTERN.source, hostFile: HOST_FILE_TOKEN.source, hex: [HEX_RUN.source, HEX_GROUPS.source] },
   digests: "a_known_8_char_piece_in_a_run_or_groups; a_run_of_64_with_a_letter; groups_of_8_or_more_totalling_64_with_a_letter",
   nameMinChars: ASSIST_NAME_MIN_CHARS, stemMinChars: ASSIST_STEM_MIN_CHARS, opaqueSegmentMinChars: ASSIST_OPAQUE_SEGMENT_MIN_CHARS, digestPartMin: ASSIST_DIGEST_PART_MIN,

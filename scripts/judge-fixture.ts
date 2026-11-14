@@ -5,7 +5,8 @@
  * ENTAILMENT_OUTPUT_TOKENS) in model.ts's non-streaming form for every claim of a claim set that a committed hashes-only
  * manifest pins, POSTs each request directly to the owner's endpoint (outside the broker, by design: public or synthetic
  * claims at zero fee, no dispatch rows), parses each reply exactly as judgeClaims does, retains every raw reply under a new
- * out directory with mode 0o600, and scores the verdicts against the separate session's labels. The labels never reach a
+ * out directory with mode 0o600, and scores the verdicts against the labeller's labels (a cloud model through its API, as
+ * the owner decided for E0; the protocol says what it may receive). The labels never reach a
  * request. The endpoint and its reply contract come from loadConfig, so the app's endpoint policy applies, the activation
  * cell is the J1 condition of that contract, and the address is never printed.
  *

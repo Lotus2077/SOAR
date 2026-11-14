@@ -38545,3 +38545,60 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`. If another entry reaches `main` first, the entries re-stamp again with a further correction.
 
 References: BL-20261114-1240-judge-fixture-implemented; BL-20261114-1121-correction-handoff-start-here; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261113-0939-correction-e0-card-restamp; pull requests #86, #90 and #91.
+
+### BL-20261114-1246-correction-judge-fixture-cloud-labeller -- 2026-11-14 -- Correction to BL-20261114-1240-judge-fixture-implemented: the labeller is a cloud model through its API, as the owner decided; the harvest command reaches the harvest under pnpm; the card fixes only the level; and the merge order with #86 does not bind
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the judge fixture's entry, which stays as written, after pull request #91 was checked against `main` at 582f880 on 2026-11-14. Three of its statements no longer hold, and one command it documents never worked. The fixture's scoring, its request bodies, its refusals and its hashes do not change.
+
+Decisions:
+- **The labeller is a cloud model through its API.**
+  - The entry (decision (7), "Failures or blockers" and "Next gate") and the protocol name a separate session as the labeller, and forbid sending labels to a cloud tool.
+  - On 2026-11-13 the owner decided otherwise (BL-20261113-1003-e0-card-owner-answers). A cloud model labels the claim set through its API, separate from the judge and without seeing any judge verdict, before the fixture runs. The claim set holds public and synthetic material only. The paid labelling is approved, with a cap of USD 1.00 in total that the orchestrator recorded and the owner may change.
+  - The protocol, the template's note, both READMEs and the script's header comment now say so:
+    - The labeller receives only `claims.json` and the protocol's instructions for labelling and planting. It gets no sidecar, verdict, grade, run directory, path or address.
+    - Before any claim is sent, an amendment to the E0 card names the labelling: the provider and model, the API host, the name of the key's variable (never its value), the tool that sends the claims, and the cap and envelope line. A new egress destination keeps its gate.
+    - The fee is projected from the claim count before the first call, and no call that would pass the cap is made.
+    - The labels come back from the labeller's API and stay under the ignored `.soar/`. They are never committed, never shown to the judge and never sent to any other tool or model. As before, the fixture never puts a label in a request.
+    - `labeller` in labels.json records the provider and the model as the amendment names them.
+- **The card fixes only the level.**
+  - The merged card (docs/experiments/e0-card-2026-11-13.md, item 2) fixes exact agreement on at least 95% of the labelled claims.
+  - The card's amendment fixes the per-class minimum (the template proposes 10), the conditions and the repeats before the fixture runs. The pinned manifest is committed with that amendment.
+  - The template's single `j1-legacy` condition stays a proposal. Under `flash_next_v1` the activation cell is `j1-flash`, so the pin follows E0's adapter probe or carries both J1 cells.
+- **The harvest command.**
+  - The documented `pnpm fixture:judge -- harvest ...` took the run path and exited 2 with the run's usage line. pnpm 10.12.4 passes the `--` through, and the script read the subcommand from `process.argv[2]`.
+  - The script now drops one leading `--` before it reads the subcommand, as scripts/serving-card.py does. Flags were already found by name, so no invocation that worked before changes.
+- **The merge order.**
+  - The entry's "Next gate" asks for a merge after #86, because its scope cites the Rayline plan entry BL-20261113-0730, which is on draft #86.
+  - Nothing enforces that order. The validator checks citations only inside `Correction` entries, and an entry on `main` may cite an ID that is not on `main` yet (BL-20261113-0938-correction-restamp-rule-dates).
+  - This pull request may merge before #86.
+
+Changes:
+- scripts/judge-fixture.ts: `commandArguments` drops one leading `--`, and the header comment names the labeller.
+- tests/unit/judge-fixture.test.ts: one new test (14 in the file). It runs the harvest with pnpm's argument shape and checks the helper.
+- docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md: the status, the roles, a new section "Before any claim leaves the machine", steps 2 to 4, the files and the non-claims.
+- docs/experiments/e0-judge-fixture-v1.json: the `note` only.
+- README.md and docs/experiments/README.md: the labeller's wording.
+
+Evidence:
+- Before the fix, on this branch after its merge of `main`, `pnpm --silent fixture:judge -- harvest --runs <missing dir> --task synthetic --out <file>` printed the run's usage line (`usage: --claims ...`) and exited 2.
+- After the fix, the same command reaches the harvest. It exits 2 with the harvest's own code, `judge_fixture_harvest_unreadable`.
+- `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts tests/unit/private-agent-local-role-config.test.ts` passes 103 tests in 4 files.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass. The validator's exit status was checked directly.
+
+Failures or blockers: The cloud labelling cannot run until the card's amendment names the labelling: the provider and model, the API host, the key variable, the tool, and the cap and envelope line. No labelling tool exists in the repository.
+
+Limitations and non-claims:
+- Nothing ran against an endpoint or a cloud model.
+- This chooses no provider or model. It does not show that a cloud model's labels are right, and agreement is still measured against one labeller.
+- The owner's decision sends harvested claim text, from public and synthetic runs only, to a cloud model. For everything else, the repository's rule that evaluator gold, raw traces and private data never go to cloud tools still holds: only `claims.json` and the instructions leave the machine, and the labels never go out again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. The approved labelling, capped at USD 1.00 in total, has not run.
+
+Next gate:
+- One light review with privacy checked, and CI.
+- The owner's go to merge, since #91 is not a lane pull request.
+- Then the owner names the labelling in the card's amendment, the harvest runs, the labelling runs inside the cap, and the amendment pins the manifest.
+
+References: BL-20261114-1240-judge-fixture-implemented; BL-20261114-1241-correction-judge-fixture-restamp; BL-20261113-1003-e0-card-owner-answers; BL-20261113-0936-e0-card; BL-20261113-0938-correction-restamp-rule-dates; docs/experiments/e0-card-2026-11-13.md; scripts/serving-card.py; pull requests #86 and #91; issue #57.

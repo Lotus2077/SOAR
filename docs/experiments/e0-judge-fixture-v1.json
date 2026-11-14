@@ -2,7 +2,7 @@
  "schemaVersion": 1,
  "name": "e0-judge-fixture-v1",
  "status": "template",
- "note": "Template, hashes and counts only. Follow docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md: harvest the exposed r3 runs' verified claims, have a separate session label them and plant negatives, then fill claimsSha256 and labelsSha256 (sha256 of the two files' exact bytes), claimCount, labelCounts and plantedCount, and copy the E0 card's minimumPerClass, agreement (measure and level), conditions and repeats before setting status to pinned. The claim set and the labels stay under the ignored .soar; scripts/judge-fixture.ts refuses a template or any mismatch before any request. minimumPerClass 10 and the single j1-legacy condition are proposals for the E0 card.",
+ "note": "Template, hashes and counts only. Follow docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md: harvest the exposed r3 runs' verified claims, have the cloud labeller that the E0 card's amendment names label them and plant negatives, then fill claimsSha256 and labelsSha256 (sha256 of the two files' exact bytes), claimCount, labelCounts and plantedCount, set agreement to the card's exact measure at level 0.95, and copy the amendment's minimumPerClass, conditions and repeats before setting status to pinned. The claim set and the labels stay under the ignored .soar; scripts/judge-fixture.ts refuses a template or any mismatch before any request. minimumPerClass 10 and the single j1-legacy condition are proposals for the amendment; under flash_next_v1 the activation cell is j1-flash.",
  "task": "r3-grid-batteries",
  "exposure": "exposed",
  "promptVersion": 1,

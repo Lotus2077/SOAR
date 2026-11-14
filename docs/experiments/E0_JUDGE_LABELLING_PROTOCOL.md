@@ -1,9 +1,13 @@
 # E0 judge fixture: labelling protocol (`e0-judge-labelling-v1`)
 
-Status: `Implemented` with the fixture (`scripts/judge-fixture.ts`); not yet run. The E0
-card ([#47](https://github.com/Lotus2077/SOAR/issues/47), item 2) fixes the per-class
-minimum, the agreement measure and level, the conditions and the repeats before the
-fixture runs.
+Status: `Implemented` with the fixture (`scripts/judge-fixture.ts`); not yet run.
+
+- **The level.** The E0 card ([e0-card-2026-11-13.md](e0-card-2026-11-13.md), item 2)
+  fixes it: exact agreement with the labels on at least 95% of the labelled claims
+  (BL-20261113-1003-e0-card-owner-answers).
+- **What an amendment fixes.** Before any claim is sent or the fixture runs, an
+  amendment to the card fixes the per-class minimum, the conditions and the repeats,
+  and names the labeller.
 
 ## Why the claim set needs a protocol
 
@@ -12,24 +16,31 @@ become thresholds only if E0's judge fixture reaches the agreement level the E0 
 sets. The judge is the entailment pass in `src/main/private-agent/claims.ts`: one
 thinking-off call per verified claim, with four verdicts.
 
-The fixture measures that pass against labels a separate session assigns. A measurement
+The fixture measures that pass against labels that a cloud model assigns through its
+API, separately from the judge, as the owner decided on 2026-11-13. A measurement
 is only as good as its labels and its mix of claims. Real claims are mostly supported
 (the split runs' entailment counts were 33 supported + 6 partial of 40, and 29 + 7 of
 39), so the protocol plants negatives until every class reaches the card's minimum.
 
 ## Roles
 
-- **Harvester** (any session): collects the claims from exposed runs. Only public or
-  synthetic runs qualify; never a run on labelled or private data.
-- **Labeller** (a separate session): labels every claim and plants negatives.
-  - It receives only `claims.json`, never the provenance sidecar: a run's id leads to
-    that run's own judge verdicts.
+- **Harvester** (any session): collects the claims from exposed runs.
+  - The claims' text goes to a cloud model, so only runs on public or synthetic inputs
+    qualify.
+  - Never use a run on labelled, private or owner data.
+- **Labeller** (a cloud model, through its API, separate from the judge): labels every
+  claim and plants negatives.
+  - It receives only the instructions of steps 2 and 3 and `claims.json`.
+  - It never receives the provenance sidecar, because a run's id leads to that run's own
+    judge verdicts.
   - It must not see any judge verdict on these claims: no `claims_entailment` events
     and no fixture summary.
   - It must not see the runs' grades.
-  - It records its own identifier in `labeller`.
-- **Owner:** commits the E0 card and pins the manifest before the fixture runs, and
-  runs the fixture on the Mac that reaches the endpoint.
+  - `labeller` records its provider and model as the card's amendment names them.
+- **Owner:**
+  - Records the card's amendment (see "Before any claim leaves the machine").
+  - Pins the manifest with that amendment before the fixture runs.
+  - Runs the fixture on the Mac that reaches the endpoint.
 
 ## Step 1: harvest
 
@@ -54,10 +65,35 @@ judges.
 - The command prints counts and the file's sha256, never claim text. A failure prints
   a fixed code, never a path.
 
+## Before any claim leaves the machine
+
+The labelling is the one paid step E0 allows. The owner approved it on 2026-11-13
+(BL-20261113-1003-e0-card-owner-answers), with a cap of USD 1.00 in total that the
+orchestrator recorded and the owner may change. Before the first claim is sent:
+
+- **The card's amendment names the labelling:**
+  - the provider and the model;
+  - the API host;
+  - the name of the variable that holds the key, never its value;
+  - the tool that sends the claims;
+  - the cap and the envelope line it is charged to.
+
+  A new egress destination keeps its gate. The key stays in the owner's local
+  configuration and is never written to a file, a log or a commit.
+- **Check the claim set.** It must come from step 1 on public or synthetic runs only.
+- **Project the fee from the claim count first.** Do this before the first call, and
+  stop before any call that would pass the cap.
+- **Send only the instructions and `claims.json`.** No sidecar, verdict, grade, run
+  directory, path or address leaves the machine.
+
+This protocol does not name the provider or the model, and no labelling tool exists in
+the repository yet.
+
 ## Step 2: label
 
-For each claim, read only the `sentence`, the `quote` and the `context`, and assign one
-label. The definitions are the judge's own (`ENTAILMENT_SYSTEM_PROMPT`):
+The labeller receives the definitions and rules of this step and of step 3, word for
+word. For each claim, it reads only the `sentence`, the `quote` and the `context`, and
+assigns one label. The definitions are the judge's own (`ENTAILMENT_SYSTEM_PROMPT`):
 
 - `supported`: the passage establishes the sentence.
 - `partial`: the passage establishes only part of it or a weaker form.
@@ -70,11 +106,11 @@ possible:
   passage;
 - choose `contradicted` over `unsupported` only when the passage states the opposite.
 
-Put a note of at most 400 characters on any claim that stayed hard.
+The labeller puts a note of at most 400 characters on any claim that stayed hard.
 
 ## Step 3: plant negatives up to the minimum
 
-The proposal for the card is 10 claims per class; the card fixes the number.
+The proposal for the card is 10 claims per class; the card's amendment fixes the number.
 
 To plant a claim, copy a real claim's `quote` and `context` byte for byte, give it the
 next free id, omit `origin`, mark it `planted: true` in the labels, and rewrite only the
@@ -93,8 +129,12 @@ fixture reports the planted claims' detection separately (`plantedNotEstablished
 
 ## Files
 
-Both files stay under `.soar/experiments/e0-judge/`, which git ignores. The labels are
-evaluator gold: never commit them or send them to a cloud tool.
+All three files stay under `.soar/experiments/e0-judge/`, which git ignores. The labels
+are evaluator gold:
+- They come back from the labeller's API and are written there.
+- Never commit them, never show them to the judge, and never send them to any other
+  tool or model.
+- The fixture never puts a label in a request.
 
 - `claims.json`: `{"version": 1, "task": "...", "claims": [{"id", "sentence", "quote",
   "context"}]}`. Bounds follow `ClaimsVerifiedClaimSchema`, every context is non-empty,
@@ -103,6 +143,7 @@ evaluator gold: never commit them or send them to a cloud tool.
   "claimId"}]}`, kept for the owner and never given to the labeller.
 - `labels.json`: `{"version": 1, "protocol": "e0-judge-labelling-v1", "labeller": "...",
   "labels": [{"id", "label", "planted", "note"?}]}`, with exactly one label per claim.
+  `labeller` holds the provider and the model as the card's amendment names them.
 
 ## Step 4: pin, then run
 
@@ -111,7 +152,7 @@ evaluator gold: never commit them or send them to a cloud tool.
 2. Fill `docs/experiments/e0-judge-fixture-v1.json` with these values. Copy the card's
    `minimumPerClass`, `agreement` (`measure` `exact` or `established`, and its `level`),
    `conditions` and `repeats`, then set `status` to `pinned`.
-3. Commit the manifest with the E0 card, before any run.
+3. Commit the manifest with the card's amendment, before any run.
 4. On the owner's Mac, run
    `pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> --dry-run`, then
    the same command without `--dry-run`.
@@ -150,9 +191,11 @@ hashes and a new manifest version, and keep the first result.
 
 ## What the fixture shows, and what it does not
 
-It shows how often today's judge agrees with one separate labeller on harvested and
-planted claims from the exposed r3 runs, overall, on criterion 8's established split,
-and per side. It does not show:
+It shows how often today's judge agrees with one cloud labeller on harvested and planted
+claims from the exposed r3 runs, overall, on criterion 8's established split, and per
+side. It does not show:
+- that the cloud labeller's labels are right, or that another labeller would agree
+  with them;
 - accuracy against an objective truth;
 - performance on web-scale pages unlike r3's;
 - whether the judge separates accepted from rejected drafts. That second activation

@@ -63,9 +63,10 @@ This folder holds the committed, sanitized record of live trials (see
   (`scripts/judge-fixture.ts`). It holds the claim set's and the labels' sha256, the
   claim, class and planted counts, and the card's per-class minimum, agreement measure
   and level, conditions and repeats. It is a template until the owner pins it with the
-  E0 card. [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md) says how the
-  claims are harvested, labelled by a separate session, planted and pinned. The claims
-  and the labels (evaluator gold) stay under the ignored `.soar/`.
+  E0 card's amendment. [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md)
+  says how the claims are harvested, labelled by a cloud model through its API, planted
+  and pinned. The claims and the labels (evaluator gold) stay under the ignored
+  `.soar/`.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `phase2-tasks-v1.json`: the hashes-only manifest of the frozen Phase 2 tasks (task

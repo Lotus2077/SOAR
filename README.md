@@ -131,7 +131,7 @@ the ignored `.soar/`, and no address is printed or stored):
   `docs/experiments/e0-planner-fixture-v1.json`; raw replies stay under `.soar/`.
 - `pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> [--dry-run]`:
   the E0 judge fixture. It runs today's entailment judgement on a claim set that a
-  separate session labelled, checked against the hashes-only manifest
+  cloud model labelled through its API, checked against the hashes-only manifest
   `docs/experiments/e0-judge-fixture-v1.json`, and scores agreement. `pnpm fixture:judge --
   harvest --runs <runDir> --task <name> --out <claims.json>` collects the claims to label;
   [the labelling protocol](docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md) says how.

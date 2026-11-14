@@ -38543,3 +38543,105 @@ References:
 - BL-20261113-1023-p10-align-implemented;
 - BL-20261109-0334-research-request-shapes-design;
 - BL-20261107-0809-zero-fee-failures-resolve-design.
+
+### BL-20261114-1331-research-priority-trim-implemented -- 2026-11-14 -- Item 7b.2 implemented: the priority trim with disclosed omissions the ready gate accepts, coverage v3, and the presentation guard before and during synthesis; offline tests only
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261114-1304-research-priority-trim-design (item 7b.2, finding D4). A packet the caps cut now reaches synthesis and the writer with every quote and conflict note it left out disclosed in coverage.json.
+
+Decisions: The design of 1304 stands. These are the specifics.
+
+(1) **The code.**
+- **research-trim.ts (new).** It holds `RESEARCH_TRIM_POLICY`, `researchTrimOrder` (the round-robin) and `researchLargestFitting` (the prefix search).
+- **research-pipeline.ts.**
+  - The first-fit loops and both terminal reasons are replaced by the trim.
+  - The guard runs before synthesis, and the judge applies the reply rule (`presentation_too_large`).
+  - `SYNTHESIS_SYSTEM` and the writer instructions each gain one sentence.
+  - The protocol binds the trim policy and coverage version 3.
+- **research-coverage.ts.** It has coverage v3 and the gate rules: `evidence_counts` (extended), `omission_identity`, `omission_binding`, `omission_question` and `question_outcome` (extended). `conflict_binding` now covers conflict omissions too.
+- **research-contract.ts.** `RESEARCH_COVERAGE_POLICY` is now version 2.
+- **research-presentation.ts.** It gains `researchPresentationBytes`, which renders as `buildResearchPresentation` does but without the gate.
+- **scripts/export-role-schemas.ts.** P10's synthetic coverage moves to version 3.
+
+(2) **What a run records.**
+- **The extract row** gains `questionsTrimmed` and `quotesLeftByPresentation`. Both are counts, and both are added to the stage-key guard.
+- **coverage.json.** An omission carries `chunkIds`, `locator` and `reason` (`packet_cap` or `presentation_cap`). A chunk question may be `evidence_trimmed`.
+- **The judge.** A rejected over-cap reply reaches the diagnostics sink with `{code: "presentation_too_large", path: ["argument"], maximum: 196608}`.
+- **When nothing fits.** If not even a one-quote packet fits before synthesis, the files hold the 64 KiB prefix with `packet_cap` omissions only, and `coverage.unresolved` names `research_presentation_too_large`.
+
+(3) **The hash.** The default `researchProtocolSha256()` moves from 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92 to 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. tests/helpers/research-protocol-pin.ts records both.
+- **The E0 card.** docs/experiments/e0-card-2026-11-13.md names 505c385a… as its precondition, and this PR does not amend it. If the owner lands 7b.2 before E0's export, the card needs that amendment first.
+- **The synthesis request.** An untrimmed run's synthesis request changes only in coverage's version and protocol hash. The 7c pin test shows this: with coverage put back in 7a.1's shape, the request still equals 7a.1's byte for byte.
+
+(4) **Changes in other lanes' files:** none. The effects (10) of 1304 names, on T2's counts-only coverage and on 7d.B's host flags, stand as stated.
+
+Changes:
+- Commit 573f53f: src/main/private-agent/research-trim.ts (new), research-pipeline.ts, research-coverage.ts, research-contract.ts and research-presentation.ts; scripts/export-role-schemas.ts.
+- The tests in the same commit:
+  - tests/unit/private-agent-research-trim.test.ts (new);
+  - the pipeline, coverage, session and seed tests;
+  - tests/helpers/research-protocol-pin.ts.
+
+Evidence: The checks ran locally at 573f53f.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related tests.** The research, export, probe, host-flags, run-reasons and planner-fixture suites pass: 23 files and 506 tests.
+- **The flipped pins** (E1-T2's, BL-20261113-0850-e1-recoverability-pipeline-seed-implemented):
+  - **The f2-shaped dense corpus** ends `research_packet_ready`: 252 quotes verified, 230 in the packet and 22 omitted. evidence.md is 65,322 bytes and the presentation 91,719. Before this item it ended `research_packet_cap_omission`.
+  - **The conflict-cap case** keeps sixteen notes and discloses four by hash.
+  - **The packet-cap case** keeps a prefix of its 240 quotes and discloses the rest, each with its chunk and line.
+  - The D4 test stays in E1's describe block under a new name, so `-t "E1 recoverability"` still selects the same number of tests.
+- **The new tests.**
+  - **The priority.** With three questions, the packet is exactly a prefix of the round-robin, a shared quote is placed once, and no question is left without a packet quote. A second case orders conflict notes by the same round-robin.
+  - **The gate** accepts a real trimmed packet holding retained, trimmed and no-evidence outcomes. It refuses:
+    - counts that do not add up;
+    - a duplicate omission, and an omission of a packet quote;
+    - an `evidence_trimmed` outcome that keeps ids or that no omission names;
+    - an omission bound to another source's chunk, an unknown question, or a pair with no verified evidence;
+    - a conflict omission from an unknown source.
+  - **The guard.**
+    - Twenty-four sources with 1,500-character non-ASCII paths shrink to a 54-quote packet with 67 `presentation_cap` omissions, and the presentation is 187,044 bytes.
+    - Forty sources with 2,000-character paths end `research_presentation_too_large` with no synthesis call.
+    - An over-cap first reply is rejected, and the second is accepted.
+    - Two over-cap replies fall back to the skeleton, which fits.
+  - **The session.** A trimmed packet reaches the writer, with coverage v3, its omissions and an `evidence_trimmed` outcome in the presentation. The writer's instructions name `evidence_trimmed`.
+  - **The seed.** A trimmed packet seeds with the transfer status code null.
+- **Mutations.** Ten single edits each fail a test:
+  - quotes in verification order;
+  - conflict notes in noted order;
+  - no `evidence_trimmed` outcome;
+  - every omission `packet_cap`;
+  - no guard before synthesis;
+  - no reply rule;
+  - the gate without the identity check, without the trimmed outcome's binding, without `omission_question`, or without the new counts.
+- **Scale, on synthetic fixtures** of twelve 258-character rows with 200-character notes per source; these are not real corpora.
+  - At the schema's maximum of 480 verified quotes (40 sources), the presentation fits without the guard with 10- and 200-character source paths: 175,276 and 182,876 bytes.
+  - With 600- and 1,000-character paths, the guard keeps 86 and 38 quotes.
+  - With 2,000-character paths, nothing fits.
+- **The full suite.** `pnpm exec vitest run` reports 183 files passed and 13 skipped, and 3,600 tests passed and 86 skipped. None failed.
+- **The protocol hash** is 7100b7a2… by the pin test.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint.
+- **What the gate checks.** It checks that omissions are counted, unique and bound. It cannot check that the trim kept the right quotes, since an omission carries only a hash. Nor can it see an omission that was removed together with its counts, unless that leaves an `evidence_trimmed` outcome unbound. The pipeline's tests check the order.
+- **The reservation** of 8 bytes per word is a protocol constant, not a measurement. The reply rule covers an argument that outgrows it.
+- **Long source paths.** At web scale they can still leave no packet that fits (`research_presentation_too_large` before synthesis). That is disclosed, and the presentation policy is unchanged.
+- **Not done here:**
+  - D4's incomplete-chunk clause, which stays open for the orchestrator;
+  - T2's local trim counts (10.b);
+  - a trimmed count in the host flags (S-desk's call).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review;
+- CI green;
+- the merge, held for the owner's choice of E0 window: never between `pnpm probe:export-schemas` and `pnpm probe:assess`, and with E0's card amended if it lands before the export.
+
+References:
+- BL-20261114-1304-research-priority-trim-design;
+- BL-20261113-0927-research-v5-design;
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented;
+- BL-20261113-1023-p10-align-implemented.

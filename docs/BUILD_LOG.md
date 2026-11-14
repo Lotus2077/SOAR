@@ -38787,3 +38787,48 @@ Next gate:
 - The merge under the standing go-ahead, with this branch's entries re-stamped after `main`'s tail.
 
 References: BL-20261114-1343-registry-columns-design; BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261114-1250 (pull request #98); HARN-27.
+
+### BL-20261114-1447-registry-columns-review-design -- 2026-11-14 -- Supersede parts of plan 11.4's decisions (2) and (3) after #104's light review: tool names from the runner's closed set, a loopback source counted without its port, null for a fee or a read count never recorded, and cloud calls in commit order on loop rows
+
+Status: `Proposed`
+
+Scope or hypothesis: Supersede, without editing it, four column rules in decisions (2) and (3) of BL-20261114-1343-registry-columns-design. The light review of #104 found one major and five minor findings, and the coordinator checked the major independently. Four findings change what a column holds:
+- **The major, privacy.** `actions.tools` was keyed by `tool_started.name`.
+  - runner.ts records the name the model chose before it checks the tool (runner.ts:674), and the tool-call parsers accept any non-empty string.
+  - The implementation's filter was a pattern (`^[a-z][a-z0-9 _-]{0,63}$`), not a closed set, so model-chosen text could reach a public row. In the review's probe, a tool named `email jane doe re acme merger 4417` did.
+  - That contradicts decision (2)'s "no URL, hostname, path or text reaches a row".
+- **Loopback ports.** Each run's snapshot receiver listens on its own loopback port, and the retained URL keeps it. So a loop row's union counted one source read by two runs twice.
+- **Values never recorded.** A denied index stage records no `sourcesIndexed`, and a call that never settled has no fee, but both were written as 0.
+- **Order.** Decision (3) concatenates a loop's cloud calls in stage order, while decision (2) and the README say commit order. The code followed neither: it concatenated runs by directory name.
+
+The code, its tests, the README and a correction of the implementation entry's decision (c) follow in this pull request. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Tool names (supersedes `actions.tools` in decision (2)).**
+  - `actions.tools` counts finished tool calls by name only for names in the runner's closed set: `append_file`, `check_claims`, `execute`, `fetch_public`, `finish`, `read_observation`, `remember_plan`, `request_consultation`, `str_replace` and `write_file`. These are runner.ts's tools with every option on, and observations.ts's `read_observation`.
+  - Any other name, and a call whose start was not recorded, counts as `other`.
+  - registry-row.py mirrors the set, and a test checks the mirror against the runner's own definitions.
+- **(2) Loopback sources (supersedes `urls` in decisions (2) and (3)).** A retained URL whose host is a loopback address (127.0.0.1 or ::1) is counted without its port, so one source read by two runs of a loop counts once. Other URLs are counted as retained. `domains` is unchanged: it excludes loopback hosts.
+- **(3) Values never recorded (supersedes `cloudCalls[].feeUsd` and `actions.sourcesRead` in decision (2)).**
+  - `feeUsd` is the call's settled fee, and null on a call that did not settle: committed, unknown, failed or superseded. Only the store's settle records a fee.
+  - `sourcesRead` is the reading stage's recorded `sourcesIndexed`, and null when no reading stage recorded one, a denied index stage included. A loop row sums the counts its runs recorded, and is null when none did.
+- **(4) Order (supersedes the stage order in decision (3)).** A loop row's `cloudCalls` are in commit order (`committedAt`) across all its runs and the critique's ledger, as decision (2) and the README say for a run. A call without a commit time keeps the scan's order, after the others.
+- **(5) Purposes (unchanged).** `cloudCalls[].purpose` keeps the host-token pattern. Every purpose is a host constant (research-pipeline.ts's `PURPOSES`, the assist purposes, and model.ts's default), passed by the host code that makes the dispatch; a model's output never sets one. The review left a closed set for purposes optional.
+
+Changes: This entry only. The code (scripts/registry-row.py), its tests, docs/experiments/README.md and the correction of BL-20261114-1405-registry-columns-implemented follow in this pull request.
+
+Evidence: The light review of #104, and the coordinator's own check of the major: the pattern at registry-row.py:511, and runner.ts:674. Also reading, at 7eb5499:
+- runner.ts:74-96 and observations.ts:47, the tool definitions, and `promptProtocol`, which offers them;
+- store.ts:310-318, where only `settle` records `feeMicrousd`;
+- research-pipeline.ts:291, where the index stage records `sourcesIndexed`;
+- research-pipeline.ts:36, model.ts:439 and broker.ts:405, where a dispatch's purpose is the caller's host value.
+
+Failures or blockers: Decision (c) of the implementation entry used a pattern where decision (2) needed a closed set. The fix follows in this pull request.
+
+Limitations and non-claims: Proposed only; this entry implements nothing. The privacy finding is a major, not a blocker: per the review, the harness's destinations are synthetic only (private-agent-local-screen.ts:297 and :418), so the owner's private data was out of reach. No committed registry row holds these columns, since #104 is not merged.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The code and the correction in this pull request, then the coordinator's re-check of the delta. No owner question is added.
+
+References: BL-20261114-1343-registry-columns-design; BL-20261114-1405-registry-columns-implemented; the light review of #104; HARN-27.

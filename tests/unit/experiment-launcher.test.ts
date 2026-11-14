@@ -52,11 +52,11 @@ function writeLoop(directory: string, over: { failure?: string | null; stopped?:
 /** One child's behaviour: how long it runs, its exit code, what it writes, and whether it ignores a forwarded signal or even SIGKILL. */
 interface Script { ms?: number; code?: number; killed?: boolean; start?(run: QueueRun, files: { out: string; err: string }): void; ignore?: boolean; unreaped?: boolean }
 interface HarnessOptions { scripts?: (id: string, attempt: number) => Script; metrics?: (call: number) => { running: number; waiting: number } | null;
-  git?: { commit: string; dirty: boolean } | null | ((call: number) => { commit: string; dirty: boolean } | null); onMain?: boolean | null; inhibitor?: boolean; alive?: (pid: number) => boolean; locked?: boolean }
+  git?: { commit: string; dirty: boolean } | null | ((call: number) => { commit: string; dirty: boolean } | null); onMain?: boolean | null | ((call: number) => boolean | null); inhibitor?: boolean; alive?: (pid: number) => boolean; locked?: boolean }
 function harness(root: string, options: HarnessOptions = {}) {
   const spawned: { run: string; attempt: number; at: number }[] = [], sent: { run: string; signal: string; at: number }[] = [], metricTimes: number[] = [];
   const attempts = new Map<string, number>(), listeners = new Set<(signal: ForwardedSignal) => void>();
-  let gitCalls = 0;
+  let gitCalls = 0, mainCalls = 0;
   const deps: LauncherDependencies = {
     root,
     now: () => Date.now(),
@@ -66,7 +66,7 @@ function harness(root: string, options: HarnessOptions = {}) {
       cancel.addEventListener("abort", () => { clearTimeout(timer); done(); }, { once: true });
     }),
     gitState: () => { gitCalls += 1; return typeof options.git === "function" ? options.git(gitCalls) : options.git === undefined ? { commit: "c".repeat(40), dirty: false } : options.git; },
-    headOnMain: () => options.onMain === undefined ? true : options.onMain,
+    headOnMain: () => { mainCalls += 1; return typeof options.onMain === "function" ? options.onMain(mainCalls) : options.onMain === undefined ? true : options.onMain; },
     lock: () => { if (options.locked) throw new Error("loop_locked"); return { release() { /* one launcher in these tests */ } }; },
     startInhibitor: async () => options.inhibitor === false ? null : { kind: "test", stop() { /* nothing to stop */ } },
     readMetrics: async () => { metricTimes.push(Date.now()); return options.metrics ? options.metrics(metricTimes.length) : { running: 0, waiting: 0 }; },
@@ -413,6 +413,12 @@ describe("experiment launcher after its light review (PR #98)", () => {
     for (const [later, code] of [[{ commit: "c".repeat(40), dirty: true }, "tree_dirty"], [{ commit: "d".repeat(40), dirty: false }, "commit_changed"], [null, "commit_unknown"]] as const) {
       const state = join(workspace(), "state");
       const h = harness(root, { git: call => call >= 3 ? later : { commit: "c".repeat(40), dirty: false } });
+      expect(await launch(h, writeQueue(root, [singleRun("r1"), singleRun("r2")]), state)).toMatchObject({ state: "stopped", code, finished: 1, pending: 1 });
+      expect(h.spawned.map(item => item.run)).toEqual(["r1"]);
+    }
+    for (const [later, code] of [[false, "head_not_on_main"], [null, "main_unknown"]] as const) {
+      const state = join(workspace(), "state");
+      const h = harness(root, { onMain: call => call >= 3 ? later : true });
       expect(await launch(h, writeQueue(root, [singleRun("r1"), singleRun("r2")]), state)).toMatchObject({ state: "stopped", code, finished: 1, pending: 1 });
       expect(h.spawned.map(item => item.run)).toEqual(["r1"]);
     }

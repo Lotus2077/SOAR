@@ -38397,3 +38397,141 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
+
+### BL-20261114-1308-concurrent-local-admission-design -- 2026-11-14 -- Backlog item 8 decided: the ledger admits live zero-risk local dispatches of one job, context and purpose together (8.1), and the index, extraction and judge loops run K at a time with K from the serving card (8.2b)
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for all of backlog item 8 (docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 8; finding D12; section 5.2 "Local fan-out", rows S2, S4 and S10). It is recorded before 8.1's code because it changes dispatch semantics (section 5.7's rule). Lane S-assist builds item 8 in parts:
+- 8.2a, the ordered pool, is merged (BL-20261109-0456-ordered-pool-implemented, corrected by BL-20261110-0619-correction-ordered-pool-entry). Nothing calls it yet.
+- E1-R, the atomic supersede of a retried attempt, is merged from lane S-e1 (BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented). 8.1 reuses it and does not redo it.
+- 8.1 is this branch (`feat/8.1-concurrent-local-admission`, from `main` at 582f880): the ledger's concurrent admission and the broker's live set. After it nothing calls concurrency yet: every loop stays serial, so its tests drive concurrent broker requests directly.
+- 8.2b comes later: the index, extraction and judge loops on the pool, K from the serving card, and the session and driver plumbing.
+
+It is zero-fee code with deterministic tests and needs no approval under PLAN.md section 4(c). The design comes from the lane's git-ignored planning map, which was written at an older `main`. Every anchor below was checked at 582f880, and decision (11) lists where the map was wrong.
+
+Hypothesis: with the rule in (1), up to K zero-risk local calls of one loop (a research stage's index or extraction pass, or the judge pass) can be in flight together, while cloud, priced, granted, approved, public-GET and assist dispatch keep today's one-at-a-time, at-most-once ledger, and a crash still leaves only rows that block.
+
+Decisions:
+(1) The admission rule (8.1). `PrivateAgentStore.commit`'s options (`CommitOptions`, store.ts:104-106, beside E1-R's `supersedes`) gain `concurrency: { live }`. With it the broker certifies the new row as a zero-risk local dispatch and passes the ids of the rows it holds live. Inside the commit's transaction, at the blocking check that refuses today (store.ts:272), the new row is admitted beside the job's blocking rows only if all of these hold:
+- its reserved fee is 0;
+- it has no grant and no approval;
+- its purpose is not an assist purpose (`isAssistDispatch`);
+- every blocking row (`isBlockingDispatch`) is `committed`, is in `live`, reserves no fee, and has the new row's job, context and purpose.
+
+Anything else is refused with `private_agent_unresolved_dispatch`, as today, and the broker still answers `unresolved_dispatch` before any byte is sent. Without `concurrency` nothing changes. Also unchanged:
+- `isBlockingDispatch` and `isResolvedDispatch`, so every pre-check that refuses a committed row still refuses it (session.ts:398 and :439; runner.ts:391; general-tasks/controller.ts:435);
+- the assist rule (store.ts:273), the proposal check, the fee exposure and `maxRequests` (store.ts:274-280), which count every live row, and the grant logic;
+- E1-R's supersede step and its place before every check (store.ts:265).
+
+Two clauses are implied rather than enforced on their own. The job clause holds because the rows checked are read for the input's job only (store.ts:267). The approval clause holds because `commit` refuses an approval without a grant (store.ts:256). Both are written out for the reader.
+
+(2) The scope (ASSIST-M1's default, see (10)): one job, one context and one purpose, on `local_model` destinations only. Public-GET fan-out stays with item 12.
+- The broker passes `concurrency` only when the request is zero-risk (`zeroRiskDispatch`, broker.ts:414-419) and its destination is a `local_model`. Zero-risk already means no grant, no approval and, on a local model, a zero fee.
+- A public GET is zero-risk but is never certified. So two GETs, or a GET and a local call, never overlap.
+
+(3) The live set (8.1). Beside `active` (broker.ts:327), the broker keeps a per-job set: the ids of its committed zero-risk local rows whose attempt is in flight.
+- An id is added right after `commit` returns, with no `await` between. It is deleted in that attempt's `finally` (broker.ts:621-625), after the row is settled or resolved.
+- Liveness is per broker instance and never persisted. Receipts stay byte-identical: no field is added, and the same sequence of commits writes the same rows.
+- A crash leaves K `committed` rows that are in no live set. They block every later commit of the job, through any broker, exactly as one committed row does today: the session's pre-check ends `unresolved_dispatch_no_replay`, and a rerun judge pass is refused at its first call. Nothing resolves orphan rows (BL-20261107-0809-zero-fee-failures-resolve-design's limitation stands), and the harness counts K `unknownDispatches`.
+- Another process sharing the database holds its own live set, so neither host's rows admit the other's.
+- A row the broker failed to close (a database error while it was resolved) leaves the live set in `finally` and then blocks like an orphan.
+
+(4) The D4 retry under concurrency, with E1-R reused.
+- The retried attempt stays `committed` and live through its backoff, so siblings may commit beside it.
+- `continue` runs its attempt's `finally`, which removes it from the live set. The successor's commit follows synchronously, with no `await` between, and its `supersedes` closes the earlier attempt `superseded` inside the same transaction, before the blocking check. So no sibling ever sees that attempt committed and not live, and a `superseded` row still always has its successor.
+- `admissible` (broker.ts:597) stays advisory, and a sibling may take the last request during the backoff. The successor's commit is then refused (`private_agent_budget_denied`) and both writes roll back. `abandon` then resolves the earlier attempt `failed` and denies `request_failed`, E1-R's give-up code. No lone `superseded` row is left.
+
+E1-R's limitations (BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented) ask 8.1 to map a retry refused because a sibling took the last request to the allowance stop, since the runner would otherwise end `model_unavailable`. Decided: the broker keeps `request_failed` for every refused retry, and no broker code is added.
+- The runner cannot meet the case. Concurrent admission needs one context and purpose, the runner dispatches one call at a time in the writer's context, and 8.2b's pool drains every reading-stage call before the stage returns. So no sibling is ever live beside a runner call.
+- The callers that can meet it, 8.2b's loops, end the same way under either code: `research_request_denied`, and the judge's `judge_request_failed`. Only the stage's recorded `denied` differs: at K > 1 it can read `request_failed` at the retried item, where the serial loop would read `budget_denied` at a later item.
+- This supersedes that obligation. A later change that gives the runner siblings must revisit it.
+
+The Anthropic 429/529 path is cloud, is never certified, and is unchanged.
+
+(5) `cancelJob` is unchanged (broker.ts:629-633). It aborts every controller of the job, so K calls in flight each resolve `failed` (`cancelled`) and each deny `request_failed`. The job's cancelled policy refuses everything after.
+
+(6) The ordered pool for the index and extraction loops (8.2b), as BL-20261109-0456-ordered-pool-implemented and its correction state:
+- Items launch in item order, with at most K launched and not yet applied. Replies apply strictly in item order. With K = 1 each loop is today's.
+- The initial pass drains before any repair (`mandatoryBeforeRepair`). The repair list is computed once after that drain, as the code does today: the batches still deficient (research-pipeline.ts:289), and the chunks not complete and not held, then the held ones (research-pipeline.ts:453-455). The slots are the budget minus the calls applied (`indexCalls`, `extractionCalls`).
+- Every shared mutation happens in apply: the counts and usage, `batchAssessments`, `deficient`, the evidence ids and quotes, `conflicts`, chunk status and attempts, `held`, and the diagnostics' ordinals (`retain`'s ordinal is `counts.calls`). So the packet bytes and the sink entries equal K = 1's for the same replies.
+- Plan and synthesis stay sequential.
+
+(7) A denial at K > 1 (8.2b; ASSIST-1's default, abort and drain).
+- A genuine denial stops launching and aborts the in-flight siblings through the pool's own controller, at interrupt time: as the denial settles, not at its turn in item order.
+- Why interrupt time: any genuine denial ends the stage `research_request_denied` with no packet, whatever the siblings return. Letting lower-index siblings finish only delays the stop, by up to their remaining request time (900 s under Heavy), and holds the local server. It is also what ASSIST-1's default describes to the owner: "A sibling with a lower index than the denial can be cut short".
+- The cost, recorded as a limitation: a denied stage's `calls`, usage and `failed` rows differ from the serial loop's.
+- The rule of BL-20261110-0619-correction-ordered-pool-entry: a sibling stop is an outcome applied with `afterAbort` whose call reports `cancelled`, and the stage's `denied` is the lowest-index denial that is not a sibling stop. A call that failed for its own reason as the abort arrived is still a genuine denial.
+- The pool drains every launch before the stage returns or rethrows, and applies every settled reply in item order. So `calls` counts the stage's settled replies, and every row is resolved before the session's pre-checks run.
+- From the #71 review:
+  - `call()` (research-pipeline.ts:234-242) uses the per-launch signal for its early check and for its catch label;
+  - "stopped, with the stage signal aborted and no denial applied" maps to `denied: "cancelled"`;
+  - the stage's own abort (pause, cancel, deadline) reaches every launch unmarked.
+
+(8) The judge (8.2b; ASSIST-2's default, keep the verdicts). `judgeClaims` (claims.ts:59-93) runs K claims at a time.
+- A failed call stops launching (the pool's `stop`, not `abort`). The siblings finish and their verdicts are kept. Claims not launched take the stop label.
+- The pause and deadline checks run in `beforeLaunch`, once a slot is free.
+- A claim without context is answered without a call, never through `beforeLaunch`, whose false would stop the pass.
+- A failed call is labelled inside `launch` when it fails, because the pass signal may change before its apply.
+- Verdicts stay in claim order, and `entailmentCalls` counts launched calls. At K > 1 a truncated pass may hold verdicts for claims launched after the failing one.
+
+(9) K (8.2b).
+- Source: the serving card's `concurrency.localStreams`, which SC reads as `LoadedServingCard.policy.localStreams`: 1 to `MAX_LOCAL_STREAMS` (8), and above 1 only with an error-free P11 burst at that K. Without a card it is `DEFAULT_SERVING_POLICY.localStreams`, 1.
+- 8.2b flips `SERVING_CARD_CONSUMED.localStreams` (serving-card-flags.ts) with a test that K reaches the loops, and adds the parity test that `ORDERED_POOL_MAX_LIMIT` equals `MAX_LOCAL_STREAMS`.
+- Which models qualify: a loop runs K at a time only when its model is zero-risk local, meaning every configured rate is zero (long tier included) and the destination is a `local_model`. That is a `zeroRisk()` factored out of `deadlineRefuses` (model.ts:344-350), which keeps returning what it returns today. Otherwise K is 1.
+- Plumbing: an optional session option, excluded from the session identity like the diagnostics sink, and passed to the pipeline and the judge. The headless driver passes the card's value. The desktop controller passes none, so the desktop stays at K = 1 until item 13.
+- Where K is recorded. K is never in `researchProtocolSha256()`, `ResearchBudget`, `ResearchStageCounts`, summary.json, `freeze.pipeline` or the session identity. SC's freeze record `servingCard {sha256, version, date, entry}` holds no K, as the ASSIST-M2 question notes. So 8.2b adds `localStreams` to that record when a card is given, as SC's contract lets a consumer do in its own design entry; K is then in freeze.json itself. Without a card nothing is added. The registry column waits for item 11 (ASSIST-M2's default).
+
+(10) Owner questions. Their defaults are recorded here as `Proposed`; an agent does not answer them. The questions are in the orchestrator's git-ignored list of owner decisions for train 1, outside the repository.
+- ASSIST-1, a denial at K > 1: abort the siblings and drain (7). The #71 review left one sub-choice to this entry, abort at interrupt time or at apply time; (7) decides it: interrupt time.
+- ASSIST-2, a judge failure at K > 1: keep the verdicts that arrive (8).
+- ASSIST-M1, the admission scope: yes, one job, context and purpose on `local_model` only, with public GETs left to item 12 (2).
+- ASSIST-M2, K in the registry row now or with item 11: freeze.json only for now, and the column with item 11 (9).
+
+The map's two other item-8 questions are closed. The card mechanism is SC's adopted contract (pull request #65). The atomic supersede is E1-R's, which BL-20261109-0337-retry-wait-atomic-supersede-design decision 6 widened to both retry paths.
+
+(11) Where the planning map was wrong at 582f880:
+- E1-R already made the supersede atomic (store.ts:97-106, :265 and :339-348; broker.ts:488-497, :528, :534, :608 and :614). 8.1 adds no `supersedes` and no pending-predecessor logic.
+- The anchors moved: `commit` is at store.ts:250-297, its blocking check at :272 and the assist rule at :273. In broker.ts, `request()` is at :438-627, `active` at :327, the commit at :510-528, the attempt's `finally` at :621-625, the D4 retry at :612-615 and `zeroRiskDispatch` at :414-419. The deadline guard is at model.ts:344-350. The pre-checks are at session.ts:398 and :439, runner.ts:391 and controller.ts:435. The loops are at research-pipeline.ts:288-289 and :451-455, and the judge at claims.ts:59-93.
+- The protocol hash is 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92 (tests/helpers/research-protocol-pin.ts), not 3453710315...; `RESEARCH_PIPELINE_VERSION` is 5, not 4; `LOOP_VERSION` is 2, not 1.
+- The card mechanism is SC's: the `SOAR_SERVING_CARD_FILE` and `SOAR_SERVING_CARD_SHA256` pair and `policy.localStreams`. It is not a separate parameters file, a `--serving-card` flag or a `servingCard {sha256, localConcurrency}` record. serving-card.ts and ordered-pool.ts already exist.
+- The extraction repair list includes 7a.1's held chunks.
+- The pool's "first denial applied without `afterAbort`" is superseded by BL-20261110-0619-correction-ordered-pool-entry's rule, and the MaxListeners risk is moot on Node 22.22.2.
+
+(12) Unchanged contracts, for 8.1 and 8.2b alike:
+- `DispatchReceipt`, its statuses and `UnknownRequestDiagnostic`; receipts written at K = 1 are byte-identical;
+- request bodies and `researchProtocolSha256()` (505c385a...);
+- the session identity (tests/unit/private-agent-identity-golden.test.ts stays green unmodified);
+- the research producer (v2), the ready-packet validator, the seed loader and selection;
+- the harness (scripts/phase4-loop.ts with `LOOP_VERSION` 2; scripts/registry-row.py);
+- the desktop (K = 1);
+- cloud, priced, grant, approval, public-GET and assist admission; at-most-once; `cloud_after_assist_unknown`; the Anthropic retries; `cancelJob`.
+
+8.1 itself changes no behaviour of any current caller, because no caller issues two calls of one job, context and purpose at once.
+
+Changes: This entry only. Planned:
+- 8.1, on this branch:
+  - src/main/private-agent/store.ts: the `concurrency` option and its rule.
+  - src/main/private-agent/broker.ts: the live set; the option for certified requests only; comments.
+  - tests/integration/private-agent-broker.test.ts: overlap on a loopback server that answers only once every call has arrived; every refusal of (1) and (2), through the broker and by direct commit; a second broker on the reopened database; `cancelJob` with three calls in flight; a D4 retry superseded and settled beside a sibling, and a sibling that takes the last request during the backoff; a row the broker failed to close.
+  - tests/integration/private-agent-flash-next.test.ts: two admitted requests under token admission, with the helper finishing them in reverse order.
+  - Then 8.1's `Implemented` entry.
+- 8.2b: research-pipeline.ts, claims.ts, session.ts, model.ts, serving-card-flags.ts and serving-card.ts (the freeze record), scripts/private-agent-local-screen.ts, ordered-pool.ts (the comment and the tests BL-20261110-0619-correction-ordered-pool-entry asks for), and their tests, with its own `Implemented` entry.
+
+Evidence: The code was read at 582f880 for every anchor above. `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry.
+
+Failures or blockers: None in recording.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- K > 1 stays `Implemented`, never `Verified`, until a zero-fee run on the owner's endpoint with an E0 card that sets K > 1.
+- Byte-identical packets can be shown only on fixture replies. A live server may answer differently under concurrent load (batching numerics, sampling defaults), concurrent calls can miss the shared prefix cache, and a K beyond the server's capacity turns queue time into request timeouts, so into `failed` rows and a denied stage.
+- Wall time depends on K, which only freeze.json shows until item 11's registry column.
+- Every 8.1 and 8.2b merge changes the harness source-freeze digest, because store.ts, broker.ts and the 8.2b files are under src/main/private-agent. No owner loop or E-run may span such a merge, and `--runtime-sha256` is recomputed after it.
+- Out of scope: public-GET fan-out (item 12), the registry column (item 11) and the desktop (item 13).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: 8.1's code and tests on this branch, with its `Implemented` entry; then review, CI green and a merge, before S-harn's 11.4 edits store.ts and broker.ts. Then 8.2b after 8.1, in the merge order on its shared files.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 4 row D12, section 5.2 ("Local fan-out"; rows S2, S4 and S10) and section 5.7 item 8; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; docs/PLAN.md section 4.

@@ -180,14 +180,19 @@ def strip_comments(text):
  * - A script or style block still ends where the former pattern's backreference says: SCRIPT_PAIR is that pattern, run only on a short string
  *   made of the name and one candidate closing tag. Names that accept each other share one list of accepted closing positions.
  * - The run join keeps the former pattern's fixed parts as patterns matched at known positions, and lists once each `</w:rPr>` that its tail follows.
+ * - `unescape` returns what `html.unescape` returns with Python's integer string limit lifted (BL-20261114-1803). Python 3.11 and later refuse
+ *   to convert more than 4,300 decimal digits, so `html.unescape` raised ValueError on a longer decimal reference and failed the whole check.
+ *   A decimal reference of eight or more digits is decoded from its value without leading zeros, through `html.unescape` on a short reference
+ *   (any value above 0x10FFFF reads as U+FFFD); every other stretch of text goes to `html.unescape` as it is.
  * Tests run this constant, not a copy of it.
  */
-export const CLAIMS_MARKUP_STRIP_PY = String.raw`import bisect, re
+export const CLAIMS_MARKUP_STRIP_PY = String.raw`import bisect, html, re
 SCRIPT_NAME=re.compile(r'(?is)<(script|style)')
 SCRIPT_PAIR=re.compile(r'(?is)<(script|style)[^>]*>.*?</\1>')
 RUN_HEAD=re.compile(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>',re.S)
 RUN_PROPS=re.compile(r'\s*<w:rPr>',re.S)
 RUN_TAIL=re.compile(r'\s*<w:t\b[^>]*>',re.S)
+LONG_DECIMAL=re.compile(r'&#([0-9]{8,});?')
 def strip_scripts(text):
  slashes=[]; q=text.find('</')
  while q>=0: slashes.append(q); q=text.find('</',q+2)
@@ -234,7 +239,14 @@ def join_runs(chunk):
   if end<0: s=chunk.find('</w:t>',s+1); continue
   out.append(chunk[i:s]); i=end; s=chunk.find('</w:t>',end)
  out.append(chunk[i:])
- return ''.join(out)`;
+ return ''.join(out)
+def unescape(text):
+ parts=LONG_DECIMAL.split(text)
+ for k in range(1,len(parts),2):
+  digits=parts[k].lstrip('0') or '0'
+  parts[k]=html.unescape('&#%s;' % (digits if len(digits)<8 else '99999999'))
+ for k in range(0,len(parts),2): parts[k]=html.unescape(parts[k])
+ return ''.join(parts)`;
 
 /**
  * Host-owned verifier: quotes verbatim in declared file sources or in retained public sources (named by URL,
@@ -289,11 +301,11 @@ def units(path):
   return out
  if data[:4]==b'PK\\x03\\x04' or low.endswith('.docx'):
   with zipfile.ZipFile(io.BytesIO(data)) as z: xml=z.read('word/document.xml').decode('utf-8','replace')
-  paras=[html.unescape(strip_tags(join_runs(chunk))) for chunk in re.split(r'</w:p>',xml)]
+  paras=[unescape(strip_tags(join_runs(chunk))) for chunk in re.split(r'</w:p>',xml)]
   return [('paragraph %d' % (i+1),t) for i,t in enumerate(paras) if t.strip()]
  text=data.decode('utf-8','replace'); out=[('line',line) for line in text.split('\\n')]
  if low.endswith(('.html','.htm')) or text.lstrip()[:1]=='<':
-  stripped=html.unescape(strip_tags(strip_scripts(text)))
+  stripped=unescape(strip_tags(strip_scripts(text)))
   out.append(('html text',stripped))
  return out
 def locate(quote, items):

@@ -15,14 +15,27 @@ const notes = "Alpha report, first edition.\nThe reactor produced 42 units in Ma
 const page = "<html><head><style>p{color:red}</style></head><body><h1>Bravo &amp; Charlie</h1><p>Output fell by <b>12 percent</b> after the outage.</p><script>var x=1;</script></body></html>";
 const sources = [{ id: "input/notes.txt", path: "input/notes.txt" }, { id: "https://example.test/page", path: "sources/page.bin" }];
 
-/** Runs the host-owned check with the local python against a temporary workspace, exactly as the verifier container would. */
-function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string; context?: boolean; timeoutMs?: number } = {}) {
+/**
+ * The first of python3.11 (the container's version) and python3 that is Python 3.11 or later, where the integer string limit exists, or
+ * undefined. On the owner's Mac that is python3.11; on CI's ubuntu runner, its system python3.
+ */
+function pythonWithIntLimit(): string | undefined {
+  for (const python of ["python3.11", "python3"]) {
+    const probe = spawnSync(python, ["-I", "-c", "import sys; sys.get_int_max_str_digits(); print(sys.version_info >= (3, 11))"], { encoding: "utf8" });
+    if (probe.status === 0 && probe.stdout.trim() === "True") return python;
+  }
+  return undefined;
+}
+const LIMITED_PYTHON = pythonWithIntLimit();
+
+/** Runs the host-owned check with the local python (or `python`) against a temporary workspace, exactly as the verifier container would. */
+function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string; context?: boolean; timeoutMs?: number; python?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "soar-claims-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   for (const [path, content] of Object.entries(files)) { mkdirSync(join(root, path, ".."), { recursive: true }); writeFileSync(join(root, path), content); }
   const check = claimsLedgerCheck({ reportPath: extra.reportPath ?? "output/report.md", sources: extra.sources ?? sources, publicSources: extra.publicSources, root });
   expect(check.id).toBe(CLAIMS_LEDGER_CHECK_ID);
   const env = { ...process.env, ...(extra.retained ? { [CLAIMS_RETAINED_ENV]: encodeRetainedClaimsSources(extra.retained) } : {}), ...(extra.context ? { [CLAIMS_CONTEXT_ENV]: "1" } : {}) };
-  try { return { exitCode: 0, result: JSON.parse(execFileSync("python3", ["-I", "-c", check.python], { encoding: "utf8", env, ...(extra.timeoutMs ? { timeout: extra.timeoutMs } : {}) })) }; }
+  try { return { exitCode: 0, result: JSON.parse(execFileSync(extra.python ?? "python3", ["-I", "-c", check.python], { encoding: "utf8", env, ...(extra.timeoutMs ? { timeout: extra.timeoutMs } : {}) })) }; }
   catch (error) {
     const failure = error as { status: number | null; stdout: string; signal?: string | null; code?: string };
     // A check stopped by `timeoutMs` has no JSON to parse: say so instead. Any other signal (a full output buffer, a kill) is rethrown as it is.
@@ -514,5 +527,68 @@ print(json.dumps({'checked':len(strings),'changed':sum(f!=s for s,f in zip(strin
     expect(["def strip_fences(", "def strip_comments(", "def strip_scripts(", "def strip_tags(", "def join_runs("].map(name => python.split(name).length - 1)).toEqual([1, 1, 1, 1, 1]);
     for (const former of [String.raw`.*?^[ \t]*`, String.raw`re.sub(r'(?s)<!--`, String.raw`re.sub(r'(?is)<(script|style)`, String.raw`re.sub(r'<[^>]+>'`,
       String.raw`(?:\s*<w:rPr>.*?</w:rPr>)?`, "page_labels[index]"]) expect(python).not.toContain(former);
+  });
+});
+
+describe("the claims check reads a long decimal character reference as html.unescape would without Python's integer limit (BL-20261114-1803)", () => {
+  const claims = ledger([
+    { id: "C1", sentence: "The reactor produced 42 units in May 2026.", sourceId: "input/notes.txt", quote: "produced 42 units in May 2026" },
+    { id: "C2", sentence: "Output fell by 12 percent after the outage.", sourceId: "https://example.test/page", quote: "Output fell by 12 percent after the outage." }]);
+  const passes = { exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true }, { id: "C2", found: true }],
+    report: { citations: { missing: [], unknown: [] }, sections: { "Conflicting evidence": true, "Unanswered questions": true } } } };
+  const LONG = `&#${"1".repeat(4301)};`, FFFD = String.fromCharCode(0xfffd);
+  it.skipIf(!LIMITED_PYTHON)("checks an HTML source and a DOCX source that each hold a 4,301-digit decimal reference, under Python 3.11 or later as in the container", () => {
+    // Before, html.unescape raised ValueError there and the whole check failed with ledger_invalid.
+    const python = LIMITED_PYTHON!;
+    expect(execFileSync(python, ["-I", "-c", "import sys; print(sys.get_int_max_str_digits())"], { encoding: "utf8" }).trim()).toBe("4300");
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page.replace("</body>", `<p>${LONG}</p></body>`), "output/report.md": report, [CLAIMS_LEDGER_PATH]: claims }, { python }))
+      .toMatchObject(passes);
+    const xml = `<w:document><w:body><w:p><w:r><w:t>The reactor produced 42 units in May 2026.</w:t></w:r></w:p><w:p><w:r><w:t>x${LONG}</w:t></w:r></w:p></w:body></w:document>`;
+    const files = { "input/notes.txt": notes, "sources/doc.bin": buildDocxFromXml(xml), "output/report.md": report.replace(" Output fell by 12 percent after the outage [C2].", ""),
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "s", sourceId: "doc", quote: "produced 42 units in May 2026" }]) };
+    expect(run(files, { sources: [{ id: "doc", path: "sources/doc.bin" }], python })).toMatchObject({ exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true, locator: "paragraph 1" }] } });
+  });
+  /** Compares `unescape`, under the default limit, with html.unescape with the limit lifted, and prints a summary only. */
+  const UNESCAPE_DIFFERENTIAL_PY = String.raw`import itertools, json, random, sys
+${CLAIMS_MARKUP_STRIP_PY}
+def ref(rng):
+ zeros='0'*rng.choice((0,0,1,7,4301))
+ if rng.random()<0.5: body=rng.choice(('0','11','13','38','65','150','55296','1114111','1114112'))
+ else: body=str(rng.randrange(10))*rng.choice((1,7,8,9,40,4301))
+ return '&#'+zeros+body+rng.choice(('',';',';;','x','&','<'))
+ITEMS=[ref,ref,ref,ref]+[lambda rng,t=t: t for t in ('&amp;','&amp','&ampx','&#x41;','&#X10FFFF;','&lt','&','#','&#','&#;','x',' ','\n')]+[lambda rng: '&#x'+'f'*4400+';']
+def doc(rng): return ''.join(rng.choice(ITEMS)(rng) for _ in range(rng.randrange(1,8)))
+rng=random.Random(20261114)
+strings=[''.join(p) for n in range(6) for p in itertools.product(['&','#','0','1','9',';','x','a'],repeat=n)]+[doc(rng) for _ in range(20000)]
+ours=[unescape(s) for s in strings]
+lift=getattr(sys,'set_int_max_str_digits',None); refused=0
+if lift:
+ for s in strings:
+  try: html.unescape(s)
+  except ValueError: refused+=1
+ lift(0)
+bad=[s[:60] for s,o in zip(strings,ours) if o!=html.unescape(s)]
+print(json.dumps({'checked':len(strings),'refused':refused,'mismatches':len(bad),'first':bad[:2]}))`;
+  it("reads every short sequence and 20,000 seeded documents as html.unescape reads them with the limit lifted, including those it refuses under the limit", () => {
+    // Every sequence of up to five of & # 0 1 9 ; x a, and documents mixing decimal references of 1 to 8,602 digits, with and without leading
+    // zeros and a semicolon, with named, hexadecimal and malformed references. Where the limit exists, the stock html.unescape refuses 4,224 of them.
+    const summary = JSON.parse(execFileSync(LIMITED_PYTHON ?? "python3", ["-I", "-c", UNESCAPE_DIFFERENTIAL_PY], { encoding: "utf8" }));
+    expect(summary).toEqual({ checked: 57_449, refused: LIMITED_PYTHON ? 4_224 : 0, mismatches: 0, first: [] });
+  }, 60_000);
+  it("gives fixed results read from TypeScript, with the limit in force where it exists", () => {
+    const zeros = "0".repeat(5000);
+    const cases = ["&#65;", "&#00000065;", `&#${zeros}65;`, LONG, "&#1114111;", "&#01114112;", "&#00000150;x", "&#000055296", "&#00000013;", "&#00000011;", "&#0000000000;",
+      "&amp;&#00000038;amp;", "&#x41;", `&#${zeros}38;lt;`];
+    const script = `import json, sys\n${CLAIMS_MARKUP_STRIP_PY}\nprint(json.dumps([unescape(text) for text in json.load(sys.stdin)]))`;
+    // A long reference reads as U+FFFD, or as the character its value names after leading zeros, and the text after it is not read again.
+    expect(JSON.parse(execFileSync(LIMITED_PYTHON ?? "python3", ["-I", "-c", script], { input: JSON.stringify(cases), encoding: "utf8" }))).toEqual(
+      ["A", "A", "A", FFFD, "", FFFD, `${String.fromCharCode(0x2013)}x`, FFFD, "\r", "", FFFD, "&&amp;", "A", "&lt;"]);
+    expect(CLAIMS_MARKUP_STRIP_PY).toContain(String.raw`LONG_DECIMAL=re.compile(r'&#([0-9]{8,});?')`);
+  });
+  it("decodes through that rule in the check, which calls html.unescape only inside it", () => {
+    const python = claimsLedgerCheck({ reportPath: "output/report.md", sources }).python;
+    expect(python).toContain("paras=[unescape(strip_tags(join_runs(chunk)))");
+    expect(python).toContain("stripped=unescape(strip_tags(strip_scripts(text)))");
+    expect([python.split("def unescape(").length - 1, python.split("html.unescape(").length - 1]).toEqual([1, 2]);
   });
 });

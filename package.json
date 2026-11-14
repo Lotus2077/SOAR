@@ -28,6 +28,7 @@
     "fixture:planner": "node --import tsx scripts/planner-fixture.ts",
     "fixture:judge": "node --import tsx scripts/judge-fixture.ts",
     "card:serving": "python3 scripts/serving-card.py",
+    "launcher": "node --import tsx scripts/experiment-launcher.ts",
     "setup:general": "node --import tsx scripts/setup-general.ts",
     "setup:patch-pilot": "node scripts/setup-patch-pilot.mjs",
     "dev:patch": "node scripts/run-patch-pilot.mjs --cloud-only",

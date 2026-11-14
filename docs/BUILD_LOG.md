@@ -38711,3 +38711,103 @@ References:
 - BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
 - BL-20261109-0334-research-request-shapes-design and BL-20261109-0442-research-request-shapes-implemented;
 - 7b.2's design entry, on #102. It is cited by PR, because its ID may be re-stamped when it merges.
+
+### BL-20261114-1405-research-role-policy-implemented -- 2026-11-14 -- Item 7a.2 implemented: an adopted card's per-role caps and per-attempt thinking reach the local research roles; without a card every body, identity, freeze and the protocol hash are byte-identical; offline tests only
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261114-1346-research-role-policy-design (item 7a.2, finding D6). The serving card's caps and thinking now reach the requests of the local research roles.
+
+Decisions: The design of 1346 stands. These are the specifics.
+
+(1) **The code.**
+- **research-pipeline.ts.**
+  - It gains the `roles` input, parsed with `ResearchRolePolicySchema`, and `RESEARCH_ROLE_POLICY_APPLICATION`.
+  - `researchProtocolSha256(budget, roles)` spreads `rolePolicy: {roles, application}` only when `nonDefaultRoleParameters(roles)` is not empty.
+  - The four call sites send `applied[role]`'s cap and thinking for attempt 1 or attempt 2, and each synthesis attempt its own length cap.
+  - **Refusals** (`research_role_policy_invalid`) come before any request.
+- **The default policy never reads a model's configuration,** so a run without a card takes the same path as before.
+- **session.ts.** The research option gains `roles`. The identity's protocol hash and the pipeline input carry it.
+- **research-seed.ts.**
+  - `PipelineFreezeSchema` gains an optional `roles`.
+  - The loader recomputes the source's protocol under the policy it recorded.
+  - A new `assertSeedRolePolicy` refuses a seeding run under another policy.
+- **scripts/private-agent-local-screen.ts.**
+  - The card's `policy.roles` reaches the research option.
+  - A new `researchPipelineFreeze` writes the freeze's pipeline block, which names `roles` only under a non-default policy.
+  - A seeded run checks its policy against its source's before anything is created.
+- **serving-card-flags.ts.** `maxOutputTokens` and `thinking` are now true.
+- **Text only:** research-admission.ts's comment on the floor, and docs/experiments/README.md's reader notes.
+
+(2) **What a run records.**
+- The synthesis stage row gains `secondAttemptLengthCapWords`, present only when attempt 2's length cap differs from attempt 1's.
+- The freeze's pipeline block gains `roles` only under a non-default policy.
+- Nothing changes in any row or file without a card.
+
+(3) **The hash.** The default `researchProtocolSha256()` is unchanged at 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92 on `main`. tests/helpers/research-protocol-pin.ts is not edited.
+- **Equal to the default:** the same function called with `DEFAULT_RESEARCH_ROLE_POLICY`, or with a copy of it.
+- **Different:** a non-default policy gives another value, and two non-default policies give different values.
+
+(4) **For item 9.** The reader compares P10's evidence with the default protocol hash, since `resolveServingCard` calls `researchProtocolSha256()` with no policy. That is also what the role export records. Item 9 decides whether a structured-output card's P10 evidence must be measured under the card's own role policy.
+
+Changes:
+- Commit 7ce93fe:
+  - src/main/private-agent/research-pipeline.ts, session.ts, research-seed.ts, serving-card-flags.ts and research-admission.ts (a comment);
+  - scripts/private-agent-local-screen.ts;
+  - docs/experiments/README.md.
+- The tests in the same commit: the pipeline, session, seed, driver-configuration and serving-card reader tests.
+
+Evidence: The checks ran locally at 7ce93fe, on `main` 19d7826 (after #99), except the full suite.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related tests.** The research, export, serving-card, identity-golden, planner-fixture and driver-configuration suites pass, with #99's controller, host-flags and registry tests: 27 files, 754 tests. Two load timeouts in that run, in private-agent-host-flags.test.ts and private-agent-research-seed.test.ts, pass alone (39 and 25 tests); the machine's load average was about 14.
+- **No pin was edited.** Before the reader's flags flipped, the same suites without the new tests passed with the protocol pin unedited: 22 files, 531 tests.
+- **The new tests.**
+  - **Per-attempt values.** Under a card, each local role's attempt 1 and attempt 2 send their own `max_tokens` and thinking:
+    - index 1,024 then 1,536;
+    - plan 4,096 with thinking off, then 8,192 at medium reasoning;
+    - extract 1,024 then 2,048;
+    - synthesis 8,192 with thinking off, then 6,000 at medium reasoning.
+
+    The two synthesis attempts carry length caps of 5,757 and 1,200 words, and the stage row records both.
+  - **Cloud roles.** A priced planner and synthesiser keep 8,192 at medium reasoning, while the local reader follows the card.
+  - **Refusals.** Each of these is refused with zero requests and no stage row:
+    - a cap above a 4,096-token role model;
+    - a synthesis attempt's ceiling of 61 words;
+    - a malformed policy.
+
+    The same 4,096-token models without a card still complete.
+  - **Without a card,** every request body, stage row and file is byte-identical to a run with an all-default card, and the hash is the pin.
+  - **The session.** A resume under another card ends `session_contract_drift`, and an all-default card resumes a job begun without one.
+  - **The seed.** A source read under a card seeds only under the same policy. A recorded policy the protocol does not account for is refused.
+  - **The driver's freeze block** is the block written before 7a.2 without a card, and names a non-default policy.
+  - **The reader** resolves caps and per-attempt thinking, and still refuses structured output.
+- **Mutations.** Twelve single edits each fail a test:
+  - the hash binding every policy, or none;
+  - plan attempt 2 using attempt 1's values;
+  - every role counted as local;
+  - no cap refusal; no floor refusal;
+  - the synthesis length cap from attempt 1 only;
+  - the session identity, or the seed's recomputation, ignoring the policy;
+  - no seed policy check;
+  - the flags not flipped;
+  - the freeze never naming the policy.
+- **The full suite**, on the same code committed at 372a10c on `main` 582f880: `pnpm exec vitest run` reports 181 files passed, 1 failed and 13 skipped, and 3,587 tests passed, 1 failed and 86 skipped. The failure is a load timeout in private-agent-host-flags.test.ts, which this item does not touch and which passes alone.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists yet. E0 writes the first one.
+- **Merging with 7b.2.** This branch is based on `main` without 7b.2 (#102). When 7b.2 is on `main`, this item's merge of `main` adds the line that makes 7b.2's presentation reservation use the larger synthesis length cap, as 1346 (6) says.
+- **The loop.** It reads no card, so a card changed in the middle of a loop is refused when the seeded sample starts (`research_seed_protocol_mismatch`), not at discovery.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review;
+- CI green;
+- the merge after 7b.2 (#102), with `main` merged in and the entries re-stamped.
+
+References:
+- BL-20261114-1346-research-role-policy-design;
+- BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261109-0334-research-request-shapes-design.

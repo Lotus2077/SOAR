@@ -137,7 +137,7 @@ the ignored `.soar/`, and no address is printed or stored):
 | `pnpm dev` | Run the desktop app |
 | `pnpm check` | Readiness and build-log validation, typecheck, tests, build |
 | `pnpm test:e2e` | Electron end-to-end tests (after `pnpm build`) |
-| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
+| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint, the endpoint's identity (served alias, model root basename, engine version, context window) and its window against the profile, and, with the serving-card pair set, the adopted card compared field by field; `--write` records the image id and profile in the app's user-data settings |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
 | `pnpm probe:export-schemas` / `pnpm probe:assess` | Write the role schemas probe P10 sends; validate its retained replies with the real schemas |
 | `pnpm card:serving` / `pnpm fixture:planner` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner fixture against its manifest |

@@ -38397,3 +38397,129 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
+
+### BL-20261114-1248-doctor-endpoint-identity-implemented -- 2026-11-14 -- The setup doctor reports the endpoint's identity and context window and compares an adopted serving card field by field (plan adjustment (a), before E0)
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements plan adjustment (a) of BL-20261113-0730-rayline-evaluation-plan-adjustments, which the owner told the session to build on 2026-11-13 ("Yes, build them").
+- **What changes.** Before E0, `pnpm setup:general` reports what the endpoint serves.
+- **Why.** The owner can then answer decision 1 (is the endpoint's model the one qualified on 2026-11-04?) from observed values. A swapped model or a window too small for the profile then fails at setup rather than mid-run, which addresses finding F2 (model churn).
+- **No decision entry first.** The report is printed, not stored, and no persisted contract, event, receipt or dispatch rule changes.
+
+Decisions: (1) **Identity, as probe P1 derives it.** The doctor reads:
+- the configured alias's row of `/models`, not the first row;
+- the basename of that row's `root`, after trailing slashes;
+- its `max_model_len`;
+- `version` from `GET /version` at the endpoint's origin, with the same headers.
+
+A failed `/version` leaves the engine version unknown.
+
+(2) **A value is printed only when it is safe.** These are withheld as null, with the card writer's own URL, IPv4, IPv6 and host:port patterns (scripts/serving-card.py), so a glued address such as `v10.0.0.7` is caught:
+- a value with a control character, a URL, an IPv4 or IPv6 literal, a host:port, a backslash or the configured host;
+- a value with a path-like shape, except the basename;
+- a basename that contains a slash.
+
+The card's values are screened the same way before they are printed: the writer screens only the hosts it can see, which need not include the owner's endpoint. Comparisons use the raw values, so a withheld value still compares exactly.
+
+(3) **The window floor is what the profile's own request guard can send:** ceil(maxRequestBytes / 3) + maxOutputTokens. That is 234,838 tokens for heavy and 69,632 for standard; profiles.ts states the 3-bytes-per-token guard. Heavy is designed for a 262,144-token window, but a window between the two still fits every request the guard admits. Plan adjustment (a) in BL-20261113-0730 names the same floor.
+- Under `flash_next_v1` the floor is the larger of that and SOAR_VLLM_CONTEXT_TOKENS, because the app's token admission is pinned to the configured context.
+- A contract and context pair that the app refuses (config.ts) makes the doctor not ready. That covers a context without the contract, the contract without a context, and a context that is not an integer above 16,384.
+- A smaller `max_model_len` makes the doctor not ready, with a reason that names both numbers.
+- An endpoint that reports no window is reported as unchecked and does not block.
+
+(4) **The serving card.** The doctor now resolves SOAR_SERVING_CARD_FILE, SOAR_SERVING_CARD_SHA256, SOAR_VLLM_REPLY_CONTRACT and SOAR_VLLM_CONTEXT_TOKENS as the app does. With both card variables set, it reads the card through `loadServingCard`, the pinned fail-closed reader the headless driver uses, with `servingCardExpectation`'s rule for a contract and context pair the app accepts.
+- **A refusal** reports its fixed code: `serving_card_not_adopted`, `serving_card_pin_drift` or `serving_card_model_mismatch`, for example.
+- **A loaded card** is compared field by field on the served alias, model root basename, engine version and context window. Each field reports one of:
+  - `match`;
+  - `differs`;
+  - `card_unknown`: the card recorded null, which does not block;
+  - `endpoint_unknown`: the card recorded a value the endpoint no longer reports, which blocks.
+- **Readiness** requires the status `matches`. A half-set pair is `incomplete`.
+- **The report** names the card's sha256, date and adopting entry and the names of the differing fields, never the path.
+- **Guard test R10 still passes.** No production module outside the reader parses a card or reads `vllm.servingCard`: the doctor builds the descriptor from its own resolved settings and calls only `loadServingCard`.
+
+(5) All other readiness conditions are unchanged, and the desktop still ignores the card.
+
+Changes:
+- scripts/setup-general.ts.
+- tests/unit/setup-general.test.ts: the four existing tests are adapted to the extra `/version` request, and nine are new.
+- README.md: the doctor's row in the command table.
+
+Evidence:
+- `pnpm exec vitest run tests/unit/setup-general.test.ts tests/unit/serving-card-reader.test.ts` passes 88 tests in 2 files: the doctor's 13 and the reader's 75, guard R10 included.
+- One independent review on 2026-11-13 found no blocker or major. Its four minor findings are fixed here: the `flash_next_v1` floor and refused pairs, the screening of card values and glued addresses, test pins, and the limitation sentence below. Four mutations it found surviving the first suite now fail it: comparing printable rather than raw values, `card_unknown` blocking, dropping the `flash_next_v1` context from the expectation, and printing the alias unscreened.
+- The new tests prove six things:
+  - P1's derivation on the configured alias's row, with the version read at the origin rather than under `/v1`;
+  - no endpoint address, root path or card path in any report;
+  - each withheld class: URL, IPv4, IPv6, host:port, path, home path, backslash, control character and configured host;
+  - a window refusal on heavy and a pass on standard for the same endpoint, with an unknown window not blocking;
+  - a card that matches, and cards that differ on the engine version or the context;
+  - the `endpoint_unknown` case, a card not adopted, pin drift, an alias mismatch, a `flash_next_v1` context mismatch and an incomplete pair;
+  - a withheld value that compares equal on both sides with neither printed, a card field left unknown that does not block, the `flash_next_v1` floor with the four refused pairs, and a path-like alias withheld.
+- `pnpm typecheck` passes.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` pass with this entry appended.
+- Nothing ran against an endpoint.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Implemented, not Verified.** Nothing has run against the owner's endpoint.
+- **The identity check does not prove identical weights.** The four fields catch a changed alias, and a redeploy with another root, engine or window. Probe P1 cannot prove identical weights either, so decision 1 stays the owner's.
+- **The screen is best effort**, as the card writer's is. The owner still reviews a report before sharing it.
+- **A withheld value still compares on its raw value**; it only prints as null. A legitimate value that looks like an address, such as an engine version of four dotted numbers, is withheld from the report. The card writer refuses a probe that carries such a value, so no card holds one: against a card's value the field compares as `differs`, and against a card that recorded none, as `card_unknown`.
+- **Streaming, `cache_salt` and structured output are still unchecked** by the doctor.
+
+Paid exposure: None. The doctor's one-token completion is unchanged. The new `GET /version` is a zero-fee request to the owner's own endpoint at doctor time, outside any run. Every cap is unchanged.
+
+Next gate:
+- Review, then merge after the pull request carrying BL-20261113-0730 (#86). That pull request merges after the train-2 heads.
+- The owner then runs `pnpm setup:general` before E0's probes (docs/HANDOFF.md §5, step 2).
+
+References:
+- BL-20261113-0730-rayline-evaluation-plan-adjustments, item (a).
+- BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261108-0911-probe-extensions-implemented.
+- docs/PROJECT_REVIEW_2026-11-05.md §3 (F2) and §5.10 (decision 1).
+
+### BL-20261114-1249-correction-doctor-endpoint-identity-restamp -- 2026-11-14 -- Correction: pull request #90's entry is re-stamped after main's tail at its merge of main, and its decision-1 rationale, merge order and handoff step are corrected
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why the doctor's entry does not carry its authoring minute. Also correct three of its statements, which stay as written, after pull request #90 was checked against `main` at 582f880 on 2026-11-14. The doctor's code, tests and report do not change.
+
+Decisions:
+- **The re-stamp.**
+  - The doctor's BL-20261113-0815, authored at 08:15 UTC on 2026-11-13 with the slug doctor-endpoint-identity-implemented, is now BL-20261114-1248-doctor-endpoint-identity-implemented, dated 2026-11-14.
+  - Before this branch merged `main` at 582f880, `main`'s ledger ended with BL-20261114-1121-correction-handoff-start-here, which is later. So, under BL-20261113-0937-owner-decision-restamp-unmerged-entries as BL-20261113-0938-correction-restamp-rule-dates corrects it, the ID and the heading's date move after the tail.
+  - The body is byte-identical to the text reviewed at a47a6b9.
+  - The judge fixture's entry on pull request #91 cites this entry by its original ID; that citation stays as written, and this entry maps it.
+  - This ID follows the judge fixture's re-stamped entries on #91. If #91 merges first, this branch only merges `main` again, with no further re-stamp.
+- **Decision 1 is answered.**
+  - The entry's scope says the owner "can then answer decision 1 ... from observed values", and its limitations say "decision 1 stays the owner's". The owner answered it on 2026-11-13 (BL-20261113-1003-e0-card-owner-answers): the endpoint serves the model qualified on 2026-11-04, so E0 is a delta check.
+  - The doctor's report remains a setup check before E0's probes: it catches a changed alias, root, engine or window, and a window too small for the profile, before a run starts.
+  - It does not reopen decision 1. A difference it reports goes to E0's own rule: if probe P1 or a `--compare-*` row differs, E0 re-derives every bound.
+- **The merge order.**
+  - The entry's "Next gate" asks for a merge after #86, which carries BL-20261113-0730.
+  - Nothing enforces that order. The validator checks citations only inside `Correction` entries, and an entry on `main` may cite an ID that is not yet there (BL-20261113-0938-correction-restamp-rule-dates).
+  - This pull request may merge before #86.
+- **The handoff step.**
+  - The entry's "Next gate" says the owner runs `pnpm setup:general` before E0's probes, under docs/HANDOFF.md §5 step 2. The handoff on `main` (BL-20261114-1119-handoff-start-here) does not list the doctor in that step.
+  - Until a handoff note adds it before the hand-checked P1 run, running the doctor first is a recommendation, not a recorded step.
+
+Changes: docs/BUILD_LOG.md (the re-stamped heading and this entry). No code, test or README change.
+
+Evidence:
+- `pnpm exec vitest run tests/unit/setup-general.test.ts tests/unit/serving-card-reader.test.ts` passes 88 tests in 2 files on this branch after its merge of `main`.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass. The validator's exit status was checked directly.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. Nothing ran against an endpoint. The commit messages and the pull request's description keep the original ID.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- A light check of the merge and the re-stamp, since the code is unchanged since its review, and CI.
+- The owner's go to merge, since #90 is not a lane pull request.
+
+References: BL-20261114-1248-doctor-endpoint-identity-implemented; BL-20261114-1121-correction-handoff-start-here; BL-20261114-1119-handoff-start-here; BL-20261113-1003-e0-card-owner-answers; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; pull requests #86, #90 and #91.

@@ -61,6 +61,9 @@ This folder holds the committed, sanitized record of live trials (see
   owner fills its hashes; the index and the brief stay under the ignored `.soar/`.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
+- `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan
+  11.5): the queue, the windows, the idle check, the batch cap, the supervision and
+  the launcher's ledger.
 - `phase2-tasks-v1.json`: the hashes-only manifest of the frozen Phase 2 tasks (task
   ids, families, driver modes, job, brief, input and gold-file SHA-256 values, check
   counts). The tasks, gold, hidden suites and scorer stay under the ignored `.soar/`.
@@ -70,6 +73,8 @@ This folder holds the committed, sanitized record of live trials (see
 
 The following stay outside Git, under the ignored `.soar/experiments/`:
 
+- the launcher's state directory: its `launcher.jsonl` ledger, its STOP file and each
+  run's output;
 - raw outputs, traces and databases, including the probe results and the raw model
   replies the probes and fixtures retain (`serving-probe-*/`, `e0-planner-fixture-*/`,
   `role-schemas.json`);

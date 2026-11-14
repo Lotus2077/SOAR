@@ -13,9 +13,7 @@ import type { SoarConfig } from "../config";
 import { canonical, digest, sha256Schema } from "./contracts";
 import { pinned } from "./flash-next-admission";
 import { COORDINATOR_PROFILES } from "./profiles";
-import { ResearchSynthesisSchema } from "./research-coverage";
-import { RESEARCH_EXTRACT_JSON_SCHEMA, researchProtocolSha256 } from "./research-pipeline";
-import { RESEARCH_PLAN_JSON_SCHEMA } from "./research-plan";
+import { RESEARCH_ROLE_SCHEMAS, researchProtocolSha256 } from "./research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, MIN_ROLE_OUTPUT_TOKENS, RESEARCH_ROLES, ResearchRolePolicySchema, STRUCTURED_OUTPUT_ROLES, StructuredOutputVariantSchema,
   nonDefaultRoleParameters, type ResearchRolePolicy, type StructuredOutputRole, type StructuredOutputVariant } from "./research-roles";
 import { SERVING_CARD_CONSUMED, type ServingCardParameter } from "./serving-card-flags";
@@ -149,10 +147,12 @@ export function servingCardExpectation(config: Pick<SoarConfig, "vllm">): Servin
     ...(config.vllm.localReplyContract === "flash_next_v1" && config.vllm.localContextTokens !== undefined ? { contextTokens: config.vllm.localContextTokens } : {}) };
 }
 
-/** sha256(canonical(schema)) of the three schemas the role export gives P10 (scripts/export-role-schemas.ts); computed on call. */
+/**
+ * sha256(canonical(schema)) of the three schemas the role export gives P10 (scripts/export-role-schemas.ts); computed on call. Since
+ * item 9 (BL-20261114-1650-research-structured-output-design) all three read RESEARCH_ROLE_SCHEMAS, the table a flagged call sends.
+ */
 export function currentRoleSchemaSha256(): Readonly<Record<StructuredOutputRole, string>> {
-  return Object.freeze({ plan: digest(canonical(RESEARCH_PLAN_JSON_SCHEMA)), extract: digest(canonical(RESEARCH_EXTRACT_JSON_SCHEMA)),
-    synthesis: digest(canonical(z.toJSONSchema(ResearchSynthesisSchema))) });
+  return Object.freeze(Object.fromEntries(STRUCTURED_OUTPUT_ROLES.map(role => [role, digest(canonical(RESEARCH_ROLE_SCHEMAS[role].schema))])) as Record<StructuredOutputRole, string>);
 }
 
 const JSON_WHITESPACE = new Set([" ", "\t", "\n", "\r"]);

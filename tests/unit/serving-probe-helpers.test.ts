@@ -7,7 +7,8 @@ import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { RESEARCH_SYNTHESIS_LENGTH_POLICY } from "../../src/main/private-agent/research-admission";
-import { RESEARCH_EXTRACTION_LAYOUT, researchExtractionUserContent } from "../../src/main/private-agent/research-pipeline";
+import { jsonSchemaResponseFormat } from "../../src/main/private-agent/model";
+import { RESEARCH_EXTRACTION_LAYOUT, RESEARCH_ROLE_SCHEMAS, researchExtractionUserContent } from "../../src/main/private-agent/research-pipeline";
 import { currentSyntheticProbe, runCardWriter } from "../helpers/serving-card-fixture";
 import { P10_ROLES, P10_THINKING_MODES, buildRoleSchemaExport } from "../../scripts/export-role-schemas";
 import { assessProbeFile } from "../../scripts/assess-probe-replies";
@@ -169,6 +170,23 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
       .toEqual(["reasoning_content", "reasoning", "mixed", "none"]);
     expect(values([{ fn: "leading_think_tag", args: ["<think>hi"] }, { fn: "leading_think_tag", args: ["  </think>"] }, { fn: "leading_think_tag", args: ["<think class=x>"] }, { fn: "leading_think_tag", args: ["ok <think>"] }, { fn: "leading_think_tag", args: [""] }, { fn: "leading_think_tag", args: [null] }]))
       .toEqual([true, true, true, false, false, false]);
+  });
+
+  it("item 9: the pipeline sends the probe's response_format for each role and variant, under P10's names (BL-20261114-1650-research-structured-output-design)", () => {
+    const cases = P10_ROLES.flatMap(role => [true, false].map(strict => ({ role, strict })));
+    const probed = values(cases.map(({ role, strict }) => ({ fn: "response_format", args: [role, RESEARCH_ROLE_SCHEMAS[role].schema, strict] })));
+    cases.forEach(({ role, strict }, index) => {
+      const sent = jsonSchemaResponseFormat({ ...RESEARCH_ROLE_SCHEMAS[role], strict });
+      expect(probed[index]).toEqual(sent); expect(canonical(probed[index])).toBe(canonical(sent));
+    });
+    const names = JSON.parse(execFileSync("python3", ["-I", "-c", [
+      "import importlib.util, json, sys",
+      "spec = importlib.util.spec_from_file_location('serving_probe', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
+      "print(json.dumps(module.P10_SCHEMA_NAMES))"].join("\n"), SCRIPT], { encoding: "utf8", env: { PATH: process.env.PATH ?? "" } }));
+    expect(names).toEqual(Object.fromEntries(P10_ROLES.map(role => [role, RESEARCH_ROLE_SCHEMAS[role].name])));
+    // The role export gives P10 the table's schemas, so P10 measures the schema a flagged call sends.
+    const exported = buildRoleSchemaExport("2026-11-14T00:00:00.000Z");
+    for (const role of P10_ROLES) expect(exported.schemas[role]).toBe(RESEARCH_ROLE_SCHEMAS[role].schema);
   });
 
   it("builds both response_format variants, picks the accepted one, and counts cells including grammar-suppressed thinking", () => {

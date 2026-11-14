@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { BrokerError } from "./broker";
 import { canonical, digest, exactText } from "./contracts";
-import { DEADLINE_BEFORE_REQUEST_STOP, ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
+import { DEADLINE_BEFORE_REQUEST_STOP, ModelRequestBodyTooLarge, type ModelResponseFormat, type PrivateAgentModel } from "./model";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, RESEARCH_COVERAGE_POLICY, RESEARCH_PRESENTATION_POLICY, RESEARCH_SLOT_POLICY, RESEARCH_TOLERANCE_POLICY, type ResearchBudget } from "./research-contract";
 import type { ResearchAssistOutcome, ResearchAssists } from "./research-assist-contract";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "./dispatch-purposes";
@@ -16,7 +16,7 @@ import { ResearchPlanSchema, ResearchEvidenceSchema, ResearchCoverageSchema, Res
 import { RESEARCH_PLAN_JSON_SCHEMA, RESEARCH_PLAN_DIAGNOSTIC_POLICY, ResearchPlanAttemptSchema, assessResearchPlanReply, buildResearchPlanRepair, type ResearchPlanAttempt, type ResearchPlanRepair } from "./research-plan";
 import { INDEX_LIMITS, assessIndexBatch, assembleIndexEntry, buildLiteralSourceCard, summarizeIndexEntries, parseJsonReply, type IndexSourceAssessment, type IndexBatchAssessment } from "./research-index";
 import { RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, planResearchIndexBatches, researchIndexPreviewEnd, researchMandatoryWorkFits, researchSynthesisLengthCap, researchWordCount, type ResearchSynthesisLengthCap } from "./research-admission";
-import { DEFAULT_RESEARCH_ROLE_POLICY, ResearchRolePolicySchema, nonDefaultRoleParameters, type ResearchRolePolicy } from "./research-roles";
+import { DEFAULT_RESEARCH_ROLE_POLICY, ResearchRolePolicySchema, STRUCTURED_OUTPUT_ROLES, nonDefaultRoleParameters, type ResearchRolePolicy, type StructuredOutputRole } from "./research-roles";
 export { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, type ResearchBudget } from "./research-contract";
 export { ResearchPlanSchema, normalizeQuoteText, locateChunkQuote, locateQuote, researchSourceText, type ResearchPlan } from "./research-coverage";
 export { parseJsonReply } from "./research-index";
@@ -52,6 +52,16 @@ export const ExtractReplySchema = z.object({ questions: z.array(z.object({ quest
  */
 export const RESEARCH_EXTRACT_JSON_SCHEMA = z.toJSONSchema(ExtractReplySchema);
 /**
+ * Item 9 (BL-20261114-1650-research-structured-output-design): each schema role's reply schema and the name its `response_format`
+ * carries, as probe P10 sends them (scripts/serving-probe.py, P10_SCHEMA_NAMES). The pipeline, the serving-card reader's schema
+ * digests and the role export read this one table, so P10 measures, the reader checks and a flagged call sends the same schema.
+ * Every value is one researchProtocolSha256 already binds.
+ */
+export const RESEARCH_ROLE_SCHEMAS: Readonly<Record<StructuredOutputRole, Readonly<{ name: string; schema: Record<string, unknown> }>>> = Object.freeze({
+  plan: Object.freeze({ name: "research_plan", schema: RESEARCH_PLAN_JSON_SCHEMA as Record<string, unknown> }),
+  extract: Object.freeze({ name: "research_extraction", schema: RESEARCH_EXTRACT_JSON_SCHEMA as Record<string, unknown> }),
+  synthesis: Object.freeze({ name: "research_synthesis", schema: z.toJSONSchema(ResearchSynthesisSchema) as Record<string, unknown> }) });
+/**
  * The extraction request's user message (backlog item 7(b), part 1; finding D9; review section 5.2, S4 and "Caching"): the
  * job's stable packet as one canonical JSON line, a newline, then the per-chunk part as one canonical JSON line, for the
  * initial call and the repair alike. Every extraction request of a job therefore shares its system message and its whole
@@ -81,6 +91,27 @@ export const RESEARCH_ROLE_POLICY_APPLICATION = Object.freeze({ version: 1, atte
   appliesTo: "local_vllm_shape_zero_fee_role_models", otherRoles: "default_values", capAboveRoleModel: "refused_not_clamped",
   synthesisCeilingBelowFloor: "refused", lengthCap: "per_attempt", refusal: "research_role_policy_invalid" });
 /**
+ * Item 9 (BL-20261114-1650-research-structured-output-design): how a role policy's structured-output flags reach the requests. A
+ * local plan, extract or synthesis call adds its role's schema as `response_format` (the ReviewResultV1 shape; `strict: true` for
+ * the strict variant only, the key omitted otherwise) when the flag for its effective thinking mode is set: "off" when the attempt
+ * or the role model disables thinking, as probe P10's `<role>/off` cell. Bound into researchProtocolSha256 with the policy, and only
+ * when a role's structured output is set.
+ */
+export const RESEARCH_STRUCTURED_OUTPUT_APPLICATION = Object.freeze({ version: 1, shape: "response_format_json_schema_review_result_v1",
+  names: Object.freeze(Object.fromEntries(STRUCTURED_OUTPUT_ROLES.map(role => [role, RESEARCH_ROLE_SCHEMAS[role].name]))),
+  strictKey: "true_for_strict_omitted_for_non_strict", mode: "effective_thinking_off_when_the_attempt_or_the_role_model_disables_it",
+  roles: "local_plan_extract_synthesis", index: "never", assists: "never", body: "unchanged_but_for_response_format" });
+/**
+ * The role policy's part of the protocol (7a.2, item 9): none for a policy whose values are all default; otherwise the policy with
+ * RESEARCH_ROLE_POLICY_APPLICATION, and RESEARCH_STRUCTURED_OUTPUT_APPLICATION as well only when a role's structured output is set,
+ * so a policy of caps and thinking alone binds exactly what it bound before item 9.
+ */
+export function researchRolePolicyBinding(roles: ResearchRolePolicy) {
+  if (!nonDefaultRoleParameters(roles).length) return undefined;
+  return { roles, application: RESEARCH_ROLE_POLICY_APPLICATION,
+    ...(STRUCTURED_OUTPUT_ROLES.some(role => roles[role].structuredOutput !== null) ? { structuredOutput: RESEARCH_STRUCTURED_OUTPUT_APPLICATION } : {}) };
+}
+/**
  * 7a.2: true when either synthesis attempt's length ceiling (research-admission.ts) falls below the 100-word floor. The ceiling depends
  * only on the attempt's cap, its thinking and three protocol constants, so the pipeline refuses such a policy before any request and
  * the headless driver before any output exists.
@@ -109,6 +140,8 @@ export interface ResearchStageCounts {
   fallback?: "host_plan" | "skeleton"; synthesisAttempts?: ResearchSynthesisAttempt[];
   /** 7a.2: the synthesis length cap of attempt 2, only when a role policy makes it differ from attempt 1's (lengthCapWords). */
   secondAttemptLengthCapWords?: number;
+  /** Item 9: the stage's settled calls that carried a `response_format`, only when one did (a card's structured-output flag); a count. */
+  structuredOutputCalls?: number;
 }
 export interface ResearchSummary { version: number; protocolSha256: string; budget: ResearchBudget; stages: ResearchStageCounts[] }
 /** One reason a settled reply was rejected: a fixed host code with the schema path it concerns; never model, source or provider text. */
@@ -136,10 +169,12 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
 /**
  * The protocol's digest. 7a.2: a role policy is bound only when nonDefaultRoleParameters finds a value (the predicate the serving-card
- * reader's fail-closed step shares), so without a card, or under a card whose values are all default, the value is unchanged.
+ * reader's fail-closed step shares), so without a card, or under a card whose values are all default, the value is unchanged. Item 9:
+ * the binding (researchRolePolicyBinding) adds the structured-output rule only when a flag is set.
  */
 export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY): string {
-  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(nonDefaultRoleParameters(roles).length ? { rolePolicy: { roles, application: RESEARCH_ROLE_POLICY_APPLICATION } } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
+  const rolePolicy = researchRolePolicyBinding(roles);
+  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(rolePolicy ? { rolePolicy } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING, limits: LIMITS, indexLimits: INDEX_LIMITS, coveragePolicy: RESEARCH_COVERAGE_POLICY, presentationPolicy: RESEARCH_PRESENTATION_POLICY, planDiagnostics: RESEARCH_PLAN_DIAGNOSTIC_POLICY,
     schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, planAttempt: z.toJSONSchema(ResearchPlanAttemptSchema), synthesisAttempt: z.toJSONSchema(ResearchSynthesisAttemptSchema), evidence: z.toJSONSchema(ResearchEvidenceSchema), coverage: z.toJSONSchema(ResearchCoverageSchema), extraction: z.toJSONSchema(ExtractReplySchema), synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
     schemaVersions: { plan: 2, evidence: 2, coverage: 2, synthesis: 1, seed: 2 }, packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
@@ -221,7 +256,8 @@ const unitAt = (starts: readonly number[], position: number): number => {
   return low;
 };
 
-type CallResult = { content: string; usage: ResearchUsage; truncated: boolean } | { denied: string };
+/** `structured`: the call carried a `response_format` (item 9). */
+type CallResult = { content: string; usage: ResearchUsage; truncated: boolean; structured?: true } | { denied: string };
 const zeroUsage = (): ResearchUsage => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
 const addUsage = (a: ResearchUsage, b: ResearchUsage) => { a.inputTokens += b.inputTokens; a.outputTokens += b.outputTokens; a.cacheReadTokens += b.cacheReadTokens; a.cacheWriteTokens += b.cacheWriteTokens; };
 const unique = (ids: readonly string[]) => new Set(ids).size === ids.length;
@@ -261,16 +297,19 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const record = (counts: ResearchStageCounts) => { stages.push(counts); input.record(counts); };
   // The user content is built inside the try: canonical() refuses text UTF-8 would change (a NUL a reply carried into a repair
   // payload, say), and that refusal must end the stage as a denied call with its row recorded, as it did before 7b.1.
-  const call = async (model: PrivateAgentModel, system: string, userContent: () => string, maxOutputTokens: number, purpose: string, thinking: "disabled" | "model"): Promise<CallResult> => {
+  const call = async (model: PrivateAgentModel, system: string, userContent: () => string, maxOutputTokens: number, purpose: string, thinking: "disabled" | "model",
+    responseFormat?: ModelResponseFormat): Promise<CallResult> => {
     if (input.signal.aborted) return { denied: "cancelled" };
     // A priced call (a cloud planner or synthesiser) that the deadline could cut is not started: its row would stay uncertain.
     if (input.deadlineMs !== undefined && model.deadlineRefuses(input.deadlineMs - performance.now())) return { denied: DEADLINE_BEFORE_REQUEST_STOP };
     try { const reply = await model.complete([{ role: "system", content: system }, { role: "user", content: userContent() }], [], input.signal,
-      { ...(thinking === "disabled" ? { thinking: "disabled" as const } : {}), maxOutputTokens, purpose });
-      const usage = reply.usage; return { content: reply.content, truncated: reply.finishReason === "length", usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cacheReadTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0 } };
+      { ...(thinking === "disabled" ? { thinking: "disabled" as const } : {}), maxOutputTokens, purpose, ...(responseFormat ? { responseFormat } : {}) });
+      const usage = reply.usage; return { content: reply.content, truncated: reply.finishReason === "length", usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cacheReadTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0 },
+        ...(responseFormat ? { structured: true as const } : {}) };
     } catch (error) { return { denied: input.signal.aborted ? "cancelled" : error instanceof BrokerError ? error.code : error instanceof ModelRequestBodyTooLarge ? "request_body_size_exceeded" : error instanceof Error && /^[a-z_]+$/u.test(error.message) ? error.message : "request_failed" }; }
   };
-  const settled = (counts: ResearchStageCounts, reply: Exclude<CallResult, { denied: string }>) => { counts.calls++; addUsage(counts.usage, reply.usage); if (reply.truncated) counts.truncatedReplies = (counts.truncatedReplies ?? 0) + 1; };
+  const settled = (counts: ResearchStageCounts, reply: Exclude<CallResult, { denied: string }>) => { counts.calls++; addUsage(counts.usage, reply.usage); if (reply.truncated) counts.truncatedReplies = (counts.truncatedReplies ?? 0) + 1;
+    if (reply.structured) counts.structuredOutputCalls = (counts.structuredOutputCalls ?? 0) + 1; };
   const denied = (counts: ResearchStageCounts, reason: string) => { counts.denied = reason; record(counts); return finish("incomplete", reason === "cancelled" ? "research_cancelled" : "research_request_denied"); };
   /** Backlog item 4: a rejected or truncated settled reply (and since 7a.1 a kept reply with drops) goes to the sink with its content and reasons; counts and files never carry either. */
   const retain = (counts: ResearchStageCounts, purpose: string, reply: Exclude<CallResult, { denied: string }>, reasons: ResearchDiagnosticReason[], disposition?: "accepted_with_drops", ordinal = counts.calls) => {
@@ -303,6 +342,16 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   if ((parsedRoles && !parsedRoles.success) || (policySet && (roleNames.some(role => local(roleModels[role]) && applied[role].maxOutputTokens.some(cap => cap > roleModels[role].config.maxOutputTokens)) ||
       (local(roleModels.synthesis) && researchSynthesisBelowFloor(applied.synthesis)))))
     return finish("incomplete", "research_role_policy_invalid");
+  // Item 9 (BL-20261114-1650-research-structured-output-design): the reply format of a schema role's attempt. `applied` keeps a cloud
+  // role at the default, which has no flag, so a flag here is a local role's. It applies when the flag for the call's effective thinking
+  // mode is set: off when the attempt's thinking or the role model's own is disabled (probe P10's `<role>/off` and `<role>/on` cells).
+  // The default policy has no flag, so a run without a card reads no model configuration here either.
+  const responseFormatFor = (role: StructuredOutputRole, attempt: 0 | 1): ModelResponseFormat | undefined => {
+    const flag = applied[role].structuredOutput;
+    if (flag === null) return undefined;
+    const off = applied[role].thinking[attempt] === "disabled" || roleModels[role].config.thinking === "disabled";
+    return (off ? flag.thinkingOff : flag.thinkingOn) ? { ...RESEARCH_ROLE_SCHEMAS[role], strict: flag.variant === "strict" } : undefined;
+  };
   let inventory: ReturnType<typeof inventoryResearchSources>;
   try { inventory = inventoryResearchSources(input.sources); coverage = { version: 2, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),
     sourceManifestSha256: inventory.sourceManifestSha256, units: deriveBriefUnits(input.brief), sources: inventory.sources, chunks: inventory.chunks, omissions: [], conflictOmissions: [], unresolved: [],
@@ -365,7 +414,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     let repair: ResearchPlanRepair | null = null;
     for (let attempt = 0; !plan && attempt < budget.plannerCalls; attempt++) {
       const reply = await call(input.models.planner, PLAN_SYSTEM, () => canonical({ authoritativeSchema: RESEARCH_PLAN_JSON_SCHEMA, brief: input.brief, units: coverage!.units, sourceIndex: indexDocument,
-        mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: budget.extractionCalls, repair }), applied.plan.maxOutputTokens[attempt ? 1 : 0], PURPOSES.plan, applied.plan.thinking[attempt ? 1 : 0]);
+        mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: budget.extractionCalls, repair }), applied.plan.maxOutputTokens[attempt ? 1 : 0], PURPOSES.plan, applied.plan.thinking[attempt ? 1 : 0],
+        responseFormatFor("plan", attempt ? 1 : 0));
       if ("denied" in reply) return reply.denied; settled(planCounts, reply);
       const assessed = assessResearchPlanReply({ content: reply.content, truncated: reply.truncated, ordinal: planCounts.calls, units: coverage!.units, sources: inventory.sources });
       planCounts.planAttempts!.push(assessed.attempt); plan = assessed.plan;
@@ -419,7 +469,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const extract = async (chunk: ResearchCoverage["chunks"][number], repair: boolean): Promise<string | undefined> => {
     const source = ordered.find(s => s.id === chunk.sourceId)!, chunkText = source.bytes.subarray(chunk.startByte, chunk.endByte).toString("utf8");
     const reply = await call(input.models.reader, EXTRACT_SYSTEM, () => researchExtractionUserContent({ ...stablePacket, source: { id: source.id, sha256: chunk.sourceSha256 },
-      chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: repair ? `previous_${chunk.status}; return compact COMPLETE JSON for every question` : null }), applied.extract.maxOutputTokens[repair ? 1 : 0], PURPOSES.extract, applied.extract.thinking[repair ? 1 : 0]);
+      chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: repair ? `previous_${chunk.status}; return compact COMPLETE JSON for every question` : null }), applied.extract.maxOutputTokens[repair ? 1 : 0], PURPOSES.extract, applied.extract.thinking[repair ? 1 : 0],
+      responseFormatFor("extract", repair ? 1 : 0));
     if ("denied" in reply) return reply.denied;
     settled(extractCounts, reply); if (repair) extractCounts.repairCalls!++; else { extractCounts.initialCalls!++; extractCounts.pairsExtracted!++; }
     let state: "complete" | "invalid" | "truncated" | "needs_followup" = reply.truncated ? "truncated" : "invalid";
@@ -560,7 +611,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const synthesisStage = async (): Promise<string | undefined> => {
     for (let attempt = 0; argument === undefined && attempt < budget.synthesisCalls; attempt++) {
       const reply = await call(input.models.synthesiser, SYNTHESIS_SYSTEM, () => canonical({ brief: input.brief, units: coverage!.units, plan, evidence, coverage, lengthCap: { words: lengthCaps[attempt ? 1 : 0]!.words },
-        repairReason: attempt ? "previous_synthesis_incomplete_or_invalid; return complete concise structure with both sections" : null }), applied.synthesis.maxOutputTokens[attempt ? 1 : 0], PURPOSES.synthesis, applied.synthesis.thinking[attempt ? 1 : 0]);
+        repairReason: attempt ? "previous_synthesis_incomplete_or_invalid; return complete concise structure with both sections" : null }), applied.synthesis.maxOutputTokens[attempt ? 1 : 0], PURPOSES.synthesis, applied.synthesis.thinking[attempt ? 1 : 0],
+        responseFormatFor("synthesis", attempt ? 1 : 0));
       if ("denied" in reply) return reply.denied; settled(synthesisCounts, reply);
       conclude(reply, judge(reply, packetIds), PURPOSES.synthesis);
     }

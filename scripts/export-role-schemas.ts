@@ -13,17 +13,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { z } from "zod";
 import { loadConfig, type SoarConfig } from "../src/main/config";
 import type { PrivateAgentBroker } from "../src/main/private-agent/broker";
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { researchSynthesisLengthCap } from "../src/main/private-agent/research-admission";
-import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema, deriveBriefUnits, inventoryResearchSources } from "../src/main/private-agent/research-coverage";
+import { ResearchCoverageSchema, ResearchEvidenceSchema, deriveBriefUnits, inventoryResearchSources } from "../src/main/private-agent/research-coverage";
 import { assembleIndexEntry, buildLiteralSourceCard } from "../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanSchema } from "../src/main/private-agent/research-plan";
-import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_SCHEMAS, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
 import { buildLocalScreenModelConfig } from "./private-agent-local-screen";
 
 export const ROLE_SCHEMA_EXPORT_VERSION = 2;
@@ -120,7 +119,8 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
     synthesis: { on: canonical(synthesisPayload), off: canonical({ ...synthesisPayload, lengthCap: { words: offCap.words } }) } };
   return {
     version: ROLE_SCHEMA_EXPORT_VERSION, generatedUtc, protocolSha256: researchProtocolSha256(),
-    schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, extract: RESEARCH_EXTRACT_JSON_SCHEMA, synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
+    // Item 9: the table a flagged pipeline call sends (the same values as before), so P10 measures the schema item 9 sends.
+    schemas: { plan: RESEARCH_ROLE_SCHEMAS.plan.schema, extract: RESEARCH_ROLE_SCHEMAS.extract.schema, synthesis: RESEARCH_ROLE_SCHEMAS.synthesis.schema },
     systems: { plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING,
     payloads: { plan: { userContent: planUser, units: units.map(u => u.id), sourceIds: inventory.sources.map(s => s.id) },

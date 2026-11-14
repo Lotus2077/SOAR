@@ -33,9 +33,9 @@ This folder holds the committed, sanitized record of live trials (see
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
   - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 9 for structured output, 8
-    for K and 7(b) for admission. Until then, adopt a card that keeps those
-    values at their defaults, or leave the pair unset.
+    refused until the backlog item that uses it merges: 8 for K and 7(b) for
+    admission. Until then, adopt a card that keeps those values at their defaults,
+    or leave the pair unset.
   - **Caps and thinking are read since 7a.2** (BL-20261114-1346-research-role-policy-design).
     The research stage sends each local role's attempts the card's caps and
     thinking: attempt 1 is a role's first call, attempt 2 its repair or second
@@ -44,6 +44,16 @@ This folder holds the committed, sanitized record of live trials (see
     model's limit, or when a synthesis attempt's length ceiling falls below 100
     words. A non-default policy changes the research protocol hash, the session
     identity and freeze.json's pipeline block. Without a card, nothing changes.
+  - **Structured output is read since item 9**
+    (BL-20261114-1650-research-structured-output-design). A local plan, extract or
+    synthesis call whose effective thinking mode the card flags sends the body it
+    sends without a card, with only `response_format` added, as P10 measured it:
+    the role's schema under P10's name, and `strict: true` for the strict variant.
+    Thinking counts as off when the attempt or the role model disables it. Index,
+    a cloud role and the assists never send it. A flag changes the research
+    protocol hash, the session identity and freeze.json's pipeline block, and a
+    stage row counts the calls that carried it (`structuredOutputCalls`). Without a
+    card, nothing changes.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and

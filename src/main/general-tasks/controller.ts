@@ -82,6 +82,8 @@ const fixedReasons: Record<string, string> = {
   research_stage_not_replayed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume.",
   task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
   consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
+  // Backlog item 6 follow-up (6.4, BL-20261114-1343): terminal for Resume, which repeats it; a Revoke removes its cause and re-opens the task.
+  consultation_budget_unavailable: "The approved consultation no longer fits the task's remaining allowance, so it was not sent and nothing is uncertain. Revoking it lets a resume continue locally within what remains; a resume alone would stop the same way.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
@@ -701,7 +703,9 @@ export class GeneralTaskController {
       } else if (active?.consultation) active.consultation.decide(decision);
       else decideWithoutDispatch(this.runtime, input.id, { ...decision, decision: input.decision });
       // Backlog item 6 (6.3): a decision is recorded either way, but it never re-opens a record a terminal stop ended (a damaged storage, say).
-      if (!active && (record.status === "paused" || isResumableRunReason(record.reason))) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
+      // The one exception (6.4, BL-20261114-1343): a Revoke cures a stop because the approved consultation no longer fit the allowance.
+      const cured = input.decision === "revoke" && record.reason === "consultation_budget_unavailable";
+      if (!active && (record.status === "paused" || isResumableRunReason(record.reason) || cured)) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
     });
     this.consultationPreviews.delete(input.id);
     this.publish(input.id); return this.get(input.id);
@@ -764,6 +768,11 @@ export class GeneralTaskController {
       if (next.status === "incomplete" && next.reason === "runtime_failure_progress_preserved") {
         const privateContextId = events.find(event => event.type === "session_started")?.privateContextId;
         if (typeof privateContextId === "string" && storageIntegrityFailed(events, privateContextId, checkpoints, this.root)) next.reason = "task_integrity_failed";
+      }
+      // Backlog item 6 follow-up (6.4, BL-20261114-1343): a Revoke clicked while the stopping run was still ending is recorded, but cannot reset
+      // the record of an active run; the run's budget stop is cured here when it ends, as decideConsultation cures it after the run.
+      if (next.status === "incomplete" && next.reason === "consultation_budget_unavailable" && readConsultation(this.runtime, id)?.status === "revoked") {
+        next.status = "paused"; next.reason = "consultation_ready";
       }
       this.save(next);
     } catch (error) {

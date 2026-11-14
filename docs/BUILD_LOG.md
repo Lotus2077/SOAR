@@ -38602,3 +38602,55 @@ Next gate:
 - Then the owner names the labelling in the card's amendment, the harvest runs, the labelling runs inside the cap, and the amendment pins the manifest.
 
 References: BL-20261114-1240-judge-fixture-implemented; BL-20261114-1241-correction-judge-fixture-restamp; BL-20261113-1003-e0-card-owner-answers; BL-20261113-0936-e0-card; BL-20261113-0938-correction-restamp-rule-dates; docs/experiments/e0-card-2026-11-13.md; scripts/serving-card.py; pull requests #86 and #91; issue #57.
+
+### BL-20261114-1327-correction-judge-fixture-review-fixes -- 2026-11-14 -- Correction to BL-20261114-1246-correction-judge-fixture-cloud-labeller: what the original entry said, which rules are the owner's and which are this pull request's, and the light review's fixes to the pin step, the planting flow and the API host
+
+Status: `Implemented`
+
+Scope or hypothesis: Record the light review of pull request #91 at 1ffbd63 and its fixes. The review found no blocker or major and four minor findings. BL-20261114-1246-correction-judge-fixture-cloud-labeller stays as written; this entry corrects two of its statements and records three protocol fixes. The fixture's code, scoring, request bodies, refusals and hashes do not change.
+
+Decisions:
+- **What the original entry said.**
+  - BL-20261114-1246-correction-judge-fixture-cloud-labeller says that the judge fixture's entry and the protocol "name a separate session as the labeller, and forbid sending labels to a cloud tool".
+  - The entry, BL-20261114-1240-judge-fixture-implemented, names a separate session in its scope, its "Failures or blockers" and its "Next gate", and its decision (7) says "a separate labeller".
+  - Only the protocol forbade sending labels to a cloud tool. The entry does not mention one.
+- **Which rules are the owner's.**
+  - The owner's decision (BL-20261113-1003-e0-card-owner-answers): a cloud model labels the claim set through its API, separate from the judge and without seeing any judge verdict, before the fixture runs. The claim set holds public and synthetic material only. The paid labelling is approved, with the USD 1.00 total cap the orchestrator recorded.
+  - The other items that BL-20261114-1246-correction-judge-fixture-cloud-labeller lists are this pull request's rules, not the owner's: the amendment that names the provider, model, public API host, key variable, tool, cap and envelope line; the fee projection; what may be sent; and what happens to the labels.
+  - Those rules are this pull request's reading of three sources: PLAN.md §4's gates on new egress destinations and on spend; docs/HANDOFF.md §3 and §6; and the card's rule that an amendment names a fixture's command before the fixture runs.
+- **The pin step (finding 1).**
+  - Step 4 still let the card fix the minimum, the measure (`exact` or `established`), the conditions and the repeats. Leaving the measure open matters, because the code accepts either.
+  - Step 4 now sets `agreement` to `{"measure": "exact", "level": 0.95}` from the card, and takes the minimum, the conditions and the repeats from the amendment.
+  - The amendment that names the labelling is committed before the first claim is sent. The pinned manifest is committed before any run.
+  - The same wording is aligned in the protocol's opening section, docs/experiments/README.md and the script's header comment.
+- **The planting flow (finding 2).** Steps 2 and 3 were written for a labeller that can edit files. For a model behind an API, the protocol now says:
+  - The tool sends the amendment's per-class minimum with the instructions.
+  - One request labels and plants. If a second request cannot be avoided, it carries only the number of claims still to plant per class, never a label.
+  - For each planted claim, the model returns only the source claim's id, the intended label, the new sentence and a note. The tool copies the source's quote and context byte for byte from the local claim set, assigns the next id, marks the claim planted, and writes both files, which step 4 hashes.
+  - A relabelling is a second paid labelling. It counts against the same USD 1.00 total, or needs the owner's go.
+- **The API host (finding 3).** The amendment names the provider's public API host. An account-specific or private base URL stays in local configuration and is named only by its variable, as build-log rule 7 and docs/HANDOFF.md §6 require.
+
+Changes: docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/README.md (the manifest's fields); scripts/judge-fixture.ts (the header comment only).
+
+Evidence:
+- The review at 1ffbd63 confirmed these points:
+  - The harvest fix works.
+  - The new test fails against the reverted dispatch.
+  - The re-stamped body is byte-identical.
+  - The counts and commands in both earlier corrections hold.
+- After these fixes:
+  - `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts tests/unit/private-agent-local-role-config.test.ts` passes 103 tests in 4 files.
+  - `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass. The validator's exit status was checked directly.
+
+Failures or blockers: None new. The cloud labelling still needs the card's amendment and a labelling tool, and neither exists yet.
+
+Limitations and non-claims:
+- Nothing ran against an endpoint or a cloud model.
+- The planting rules constrain the tool that will be written. Nothing in the repository enforces them yet.
+- The E0 card on `main` (docs/experiments/e0-card-2026-11-13.md, line 53) still says the claim set is "labelled by a separate session". The amendment can correct it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the new head, then the owner's go to merge.
+
+References: BL-20261114-1246-correction-judge-fixture-cloud-labeller; BL-20261114-1240-judge-fixture-implemented; BL-20261113-1003-e0-card-owner-answers; PLAN.md §4; docs/HANDOFF.md §3 and §6; docs/experiments/e0-card-2026-11-13.md; pull request #91.

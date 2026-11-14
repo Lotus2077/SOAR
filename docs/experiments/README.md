@@ -61,9 +61,9 @@ This folder holds the committed, sanitized record of live trials (see
   owner fills its hashes; the index and the brief stay under the ignored `.soar/`.
 - `e0-judge-fixture-v1.json`: the hashes-only manifest of the E0 judge fixture
   (`scripts/judge-fixture.ts`). It holds the claim set's and the labels' sha256, the
-  claim, class and planted counts, and the card's per-class minimum, agreement measure
-  and level, conditions and repeats. It is a template until the owner pins it with the
-  E0 card's amendment. [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md)
+  claim, class and planted counts, the card's agreement measure and level, and the
+  per-class minimum, conditions and repeats from the card's amendment. It is a template
+  until the owner pins it. [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md)
   says how the claims are harvested, labelled by a cloud model through its API, planted
   and pinned. The claims and the labels (evaluator gold) stay under the ignored
   `.soar/`.

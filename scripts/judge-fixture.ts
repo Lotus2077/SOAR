@@ -15,7 +15,8 @@
  *     [--out <dir>] [--cache-salt] [--dry-run]
  *
  * The labelling protocol is docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md. The conditions, repeats, per-class minimum and
- * agreement level come only from the manifest, which the E0 card pins before the fixture runs. The code refuses a template, an
+ * agreement level come only from the manifest, pinned from the E0 card (the measure and level) and its amendment (the rest) before the
+ * fixture runs. The code refuses a template, an
  * unpinned or mismatched input and a design without the activation cell before any request, and records the manifest's
  * digest, so that the manifest was committed before the run stays checkable; the commit itself is procedural.
  */

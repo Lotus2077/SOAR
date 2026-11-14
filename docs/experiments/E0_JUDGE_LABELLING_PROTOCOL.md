@@ -20,7 +20,8 @@ The fixture measures that pass against labels that a cloud model assigns through
 API, separately from the judge, as the owner decided on 2026-11-13. A measurement
 is only as good as its labels and its mix of claims. Real claims are mostly supported
 (the split runs' entailment counts were 33 supported + 6 partial of 40, and 29 + 7 of
-39), so the protocol plants negatives until every class reaches the card's minimum.
+39), so the protocol plants negatives until every class reaches the minimum that the
+card's amendment fixes.
 
 ## Roles
 
@@ -30,7 +31,8 @@ is only as good as its labels and its mix of claims. Real claims are mostly supp
   - Never use a run on labelled, private or owner data.
 - **Labeller** (a cloud model, through its API, separate from the judge): labels every
   claim and plants negatives.
-  - It receives only the instructions of steps 2 and 3 and `claims.json`.
+  - It receives only the instructions of steps 2 and 3, the per-class minimum from the
+    card's amendment, and `claims.json`.
   - It never receives the provenance sidecar, because a run's id leads to that run's own
     judge verdicts.
   - It must not see any judge verdict on these claims: no `claims_entailment` events
@@ -38,8 +40,9 @@ is only as good as its labels and its mix of claims. Real claims are mostly supp
   - It must not see the runs' grades.
   - `labeller` records its provider and model as the card's amendment names them.
 - **Owner:**
-  - Records the card's amendment (see "Before any claim leaves the machine").
-  - Pins the manifest with that amendment before the fixture runs.
+  - Records the card's amendment before the first claim is sent (see "Before any claim
+    leaves the machine").
+  - Pins the manifest before the fixture runs (step 4).
   - Runs the fixture on the Mac that reaches the endpoint.
 
 ## Step 1: harvest
@@ -73,7 +76,8 @@ orchestrator recorded and the owner may change. Before the first claim is sent:
 
 - **The card's amendment names the labelling:**
   - the provider and the model;
-  - the API host;
+  - the provider's public API host. An account-specific or private base URL stays in
+    local configuration and is named only by its variable;
   - the name of the variable that holds the key, never its value;
   - the tool that sends the claims;
   - the cap and the envelope line it is charged to.
@@ -83,8 +87,10 @@ orchestrator recorded and the owner may change. Before the first claim is sent:
 - **Check the claim set.** It must come from step 1 on public or synthetic runs only.
 - **Project the fee from the claim count first.** Do this before the first call, and
   stop before any call that would pass the cap.
-- **Send only the instructions and `claims.json`.** No sidecar, verdict, grade, run
-  directory, path or address leaves the machine.
+- **Send only the instructions, the per-class minimum and `claims.json`.** No sidecar,
+  verdict, grade, run directory, path or address leaves the machine.
+- **One request labels and plants.** If a second request cannot be avoided, it carries
+  only the number of claims still to plant per class. It never carries a label.
 
 This protocol does not name the provider or the model, and no labelling tool exists in
 the repository yet.
@@ -112,9 +118,16 @@ The labeller puts a note of at most 400 characters on any claim that stayed hard
 
 The proposal for the card is 10 claims per class; the card's amendment fixes the number.
 
-To plant a claim, copy a real claim's `quote` and `context` byte for byte, give it the
-next free id, omit `origin`, mark it `planted: true` in the labels, and rewrite only the
-sentence:
+To plant a claim, the labeller picks a real claim and rewrites only its sentence. For
+each planted claim it returns only four things: the source claim's id, the intended
+label, the new sentence and a note. The tool, not the model, then:
+- copies the source claim's `quote` and `context` byte for byte from the local
+  `claims.json`;
+- gives the planted claim the next free id and omits `origin`;
+- marks it `planted: true` in the labels;
+- writes `claims.json` and `labels.json`, which step 4 hashes.
+
+The new sentence follows one of these rules:
 
 - **unsupported:** add a specific detail the passage does not contain, such as a number,
   a cause, a comparison or a date;
@@ -131,7 +144,8 @@ fixture reports the planted claims' detection separately (`plantedNotEstablished
 
 All three files stay under `.soar/experiments/e0-judge/`, which git ignores. The labels
 are evaluator gold:
-- They come back from the labeller's API and are written there.
+- They come back from the labeller's API, with the planted sentences. The tool writes
+  them there and adds the planted claims to `claims.json` locally, as step 3 says.
 - Never commit them, never show them to the judge, and never send them to any other
   tool or model.
 - The fixture never puts a label in a request.
@@ -149,10 +163,12 @@ are evaluator gold:
 
 1. Compute each file's sha256 over its exact bytes (`shasum -a 256`), the claim count,
    the count per label and the planted count.
-2. Fill `docs/experiments/e0-judge-fixture-v1.json` with these values. Copy the card's
-   `minimumPerClass`, `agreement` (`measure` `exact` or `established`, and its `level`),
-   `conditions` and `repeats`, then set `status` to `pinned`.
-3. Commit the manifest with the card's amendment, before any run.
+2. Fill `docs/experiments/e0-judge-fixture-v1.json` with these values:
+   - set `agreement` to `{"measure": "exact", "level": 0.95}` (the card, item 2);
+   - copy `minimumPerClass`, `conditions` and `repeats` from the card's amendment;
+   - then set `status` to `pinned`.
+3. Commit the pinned manifest before any run. The amendment that names the labelling
+   was committed earlier, before the first claim was sent.
 4. On the owner's Mac, run
    `pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> --dry-run`, then
    the same command without `--dry-run`.
@@ -187,7 +203,9 @@ reads the contract from the configuration and records it with the cell. Its
   its cache per job, which changes the transport, not the prompt.
 
 **After a run, the set is frozen.** If it needs relabelling, make a new set with new
-hashes and a new manifest version, and keep the first result.
+hashes and a new manifest version, and keep the first result. A relabelling is a
+second paid labelling: it counts against the same USD 1.00 total, or needs the owner's
+go.
 
 ## What the fixture shows, and what it does not
 

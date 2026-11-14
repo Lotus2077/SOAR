@@ -41473,3 +41473,194 @@ References:
 - BL-20261113-0938-correction-restamp-rule-dates
 - BL-20261114-1724-claims-check-linear-strips-implemented
 - BL-20261114-1808-claims-check-long-char-refs-implemented
+
+### BL-20261114-2309-revoke-reopens-budget-stop-design -- 2026-11-14 -- Backlog item 6 follow-up decided: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text says so
+
+Status: `Proposed`
+
+Scope or hypothesis: The light review of #82 (plan 6.3) found a minor regression, left for later: a Revoke can no longer recover a task stopped by `consultation_budget_unavailable`. This entry decides the fix, plan ID 6.4, lane S-desk.
+- **The stop.** The runner stops with that reason, before any dispatch, when an approved consultation no longer fits the task's remaining allowance: fewer than two model calls, no tool call, or fewer than two broker requests left (src/main/private-agent/runner.ts).
+- **Why Resume cannot clear it.** src/main/general-tasks/run-reasons.ts classes the reason terminal. That is right for Resume: while the consultation stays approved, a later run stops the same way.
+- **Why a Revoke can.** A Revoke removes the cause. A revoked consultation resumes locally, with a fixed host reply and no dispatch (src/main/private-agent/consultation.ts).
+- **How 6.3 closed the cure.** Before 6.3, `decideConsultation` reset any record that was not running to `paused` / `consultation_ready`, so a Revoke re-opened such a task. 6.3's review fix (a) (BL-20261113-0818-runner-storage-integrity-implemented) limited the reset to a paused record or a resumable stored reason, so that a decision cannot re-open a terminal stop such as damaged storage. That also closed this one cure.
+
+Decisions:
+
+(1) **The reset.** A Revoke resets a record stopped by `consultation_budget_unavailable` to `paused` / `consultation_ready`, as a decision already does for a paused or resumably stopped record. Nothing else changes:
+- An approval cannot cure a budget shortfall, so it does not re-open the record.
+- `consultation_response_missing_no_replay` stays terminal, because an uncertain consultation is never replayed.
+- `task_integrity_failed` and every other terminal stop stay terminal: 6.3's guard stands.
+- The decision is still recorded either way.
+
+(2) **The stop's text.** The reason gets a fixed text in the controller, which today shows only the general terminal wording: "The approved consultation no longer fits the task's remaining allowance, so it was not sent and nothing is uncertain. Revoking it lets a resume continue locally within what remains; a resume alone would stop the same way."
+
+(3) **What else stays.** run-reasons.ts keeps the reason terminal, so the desktop offers no Resume until the owner revokes. A re-opened record is paused, so a version 3 record's clock runs live from then on, as for any paused record (6.1's decision 7).
+
+Changes: Planned in one pull request on `fix/6.4-revoke-reopens-budget-stop`, from `main` at 582f880:
+- src/main/general-tasks/controller.ts: the reset condition in `decideConsultation`, and the reason's fixed text;
+- tests/unit/general-task-consultation-controller.test.ts. A task's run stops with this reason after an approval, offering no Resume and showing the new text. A Revoke re-opens it with Resume offered, and the resumed run continues locally to submission with nothing dispatched. The 6.3 test for damaged storage still holds.
+
+Consequences:
+- controller.ts merge order: 7d.C (#99), then this. The two touch different functions.
+- The desktop's build identity changes, as with every desktop change.
+- Unchanged: `researchProtocolSha256`, the private-agent source freeze, run-reasons.ts and the runner.
+
+Evidence: None yet; this entry decides. Under the owner's lighter-review rule, the pull request gets one light review.
+
+Failures or blockers: None. One owner question, which does not gate the change. Should a Revoke re-open a task stopped because its approved consultation no longer fit the remaining allowance? Proposed default: yes, as before 6.3. The task then continues locally within what remains, and the alternative would leave the owner only a new task.
+
+Limitations and non-claims: `Proposed` only: nothing is implemented or verified by this entry. A re-opened task may soon stop on its own remaining allowance; the reset promises no particular outcome.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with its test and its `Implemented` entry. Then the checks, the light review, CI, and a merge under the owner's standing go-ahead, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-2310-revoke-reopens-budget-stop-implemented -- 2026-11-14 -- Backlog item 6 follow-up implemented: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text names that cure
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-2309-revoke-reopens-budget-stop-design, with deterministic tests, on branch `fix/6.4-revoke-reopens-budget-stop` from `main` at 582f880 (plan ID 6.4, lane S-desk). The design commit is 469e606, and the implementation commit is 9eda46c.
+
+Decisions: Implemented as decided.
+- **The reset.** In `decideConsultation`, a Revoke on a record whose stored reason is `consultation_budget_unavailable` counts as a cure. The reset to `paused` / `consultation_ready` applies to a paused record, a resumable stored reason, or that cure.
+- **The text.** The reason's fixed text is the one the design names.
+- **Only a Revoke.** A Decline or a second approval cannot reach the reset for this stop. The runner stops this way only while the consultation is approved. At that point a Decline is refused with `consultation_decision_closed`, and an approval with `consultation_stale_decision`, before the reset. So a mutant that lets any decision cure the stop is equivalent; the test pins the Decline's refusal.
+- **Review.** Under the owner's lighter-review rule, one light review of the pull request by the coordinating session.
+
+Changes:
+- src/main/general-tasks/controller.ts: the cure in `decideConsultation`'s reset, and the reason's fixed text.
+- tests/unit/general-task-consultation-controller.test.ts (1 test). After an approval, the run stops with this reason: the task offers no Resume, shows the new text, refuses Resume and refuses a Decline. A Revoke re-opens it with Resume offered, and the resumed run continues locally to submission with no dispatch.
+- tests/unit/general-task-controller.test.ts: the table of terminal reasons expects the new text for this reason. It still checks that the stop stays terminal and refuses Resume after reopening.
+
+Evidence: At commit 9eda46c:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: general-task-consultation-controller 24 of 24 (23 before), general-task-controller 157 of 157, and general-task-run-reasons 5 of 5, unchanged.
+- The full `pnpm exec vitest run`: 195 files, 182 passed and 13 skipped (the environment-gated suites, as before); 3,669 tests, 3,583 passed and 86 skipped, none failed.
+- Mutation checks, each applied alone in a scratch copy against the consultation suite. Three are killed:
+  - no cure;
+  - any terminal reason cured by a Revoke;
+  - no fixed text.
+
+  The fourth, any decision curing the stop, is equivalent, as above.
+- No file in the private-agent source freeze's list changes, and no research pipeline file changes. `researchProtocolSha256` and the freeze are as at `main`.
+
+Failures or blockers: None. A first run of the controller suite failed one row: the table of terminal reasons pinned the old generic text for this reason. That row now expects the new text, which this change sets on purpose.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- The fixture produces the stop directly. The runner's own budget test for it (runner.ts) is unchanged and not re-run here beyond the full suite.
+- The owner question of BL-20261114-2309 stands with its default.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Push, a pull request against `main`, the coordinating session's light review, and CI. Then a merge under the owner's standing go-ahead, after 7d.C (#99) on controller.ts, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261114-2309-revoke-reopens-budget-stop-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-2311-correction-revoke-reopens-budget-stop -- 2026-11-14 -- Correction to plan 6.4's entries: re-stamped after `main`'s tail as BL-20261114-2309 and BL-20261114-2310 (authored at 13:14 and 13:19 UTC on 2026-11-14 as BL-20261114-1314 and BL-20261114-1319), with the light review of #100's two findings
+
+Status: `Implemented`
+
+Scope or hypothesis: Two corrections to pull request #100 (plan 6.4, lane S-desk).
+- **The re-stamp.** #99 merged first (19d7826), so `main`'s last ID, BL-20261114-1342-correction-host-flags-surfaces-review, is later than both of 6.4's entries. At this merge of `main` (merge commit 406bd59), under the owner's rule (BL-20261113-0937, as clarified by BL-20261113-0938), their ID minutes move to the first free minutes after the tail:
+  - the design entry, authored at 13:14 UTC on 2026-11-14 as BL-20261114-1314, is now BL-20261114-2309-revoke-reopens-budget-stop-design;
+  - the implemented entry, authored at 13:19 UTC on 2026-11-14 as BL-20261114-1319, is now BL-20261114-2310-revoke-reopens-budget-stop-implemented.
+
+  Only the two headings' minutes and the references to those IDs change: the references in the implemented entry's body, and three comments in src/main/general-tasks/controller.ts. Each body is otherwise byte-identical to #100's at 9a58af3.
+- **The light review of #100 at 9a58af3.** It was clean, with two minor findings, fixed in df37844.
+
+Decisions:
+- **(1) A Revoke made while the stopping run is still ending.** The runner reads the approval and stops on the allowance, then its `finally` awaits the execution workspace's cleanup before the run returns. A Revoke clicked in that window is recorded, but it cannot reset the record of an active run.
+  - The task then stayed stopped, with the consultation revoked.
+  - The new text asked for a Revoke the desktop no longer offers: its button shows only while the consultation is approved or dispatching, and Resume was not offered.
+  - `execute()` now cures the stop when the run ends. If the consultation already reads `revoked`, it stores `paused` / `consultation_ready`, as `decideConsultation` does after the run. This is BL-20261114-2309's decision (1), applied at the other moment a Revoke can arrive.
+- **(2) The refusal codes for a second approval.** BL-20261114-2310 says a second approval at this stop is refused with `consultation_stale_decision`. Not quite:
+  - the first refusal is `general_task_consultation_preview_required`, because the controller clears the preview after every decision;
+  - only after a fresh preview is it `consultation_stale_decision`;
+  - when the model or tool allowance has run short, `general_task_consultation_allowance` comes before it.
+
+  The entry's conclusion stands: an approval never reaches the reset.
+
+Changes:
+- docs/BUILD_LOG.md: two headings, their references and this entry.
+- src/main/general-tasks/controller.ts: the cure in `execute()`, and the three comments' IDs.
+- tests/unit/general-task-consultation-controller.test.ts:
+  - the 6.4 test pins both refusals of a second approval;
+  - a new test makes the Revoke from inside the stopping run. The record reads `running` and `revoked` at that moment, the run's end leaves the task paused with Resume offered, and it then continues locally to submission with no dispatch.
+
+Evidence: At the head:
+- `pnpm --silent validate:build-log -- --base-ref origin/main` passes: append-only against `main` at 19d7826, whose log is a byte prefix of this branch's. `pnpm typecheck` and `pnpm validate:readiness` also pass.
+- The changed tests and the full suite are given in the pull request's description at the head.
+- Two mutants are each killed by the new test: no cure in `execute()`, and a cure that does not require the Revoke.
+
+Failures or blockers: None.
+
+Limitations and non-claims: As in BL-20261114-2310. The owner question of BL-20261114-2309 stands with its default.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The owner's go-ahead for the default, CI, and the merge, re-stamping again if `main`'s tail moves first.
+
+References: BL-20261114-2309-revoke-reopens-budget-stop-design; BL-20261114-2310-revoke-reopens-budget-stop-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp -- 2026-11-14 -- Correction: plan 6.4's three entries are re-stamped again after `main`'s tail, with their original IDs and authoring times; the owner's go-ahead to merge #100 with its default is recorded
+
+Status: `Implemented`
+
+Scope or hypothesis: #100 (plan 6.4, lane S-desk) last merged `main` at 19d7826 (merge commit 406bd59). `main` has since taken #98, #101, #104, #107, #109, #112, #91, #90, #106, #111 and #97, in that order. Its last ID is now BL-20261114-2308-correction-e1-recoverability-gate-restamp, which is later than all three of #100's entries. So at this merge of `main` (44875ac) into #100, the three entries move after the tail again, under the owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it). The coordinating session scheduled this merge last, after #91, #90, #106, #111 and #97, and asked for this correction.
+
+Each entry, with its original ID and authoring time:
+- **The design entry** was authored at 13:14 UTC on 2026-11-14 as BL-20261114-1314 (commit 469e606), and first re-stamped to BL-20261114-1343 (573f55f). It is now BL-20261114-2309-revoke-reopens-budget-stop-design.
+- **The implemented entry** was authored at 13:19 UTC the same day as BL-20261114-1319 (commit 9a58af3), and first re-stamped to BL-20261114-1344 (573f55f). It is now BL-20261114-2310-revoke-reopens-budget-stop-implemented.
+- **The first correction** was authored at 13:52 UTC the same day as BL-20261114-1352 (commit 573f55f). It is now BL-20261114-2311-correction-revoke-reopens-budget-stop.
+
+All three keep their slugs, and their dates stay 2026-11-14. Other lanes' entries also passed through BL-20261114-1343 and BL-20261114-1344 in their own re-stamps (#101's and plan 11.4's), and on `main` minute 1344 belongs to BL-20261114-1344-experiment-launcher-design. The commits in parentheses mark 6.4's.
+
+Decisions:
+1. **The re-stamp.** As at the first re-stamp, the three headings take the first free minutes after the tail, in their order, and this entry takes its own authoring minute. The references follow the new IDs:
+   - three in the implemented entry: its scope, its Limitations and its References;
+   - ten in the first correction: its title, its scope, its two decisions, its Limitations and its References;
+   - three comments in src/main/general-tasks/controller.ts, which cite the design entry.
+
+   Nothing else in the three entries changes. The first correction's account of the first re-stamp keeps that merge's facts as written: `main`'s tail then, BL-20261114-1342-correction-host-flags-surfaces-review, and its merge commit 406bd59. This entry maps the IDs that re-stamp gave.
+2. **The owner's go-ahead.** The design entry states one owner question, which does not gate the change: should a Revoke re-open a task stopped because its approved consultation no longer fit the remaining allowance? Its proposed default is yes, as before 6.3. The first correction's Next gate waits for the owner's go-ahead for that default.
+   - The owner gave it in chat at about 22:40 UTC on 2026-11-14: "Yes, merge all five". BL-20261114-2254-correction-judge-fixture-second-restamp records it. The question named #91, #90, #97, #100 and #106, and said that #100's default is "yes", as before 6.3.
+   - So #100 merges with that default: a Revoke re-opens the stopped task, and a resume then continues it locally within what remains. The owner answered the merge question, which stated the default. The design entry's question was not put on its own, so this entry records the go-ahead, not a separate answer.
+   - The design entry's Next gate expected a merge under the owner's standing go-ahead. That go-ahead does not cover a pull request that states an open default (BL-20261114-2254-correction-judge-fixture-second-restamp), so the coordinating session asked the owner.
+   - Nothing else changes with the go-ahead. The entries keep their statuses as written: the design entry `Proposed`, the implemented entry and the first correction `Implemented`. Nothing is `Verified` or `Released`.
+3. **What the merge of `main` brought.** `main`'s changes since 19d7826 touch none of 6.4's files. controller.ts and the two controller test files merged without conflict, and the merged tree differs from `main` only in 6.4's four files. What the three entries state about the code stands. The implemented entry's full-suite counts describe its own head, on `main` at 582f880; `main`'s suite has grown since.
+
+Changes:
+- docs/BUILD_LOG.md: `main`'s log, then 6.4's three entries re-stamped, then this entry.
+- src/main/general-tasks/controller.ts: the three comments' IDs.
+- No test changes.
+
+Evidence:
+- With the three new IDs mapped back to the old ones, the branch's three entries are byte-identical to 573f55f's, and controller.ts differs from 573f55f's only in the three comments' IDs.
+- The merge of `main` at 44875ac conflicted in docs/BUILD_LOG.md only. Its resolution keeps `main`'s log whole as a byte prefix.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` exited 0 at this head, its status read directly, not through a pipe: "SOAR build log valid: 652 entries; append-only against origin/main; 1 digest-bound field correction; original missing-field evidence retained."
+- `pnpm typecheck` and `pnpm validate:readiness` passed.
+- `pnpm exec vitest run` at this head on general-task-consultation-controller, general-task-controller, general-task-run-reasons and general-task-host-flags: 4 files and 194 tests passed, none failed. The full suite runs in CI on this head.
+- `git grep` finds BL-20261114-1352 only in this entry, and BL-20261114-1314 and BL-20261114-1319 only in this entry and the first correction. BL-20261114-1343 and BL-20261114-1344 remain in this entry as 6.4's former IDs, and elsewhere only as the other lanes' IDs named above.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction, plus three comment IDs in controller.ts. Nothing is implemented, verified or released by it.
+- The commit messages keep the old IDs. #100's description is updated to the new ones.
+- If another entry reaches `main` first again, these four entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on this head, then the coordinating session's merge of #100 under the owner's go-ahead.
+
+References:
+- BL-20261114-2309-revoke-reopens-budget-stop-design
+- BL-20261114-2310-revoke-reopens-budget-stop-implemented
+- BL-20261114-2311-correction-revoke-reopens-budget-stop
+- BL-20261114-2308-correction-e1-recoverability-gate-restamp
+- BL-20261114-2254-correction-judge-fixture-second-restamp
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries
+- BL-20261113-0938-correction-restamp-rule-dates

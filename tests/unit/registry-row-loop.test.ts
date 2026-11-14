@@ -64,7 +64,11 @@ describe("registry row of an H4 loop", () => {
       selected: { stage1: { candidate: "a", step: "submitted" }, final: { candidate: "a", step: "critique_failed" } } })}\n`);
     rmSync(join(root, "critique", "critique.json")); writeFileSync(join(root, "critique", "critique-failure.json"), `${canonical({ critic: "local", code: "repair_critique_empty", finishReason: "length", usage: { inputTokens: 900, outputTokens: 16384 }, feeMicrousd: 0 })}\n`);
     const failed = row(["--loop-dir", root]);
-    expect(failed).toMatchObject({ modelCalls: 9, inputTokens: 300 + 400 + 900 + 100, outputTokens: 50 + 16384 + 10, lengthStops: 5, wallSeconds: (26 - 0) * 60 + 60 * 60 + 0, runStatus: "submitted",
+    // Backlog item 11, part 3b: the row sums every run directory in the loop directory, so repair/, left on disk though this record does not
+    // name it, adds its own counts (spend is never hidden); its times lie inside the loop's span.
+    const repair = row(["--run-dir", join(root, "repair")]) as Record<string, number>;
+    expect(failed).toMatchObject({ modelCalls: 9 + repair.modelCalls, inputTokens: 300 + 400 + 900 + 100 + repair.inputTokens, outputTokens: 50 + 16384 + 10 + repair.outputTokens,
+      lengthStops: 5 + repair.lengthStops, wallSeconds: (26 - 0) * 60 + 60 * 60 + 0, runStatus: "submitted",
       loop: { critiqued: false, critiqueFailure: "repair_critique_empty", selected: "a", step: "critique_failed", candidates: { a: { status: "submitted" }, b: { status: "incomplete" } } } });
     // A single run rows as before, and the two modes are exclusive.
     const single = row(["--run-dir", join(root, "a")]);

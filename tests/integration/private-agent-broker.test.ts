@@ -727,7 +727,8 @@ describe("E1 recoverability: zero-fee bad bodies and eight zero-fee failure mode
     const f = await fixture({ ...local, handler: (_request, response) => { response.setHeader("content-type", "application/json"); response.end(++count <= 2 ? "{\"choices\": [ not json" : reply); } });
     const model = new PrivateAgentModel(f.broker, { destinationId: "target", model: "synthetic", maxOutputTokens: 256, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, "job", "context");
     const call = () => model.complete([{ role: "user", content: "synthetic" }], [], new AbortController().signal);
-    // The decoder's SyntaxError is not one of the listed sub-codes, so it records `other`; a bad body is never retried.
+    // The decoder's SyntaxError is not one of the listed sub-codes, so it records `other`. This destination is not recoverable, so the request count
+    // shows only that nothing is retried here; that a settlement failure is never retried is the isRetryableAbort case of the zero-risk tests above.
     for (let attempt = 0; attempt < 2; attempt++) await expect(call()).rejects.toMatchObject({ code: "request_failed" });
     expect(f.store.dispatches("job").map(row => [row.status, row.failure])).toEqual([0, 1].map(() =>
       ["failed", expect.objectContaining({ phase: "settlement", code: "response_or_usage_invalid", subcode: "other" })]));
@@ -735,7 +736,8 @@ describe("E1 recoverability: zero-fee bad bodies and eight zero-fee failure mode
     expect(f.store.dispatches("job").map(row => row.status)).toEqual(["failed", "failed", "settled"]); expect(f.requests).toHaveLength(3);
   });
   it("never leaves a zero-fee row unknown or blocking across eight failure modes in one job, and the next request settles after each", async () => {
-    // The other zero-fee diagnostics (connection_failed, transport_failed and the stream codes) are covered by the zero-risk and stream tests above.
+    // The stream codes have end-to-end cases in the stream tests above. A zero-fee connection_failed or transport_failed row is covered only at the
+    // predicate level, by "confirms every zero-risk failure but retries only the transient aborts" above.
     type Step = "hang" | "cut" | "oversize" | "invalid" | "rejected" | "interrupted" | "fee" | "cancel" | "ok";
     const failures: Step[] = ["hang", "cut", "oversize", "invalid", "rejected", "interrupted", "fee", "cancel"];
     // Each failing request is followed by one that answers, in arrival order.

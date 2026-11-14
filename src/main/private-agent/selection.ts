@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { sha256Schema } from "./contracts";
 import { join } from "node:path";
 import { z } from "zod";
@@ -26,8 +26,8 @@ export interface CandidateSummary {
   jobId: string;
   /** The task the run was bound to and the reviewed-source hash it ran under; the loop refuses a candidate that is not its own. */
   taskJobSha256: string; taskBriefSha256: string; runtimeSha256: string;
-  /** The packet a seeded run wrote from (its freeze's `researchFrom`), or null. */
-  researchFrom: { sourceJobId: string; snapshotSha256: string } | null;
+  /** The packet a seeded run wrote from (its freeze's `researchFrom`), or null; `sourceFreezeSha256` is the source run's freeze hash, when the seed records it (part 3b's lineage check). */
+  researchFrom: { sourceJobId: string; snapshotSha256: string; sourceFreezeSha256?: string } | null;
   /** The run a repair started from (its freeze's repair binding source), or null. */
   repairSource: { resultSha256: string; freezeSha256: string } | null;
   status: "submitted" | "paused" | "incomplete";
@@ -95,7 +95,11 @@ const isZero = (value: unknown) => typeof value === "number" && value === 0;
  * malformed field fails closed. scripts/registry-row.py mirrors this as `is_zero_fee_failed`.
  */
 export function isZeroFeeFailedDispatch(row: Record<string, unknown>): boolean {
-  return row.status === "failed" && !isAssistDispatch(row) && (ZERO_FEE_DESTINATIONS as readonly unknown[]).includes(row.destinationId) && isZero(row.reservedFeeMicrousd) &&
+  return row.status === "failed" && isZeroFeeDispatch(row);
+}
+/** Part 1's zero-fee predicate apart from the status (backlog item 11, part 3b): a row that is not an assist, to a fee-free destination, that reserved and settled nothing and carries no approval. */
+export function isZeroFeeDispatch(row: Record<string, unknown>): boolean {
+  return !isAssistDispatch(row) && (ZERO_FEE_DESTINATIONS as readonly unknown[]).includes(row.destinationId) && isZero(row.reservedFeeMicrousd) &&
     (!Object.hasOwn(row, "feeMicrousd") || isZero(row.feeMicrousd)) && !Object.hasOwn(row, "approval");
 }
 
@@ -104,7 +108,7 @@ const resultSchema = z.object({ status: z.enum(["submitted", "paused", "incomple
   dispatches: z.array(z.object({ status: z.string(), feeMicrousd: z.number().optional().nullable(), purpose: z.string().optional() }).passthrough()) }).passthrough();
 const freezeSchema = z.object({ jobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u), startedAt: z.string(), sourceFreezeSha256: sha256Schema,
   taskBinding: z.object({ jobSha256: sha256Schema, briefSha256: sha256Schema }).passthrough(),
-  researchFrom: z.object({ sourceJobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u), snapshotSha256: sha256Schema }).passthrough().optional(),
+  researchFrom: z.object({ sourceJobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u), snapshotSha256: sha256Schema, sourceFreezeSha256: sha256Schema.optional() }).passthrough().optional(),
   repair: z.object({ source: z.object({ resultSha256: sha256Schema, freezeSha256: sha256Schema }).passthrough() }).passthrough().optional() }).passthrough();
 const checksSchema = z.array(z.object({ id: z.string(), passed: z.boolean() }).strict());
 
@@ -150,30 +154,116 @@ export function summarizeRun(runDirectory: string, deliverables: string[]): Cand
   const counts = entailmentEvent?.counts as Record<string, unknown> | undefined;
   const entailment = counts && ENTAILMENT_KEYS.every(key => typeof counts[key] === "number")
     ? { ...Object.fromEntries(ENTAILMENT_KEYS.map(key => [key, counts[key] as number])) as EntailmentCounts, truncated: entailmentEvent?.truncated === true } : null;
-  const finished = events.filter(event => event.type === "model_finished"), stages = events.filter(event => event.type === "research_stage");
-  const sum = (key: string) => finished.reduce((total, event) => total + usageNumber(event.usage, key), 0) + stages.reduce((total, event) => total + usageNumber(event.usage, key), 0);
+  const stages = events.filter(event => event.type === "research_stage");
   const present = result.candidateFiles.filter(file => deliverables.includes(file.path) && file.sha256 !== EMPTY_SHA256).length;
   return { jobId: freeze.jobId, taskJobSha256: freeze.taskBinding.jobSha256, taskBriefSha256: freeze.taskBinding.briefSha256, runtimeSha256: freeze.sourceFreezeSha256,
-    researchFrom: freeze.researchFrom ? { sourceJobId: freeze.researchFrom.sourceJobId, snapshotSha256: freeze.researchFrom.snapshotSha256 } : null,
+    researchFrom: freeze.researchFrom ? { sourceJobId: freeze.researchFrom.sourceJobId, snapshotSha256: freeze.researchFrom.snapshotSha256,
+      ...(freeze.researchFrom.sourceFreezeSha256 ? { sourceFreezeSha256: freeze.researchFrom.sourceFreezeSha256 } : {}) } : null,
     repairSource: freeze.repair ? { resultSha256: freeze.repair.source.resultSha256, freezeSha256: freeze.repair.source.freezeSha256 } : null,
     status: result.status, reason: result.reason,
     checksPassed: checks.filter(check => check.passed).length, checksTotal: checks.length, checksCurrent, artifactsPresent: present, artifactsTotal: deliverables.length, entailment,
     writeIdentity: typeof started?.identity === "string" ? started.identity : null,
+    ...runCounts(events, result.dispatches),
+    stageDenied: (() => { const denied = [...stages].reverse().find(event => typeof event.denied === "string"); return denied ? String(denied.denied) : null; })(),
+    candidateSha256: digest(canonical(result.candidateFiles.map(file => ({ path: file.path, sha256: file.sha256 })))), freezeSha256: digest(freezeBytes), resultSha256: digest(resultBytes),
+    startedAt: freeze.startedAt, finishedAt: result.finishedAt };
+}
+
+/** The counts a run's events and dispatch rows give, as a loop's totals add them (TOTAL_KEYS in scripts/phase4-loop.ts). */
+export interface RunCounts { modelCalls: number; toolCalls: number; inputTokens: number; outputTokens: number; cachedTokens: number; cacheWriteTokens: number; lengthStops: number;
+  feeMicrousd: number; unknownDispatches: number; retriedDispatches: number; failedDispatches: number; zeroFeeFailedDispatches: number; assistSkippedDispatches: number; assistFailedDispatches: number }
+/** One run's counts: the write loop's model events and the reading stage's content-free stage events, and its dispatch rows by outcome. */
+export function runCounts(events: readonly Record<string, unknown>[], dispatches: readonly Record<string, unknown>[]): RunCounts {
+  const finished = events.filter(event => event.type === "model_finished"), stages = events.filter(event => event.type === "research_stage");
+  const sum = (key: string) => finished.reduce((total, event) => total + usageNumber(event.usage, key), 0) + stages.reduce((total, event) => total + usageNumber(event.usage, key), 0);
+  const fee = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return {
     modelCalls: finished.length + stages.reduce((total, event) => total + (typeof event.calls === "number" ? event.calls : 0), 0),
     toolCalls: events.filter(event => event.type === "tool_finished").length,
     inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"), cachedTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
     lengthStops: finished.filter(event => event.finishReason === "length").length + stages.reduce((total, event) => total + usageNumber(event, "truncatedReplies"), 0),
-    feeMicrousd: result.dispatches.reduce((total, row) => total + (row.feeMicrousd ?? 0), 0),
+    feeMicrousd: dispatches.reduce((total, row) => total + fee(row.feeMicrousd), 0),
     // An unknown or failed assist row is reported in its own column and stops nothing (backlog item 10); a committed one still counts as unresolved.
-    unknownDispatches: result.dispatches.filter(row => row.status === "committed" || (row.status === "unknown" && !isAssistDispatch(row))).length,
-    retriedDispatches: result.dispatches.filter(row => row.status === "superseded").length,
-    failedDispatches: result.dispatches.filter(row => row.status === "failed" && !isAssistDispatch(row)).length,
-    zeroFeeFailedDispatches: result.dispatches.filter(row => isZeroFeeFailedDispatch(row)).length,
-    assistSkippedDispatches: result.dispatches.filter(row => row.status === "unknown" && isAssistDispatch(row)).length,
-    assistFailedDispatches: result.dispatches.filter(row => row.status === "failed" && isAssistDispatch(row)).length,
-    stageDenied: (() => { const denied = [...stages].reverse().find(event => typeof event.denied === "string"); return denied ? String(denied.denied) : null; })(),
-    candidateSha256: digest(canonical(result.candidateFiles.map(file => ({ path: file.path, sha256: file.sha256 })))), freezeSha256: digest(freezeBytes), resultSha256: digest(resultBytes),
-    startedAt: freeze.startedAt, finishedAt: result.finishedAt };
+    unknownDispatches: dispatches.filter(row => row.status === "committed" || (row.status === "unknown" && !isAssistDispatch(row))).length,
+    retriedDispatches: dispatches.filter(row => row.status === "superseded").length,
+    failedDispatches: dispatches.filter(row => row.status === "failed" && !isAssistDispatch(row)).length,
+    zeroFeeFailedDispatches: dispatches.filter(row => isZeroFeeFailedDispatch(row)).length,
+    assistSkippedDispatches: dispatches.filter(row => row.status === "unknown" && isAssistDispatch(row)).length,
+    assistFailedDispatches: dispatches.filter(row => row.status === "failed" && isAssistDispatch(row)).length,
+  };
+}
+
+/** A run directory as its own files and ledger leave it, with or without a result (backlog item 11, part 3b). */
+export interface RunLedger {
+  /** The run's freeze when it holds a readable object: its job, the sha256 of its bytes, the runtime it ran under, its start, its fee cap and whether its arm is local; null otherwise. */
+  freeze: { jobId: string; sha256: string; runtimeSha256: string | null; startedAt: string | null; feeCapMicrousd: number | null; localArm: boolean } | null;
+  dispatches: Record<string, unknown>[];
+  /** The run claims of its sandbox contexts (store.ts), as recorded. */
+  claims: Record<string, unknown>[];
+  counts: RunCounts;
+  /** The latest commit time of its dispatch rows, in milliseconds since the epoch, or null without one. */
+  lastCommittedAt: number | null;
+  /** Its result's end time when `result.json` holds a readable object with one, or null. */
+  finishedAt: string | null;
+}
+/**
+ * A file of a run's own (or the critique tool's) as a JSON object, or null when it is absent, not a regular file (a symbolic link is
+ * not followed), not strict UTF-8, led by a byte-order mark (which JSON.parse refuses, as every other reader of these files does), not
+ * JSON or not an object. scripts/registry-row.py's `read_object` reads the same way.
+ */
+export function readRunObject(directory: string, name: string): { bytes: Buffer; value: Record<string, unknown> } | null {
+  const root = realpathSync(directory), path = join(root, name);
+  if (!existsSync(path) || !lstatSync(path).isFile()) return null;
+  const bytes = insideFile(path, root);
+  try {
+    const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes));
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? { bytes, value: value as Record<string, unknown> } : null;
+  } catch { return null; }
+}
+/** A run's result as part 3b reads one: a readable object (readRunObject) with a status, a reason and an end time; null otherwise. */
+export function readRunResult(directory: string): Record<string, unknown> | null {
+  const result = readRunObject(directory, "result.json")?.value ?? null;
+  return result && typeof result.status === "string" && typeof result.reason === "string" && typeof result.finishedAt === "string" ? result : null;
+}
+/**
+ * Reads a run directory read-only, as part 3b's loop and registry read a run without `result.json` (scripts/registry-row.py's
+ * `run_ledger` mirrors it). A run whose freeze is readable, or that holds a result, has a ledger with the store's tables (the driver
+ * creates both before its session), so a missing one refuses with `run_ledger_missing`; otherwise a missing ledger gives no rows. A
+ * row that is not a JSON object is skipped. The caller recovers a hot journal first: a read-only open refuses one.
+ */
+export function readRunLedger(runDirectory: string): RunLedger {
+  const root = realpathSync(runDirectory);
+  let freeze: RunLedger["freeze"] = null;
+  const frozen = readRunObject(root, "freeze.json");
+  if (frozen) {
+    const bytes = frozen.bytes, object = frozen.value;
+    const limits = object && typeof object.limits === "object" && object.limits !== null ? object.limits as Record<string, unknown> : null;
+    const arm = object && typeof object.arm === "object" && object.arm !== null ? object.arm as Record<string, unknown> : null;
+    if (typeof object.jobId === "string" && /^[A-Za-z0-9_-]{1,100}$/u.test(object.jobId)) {
+      freeze = { jobId: object.jobId, sha256: digest(bytes), runtimeSha256: typeof object.sourceFreezeSha256 === "string" ? object.sourceFreezeSha256 : null,
+        startedAt: typeof object.startedAt === "string" ? object.startedAt : null,
+        feeCapMicrousd: typeof limits?.feeMicrousd === "number" && Number.isFinite(limits.feeMicrousd) ? limits.feeMicrousd : null, localArm: arm?.arm === "local" };
+    }
+  }
+  let events: Record<string, unknown>[] = [], dispatches: Record<string, unknown>[] = [], claims: Record<string, unknown>[] = [];
+  const tablesNeeded = ["private_agent_events", "private_agent_dispatches", "private_agent_run_claims"];
+  const required = freeze !== null || existsSync(join(root, "result.json"));
+  if (existsSync(join(root, "state.sqlite"))) {
+    const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });
+    try {
+      const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map(table => table.name));
+      if (required && !tablesNeeded.every(table => tables.has(table))) throw new Error("run_ledger_missing");
+      const values = (sql: string) => (database.prepare(sql).all() as { value: string }[]).map(item => JSON.parse(item.value) as unknown)
+        .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object" && !Array.isArray(item));
+      if (tables.has("private_agent_events")) events = values("SELECT value FROM private_agent_events ORDER BY job_id, sequence");
+      if (tables.has("private_agent_dispatches")) dispatches = values("SELECT value FROM private_agent_dispatches ORDER BY rowid");
+      if (tables.has("private_agent_run_claims")) claims = values("SELECT value FROM private_agent_run_claims ORDER BY rowid");
+    } finally { database.close(); }
+  } else if (required) throw new Error("run_ledger_missing");
+  const commits = dispatches.map(item => item.committedAt).filter((value): value is number => typeof value === "number" && Number.isSafeInteger(value));
+  const result = readRunObject(root, "result.json");
+  return { freeze, dispatches, claims, counts: runCounts(events, dispatches), lastCommittedAt: commits.length ? Math.max(...commits) : null,
+    finishedAt: typeof result?.value.finishedAt === "string" ? result.value.finishedAt : null };
 }
 
 /**
@@ -184,7 +274,9 @@ export function summarizeRun(runDirectory: string, deliverables: string[]): Cand
  */
 export function readRunEndEvidence(runDirectory: string): Omit<RunEndEvidence, "stopSignalled"> {
   const root = realpathSync(runDirectory);
-  const result = JSON.parse(insideFile(join(root, "result.json"), root).toString("utf8")) as Record<string, unknown>;
+  // Part 3b: a result that cannot be read as one (readRunResult) is a run that did not finish, in the loop and the registry alike.
+  const result = readRunResult(root);
+  if (!result) throw new Error("run_result_unreadable");
   const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });
   let events: Record<string, unknown>[];
   try { events = (database.prepare("SELECT value FROM private_agent_events ORDER BY job_id, sequence").all() as { value: string }[]).map(row => JSON.parse(row.value)); }

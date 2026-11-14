@@ -33,14 +33,17 @@ function phase(): SessionPhase {
  */
 /** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply, or "hold" to never answer. */
 async function fixture(options: { reply?: (system: string) => string | undefined; recoverable?: boolean } = {}) {
-  const bodies: { system: string; user: string }[] = [];
+  // 7a.2's review: each request's output cap and thinking fields too, so a test can see a card's policy reach the bodies.
+  const bodies: { system: string; user: string; maxTokens?: number; thinking: string }[] = [];
   const hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" | "hold"; onCloud?: (response: http.ServerResponse) => void } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
       // The cloud destination (E1) never answers inside its timeout unless a test answers it itself.
       if (request.url?.startsWith("/cloud")) { hooks.onCloud?.(response); return; }
-      const body = JSON.parse(raw) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
-      bodies.push({ system, user });
+      const body = JSON.parse(raw) as { messages: { content: string }[]; max_tokens?: number; reasoning_effort?: string; chat_template_kwargs?: { enable_thinking?: boolean } },
+        system = body.messages[0]!.content, user = body.messages[1]!.content;
+      bodies.push({ system, user, ...(body.max_tokens !== undefined ? { maxTokens: body.max_tokens } : {}),
+        thinking: body.reasoning_effort ?? (body.chat_template_kwargs?.enable_thinking === false ? "off" : "model_default") });
       const decision = hooks.onRequest?.(system, request);
       if (decision === "destroy") { request.socket.destroy(); return; }
       if (decision === "hold") return;
@@ -202,7 +205,11 @@ describe("H2b/H2c: the research stage inside a session", () => {
       roles.plan.maxOutputTokens = [4096, 4096]; roles.synthesis.maxOutputTokens = [4096, 4096]; roles.extract.maxOutputTokens = extract; return roles; };
     const f = await fixture(), runs: Run[] = [], first = options(f, "job-card", runs); first.research = { ...first.research!, roles: card([1024, 2048]) };
     expect(await new GeneralAgentSession(first).run()).toMatchObject({ status: "submitted" });
-    expect(f.bodies.filter(body => body.system.startsWith("You extract")).length).toBeGreaterThan(0);
+    // The card's caps reach the request bodies through the session (#103's review): extract's attempt 1 sends 1,024 where the default
+    // sends 2,048; plan and synthesis send 4,096, the fixture model's own limit; every role of this 4,096-token fixture sends thinking off.
+    const sent = (prefix: string) => f.bodies.filter(body => body.system.startsWith(prefix)).map(body => [body.maxTokens, body.thinking]);
+    expect(sent("You index")).toEqual([[1536, "off"]]); expect(sent("You plan")).toEqual([[4096, "off"]]);
+    expect(sent("You extract")).toEqual([[1024, "off"]]); expect(sent("You write")).toEqual([[4096, "off"]]);
     const other = options(f, "job-card", runs); other.research = { ...other.research!, roles: card([1536, 2048]) };
     expect(await new GeneralAgentSession(other).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
     const same = options(f, "job-card", runs); same.research = { ...same.research!, roles: card([1024, 2048]) };

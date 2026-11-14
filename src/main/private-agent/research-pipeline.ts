@@ -66,7 +66,7 @@ export function researchExtractionUserContent(request: ResearchExtractionRequest
   const line = (keys: readonly (keyof ResearchExtractionRequest)[]) => canonical(Object.fromEntries(keys.map(key => [key, request[key]])));
   return `${line(RESEARCH_EXTRACTION_LAYOUT.stable)}${RESEARCH_EXTRACTION_LAYOUT.separator}${line(RESEARCH_EXTRACTION_LAYOUT.perChunk)}`;
 }
-/** The synthesis length cap under the pipeline's synthesis output cap and thinking (research-admission.ts); the pipeline and the P10 export both use it. */
+/** The synthesis length cap under the default policy's synthesis output cap and thinking (research-admission.ts); the P10 export uses it. */
 export function synthesisLengthCap(brief: string): ResearchSynthesisLengthCap {
   return researchSynthesisLengthCap(brief, { maxOutputTokens: OUTPUT_TOKENS.synthesis, thinking: THINKING.synthesis });
 }
@@ -80,6 +80,15 @@ export function synthesisLengthCap(brief: string): ResearchSynthesisLengthCap {
 export const RESEARCH_ROLE_POLICY_APPLICATION = Object.freeze({ version: 1, attempts: "initial_call_then_repair_or_second_call", assists: "never",
   appliesTo: "local_vllm_shape_zero_fee_role_models", otherRoles: "default_values", capAboveRoleModel: "refused_not_clamped",
   synthesisCeilingBelowFloor: "refused", lengthCap: "per_attempt", refusal: "research_role_policy_invalid" });
+/**
+ * 7a.2: true when either synthesis attempt's length ceiling (research-admission.ts) falls below the 100-word floor. The ceiling depends
+ * only on the attempt's cap, its thinking and three protocol constants, so the pipeline refuses such a policy before any request and
+ * the headless driver before any output exists.
+ */
+export function researchSynthesisBelowFloor(synthesis: Pick<ResearchRolePolicy["synthesis"], "maxOutputTokens" | "thinking">): boolean {
+  return ([0, 1] as const).some(attempt => researchSynthesisLengthCap("", { maxOutputTokens: synthesis.maxOutputTokens[attempt], thinking: synthesis.thinking[attempt] }).ceilingWords <
+    RESEARCH_SYNTHESIS_LENGTH_POLICY.minimumWords);
+}
 export interface ResearchSource { id: string; path: string; bytes: Buffer }
 export interface ResearchModels { reader: PrivateAgentModel; planner: PrivateAgentModel; synthesiser: PrivateAgentModel }
 export interface ResearchUsage { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }
@@ -292,7 +301,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // above its role model's limit silently, and a synthesis ceiling below the floor cannot hold an argument (BL-20261109-0334-research-
   // request-shapes-design). The default policy is never checked, so a run without a card is never refused here.
   if ((parsedRoles && !parsedRoles.success) || (policySet && (roleNames.some(role => local(roleModels[role]) && applied[role].maxOutputTokens.some(cap => cap > roleModels[role].config.maxOutputTokens)) ||
-      (local(roleModels.synthesis) && lengthCaps.some(cap => cap.ceilingWords < RESEARCH_SYNTHESIS_LENGTH_POLICY.minimumWords)))))
+      (local(roleModels.synthesis) && researchSynthesisBelowFloor(applied.synthesis)))))
     return finish("incomplete", "research_role_policy_invalid");
   let inventory: ReturnType<typeof inventoryResearchSources>;
   try { inventory = inventoryResearchSources(input.sources); coverage = { version: 2, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),

@@ -13,7 +13,7 @@ import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
 import { PrivateAgentModel, type PrivateModelConfig } from "../src/main/private-agent/model";
 import { loadFlashNextTokenAdmission } from "../src/main/private-agent/flash-next-admission";
 import { ANTHROPIC_API_VERSION, ANTHROPIC_MESSAGES_ENDPOINT } from "../src/main/private-agent/anthropic";
-import { GeneralAgentSession, SESSION_LIMITS, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionPhase } from "../src/main/private-agent/session";
+import { GeneralAgentSession, SESSION_LIMITS, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../src/main/private-agent/session";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
 import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorModelProfile, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
@@ -27,7 +27,7 @@ import { assertRunDirectoryIgnored, createDiagnosticsFileSink } from "../src/mai
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
 import { localStreamSettings } from "../src/main/liveness";
-import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX_FEE_USD, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
+import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX_FEE_USD, researchProtocolSha256, researchSynthesisBelowFloor, type ResearchDiagnosticsSink } from "../src/main/private-agent/research-pipeline";
 import { createResearchInput } from "../src/main/private-agent/research-producer";
 import { researchPresentationPolicySha256, researchPresentationIdentity } from "../src/main/private-agent/research-presentation";
 import { loadServingCard, servingCardExpectation, servingCardFreeze, servingCardRefusal, type LoadedServingCard } from "../src/main/private-agent/serving-card";
@@ -238,6 +238,17 @@ export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): L
   return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
 }
 /**
+ * The session's research option (H2b/H2c): the local reader, and the planner and synthesiser on the local configuration or, under the
+ * split arm, the cloud model's; the operator's diagnostics sink; and since 7a.2 the role policy an adopted card set, which the session
+ * hands to the pipeline and binds into its identity.
+ */
+export function localScreenResearchOption(broker: PrivateAgentBroker, jobId: string, local: PrivateModelConfig, cloud: PrivateModelConfig | undefined,
+  extras: { diagnostics?: ResearchDiagnosticsSink; roles?: ResearchRolePolicy } = {}): NonNullable<GeneralSessionOptions["research"]> {
+  return { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, local, jobId, contextId), planner: new PrivateAgentModel(broker, cloud ?? local, jobId, contextId),
+    synthesiser: new PrivateAgentModel(broker, cloud ?? local, jobId, contextId) }),
+    ...(extras.diagnostics ? { diagnostics: extras.diagnostics } : {}), ...(extras.roles ? { roles: extras.roles } : {}) };
+}
+/**
  * freeze.json's pipeline block for a run with the reading stage: the protocol under the card's role policy, which the block names
  * only when it is not the default (7a.2, BL-20261114-1346-research-role-policy-design), so a run without a card records what it did.
  */
@@ -406,6 +417,11 @@ configOptions?: LoadConfigOptions) {
   // this run's policy (the default without a card); refused, like the card, before anything is created.
   const roles = servingCard?.policy.roles;
   if (seed) assertSeedRolePolicy(seed.pipeline, roles);
+  // 7a.2: a card whose synthesis attempts cannot hold the 100-word floor would be refused inside the session, after the run directory,
+  // freeze.json and the database exist; it is refused here instead, like any card refusal. A split-arm synthesiser never reads the policy,
+  // and the pipeline keeps its own check (research-pipeline.ts).
+  if (input.pipeline === "research" && !input.cloudArm && roles && nonDefaultRoleParameters(roles).length && researchSynthesisBelowFloor(roles.synthesis))
+    throw new Error("research_role_policy_invalid");
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
   if (input.retainDiagnostics) assertRunDirectoryIgnored(directory);
@@ -505,9 +521,7 @@ configOptions?: LoadConfigOptions) {
       trustedHostModelFactory: contextId => new PrivateAgentModel(broker, modelConfig, jobId, contextId),
       ...(cloud ? { cloudArm: { destinationId: cloud.destination.id, maxFeeMicrousd: cloud.maxFeeMicrousd },
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
-      ...(pipeline ? { research: { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, localModelConfig, jobId, contextId),
-        planner: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId), synthesiser: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId) }),
-        ...(diagnostics ? { diagnostics } : {}), ...(roles ? { roles } : {}) } } : {}),
+      ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, cloud?.modelConfig, { ...(diagnostics ? { diagnostics } : {}), ...(roles ? { roles } : {}) }) } : {}),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;

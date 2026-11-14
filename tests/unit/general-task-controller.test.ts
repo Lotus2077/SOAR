@@ -362,7 +362,7 @@ describe("desktop general-task host controller", () => {
     const view = f.controller.get(flagged.id);
     expect(view.status).toBe("submitted");
     expect(view.events.find(event => event.type === "host_flags")?.summary).toBe("Host flags recorded for the owner's attention; they decide nothing.");
-    expect(view.reportedIssues).toContain("1 sentence of the report asserts that the sources lack something (absence rules v1), 1 without a claim citation: line 2.");
+    expect(view.reportedIssues).toContain("1 sentence of the report, at line 2, asserts that the sources lack something (absence rules v1); it cites no claim.");
     // A research submission whose event was lost says so; silence would read as "no flags".
     const append = PrivateAgentStore.prototype.append;
     const spy = vi.spyOn(PrivateAgentStore.prototype, "append").mockImplementation(function (this: PrivateAgentStore, jobId: string, event: Record<string, unknown>) {

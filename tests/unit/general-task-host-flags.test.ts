@@ -15,18 +15,21 @@ describe("the reported issues of a submission's host flags (backlog item 7(d), p
     // A recorded event with nothing to report gives no line: zero and absent never read the same.
     expect(hostFlagIssues([event({ rules: { absence: 1 }, report: scan(), misses: { fetchFailures: 0, fetchLimitRefusals: 0 }, counts: { reportAbsence: 0, reportAbsenceUncited: 0, reportBounded: 0 } })], true)).toEqual([]);
   });
-  it("lists the report's absence claims by line, cited ones included, and never a bounded one", () => {
+  it("lists the report's absence claims by line, each line once and cited ones included, and never a bounded one", () => {
     const issues = (report: Record<string, unknown>, counts: Record<string, number>) => hostFlagIssues([event({ rules: { absence: 1 }, report: scan(report), counts })], true);
     expect(issues({ hits: [hit(3), hit(9, "absence", true), hit(12, "bounded"), hit(20)] }, { reportAbsence: 3, reportAbsenceUncited: 2, reportBounded: 1 }))
-      .toEqual(["3 sentences of the report assert that the sources lack something (absence rules v1), 2 without a claim citation: lines 3, 9 and 20."]);
+      .toEqual(["3 sentences of the report, at lines 3, 9 and 20, assert that the sources lack something (absence rules v1); 2 of them cite no claim."]);
+    // Two claims on one line name it once (the light review of #99 reproduced "lines 2 and 2" through 7d.B's real pass).
+    expect(issues({ hits: [hit(2), hit(2, "absence", true)] }, { reportAbsence: 2, reportAbsenceUncited: 1, reportBounded: 0 }))
+      .toEqual(["2 sentences of the report, at line 2, assert that the sources lack something (absence rules v1); 1 of them cites no claim."]);
     expect(issues({ hits: [hit(4)] }, { reportAbsence: 1, reportAbsenceUncited: 1, reportBounded: 0 }))
-      .toEqual(["1 sentence of the report asserts that the sources lack something (absence rules v1), 1 without a claim citation: line 4."]);
+      .toEqual(["1 sentence of the report, at line 4, asserts that the sources lack something (absence rules v1); it cites no claim."]);
     expect(issues({ hits: [hit(3), hit(9)], truncated: true, textCut: true }, { reportAbsence: 45, reportAbsenceUncited: 45, reportBounded: 0 })).toEqual([
-      "45 sentences of the report assert that the sources lack something (absence rules v1), 45 without a claim citation: lines 3 and 9 among the first 40 hits.",
+      "45 sentences of the report, at lines 3 and 9 among the first 40 hits, assert that the sources lack something (absence rules v1); none cites a claim.",
       "Only the first part of the report was scanned for absence claims."]);
     // Only bounded hits kept, though absence claims were counted past the cut: the count stands without lines.
     expect(issues({ hits: [hit(1, "bounded")], truncated: true }, { reportAbsence: 2, reportAbsenceUncited: 0, reportBounded: 40 }))
-      .toEqual(["2 sentences of the report assert that the sources lack something (absence rules v1), 0 without a claim citation."]);
+      .toEqual(["2 sentences of the report assert that the sources lack something (absence rules v1); each cites a claim."]);
     expect(issues({ hits: [hit(1, "bounded")] }, { reportAbsence: 0, reportAbsenceUncited: 0, reportBounded: 1 })).toEqual([]);
   });
   it("says why a report or an argument was not scanned", () => {
@@ -36,7 +39,7 @@ describe("the reported issues of a submission's host flags (backlog item 7(d), p
     expect(unscanned("report", "markdown", "missing")).toEqual(["The host found no report to scan for absence claims."]);
     expect(unscanned("argument", "pdf", "format_not_scanned")).toEqual(["The research packet's argument is a PDF file, so the host did not scan it for absence claims."]);
     expect(hostFlagIssues([event({ rules: { absence: 1 }, argument: scan({ hits: [hit(5), hit(7, "absence", true)] }), counts: { argumentAbsence: 2, argumentAbsenceUncited: 1, argumentBounded: 0 } })], true))
-      .toEqual(["2 sentences of the research packet's argument assert that the sources lack something (absence rules v1), 1 without an evidence id: lines 5 and 7."]);
+      .toEqual(["2 sentences of the research packet's argument, at lines 5 and 7, assert that the sources lack something (absence rules v1); 1 of them cites no evidence id."]);
   });
   it("lists the misses that qualify a deliverable and the single-unit brief, and leaves the rest to the registry", () => {
     expect(hostFlagIssues([event({ misses: { briefUnits: 1, questionsWithoutEvidence: 2, unresolvedQuestions: 1, noEvidenceOutcomes: 4, extractionRetries: 3, droppedQuotes: 5,
@@ -63,12 +66,12 @@ describe("the reported issues of a submission's host flags (backlog item 7(d), p
       counts: { inversionEdits: 1 } })], false)).toEqual(["The document review's table check failed (IndexError).", "The document review's clause check failed (KeyError).",
       "1 edit turns its clause around: E1 (modality changed)."]);
     expect(hostFlagIssues([event({ rules: { review: 1 }, review: { valid: true, errors: { step: "ValueError" } } })], false))
-      .toEqual(["The document review's flag step failed (ValueError), so nothing was flagged."]);
+      .toEqual(["The document review's flag step failed (ValueError), so its flags were not computed."]);
   });
   it("names the sections the host could not compute, after the other lines", () => {
     expect(hostFlagIssues([event({ rules: { absence: 1 }, report: scan({ hits: [hit(2)] }), counts: { reportAbsence: 1, reportAbsenceUncited: 0, reportBounded: 0 },
       errors: ["argument_failed", "misses_failed", "review_failed"] })], true)).toEqual([
-      "1 sentence of the report asserts that the sources lack something (absence rules v1), 0 without a claim citation: line 2.",
+      "1 sentence of the report, at line 2, asserts that the sources lack something (absence rules v1); it cites a claim.",
       "The host could not compute part of its flags: the argument scan, the misses and the review summary."]);
     expect(hostFlagIssues([event({ errors: ["report_failed"] })], true)).toEqual(["The host could not compute part of its flags: the report scan."]);
   });

@@ -1126,15 +1126,28 @@ def loop_row(args) -> dict:
 HOST_FLAGS_VERSION = 1
 HOST_FLAG_RULES = ("absence", "review")
 HOST_FLAG_SECTIONS = ("report_failed", "argument_failed", "misses_failed", "review_failed")
-HOST_FLAG_SCAN_KEYS = ("format", "scanned", "reason", "textCut", "truncated")
-HOST_FLAG_REVIEW_KEYS = ("valid", "reason", "errors", "read")
+# The closed sets of 7d.B's HostFlagsEventSchema (src/main/private-agent/host-flags.ts): the column copies no value outside them.
+HOST_FLAG_COUNTS = ("reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded", "briefSingleUnit",
+                    "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
+                    "numericUnaddressed")
+HOST_FLAG_MISSES = ("briefUnits", "questionsWithoutEvidence", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries", "droppedQuotes", "fetchFailures",
+                    "fetchLimitRefusals")
+HOST_FLAG_FORMATS = ("markdown", "html", "text", "docx", "pdf")
+HOST_FLAG_SCAN_REASONS = ("missing", "format_not_scanned")
+HOST_FLAG_REVIEW_REASONS = ("missing", "too_large", "invalid")
+HOST_FLAG_REVIEW_PARTS = ("step", "numeric", "edits", "clauses")
+HOST_FLAG_READ_CAPS = ("comparisonsCapped", "figuresCapped", "labelsCapped", "rowsCapped", "sentencesCapped", "termsCapped")
+HOST_FLAG_READ_COUNT = "paragraphsClipped"
+HOST_FLAG_ERROR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 
 def host_flags(events, run_dir: str) -> dict | None:
     """Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the run's host_flags event (7d.B) without its positions,
     or None when the run recorded none, which means "not recorded", never "no flags". It keeps the event's version, the rule sets that ran
     and its counts, and, when present, the run's misses, the sections that failed, and the report's, the argument's and the review's states.
-    It drops every hit line, flag position and edit id. An event this cannot read refuses the row, as a ledger row that is not JSON does."""
+    It drops every hit line, flag position and edit id. Every value it keeps must lie in the event schema's closed sets (names, enums,
+    booleans, non-negative integers and error class names), so the column never carries free text, whatever wrote the ledger; an event
+    outside them refuses the row, as a ledger row that is not JSON does."""
     event = next((item for item in reversed(list(events)) if isinstance(item, dict) and item.get("type") == "host_flags"), None)
     if event is None:
         return None
@@ -1145,16 +1158,19 @@ def host_flags(events, run_dir: str) -> dict | None:
     def one(value) -> bool:
         return isinstance(value, int) and not isinstance(value, bool) and value == 1
 
-    def counted(value) -> dict:
-        if not isinstance(value, dict) or not all(isinstance(key, str) and isinstance(n, int) and not isinstance(n, bool) and n >= 0 for key, n in value.items()):
+    def natural(value) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+    def counted(value, names: tuple) -> dict:
+        if not isinstance(value, dict) or not all(key in names and natural(n) for key, n in value.items()):
             refuse()
         return dict(value)
     rules = event.get("rules")
     if not one(event.get("version")) or not isinstance(rules, dict) or any(key not in HOST_FLAG_RULES or not one(value) for key, value in rules.items()):
         refuse()
-    flags = {"version": HOST_FLAGS_VERSION, "rules": dict(rules), "counts": counted(event.get("counts"))}
+    flags = {"version": HOST_FLAGS_VERSION, "rules": dict(rules), "counts": counted(event.get("counts"), HOST_FLAG_COUNTS)}
     if "misses" in event:
-        flags["misses"] = counted(event["misses"])
+        flags["misses"] = counted(event["misses"], HOST_FLAG_MISSES)
     if "errors" in event:
         errors = event["errors"]
         if not isinstance(errors, list) or not errors or any(code not in HOST_FLAG_SECTIONS for code in errors):
@@ -1162,13 +1178,30 @@ def host_flags(events, run_dir: str) -> dict | None:
         flags["errors"] = list(errors)
     for name in ("report", "argument"):
         if name in event:
-            if not isinstance(event[name], dict) or not isinstance(event[name].get("scanned"), bool):
+            scan = event[name]
+            if not isinstance(scan, dict) or not isinstance(scan.get("scanned"), bool) or scan.get("format") not in HOST_FLAG_FORMATS \
+                    or ("reason" in scan and scan["reason"] not in HOST_FLAG_SCAN_REASONS) \
+                    or any(key in scan and not isinstance(scan[key], bool) for key in ("textCut", "truncated")):
                 refuse()
-            flags[name] = {key: event[name][key] for key in HOST_FLAG_SCAN_KEYS if key in event[name]}
+            flags[name] = {key: scan[key] for key in ("format", "scanned", "reason", "textCut", "truncated") if key in scan}
     if "review" in event:
-        if not isinstance(event["review"], dict) or not isinstance(event["review"].get("valid"), bool):
+        review = event["review"]
+        if not isinstance(review, dict) or not isinstance(review.get("valid"), bool) or ("reason" in review and review["reason"] not in HOST_FLAG_REVIEW_REASONS):
             refuse()
-        flags["review"] = {key: copy.deepcopy(event["review"][key]) for key in HOST_FLAG_REVIEW_KEYS if key in event["review"]}
+        state = {key: review[key] for key in ("valid", "reason") if key in review}
+        if "errors" in review:
+            errors = review["errors"]
+            if not isinstance(errors, dict) or any(key not in HOST_FLAG_REVIEW_PARTS or not isinstance(value, str) or not HOST_FLAG_ERROR_NAME.fullmatch(value)
+                                                   for key, value in errors.items()):
+                refuse()
+            state["errors"] = dict(errors)
+        if "read" in review:
+            read = review["read"]
+            if not isinstance(read, dict) or any(not (key in HOST_FLAG_READ_CAPS and isinstance(value, bool) or key == HOST_FLAG_READ_COUNT and natural(value))
+                                                 for key, value in read.items()):
+                refuse()
+            state["read"] = dict(read)
+        flags["review"] = state
     return flags
 
 

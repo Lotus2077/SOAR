@@ -55,6 +55,12 @@ function refused(args: string[]): string {
 const research = { type: "host_flags", contextId: "p", version: 1, rules: { absence: 1 },
   report: { format: "markdown", scanned: true, textCut: false, hits: [{ line: 3, rule: "A1", class: "absence", cited: false }, { line: 9, rule: "A7", class: "bounded", cited: false }], truncated: false },
   misses: { fetchFailures: 1, fetchLimitRefusals: 0 }, counts: { reportAbsence: 1, reportAbsenceUncited: 1, reportBounded: 1 } };
+/** A document review whose rules all ran, with a numeric flag, a flagged edit and a clause pair. */
+const reviewed = { type: "host_flags", contextId: "p", version: 1, rules: { review: 1 },
+  review: { valid: true, read: { comparisonsCapped: false, figuresCapped: false, labelsCapped: false, paragraphsClipped: 2, rowsCapped: false, sentencesCapped: false, termsCapped: false },
+    numeric: [{ table: 1, row: 2, paragraph: 5, inSource: true, inClean: true, addressed: false }], edits: [{ id: "E2", codes: ["negation_flipped"] }],
+    clauses: [{ paragraphs: [7, 8], inSource: true, inClean: false, addressed: true }] },
+  counts: { inversionEdits: 1, inversionIntroduced: 0, inversionSource: 1, inversionUnaddressed: 0, numericIntroduced: 0, numericResolved: 0, numericSource: 1, numericUnaddressed: 1 } };
 /** A document review whose numeric rule failed, with a flagged edit and a clause pair, and a misses section that failed. */
 const review = { type: "host_flags", contextId: "p", version: 1, rules: { review: 1 },
   review: { valid: true, errors: { numeric: "IndexError" }, read: { comparisonsCapped: false, figuresCapped: false, labelsCapped: false, paragraphsClipped: 0, rowsCapped: false, sentencesCapped: false,
@@ -73,17 +79,42 @@ describe("the hostFlags registry column (backlog item 7(d), part C)", { timeout:
       .toEqual({ version: 1, rules: { review: 1 }, counts: {}, review: { valid: false, reason: "too_large" } });
     // Not recorded: no event, so null, never a row of zeros.
     expect(row(["--run-dir", runDirectory(root, "plain")]).hostFlags).toBeNull();
-    // A run never carries a report sentence, a hit line or an edit id into the registry.
-    expect(JSON.stringify(row(["--run-dir", runDirectory(root, "private", { events: [review] })]))).not.toMatch(/"line"|"E2"|"paragraphs"/u);
+    // A run never carries a hit line, a flag position or an edit id into the registry: the numeric, edit and clause lists are dropped.
+    const positions = /"line"|"hits"|"table"|"row"|"paragraph"|"paragraphs"|"E2"/u;
+    const full = row(["--run-dir", runDirectory(root, "reviewed", { events: [reviewed] })]);
+    expect(full.hostFlags).toEqual({ version: 1, rules: { review: 1 }, counts: reviewed.counts, review: { valid: true, read: reviewed.review.read } });
+    expect(JSON.stringify(full)).not.toMatch(positions);
+    expect(JSON.stringify(row(["--run-dir", runDirectory(root, "private", { events: [review] })]))).not.toMatch(positions);
+    expect(JSON.stringify(row(["--run-dir", runDirectory(root, "research-row", { events: [research] })]))).not.toMatch(positions);
   });
   it("refuses a row whose event the registry cannot read", () => {
     const root = scratch();
     for (const [name, event] of Object.entries({
       version: { ...research, version: 2 }, booleanVersion: { ...research, version: true }, rule: { ...research, rules: { absence: true } }, unknownRule: { ...research, rules: { other: 1 } },
       negative: { ...research, counts: { reportAbsence: -1 } }, boolean: { ...research, counts: { reportAbsence: true } }, fraction: { ...research, misses: { fetchFailures: 0.5 } },
-      section: { ...research, errors: ["other_failed"] }, emptyErrors: { ...research, errors: [] }, scan: { ...research, report: "scanned" }, reviewState: { ...review, review: { valid: "yes" } } })) {
+      section: { ...research, errors: ["other_failed"] }, emptyErrors: { ...research, errors: [] }, scan: { ...research, report: "scanned" }, reviewState: { ...review, review: { valid: "yes" } },
+      // The light review of #99: every kept value lies in the schema's closed sets, so no free text or path reaches the column.
+      countName: { ...research, counts: { reportAbsence: 1, "Acme pays Beta": 1 } }, missName: { ...research, misses: { fetchFailures: 0, "/Users/someone": 1 } },
+      format: { ...research, report: { ...research.report, format: "a sentence from /Users/someone/report.md" } }, scanReason: { ...research, report: { ...research.report, scanned: false, reason: "lost" } },
+      textCut: { ...research, report: { ...research.report, textCut: "no" } }, truncated: { ...research, report: { ...research.report, truncated: 1 } },
+      reviewReason: { ...review, review: { valid: false, reason: "The fee is 50 USD per day" } },
+      errorName: { ...review, review: { ...review.review, errors: { step: "The fee is 50 USD per day" } } }, errorPart: { ...review, review: { ...review.review, errors: { other: "IndexError" } } },
+      readKey: { ...review, review: { ...review.review, read: { ...review.review.read, paragraph: 7 } } },
+      readCount: { ...review, review: { ...review.review, read: { ...review.review.read, paragraphsClipped: -1 } } },
+      readCap: { ...review, review: { ...review.review, read: { ...review.review.read, termsCapped: "no" } } } })) {
       expect(refused(["--run-dir", runDirectory(root, name, { events: [event] })]), name).toContain("holds a host_flags event the registry cannot read");
     }
+  });
+  it("copies the column with a superseded row, and leaves it out of the copy of a row written before it", () => {
+    const root = scratch(), path = join(root, "registry.jsonl"), flags = { version: 1, rules: { absence: 1 }, counts: { reportAbsence: 0, reportAbsenceUncited: 0, reportBounded: 0 } };
+    const base = { batch: "b", task: "t", family: "research", exposure: "fresh", arm: "local-heavy", date: "2026-11-14", git: "0123456789ab", gitSource: "run", gitDirty: false,
+      runStatus: "submitted", outcome: "incomplete", criticalChecks: null, verdictBy: "none", ownerMinutes: null, interventions: 0, lesson: "l" };
+    writeFileSync(path, [{ ...base, id: "with-flags", hostFlags: flags }, { ...base, id: "older" }].map(item => `${JSON.stringify(item)}\n`).join(""));
+    const copy = (id: string) => JSON.parse(execFileSync("python3", ["-I", SCRIPT, "--supersedes", id, "--registry", path, "--id", `${id}-fix`, "--outcome", "accepted", "--verdict-by", "none",
+      "--lesson", "fix"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as Record<string, unknown>;
+    expect(copy("with-flags").hostFlags).toEqual(flags);
+    // A row written before this change has no hostFlags key at all, and neither does its copy: absent, not null.
+    expect(copy("older")).not.toHaveProperty("hostFlags");
   });
   it("rows a loop's event from the run its other fields come from: the selected run, or a stopped stage with a result, and null without one", () => {
     const selected = scratch();

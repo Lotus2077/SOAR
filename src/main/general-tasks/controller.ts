@@ -150,7 +150,7 @@ const HOST_FLAG_SECTIONS = Object.freeze({ report_failed: "the report scan", arg
 const HOST_FLAG_REVIEW_RULES = Object.freeze({ numeric: "table check", edits: "edit check", clauses: "clause check" } as const);
 /**
  * Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the issue lines of a submission's `host_flags` event (7d.B), built
- * only from its counts, rule ids, lines, positions and edit ids, never from report, model or document text. A research task (public sources, so a
+ * only from its counts, rule ids, lines, positions, edit ids and the flags file's error class names, never from report, model or document text. A research task (public sources, so a
  * claims-ledger phase) without an event says its flags were not recorded, since silence would read as "no flags". The flags decide nothing.
  */
 export function hostFlagIssues(events: readonly Record<string, unknown>[], expected: boolean): string[] {
@@ -163,7 +163,7 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
   const listed = (items: readonly string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
   // The first positions the event kept (at most 40 per list), and how many more the counts hold.
   const more = (shown: number, total: number) => total > shown ? `, and ${total - shown} more` : "";
-  for (const [name, label, citation] of [["report", "the report", "a claim citation"], ["argument", "the research packet's argument", "an evidence id"]] as const) {
+  for (const [name, label, noun, article] of [["report", "the report", "claim", "a claim"], ["argument", "the research packet's argument", "evidence id", "an evidence id"]] as const) {
     const scan = flags[name];
     if (!scan) continue;
     if (!scan.scanned) {
@@ -173,9 +173,12 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
       continue;
     }
     const total = counts[`${name}Absence`] ?? 0, uncited = counts[`${name}AbsenceUncited`] ?? 0;
-    const lines = scan.hits.filter(hit => hit.class === "absence").map(hit => String(hit.line));
-    if (total) issues.push(`${many(total, "sentence", "sentences")} of ${label} ${total === 1 ? "asserts" : "assert"} that the sources lack something (absence rules v1), ` +
-      `${uncited} without ${citation}${lines.length ? `: ${lines.length === 1 ? "line" : "lines"} ${listed(lines)}${scan.truncated ? " among the first 40 hits" : ""}` : ""}.`);
+    // The lines of every kept absence hit, cited or not, each once: two claims on one line name it once.
+    const lines = [...new Set(scan.hits.filter(hit => hit.class === "absence").map(hit => hit.line))].map(String);
+    const at = lines.length ? `, at ${lines.length === 1 ? "line" : "lines"} ${listed(lines)}${scan.truncated ? " among the first 40 hits" : ""},` : "";
+    const cites = total === 1 ? (uncited ? `it cites no ${noun}` : `it cites ${article}`) : uncited === 0 ? `each cites ${article}` :
+      uncited === total ? `none cites ${article}` : `${uncited} of them ${uncited === 1 ? "cites" : "cite"} no ${noun}`;
+    if (total) issues.push(`${many(total, "sentence", "sentences")} of ${label}${at} ${total === 1 ? "asserts" : "assert"} that the sources lack something (absence rules v1); ${cites}.`);
     if (scan.textCut) issues.push(`Only the first part of ${label} was scanned for absence claims.`);
   }
   const misses = flags.misses ?? {};
@@ -188,7 +191,7 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
   if (review && !review.valid) issues.push(`The document review's flags file was ${review.reason === "missing" ? "missing" : review.reason === "too_large" ? "too large to read" :
     "invalid"}, so its flags were not read.`);
   if (review?.valid) {
-    if (review.errors?.step) issues.push(`The document review's flag step failed (${review.errors.step}), so nothing was flagged.`);
+    if (review.errors?.step) issues.push(`The document review's flag step failed (${review.errors.step}), so its flags were not computed.`);
     for (const rule of ["numeric", "edits", "clauses"] as const) if (review.errors?.[rule]) issues.push(`The document review's ${HOST_FLAG_REVIEW_RULES[rule]} failed (${review.errors[rule]}).`);
     const numeric = review.numeric ?? [], edits = review.edits ?? [], clauses = review.clauses ?? [];
     if (numeric.length) {

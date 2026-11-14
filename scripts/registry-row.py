@@ -31,13 +31,17 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
     --batch, --task, --family, --exposure, --lesson and --verdict-by owner.
 
     `--supersedes ROW_ID [--registry PATH]` copies the registry row with that id verbatim (every measurement,
-    taskJobSha256, date, usd, entailment, loop) and changes only id, supersedes, outcome, verdictBy, ownerMinutes,
+    taskJobSha256, date, usd, entailment, hostFlags, loop) and changes only id, supersedes, outcome, verdictBy, ownerMinutes,
     interventions, lesson, verdictAt and, unless the copied row's commit came from its run (gitSource run or
     runs_differ), git, gitSource and gitDirty (the commit the row is written at). It refuses an unknown id, an id
     another row already supersedes, and a new id that already exists.
 
 Exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes is accepted. `--verdict-by` is `owner`,
 `agent_diagnostic` or `none`; `owner` requires --owner-minutes and --interventions (the receipt supplies them).
+
+Plan 11.4: --run-dir and --loop-dir rows add reservedUsd, pinnedUsd, committedDispatches, cloudCalls, disclosedBytes, urls,
+domains, retainedBytes, actions, queries and researchFallback (docs/experiments/README.md). With --run-dir,
+--launcher-ledger STATE/launcher.jsonl reads whether the experiment launcher forwarded a signal to the run.
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ import pathlib
 import re
 import shutil
 import sqlite3
+import urllib.parse
 import subprocess
 import sys
 import tempfile
@@ -85,6 +90,7 @@ def main() -> int:
     parser.add_argument("--arm", default=None, help="required unless --supersedes or --verdict-file supplies it")
     parser.add_argument("--outcome", default=None, help="accepted, rejected, incomplete or infra_invalid; from the receipt with --verdict-file")
     parser.add_argument("--run-dir", default=None)
+    parser.add_argument("--launcher-ledger", default=None, help="with --run-dir: the launcher.jsonl whose run_exited record says whether a signal was forwarded")
     parser.add_argument("--loop-dir", default=None, help="H4: a select-and-repair loop directory (loop.json) instead of one run")
     parser.add_argument("--verdict-file", default=None, help="a desktop verdict receipt (JSON) instead of a run directory")
     parser.add_argument("--supersedes", default=None, metavar="ROW_ID", help="copy the registry row with this id and change only its verdict fields")
@@ -98,6 +104,8 @@ def main() -> int:
     sources = [name for name, value in (("--run-dir", args.run_dir), ("--loop-dir", args.loop_dir), ("--verdict-file", args.verdict_file), ("--supersedes", args.supersedes)) if value is not None]
     if len(sources) != 1:
         sys.exit("give exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes")
+    if args.launcher_ledger is not None and args.run_dir is None:
+        sys.exit("--launcher-ledger goes with --run-dir only")
     required = [] if args.verdict_file is not None else ["--outcome"]
     if args.supersedes is None:
         required += ["--batch", "--task", "--family", "--exposure"] + ([] if args.verdict_file is not None else ["--arm"])
@@ -123,8 +131,9 @@ def main() -> int:
         row = loop_row(args)
     elif args.run_dir is not None:
         single = run_counts(args.run_dir)
-        row = {**single["row"], **{key: single[key] for key in SUMMED}, "wallSeconds": single["wallSeconds"]}
-        row["runClass"] = classify_run_end(run_end_evidence(args.run_dir, False))
+        row = {**single["row"], **{key: single[key] for key in SUMMED}, "wallSeconds": single["wallSeconds"], **single["depth"]}
+        signalled = launcher_signalled(args.launcher_ledger, args.run_dir) if args.launcher_ledger is not None else False
+        row["runClass"] = classify_run_end(run_end_evidence(args.run_dir, signalled))
         check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
     elif args.verdict_file is not None:
         row = receipt_row(args)
@@ -494,6 +503,139 @@ def safe_integer(value):
     return value if abs(value) <= 2 ** 53 - 1 else None
 
 
+# Plan 11.4 (BL-20261114-1523-registry-columns-design): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
+# and 7(c)'s fallback markers. Every value is a count, a USD amount, a fixed host enum or null: a retained source's URL is read only
+# to count it and its hostname, and never leaves this process.
+LOOPBACK_HOSTS = ("127.0.0.1", "::1")
+DISPATCH_STATUSES = ("committed", "settled", "unknown", "superseded", "failed")
+HOST_TOKEN = re.compile(r"^[a-z][a-z0-9 _-]{0,63}$")
+# BL-20261114-1526, decision (1): the runner's closed set of tool names, runner.ts's tools with every option on and observations.ts's
+# read_observation. tests/unit/registry-row-columns.test.ts checks this mirror against the runner's own definitions. A tool_started
+# event records the name the model chose before the runner checks it, so any other name counts as `other` and never reaches a row.
+RUNNER_TOOLS = ("append_file", "check_claims", "execute", "fetch_public", "finish", "read_observation", "remember_plan", "request_consultation", "str_replace", "write_file")
+
+
+def source_key(url: str) -> str:
+    """A retained source's URL as `urls` counts it (BL-20261114-1526, decision (2)). Each run's snapshot receiver listens on its own
+    loopback port, so a loopback URL is counted without its port, and one source read by two runs of a loop counts once."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return url
+    if host not in LOOPBACK_HOSTS:
+        return url
+    return urllib.parse.urlunsplit((parts.scheme, f"[{host}]" if ":" in host else host, parts.path, parts.query, parts.fragment))
+
+
+def depth_parts(events: list, dispatches: list) -> dict:
+    """One run's parts of plan 11.4's columns, from its events and dispatch rows; `depth_columns` turns one run's, or a loop's runs',
+    parts into the row's values. A cloud call is a row of destination kind cloud_model, or on a row written before plan 11.4, one
+    whose destination is cloud_coordinator. Disclosure is kept by packet, so a retried packet counts once."""
+    events = [event for event in events if isinstance(event, dict)]
+    rows = [item for item in dispatches if isinstance(item, dict)]
+    cloud, packets, complete = [], {}, True
+    for item in rows:
+        if not is_count(item.get("disclosedBytes")):
+            complete = False
+        elif isinstance(item.get("packetSha256"), str):
+            packets.setdefault(item["packetSha256"], item["disclosedBytes"])
+        kind = item.get("destinationKind")
+        if kind == "cloud_model" or (kind is None and item.get("destinationId") == "cloud_coordinator"):
+            purpose, status = item.get("purpose"), item.get("status")
+            # Kept with its commit time for the row's commit order. Only the store's settle records a fee, so a call that did not
+            # settle has none (BL-20261114-1526, decisions (3) and (4)).
+            cloud.append((safe_integer(item.get("committedAt")), {
+                "purpose": purpose if isinstance(purpose, str) and HOST_TOKEN.fullmatch(purpose) else "other",
+                "status": status if status in DISPATCH_STATUSES else "other",
+                "feeUsd": item["feeMicrousd"] / 1_000_000 if is_count(item.get("feeMicrousd")) else None,
+                "reservedUsd": count(item.get("reservedFeeMicrousd")) / 1_000_000,
+                "bodyBytes": item["bodyBytes"] if is_count(item.get("bodyBytes")) else None}))
+    named = {event.get("operationId"): event.get("name") for event in events if event.get("type") == "tool_started" and isinstance(event.get("operationId"), str)}
+    tools = {}
+    for event in events:
+        if event.get("type") == "tool_finished":
+            name = named.get(event.get("operationId"))
+            name = name if name in RUNNER_TOOLS else "other"
+            tools[name] = tools.get(name, 0) + 1
+    retained = [event for event in events if event.get("type") == "public_source_retained"]
+    stages = [event for event in events if event.get("type") == "research_stage"]
+
+    def last(stage: str):
+        return next((event for event in reversed(stages) if event.get("stage") == stage), None)
+    index, plan, synthesis = last("index"), last("plan"), last("synthesise")
+    return {
+        "reserved": sum(count(item.get("reservedFeeMicrousd")) for item in rows),
+        # store.ts's exposure: a row still committed or unknown pins its reservation.
+        "pinned": sum(count(item.get("reservedFeeMicrousd")) for item in rows if item.get("status") in ("committed", "unknown")),
+        "committed": sum(1 for item in rows if item.get("status") == "committed"),
+        "cloud": cloud, "packets": packets, "complete": complete,
+        "urls": {source_key(event["url"]) for event in retained if isinstance(event.get("url"), str)},
+        "retainedBytes": sum(count(event.get("bytes")) for event in retained),
+        "tools": tools, "fetchReceipts": len(retained),
+        # "Read" on a closed corpus (HARN-27): the sources the reading stage indexed, and null unless it recorded the count, which a
+        # denied index stage does not (BL-20261114-1526, decision (3)); item 12 revises it.
+        "sourcesRead": index["sourcesIndexed"] if index is not None and is_count(index.get("sourcesIndexed")) else None,
+        "fallback": {"plan": "host_plan" if (plan or {}).get("fallback") == "host_plan" else "none",
+                     "synthesis": "skeleton" if (synthesis or {}).get("fallback") == "skeleton" else "none"} if stages else None,
+    }
+
+
+def depth_columns(parts: list, fallback) -> dict:
+    """Plan 11.4's columns from one or several runs' parts: amounts and counts summed, cloud calls in commit order, URLs and
+    hostnames counted over the union; `domains` drops a leading www. and loopback hosts, and is approximate (hostnames, not
+    registrable domains)."""
+    packets, urls, tools = {}, set(), {}
+    for part in parts:
+        for packet, disclosed in part["packets"].items():
+            packets.setdefault(packet, disclosed)
+        urls |= part["urls"]
+        for name, value in part["tools"].items():
+            tools[name] = tools.get(name, 0) + value
+    hosts = set()
+    for url in urls:
+        try:
+            host = urllib.parse.urlsplit(url).hostname
+        except ValueError:
+            host = None
+        if host and host not in LOOPBACK_HOSTS:
+            hosts.add(host[4:] if host.startswith("www.") else host)
+    reads = [part["sourcesRead"] for part in parts if part["sourcesRead"] is not None]
+    return {
+        "reservedUsd": sum(part["reserved"] for part in parts) / 1_000_000,
+        "pinnedUsd": sum(part["pinned"] for part in parts) / 1_000_000,
+        "committedDispatches": sum(part["committed"] for part in parts),
+        # BL-20261114-1526, decision (4): commit order across the runs; a call without a commit time keeps the scan's order, after the others.
+        "cloudCalls": [call for _, call in sorted((entry for part in parts for entry in part["cloud"]), key=lambda entry: (entry[0] is None, entry[0] or 0))],
+        "disclosedBytes": sum(packets.values()) if all(part["complete"] for part in parts) else None,
+        "urls": len(urls), "domains": len(hosts),
+        "retainedBytes": sum(part["retainedBytes"] for part in parts),
+        "actions": {"tools": dict(sorted(tools.items())), "fetchReceipts": sum(part["fetchReceipts"] for part in parts),
+                    "sourcesRead": sum(reads) if reads else None},
+        "queries": None,
+        "researchFallback": fallback,
+    }
+
+
+def launcher_signalled(path: str, run_dir: str) -> bool:
+    """Plan 11.4, decision (4) (HARN-12): whether the launcher forwarded a signal to this run, from the one run_exited record its
+    ledger holds for the run's job id. The ledger is only read, and nothing from it but that flag reaches the row."""
+    job = (read_freeze(run_dir) or {}).get("jobId")
+    if not isinstance(job, str) or not JOB_ID.fullmatch(job):
+        sys.exit("the run has no job id to find in the launcher ledger")
+    if os.path.islink(path) or not os.path.isfile(path):
+        sys.exit("the launcher ledger cannot be read")
+    try:
+        with open(path, "rb") as handle:
+            events = [json.loads(line) for line in handle.read().decode("utf-8").split("\n") if line]
+    except (OSError, UnicodeDecodeError, ValueError):
+        sys.exit("the launcher ledger cannot be read")
+    exits = [event for event in events if isinstance(event, dict) and event.get("event") == "run_exited" and event.get("jobId") == job]
+    if len(exits) != 1:
+        sys.exit("the launcher ledger holds no single exit for this run")
+    return exits[0].get("signalled") is True
+
+
 def run_ledger(run_dir: str) -> dict:
     """A run directory with or without a result, as selection.ts readRunLedger reads it: its freeze (job, sha256, runtime, start, fee
     cap, local arm) or None, its dispatch rows and claims, its counts, the latest commit time of its rows, and its result's end."""
@@ -669,6 +811,8 @@ def receipt_row(args) -> dict:
     row = {key: receipt[key] for key in RECEIPT_KEYS if key not in ("version", "taskId", "verdict")}
     row.update(derived)
     row["exportedThroughApp"] = verdict["exportedThroughApp"]
+    # Backlog item 7(d), part C: receipt version 1 carries no host flags, so they are not recorded on this row.
+    row["hostFlags"] = None
     return row
 
 
@@ -895,7 +1039,8 @@ def run_totals(run_dir: str) -> dict:
     # A result that cannot be read is a run that did not finish: its ledger's rows are its spend (part 3b).
     result = read_object(run_dir, "result.json")
     dispatches = [item for item in (result.get("dispatches") if isinstance(result.get("dispatches"), list) else []) if isinstance(item, dict)] if result is not None else ledger_dispatches
-    return {"counts": counts_of(events, dispatches), "started": parse_time((freeze or {}).get("startedAt")), "ended": parse_time(result.get("finishedAt")) if result is not None else None}
+    return {"counts": counts_of(events, dispatches), "depth": depth_parts(events, dispatches), "started": parse_time((freeze or {}).get("startedAt")),
+            "ended": parse_time(result.get("finishedAt")) if result is not None else None}
 
 
 def critique_totals(critique_dir: str):
@@ -967,7 +1112,7 @@ def active_seconds(loop_dir: str, loop: dict):
     return round(total, 1)
 
 
-def freeze_fields(freeze: dict, result=None, events=()) -> dict:
+def freeze_fields(freeze: dict, result=None, events=(), run_dir: str = "") -> dict:
     """A stopped stage's row fields, read defensively (part 3b): from its freeze, the date it started, its task, profile, model
     settings, cloud model and pipeline; from its readable result (read_result), its status and cause; from its events, its entailment,
     as run_counts reads them. A field none of them holds is None, so a damaged directory never stops the row with a traceback."""
@@ -985,7 +1130,7 @@ def freeze_fields(freeze: dict, result=None, events=()) -> dict:
             "thinking": config.get("thinking") if isinstance(config.get("thinking"), (bool, str)) else None, **cloud_fields(freeze),
             "pipeline": text(pipeline.get("name")), "pipelinePlanner": text(pipeline.get("planner")),
             "runStatus": text(result.get("status")) if result is not None else None, "terminalCause": text(result.get("reason")) if result is not None else None,
-            "entailment": entailment if result is not None else None}
+            "entailment": entailment if result is not None else None, "hostFlags": host_flags(events, run_dir) if result is not None else None}
 
 
 def refuse_unselected_accept(outcome, loop) -> None:
@@ -1028,9 +1173,11 @@ def loop_row(args) -> dict:
     resumes, voids = loop_moves(loop) if version == 2 else ([], [])
     runs = loop_runs(loop_dir, loop, entries, resumes, voids)
     summed = {key: 0 for key in SUMMED}
+    parts = []
     started, ended = parse_time(loop.get("startedAt")), parse_time(loop.get("finishedAt"))
     for entry in runs:
         totals = run_totals(entry["path"])
+        parts.append(totals["depth"])
         for key in SUMMED:
             summed[key] += totals["counts"][key]
         started = min([value for value in (started, totals["started"]) if value is not None], default=None)
@@ -1042,6 +1189,8 @@ def loop_row(args) -> dict:
             for key in SUMMED:
                 summed[key] += counts[key]
             critiqued = critiqued or (answered and entry["name"] == "critique")
+            events, dispatches, _ = ledger_rows(entry["path"])
+            parts.append(depth_parts(events, dispatches))
     stages = loop.get("stages") if isinstance(loop.get("stages"), list) else []
 
     def marked(stage) -> bool:
@@ -1067,6 +1216,9 @@ def loop_row(args) -> dict:
         extra["loop"]["resumes"] = [{"stage": entry["stage"], "cause": entry["cause"], "as": entry["as"]} for entry in resumes]
         extra["loop"]["closed"] = loop_closed(loop)
     extra["activeSeconds"] = active_seconds(loop_dir, loop)
+    # Plan 11.4: every run the scan found, the critique's ledger included; the fallback markers of the run whose reading stage made the packet.
+    reader = stage_run(loop_dir, loop)
+    extra.update(depth_columns(parts, depth_parts(ledger_rows(reader)[0], [])["fallback"] if os.path.isdir(reader) else None))
     cloud = read_freeze(stage_run(loop_dir, loop)) or {} if loop.get("arm") == "cloud" else None
     if final:
         selected_dir = os.path.join(loop_dir, final["candidate"])
@@ -1095,7 +1247,8 @@ def loop_row(args) -> dict:
             sys.exit("the loop record holds a malformed stop")
         path = os.path.join(loop_dir, stage) if stage else None
         fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": task["jobSha256"], "profile": None, "maxOutputTokens": None,
-                  "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None}
+                  "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None,
+                  "hostFlags": None}
         evidence = {"kind": "none"}
         if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):
             # What the stopped stage left, as phase4-loop.ts closeLoop reads it: a readable result; else its ledger, when its freeze is
@@ -1104,7 +1257,7 @@ def loop_row(args) -> dict:
             result = read_result(path)
             if ledger["freeze"] is not None:
                 # The loop's own date, task and pipeline stand where the freeze records none.
-                found = freeze_fields(read_freeze(path), result, ledger_rows(path)[0])
+                found = freeze_fields(read_freeze(path), result, ledger_rows(path)[0], path)
                 fields = {**fields, **{key: value for key, value in found.items() if value is not None or key not in ("date", "taskJobSha256", "pipeline")}}
                 evidence = {"kind": "result", "end": run_end_evidence(path, marked(stage))} if result is not None else {"kind": "ledger", "dispatches": ledger["dispatches"]}
         elif path is not None and stage == "critique" and os.path.isdir(path):
@@ -1119,6 +1272,88 @@ def loop_row(args) -> dict:
     if cloud is not None:
         row.update(cloud_fields(cloud))
     return row
+
+HOST_FLAGS_VERSION = 1
+HOST_FLAG_RULES = ("absence", "review")
+HOST_FLAG_SECTIONS = ("report_failed", "argument_failed", "misses_failed", "review_failed")
+# The closed sets of 7d.B's HostFlagsEventSchema (src/main/private-agent/host-flags.ts): the column copies no value outside them.
+HOST_FLAG_COUNTS = ("reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded", "briefSingleUnit",
+                    "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
+                    "numericUnaddressed")
+HOST_FLAG_MISSES = ("briefUnits", "questionsWithoutEvidence", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries", "droppedQuotes", "fetchFailures",
+                    "fetchLimitRefusals")
+HOST_FLAG_FORMATS = ("markdown", "html", "text", "docx", "pdf")
+HOST_FLAG_SCAN_REASONS = ("missing", "format_not_scanned")
+HOST_FLAG_REVIEW_REASONS = ("missing", "too_large", "invalid")
+HOST_FLAG_REVIEW_PARTS = ("step", "numeric", "edits", "clauses")
+HOST_FLAG_READ_CAPS = ("comparisonsCapped", "figuresCapped", "labelsCapped", "rowsCapped", "sentencesCapped", "termsCapped")
+HOST_FLAG_READ_COUNT = "paragraphsClipped"
+HOST_FLAG_ERROR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def host_flags(events, run_dir: str) -> dict | None:
+    """Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the run's host_flags event (7d.B) without its positions,
+    or None when the run recorded none, which means "not recorded", never "no flags". It keeps the event's version, the rule sets that ran
+    and its counts, and, when present, the run's misses, the sections that failed, and the report's, the argument's and the review's states.
+    It drops every hit line, flag position and edit id. Every value it keeps must lie in the event schema's closed sets (names, enums,
+    booleans, non-negative integers and error class names), so the column never carries free text, whatever wrote the ledger; an event
+    outside them refuses the row, as a ledger row that is not JSON does."""
+    event = next((item for item in reversed(list(events)) if isinstance(item, dict) and item.get("type") == "host_flags"), None)
+    if event is None:
+        return None
+
+    def refuse():
+        sys.exit(f"{os.path.basename(os.path.normpath(run_dir))} holds a host_flags event the registry cannot read: the row is refused")
+
+    def one(value) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value == 1
+
+    def natural(value) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+    def counted(value, names: tuple) -> dict:
+        if not isinstance(value, dict) or not all(key in names and natural(n) for key, n in value.items()):
+            refuse()
+        return dict(value)
+    rules = event.get("rules")
+    if not one(event.get("version")) or not isinstance(rules, dict) or any(key not in HOST_FLAG_RULES or not one(value) for key, value in rules.items()):
+        refuse()
+    flags = {"version": HOST_FLAGS_VERSION, "rules": dict(rules), "counts": counted(event.get("counts"), HOST_FLAG_COUNTS)}
+    if "misses" in event:
+        flags["misses"] = counted(event["misses"], HOST_FLAG_MISSES)
+    if "errors" in event:
+        errors = event["errors"]
+        if not isinstance(errors, list) or not errors or any(code not in HOST_FLAG_SECTIONS for code in errors):
+            refuse()
+        flags["errors"] = list(errors)
+    for name in ("report", "argument"):
+        if name in event:
+            scan = event[name]
+            if not isinstance(scan, dict) or not isinstance(scan.get("scanned"), bool) or scan.get("format") not in HOST_FLAG_FORMATS \
+                    or ("reason" in scan and scan["reason"] not in HOST_FLAG_SCAN_REASONS) \
+                    or any(key in scan and not isinstance(scan[key], bool) for key in ("textCut", "truncated")):
+                refuse()
+            flags[name] = {key: scan[key] for key in ("format", "scanned", "reason", "textCut", "truncated") if key in scan}
+    if "review" in event:
+        review = event["review"]
+        if not isinstance(review, dict) or not isinstance(review.get("valid"), bool) or ("reason" in review and review["reason"] not in HOST_FLAG_REVIEW_REASONS):
+            refuse()
+        state = {key: review[key] for key in ("valid", "reason") if key in review}
+        if "errors" in review:
+            errors = review["errors"]
+            if not isinstance(errors, dict) or any(key not in HOST_FLAG_REVIEW_PARTS or not isinstance(value, str) or not HOST_FLAG_ERROR_NAME.fullmatch(value)
+                                                   for key, value in errors.items()):
+                refuse()
+            state["errors"] = dict(errors)
+        if "read" in review:
+            read = review["read"]
+            if not isinstance(read, dict) or any(not (key in HOST_FLAG_READ_CAPS and isinstance(value, bool) or key == HOST_FLAG_READ_COUNT and natural(value))
+                                                 for key, value in read.items()):
+                refuse()
+            state["read"] = dict(read)
+        flags["review"] = state
+    return flags
+
 
 def support_rate(counts: dict | None) -> float | None:
     """Supported / judged claims; an unjudged claim is neither supported nor a negative judgement."""
@@ -1136,8 +1371,9 @@ def run_counts(run_dir: str) -> dict:
     started = datetime.datetime.fromisoformat(freeze["startedAt"].replace("Z", "+00:00"))
     ended = datetime.datetime.fromisoformat(result["finishedAt"].replace("Z", "+00:00"))
     dispatches = result.get("dispatches", [])
+    parts = depth_parts(events, dispatches if isinstance(dispatches, list) else [])
     return {
-        "started": started, "ended": ended,
+        "started": started, "ended": ended, "depth": depth_columns([parts], parts["fallback"]),
         "row": {
             "date": started.date().isoformat(), "taskJobSha256": freeze["taskBinding"]["jobSha256"],
             "profile": freeze.get("profile", "standard"), "maxOutputTokens": freeze["modelConfig"]["maxOutputTokens"],
@@ -1148,6 +1384,8 @@ def run_counts(run_dir: str) -> dict:
             "entailment": next(({"counts": event.get("counts"), "entailmentCalls": event.get("entailmentCalls"), "truncated": event.get("truncated"),
                 "supportRate": support_rate(event.get("counts"))}
                 for event in reversed(events) if event.get("type") == "claims_entailment"), None),
+            # Backlog item 7(d), part C: the host flags, or None when not recorded.
+            "hostFlags": host_flags(events, run_dir),
         },
         "wallSeconds": round((ended - started).total_seconds(), 1),
         **counts_of(events, dispatches),

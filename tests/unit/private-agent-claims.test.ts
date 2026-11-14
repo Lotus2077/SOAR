@@ -388,6 +388,11 @@ describe("the claims check's text rules: the same results in linear time (decisi
   it("checks an HTML source holding 125,000 script openers and no closer within a 20 s bound", () => {
     expect(run(workspace({ "sources/page.bin": page + "<script>".repeat(125_000) }), { timeoutMs: 20_000 })).toMatchObject(passes);
   }, 30_000);
+  it("checks an HTML source holding 600,000 script openers that share one far '>' within a 20 s bound", () => {
+    // #109's light review: each opener searched for its own '>', and here every search ran to the last character (BL-20261114-1711's
+    // decision (3) left that search out). The first '>' at or after an opener is now found once and kept while it lies ahead.
+    expect(run(workspace({ "sources/page.bin": page + "<script".repeat(600_000) + ">" }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
   it("checks an HTML source ending in 1,000,000 '<' with no '>' after them within a 20 s bound", () => {
     expect(run(workspace({ "sources/page.bin": page + "<".repeat(1_000_000) }), { timeoutMs: 20_000 })).toMatchObject(passes);
   }, 30_000);

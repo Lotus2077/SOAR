@@ -191,9 +191,10 @@ RUN_TAIL=re.compile(r'\s*<w:t\b[^>]*>',re.S)
 def strip_scripts(text):
  slashes=[]; q=text.find('</')
  while q>=0: slashes.append(q); q=text.find('</',q+2)
- kinds=[]; out=[]; i=0; m=SCRIPT_NAME.search(text)
+ kinds=[]; out=[]; i=0; gt=-1; m=SCRIPT_NAME.search(text)
  while m:
-  name=m.group(1); gt=text.find('>',m.end())
+  name=m.group(1)
+  if gt<m.end(): gt=text.find('>',m.end())
   if gt<0: break
   for first,closers in kinds:
    if SCRIPT_PAIR.fullmatch('<'+first+'></'+name+'>'): break

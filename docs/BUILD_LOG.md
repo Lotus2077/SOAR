@@ -38609,7 +38609,7 @@ Next gate: The coordinating session's check of this push, and CI. Then the merge
 
 References: BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261110-1509-host-flags-event-design.
 
-### BL-20261114-1314-revoke-reopens-budget-stop-design -- 2026-11-14 -- Backlog item 6 follow-up decided: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text says so
+### BL-20261114-1343-revoke-reopens-budget-stop-design -- 2026-11-14 -- Backlog item 6 follow-up decided: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text says so
 
 Status: `Proposed`
 
@@ -38652,11 +38652,11 @@ Next gate: The implementation with its test and its `Implemented` entry. Then th
 
 References: BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
 
-### BL-20261114-1319-revoke-reopens-budget-stop-implemented -- 2026-11-14 -- Backlog item 6 follow-up implemented: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text names that cure
+### BL-20261114-1344-revoke-reopens-budget-stop-implemented -- 2026-11-14 -- Backlog item 6 follow-up implemented: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text names that cure
 
 Status: `Implemented`
 
-Scope or hypothesis: Implement BL-20261114-1314-revoke-reopens-budget-stop-design, with deterministic tests, on branch `fix/6.4-revoke-reopens-budget-stop` from `main` at 582f880 (plan ID 6.4, lane S-desk). The design commit is 469e606, and the implementation commit is 9eda46c.
+Scope or hypothesis: Implement BL-20261114-1343-revoke-reopens-budget-stop-design, with deterministic tests, on branch `fix/6.4-revoke-reopens-budget-stop` from `main` at 582f880 (plan ID 6.4, lane S-desk). The design commit is 469e606, and the implementation commit is 9eda46c.
 
 Decisions: Implemented as decided.
 - **The reset.** In `decideConsultation`, a Revoke on a record whose stored reason is `consultation_budget_unavailable` counts as a cure. The reset to `paused` / `consultation_ready` applies to a paused record, a resumable stored reason, or that cure.
@@ -38686,10 +38686,56 @@ Failures or blockers: None. A first run of the controller suite failed one row: 
 Limitations and non-claims:
 - `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
 - The fixture produces the stop directly. The runner's own budget test for it (runner.ts) is unchanged and not re-run here beyond the full suite.
-- The owner question of BL-20261114-1314 stands with its default.
+- The owner question of BL-20261114-1343 stands with its default.
 
 Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: Push, a pull request against `main`, the coordinating session's light review, and CI. Then a merge under the owner's standing go-ahead, after 7d.C (#99) on controller.ts, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
 
-References: BL-20261114-1314-revoke-reopens-budget-stop-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+References: BL-20261114-1343-revoke-reopens-budget-stop-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1352-correction-revoke-reopens-budget-stop -- 2026-11-14 -- Correction to plan 6.4's entries: re-stamped after `main`'s tail as BL-20261114-1343 and BL-20261114-1344 (authored at 13:14 and 13:19 UTC on 2026-11-14 as BL-20261114-1314 and BL-20261114-1319), with the light review of #100's two findings
+
+Status: `Implemented`
+
+Scope or hypothesis: Two corrections to pull request #100 (plan 6.4, lane S-desk).
+- **The re-stamp.** #99 merged first (19d7826), so `main`'s last ID, BL-20261114-1342-correction-host-flags-surfaces-review, is later than both of 6.4's entries. At this merge of `main` (merge commit 406bd59), under the owner's rule (BL-20261113-0937, as clarified by BL-20261113-0938), their ID minutes move to the first free minutes after the tail:
+  - the design entry, authored at 13:14 UTC on 2026-11-14 as BL-20261114-1314, is now BL-20261114-1343-revoke-reopens-budget-stop-design;
+  - the implemented entry, authored at 13:19 UTC on 2026-11-14 as BL-20261114-1319, is now BL-20261114-1344-revoke-reopens-budget-stop-implemented.
+
+  Only the two headings' minutes and the references to those IDs change: the references in the implemented entry's body, and three comments in src/main/general-tasks/controller.ts. Each body is otherwise byte-identical to #100's at 9a58af3.
+- **The light review of #100 at 9a58af3.** It was clean, with two minor findings, fixed in df37844.
+
+Decisions:
+- **(1) A Revoke made while the stopping run is still ending.** The runner reads the approval and stops on the allowance, then its `finally` awaits the execution workspace's cleanup before the run returns. A Revoke clicked in that window is recorded, but it cannot reset the record of an active run.
+  - The task then stayed stopped, with the consultation revoked.
+  - The new text asked for a Revoke the desktop no longer offers: its button shows only while the consultation is approved or dispatching, and Resume was not offered.
+  - `execute()` now cures the stop when the run ends. If the consultation already reads `revoked`, it stores `paused` / `consultation_ready`, as `decideConsultation` does after the run. This is BL-20261114-1343's decision (1), applied at the other moment a Revoke can arrive.
+- **(2) The refusal codes for a second approval.** BL-20261114-1344 says a second approval at this stop is refused with `consultation_stale_decision`. Not quite:
+  - the first refusal is `general_task_consultation_preview_required`, because the controller clears the preview after every decision;
+  - only after a fresh preview is it `consultation_stale_decision`;
+  - when the model or tool allowance has run short, `general_task_consultation_allowance` comes before it.
+
+  The entry's conclusion stands: an approval never reaches the reset.
+
+Changes:
+- docs/BUILD_LOG.md: two headings, their references and this entry.
+- src/main/general-tasks/controller.ts: the cure in `execute()`, and the three comments' IDs.
+- tests/unit/general-task-consultation-controller.test.ts:
+  - the 6.4 test pins both refusals of a second approval;
+  - a new test makes the Revoke from inside the stopping run. The record reads `running` and `revoked` at that moment, the run's end leaves the task paused with Resume offered, and it then continues locally to submission with no dispatch.
+
+Evidence: At the head:
+- `pnpm --silent validate:build-log -- --base-ref origin/main` passes: append-only against `main` at 19d7826, whose log is a byte prefix of this branch's. `pnpm typecheck` and `pnpm validate:readiness` also pass.
+- The changed tests and the full suite are given in the pull request's description at the head.
+- Two mutants are each killed by the new test: no cure in `execute()`, and a cure that does not require the Revoke.
+
+Failures or blockers: None.
+
+Limitations and non-claims: As in BL-20261114-1344. The owner question of BL-20261114-1343 stands with its default.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The owner's go-ahead for the default, CI, and the merge, re-stamping again if `main`'s tail moves first.
+
+References: BL-20261114-1343-revoke-reopens-budget-stop-design; BL-20261114-1344-revoke-reopens-budget-stop-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

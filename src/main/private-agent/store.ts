@@ -102,8 +102,28 @@ export function isBlockingDispatch(receipt: { status: DispatchStatus; purpose?: 
  * successor. `zeroRisk` is the broker's own predicate for the packet, as for `resolveFailure`.
  */
 export interface SupersededAttempt { id: string; failure: UnknownRequestDiagnostic; zeroRisk: boolean }
-/** Optional `commit` inputs; backlog item 8's concurrent admission adds its own field beside `supersedes`. */
-export interface CommitOptions { supersedes?: SupersededAttempt }
+/**
+ * Backlog item 8, part 1 (8.1; the item 8 design entry in docs/BUILD_LOG.md): the broker certifies the new row as a zero-risk local
+ * dispatch (a zero-fee `local_model` request without a grant or approval) and passes `live`, the ids of its own committed rows of that
+ * kind whose attempt is still in flight. The store trusts this as it trusts the broker's zero-risk predicate for `supersedes`. Liveness
+ * is never persisted: a row a crash or another process left `committed` is in no live set, so it blocks as before.
+ */
+export interface ConcurrentAdmission { live: ReadonlySet<string> }
+/** Optional `commit` inputs: E1-R's `supersedes`, and backlog item 8's concurrent admission. */
+export interface CommitOptions { supersedes?: SupersededAttempt; concurrency?: ConcurrentAdmission }
+/**
+ * Whether a row passed with `concurrency` may be committed beside the job's blocking rows (8.1). It must reserve no fee, carry no grant or
+ * approval and not be an assist; and every blocking row must be `committed`, live in the broker that certified the new row, reserve no fee,
+ * and share the new row's job, context and purpose. Anything else keeps today's refusal: an `unknown` row, a row no live set holds, a
+ * priced, cloud, public-GET, grant, approval or assist row, and a row of another context or purpose all still block. The job and approval
+ * clauses only restate what `commit` already ensures (its rows are read per job; it refuses an approval without a grant).
+ */
+function admitsBeside(input: Pick<DispatchReceipt, "jobId" | "contextId" | "purpose" | "reservedFeeMicrousd" | "approval">, grantId: string | undefined,
+  blocking: readonly DispatchReceipt[], concurrency: ConcurrentAdmission | undefined): boolean {
+  if (concurrency === undefined || input.reservedFeeMicrousd !== 0 || grantId !== undefined || input.approval !== undefined || isAssistDispatch(input)) return false;
+  return blocking.every(row => row.status === "committed" && concurrency.live.has(row.id) && row.reservedFeeMicrousd === 0 &&
+    row.jobId === input.jobId && row.contextId === input.contextId && row.purpose === input.purpose);
+}
 /** What a successor shares with the attempt it supersedes: the same admitted packet, destination, purpose, reservation and proofs. */
 const SUPERSESSION_KEYS = ["jobId", "contextId", "contextSha256", "packetSha256", "destinationId", "destinationSha256", "purpose", "policyRevision",
   "reservedFeeMicrousd"] as const;
@@ -268,8 +288,10 @@ export class PrivateAgentStore {
       // Backlog item 10: an `unknown` assist row (a sealed cloud one-shot whose outcome stayed uncertain) keeps its reservation
       // pinned in the exposure below and bars any further assist in the job; every other unresolved row blocks everything, as
       // before. The broker refuses every grant-free cloud dispatch after such a row before this check; this is the ledger's own
-      // guarantee for any other writer.
-      if (history.some(receipt => isBlockingDispatch(receipt))) throw new Error("private_agent_unresolved_dispatch");
+      // guarantee for any other writer. Backlog item 8 (8.1): a certified zero-risk local row may join live rows of its own job,
+      // context and purpose (`admitsBeside`); the allowance and fee checks below still count every live row.
+      const blocking = history.filter(receipt => isBlockingDispatch(receipt));
+      if (blocking.length && !admitsBeside(input, grantId, blocking, options.concurrency)) throw new Error("private_agent_unresolved_dispatch");
       if (isAssistDispatch(input) && history.some(receipt => !isResolvedDispatch(receipt))) throw new Error("private_agent_assist_after_unknown");
       if (approval && this.db.prepare("SELECT 1 FROM private_agent_dispatches WHERE json_extract(value, '$.approval.proposalId') = ? LIMIT 1")
         .get(approval.proposalId)) throw new Error("private_agent_proposal_already_dispatched");

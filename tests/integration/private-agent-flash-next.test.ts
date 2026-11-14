@@ -18,15 +18,22 @@ const chunk = (delta: Record<string, unknown>, finish: string | null = null, mod
 const sse = (...chunks: unknown[]) => chunks.map(item => `data: ${JSON.stringify(item)}\n\n`).join("") + "data: [DONE]\n\n";
 const json = (message: Record<string, unknown>, model: unknown = modelId) => JSON.stringify({ model, choices: [{ message, finish_reason: "stop" }], usage });
 
-/** `cuts`: the first requests have their socket destroyed after arriving, a confirmed abort the recoverable destination retries (D4). */
-async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "medium" | "disabled" = "medium", promptTokens = 1, options: { cuts?: number } = {}) {
+/**
+ * `cuts`: the first requests have their socket destroyed after arriving, a confirmed abort the recoverable destination retries (D4).
+ * `holdUntil`: no request is answered before that many have arrived, so they are all in flight together (backlog item 8, part 1).
+ */
+async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "medium" | "disabled" = "medium", promptTokens = 1, options: { cuts?: number; holdUntil?: number } = {}) {
   let requests = 0;
+  const bodies: string[] = [], held: (() => void)[] = [], checks: (() => void)[] = [];
   const server = http.createServer((request, response) => {
-    request.resume(); request.on("end", () => {
+    let body = ""; request.on("data", chunk => { body += chunk; }); request.on("end", () => {
+      bodies.push(body); for (const check of checks.splice(0)) check();
       if (++requests <= (options.cuts ?? 0)) { request.socket.destroy(); return; }
-      response.writeHead(200, { "content-type": format === "sse" ? "text/event-stream" : "application/json" }); response.end(raw);
+      held.push(() => { response.writeHead(200, { "content-type": format === "sse" ? "text/event-stream" : "application/json" }); response.end(raw); });
+      if (requests >= (options.holdUntil ?? 0)) for (const answer of held.splice(0)) answer();
     });
   });
+  const arrived = (count: number) => new Promise<void>(resolve => { const check = () => { if (bodies.length >= count) resolve(); else checks.push(check); }; check(); });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
   cleanups.push(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
   const db = new Database(":memory:"); cleanups.push(() => { db.close(); });
@@ -43,7 +50,7 @@ async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "
   const model = new PrivateAgentModel(broker, { destinationId: "local", model: modelId, api: "vllm", localReplyContract: "flash_next_v1", streaming: true,
     maxOutputTokens: 256, localContextTokens: 1024, localTokenAdmissionSha256: admission.descriptor.sha256,
     inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking }, "job", "context");
-  return { db, store, broker, model, destination, admission: admission.admission, requests: () => requests,
+  return { db, store, broker, model, destination, admission: admission.admission, requests: () => requests, bodies, arrived,
     complete: (overrides?: { maxOutputTokens?: number }) => model.complete([{ role: "user" as const, content: "synthetic" }], [], new AbortController().signal, overrides) };
 }
 
@@ -149,5 +156,30 @@ describe("E1 recoverability: a D4 retry under flash_next_v1 token admission (E1-
     await expect(f.complete()).rejects.toMatchObject({ code: "request_failed" });
     expect(f.store.dispatches("job").map(row => [row.status, row.failure?.code, row.failure?.attempt])).toEqual([["failed", "upstream_closed", 1]]);
     expect(f.requests()).toBe(1);
+  }, 15_000);
+});
+
+describe("concurrent zero-risk local admission under flash_next_v1 token admission (backlog item 8, part 1)", () => {
+  it("commits two admitted requests together, each with its own exact-token proof, when their admissions finish in reverse order", async () => {
+    // The server answers neither request before both have arrived. The first request's admission result is held back until the second
+    // request has committed and arrived, so the second commits first and the first then commits beside its live row.
+    const f = await fixture(json({ content: "answer" }), "json", "medium", 1, { holdUntil: 2 });
+    const admit = f.admission.admit.bind(f.admission);
+    let calls = 0;
+    const spy = vi.spyOn(f.admission, "admit").mockImplementation(async (...args: Parameters<typeof admit>) => {
+      const index = calls++, evidence = await admit(...args);
+      if (index === 0) await f.arrived(1);
+      return evidence;
+    });
+    cleanups.push(() => spy.mockRestore());
+    const signal = new AbortController().signal;
+    const [first, second] = await Promise.all(["first question", "second question"].map(content => f.model.complete([{ role: "user" as const, content }], [], signal)));
+    expect([first.content, second.content]).toEqual(["answer", "answer"]); expect(calls).toBe(2);
+    expect(f.bodies).toHaveLength(2); expect(f.bodies[0]).toContain("second question"); expect(f.bodies[1]).toContain("first question");
+    // Rows in commit order: each carries the proof of its own body, so neither request took the other's admission.
+    const rows = f.store.dispatches("job");
+    expect(rows.map(row => row.status)).toEqual(["settled", "settled"]);
+    expect(rows.map(row => row.localTokenAdmission?.bodySha256)).toEqual(f.bodies.map(body => digest(body)));
+    expect(rows[0]!.packetSha256).not.toBe(rows[1]!.packetSha256);
   }, 15_000);
 });

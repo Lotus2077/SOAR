@@ -1300,6 +1300,39 @@ describe("item 7b.2: the priority trim and the presentation guard (BL-20261114-1
     expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(row).toMatchObject({ calls: 2, invalidReplies: 2, fallback: "skeleton" });
     expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
   });
+  it("assumes a synthesiser request cap of about 210 KB: with ids equal to paths, 40 dense sources pass the guard and the heavy profile's 640 KiB sends the request, while the 192 KiB default refuses it before any synthesis call", async () => {
+    // As the session builds sources (id = path), 30-character ids. The guard bounds the writer's presentation, not the synthesis request,
+    // which also carries the evidence as JSON and the brief: about 201 KB here (BL-20261114-1304-research-priority-trim-design, review of #102).
+    const sources = trimCorpus(40).map((source, i) => { const id = `input/${"p".repeat(18)}-${String(i).padStart(2, "0")}.md`; return { ...source, id, path: id }; });
+    const small = models(everyRow(() => ["Q1"])), refused = await run(small, { sources });
+    expect(refused).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(refused.summary.stages[3]).toMatchObject({ stage: "synthesise", calls: 0, denied: "request_body_size_exceeded" }); expect(small.calls.some(c => c.stage === "synthesise")).toBe(false);
+    const heavy = models(everyRow(() => ["Q1"])), synthesiser = new PrivateAgentModel({ request: heavy.request } as unknown as PrivateAgentBroker,
+      { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", maxRequestBytes: 640 * 1024 }, "job", "reader");
+    const sent = await run(heavy, { sources, models: { ...heavy.models, synthesiser } });
+    expect(sent).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const bytes = Buffer.byteLength(JSON.stringify(heavy.calls.find(c => c.stage === "synthesise")!.body));
+    expect(bytes).toBeGreaterThan(192 * 1024); expect(bytes).toBeLessThan(210 * 1024);
+  });
+  it("bounds the skeleton's synthesis section too: twelve questions sharing every quote, every reply rejected, and the skeleton still fits", async () => {
+    // The skeleton lists every packet id under each of twelve questions, in its argument and in coverage.json, and here outgrows the
+    // 9,600-byte argument reserve; a bound without its synthesis section lets the packet grow until the skeleton breaks the cap.
+    const twelve = Array.from({ length: 12 }, (_, i) => `Q${i + 1}`);
+    const sources = Array.from({ length: 30 }, (_, i) => ({ id: `input/s-${String(i).padStart(2, "0")}.md`, path: `input/s-${i}.md`,
+      bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `S${i} r${j} ${"x".repeat(100)}`).join("\n")) }));
+    const m = models((stage, input, n, system) => stage === "plan" ? JSON.stringify({ ...JSON.parse(happy(stage, input, n, system)),
+        questions: twelve.map(id => ({ id, text: `Synthetic question ${id}`, requirementIds: input.units.map((u: any) => u.id), sourceIds: [], lookFor: [] })) })
+      : stage === "extract" ? JSON.stringify({ questions: twelve.map(questionId => ({ questionId, status: "evidence_found" })), conflicts: [],
+        quotes: String(input.chunk.text).split("\n").map((quote: string) => ({ quote, questionIds: twelve })) })
+      : stage === "synthesise" ? "not json" : happy(stage, input, n, system));
+    const synthesiser = new PrivateAgentModel({ request: m.request } as unknown as PrivateAgentBroker,
+      { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", maxRequestBytes: 640 * 1024 }, "job", "reader");
+    const result = await run(m, { sources, models: { ...m.models, synthesiser } }), row = result.summary.stages[2]!;
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(result.summary.stages[3]).toMatchObject({ calls: 2, fallback: "skeleton" });
+    expect(row.quotesLeftByPresentation).toBeGreaterThan(0);
+    expect(result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.length).toBeGreaterThan(1200 * RESEARCH_TRIM_POLICY.presentation.argumentReserveBytesPerWord);
+    expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
+  });
   it("orders conflict notes by the same round-robin, so a question with few notes keeps them all within the sixteen", async () => {
     // Each of five sources notes three conflicts for Q1, then one for Q2: in noted order the packet would keep sixteen and lose Q2's last.
     const sources = Array.from({ length: 5 }, (_, i) => ({ id: `input/conflict-${i}`, path: `input/conflict-${i}`, bytes: Buffer.from(`The synthetic survey recorded twelve trees in location ${i}.`) }));

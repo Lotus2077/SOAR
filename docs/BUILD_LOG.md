@@ -38549,3 +38549,62 @@ Next gate:
 - Then the Revoke follow-up for `consultation_budget_unavailable`, as its own pull request with its own `Proposed` entry.
 
 References: BL-20261114-1246-host-flags-surfaces-design; BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261113-0836-infra-resume-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1342-correction-host-flags-surfaces-review -- 2026-11-14 -- Correction to BL-20261114-1246-host-flags-surfaces-design and BL-20261114-1311-host-flags-surfaces-implemented: the light review of #99, six minor findings fixed in one push
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session's light review of pull request #99 at 2646486 found no blocker and no major finding, and six minor findings. Commit 5eb84fa fixes all six. The two entries stay as written; this entry corrects them where the review found them short.
+
+Decisions:
+- **(1) The registry's closed sets.** BL-20261114-1246 (3) says an event the registry cannot read refuses the row. But at 2646486 the column copied these verbatim: the scan fields (`format`, `reason`, `textCut`, `truncated`), the review's `reason`, `errors` and `read`, and any count or miss key. So its promise of numbers and ids rested on the only writer, 7d.B's strict `HostFlagsEventSchema`. The review's probe passed a sentence and a `/Users/...` path through `report.format`. Now every kept value must lie in the schema's closed sets:
+  - the count and miss names;
+  - the five formats;
+  - the scan reasons `missing` and `format_not_scanned`;
+  - booleans for `textCut` and `truncated`;
+  - the review reasons `missing`, `too_large` and `invalid`;
+  - review error parts among `step`, `numeric`, `edits` and `clauses`, each an identifier-shaped class name;
+  - the seven read caps: six booleans, and `paragraphsClipped` as a non-negative integer.
+
+  Anything else refuses the row.
+- **(2) The report line.** At 2646486 the line repeated a line number holding two absence sentences ("lines 2 and 2"). Its list also read as the uncited claims only, though it held the cited ones too. Each line is now named once, and the line is reworded: "3 sentences of the report, at lines 3, 9 and 20, assert that the sources lack something (absence rules v1); 2 of them cite no claim." This supersedes the wording BL-20261114-1311 quotes.
+- **(3) A failed review step.** It read "so nothing was flagged", which reads as no flags. It now reads "so its flags were not computed".
+- **(4) The docs.**
+  - README.md's general-task row lists the kinds of line as examples, including the unscanned report, the cut scan, refused fetches, uncomputed parts and an unreadable event.
+  - docs/experiments/README.md's `hostFlags` row now says two things: a value outside the closed sets refuses the row, and rows written before this change, with their `--supersedes` copies, have no `hostFlags` key at all.
+- **(5) The ledger.**
+  - BL-20261114-1246 planned a registry test for "a superseding copy". It was missing at 2646486, though BL-20261114-1311 says "Implemented as decided". It is added now.
+  - The lines also carry the flags file's error class names, for example "(IndexError)". These are host-derived identifiers. BL-20261114-1246 (2)'s list of what the lines carry, and the comment on `hostFlagIssues`, omitted them; the comment now names them.
+
+Changes:
+- scripts/registry-row.py: the closed sets in `host_flags`.
+- src/main/general-tasks/controller.ts: the report line's wording and deduplicated lines, the failed step's wording, and the comment.
+- README.md and docs/experiments/README.md.
+- Tests:
+  - general-task-host-flags: the new wording, and two claims on one line;
+  - general-task-controller: the end-to-end line's new wording;
+  - registry-row-host-flags:
+    - a review fixture with a numeric flag, whose column is checked whole;
+    - table, row and paragraph absent from the whole row, checked on every event;
+    - twelve closed-set refusals;
+    - the superseding copy, and an older row's copy without the key.
+
+Evidence: At commit 5eb84fa:
+- After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: general-task-host-flags 6 of 6, general-task-controller 158 of 158, registry-row-host-flags 4 of 4 and registry-row-verdict 4 of 4.
+- The full `pnpm exec vitest run`: 197 files, 184 passed and 13 skipped (as before); 3,679 tests, 3,593 passed and 86 skipped, none failed.
+- Ten single mutants of the fixes, each applied alone in a scratch copy, are all killed:
+  - no deduplication;
+  - the old step wording;
+  - each of the seven closed sets opened;
+  - the review's lists kept in the column.
+
+Failures or blockers: None.
+
+Limitations and non-claims: As in BL-20261114-1311. The closed sets mirror 7d.B's schema by hand: a later change to that schema must change registry-row.py with it, or its rows are refused.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The coordinating session's check of this push, and CI. Then the merge in its integration, re-stamped into the minute block it assigns. Nothing is re-stamped before then.
+
+References: BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261110-1509-host-flags-event-design.

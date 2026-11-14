@@ -14,7 +14,7 @@ import { diagnosticRetention, digest, restrictedContext } from "../../src/main/p
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
-import { researchV4Reply } from "../helpers/research-v4-fixture";
+import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const done of cleanups.splice(0).reverse()) await done(); });
@@ -31,7 +31,7 @@ function phase(): SessionPhase {
  * caller written for the old `fixture(() => "not a plan")` shape no longer compiles instead of silently breaking every stage.
  */
 /** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply, or "hold" to never answer. */
-async function fixture(options: { reply?: (system: string) => string | undefined; recoverable?: boolean } = {}) {
+async function fixture(options: { reply?: (system: string, user: string) => string | undefined; recoverable?: boolean } = {}) {
   const bodies: { system: string; user: string }[] = [];
   const hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" | "hold"; onCloud?: (response: http.ServerResponse) => void } = {};
   const server = http.createServer((request, response) => {
@@ -43,7 +43,7 @@ async function fixture(options: { reply?: (system: string) => string | undefined
       const decision = hooks.onRequest?.(system, request);
       if (decision === "destroy") { request.socket.destroy(); return; }
       if (decision === "hold") return;
-      const content = options.reply?.(system) ?? researchV4Reply(system, user);
+      const content = options.reply?.(system, user) ?? researchV4Reply(system, user);
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
     });
@@ -70,8 +70,8 @@ async function fixture(options: { reply?: (system: string) => string | undefined
 type Run = { files: string[]; goal: string; checks: string[]; required: string[]; restricted: boolean; initialEvidence?: string };
 /** The research stage events of a job as [stage, calls, denied]: every call the stage stops records one, even before its row is committed. */
 const stageEvents = (store: PrivateAgentStore, jobId: string) => store.events(jobId).filter(event => event.type === "research_stage").map(event => [event.stage, event.calls, event.denied]);
-function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Run[], destination = "model"): GeneralSessionOptions {
-  const privatePhase = phase(), checkpoints = new PrivateCheckpointStore(f.root, jobId);
+function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Run[], destination = "model", privatePhase = phase()): GeneralSessionOptions {
+  const checkpoints = new PrivateCheckpointStore(f.root, jobId);
   const config = (destinationId: string) => ({ destinationId, model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" as const });
   const model = (contextId: string, destinationId = destination) => new PrivateAgentModel(f.broker, config(destinationId), jobId, contextId);
   // The heavy profile's pool: the H2c guard refuses a pool that cannot hold the reader's 68 calls and the writer's 40.
@@ -193,7 +193,28 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(evidence).toContain("Host fallback question: what does the corpus establish for brief requirement U1?");
     expect(evidence).toContain(RESEARCH_FALLBACK_POLICY.skeleton.opening);
     const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
-    expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 2, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
+    expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 3, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
+  });
+  it("7b.2: a packet the priority trim cut reaches the writer, with its omissions and trimmed outcomes in the presentation (BL-20261114-1304-research-priority-trim-design)", async () => {
+    // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.
+    const corpus = Array.from({ length: 20 }, (_, i) => ({ path: `input/corpus/trim-${String(i).padStart(2, "0")}.md`,
+      bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+    const base = phase(), trimmedPhase: SessionPhase = { ...base, files: [...corpus, ...base.files.filter(file => !file.path.startsWith("input/"))] };
+    const f = await fixture({ reply: (system, user) => { if (!system.startsWith("You extract")) return undefined; const input = parseResearchUserContent(user);
+      return JSON.stringify({ questions: input.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "evidence_found" })), conflicts: [],
+        quotes: String(input.chunk.text).split("\n").map(quote => ({ quote, questionIds: input.plan.questions.map((q: { id: string }) => q.id), note: "n".repeat(200) })) }); } });
+    const runs: Run[] = [];
+    expect(await new GeneralAgentSession(options(f, "job-trimmed", runs, "model", trimmedPhase)).run()).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    const extract = f.store.events("job-trimmed").find(event => event.type === "research_stage" && event.stage === "extract") as unknown as Record<string, number>;
+    expect(extract).toMatchObject({ quotesVerified: 240, quotesLeftByPresentation: 0, questionsTrimmed: 0 }); expect(extract.quotesLeftByCap).toBeGreaterThan(0);
+    const evidence = runs[0]!.initialEvidence!;
+    const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
+    const coverage = JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text);
+    expect(coverage.version).toBe(3); expect(coverage.omissions).toHaveLength(extract.quotesLeftByCap);
+    expect(coverage.chunks.some((chunk: { questions: { status: string }[] }) => chunk.questions.some(q => q.status === "evidence_trimmed"))).toBe(true);
+    // The writer's instructions say what a trimmed quote is.
+    expect(runs[0]!.goal).toContain("evidence_trimmed"); expect(runs[0]!.goal).toContain("are never absence");
   });
   it("refuses a cloud-shaped planner on a private lineage at the broker, stops the stage with the denial code, and dispatches nothing to it", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-private", runs, "private-model");

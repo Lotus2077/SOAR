@@ -15,17 +15,24 @@ export const ResearchEvidenceSchema = z.object({ version: z.literal(2), quotes: 
 export type ResearchEvidence = z.infer<typeof ResearchEvidenceSchema>;
 export const BriefUnitSchema = z.object({ id: uid, startByte: integer, endByte: integer, text: z.string(), sha256: sha256Schema }).strict();
 export type BriefUnit = z.infer<typeof BriefUnitSchema>;
-const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
+/** 7b.2: `evidence_trimmed` is a chunk question whose verified quotes the packet's caps all left out; it has no evidence ids, and an omission names it. */
+const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "evidence_trimmed", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
 const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["findings", "conflict", "unresolved"]), evidenceIds: z.array(eid).max(480) }).strict();
-/** Version 2 since 7(c) (BL-20261113-0927-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`. */
-export const ResearchCoverageSchema = z.object({ version: z.literal(2), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
+/**
+ * Version 2 since 7(c) (BL-20261113-0927-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`.
+ * Version 3 since 7b.2 (BL-20261114-1304-research-priority-trim-design): an omission names its quote's chunks and locator, so (sourceId,
+ * locator, quoteSha256) is the pipeline's own identity of one verified quote; `presentation_cap` marks a quote only the presentation
+ * guard left out; a chunk question may be `evidence_trimmed`. Omissions no longer make a packet incomplete.
+ */
+export const ResearchCoverageSchema = z.object({ version: z.literal(3), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
   chunks: z.array(z.object({ id: z.string().min(1).max(80), sourceId: id, sourceSha256: sha256Schema, startByte: integer, endByte: integer, sha256: sha256Schema,
     startLine: z.number().int().positive(), status: z.enum(["pending", "complete", "invalid", "truncated", "needs_followup"]),
     attempts: z.array(z.object({ responseSha256: sha256Schema, status: z.enum(["complete", "invalid", "truncated", "needs_followup"]) }).strict()).max(2),
     questions: z.array(questionOutcome).max(12) }).strict()).max(4096),
-  omissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), quoteSha256: sha256Schema, reason: z.literal("packet_cap") }).strict()).max(480),
+  omissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), quoteSha256: sha256Schema, chunkIds: z.array(z.string().min(1).max(80)).min(1).max(4096),
+    locator: z.string().min(1).max(100), reason: z.enum(["packet_cap", "presentation_cap"]) }).strict()).max(480),
   conflictOmissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), noteSha256: sha256Schema, reason: z.literal("conflict_cap") }).strict()).max(160),
   unresolved: z.array(z.string().min(1).max(80)).max(4096),
   synthesis: z.object({ status: z.enum(["pending", "complete", "invalid", "skeleton"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12) }).strict(),
@@ -159,7 +166,9 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   // writer text the gate never saw (and the host plan's check below would not be byte for byte).
   for (const path of [RESEARCH_FILES.index, RESEARCH_FILES.plan, RESEARCH_FILES.evidence, RESEARCH_FILES.summary, RESEARCH_FILES.coverage])
     if (read(path) !== `${canonical(parse(path))}\n`) fail("json_form");
-  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.omissions.length || coverage.conflictOmissions.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
+  // 7b.2 (BL-20261114-1304-research-priority-trim-design): omissions and conflict omissions no longer make a packet incomplete; the
+  // counts, identity and binding checks below accept only disclosed ones.
+  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
     coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");
   if (coverage.protocolSha256 !== summary.protocolSha256 || (expected.protocolSha256 && expected.protocolSha256 !== summary.protocolSha256) || (expected.budget && canonical(expected.budget) !== canonical(summary.budget))) fail("protocol");
   // 7(c): the plan and synthesis ceilings are the budget plus the assist slots; a settled assist reply is one of its stage's calls.
@@ -199,7 +208,9 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   if (summary.stages[2]!.invalidReplies !== coverage.chunks.reduce((n, c) => n + c.attempts.filter(a => a.status !== "complete").length, 0) || (summary.stages[2]!.truncatedReplies ?? 0) !== coverage.chunks.reduce((n, c) => n + c.attempts.filter(a => a.status === "truncated").length, 0)) fail("extraction_attempt_counts");
   if (summary.stages[2]!.calls !== coverage.chunks.reduce((n, c) => n + c.attempts.length, 0)) fail("extraction_receipts");
   const questions = new Set(plan.questions.map(q => q.id)), evidenceIds = new Set(evidence.quotes.map(q => q.id));
-  if (!evidence.quotes.length || !unique(evidence.quotes.map(q => q.id)) || evidence.counts.leftByCap || evidence.counts.inPacket !== evidence.quotes.length || evidence.counts.verified !== evidence.quotes.length) fail("evidence_counts");
+  // 7b.2: every verified quote is in the packet or one omission, and every noted conflict in the packet or one conflict omission.
+  if (!evidence.quotes.length || !unique(evidence.quotes.map(q => q.id)) || evidence.counts.inPacket !== evidence.quotes.length || evidence.counts.leftByCap !== coverage.omissions.length ||
+    evidence.counts.verified !== evidence.quotes.length + coverage.omissions.length || evidence.counts.conflictsNoted !== evidence.conflicts.length + coverage.conflictOmissions.length) fail("evidence_counts");
   for (const quote of evidence.quotes) {
     const source = sourceManifest.find(s => s.id === quote.sourceId);
     if (normalizeQuoteText(quote.quote) !== quote.quote || [...quote.quote].length < 12 || [...quote.quote].length > 300) fail("quote_length");
@@ -208,7 +219,8 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   for (const chunk of coverage.chunks) {
     if (!unique(chunk.questions.map(q => q.questionId)) || canonical(chunk.questions.map(q => q.questionId).sort()) !== canonical([...questions].sort())) fail("chunk_questions");
     for (const q of chunk.questions) {
-      if (!unique(q.evidenceIds) || q.status === "needs_followup" || (q.status === "no_verified_evidence" && q.evidenceIds.length) || (q.status === "evidence_retained" && !q.evidenceIds.length)) fail("question_outcome");
+      if (!unique(q.evidenceIds) || q.status === "needs_followup" || (q.status === "no_verified_evidence" && q.evidenceIds.length) || (q.status === "evidence_retained" && !q.evidenceIds.length) ||
+        (q.status === "evidence_trimmed" && (q.evidenceIds.length || !coverage.omissions.some(o => o.chunkIds.includes(chunk.id) && o.questionIds.includes(q.questionId))))) fail("question_outcome");
       for (const e of q.evidenceIds) { const quote = evidence.quotes.find(item => item.id === e); if (!quote || !quote.questionIds.includes(q.questionId) || !quote.chunkIds.includes(chunk.id)) fail("question_quote"); }
     }
   }
@@ -223,7 +235,22 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
       if (occurrence!.locator !== quote.locator) fail("quote_locator");
     }
   }
-  if (evidence.conflicts.some(c => !sourceManifest.some(s => s.id === c.sourceId) || c.questionIds.some(q => !questions.has(q)))) fail("conflict_binding");
+  // 7b.2: an omission names one verified quote, by the pipeline's own identity (source, locator, hash of the text), that is in no
+  // other omission and not in the packet; it binds to its source's chunks and the plan's questions, and every (chunk, question) pair it
+  // names kept verified evidence, in the packet (evidence_retained) or left out (evidence_trimmed). The gate cannot see the trim's
+  // priority, since an omission carries only a hash; the pipeline's tests check it.
+  const omissionKey = (sourceId: string, locator: string, quoteSha256: string) => canonical([sourceId, locator, quoteSha256]);
+  const packetKeys = new Set(evidence.quotes.map(q => omissionKey(q.sourceId, q.locator, digest(q.quote)))), omissionKeys = coverage.omissions.map(o => omissionKey(o.sourceId, o.locator, o.quoteSha256));
+  if (!unique(omissionKeys) || omissionKeys.some(key => packetKeys.has(key))) fail("omission_identity");
+  for (const omission of coverage.omissions) {
+    if (!sourceManifest.some(s => s.id === omission.sourceId) || !unique(omission.questionIds) || omission.questionIds.some(q => !questions.has(q)) || !unique(omission.chunkIds) ||
+      omission.chunkIds.some(c => !coverage.chunks.some(chunk => chunk.id === c && chunk.sourceId === omission.sourceId))) fail("omission_binding");
+    for (const chunkId of omission.chunkIds) for (const questionId of omission.questionIds) {
+      const status = coverage.chunks.find(c => c.id === chunkId)!.questions.find(q => q.questionId === questionId)?.status;
+      if (status !== "evidence_retained" && status !== "evidence_trimmed") fail("omission_question");
+    }
+  }
+  if ([...evidence.conflicts, ...coverage.conflictOmissions].some(c => !sourceManifest.some(s => s.id === c.sourceId) || c.questionIds.some(q => !questions.has(q)))) fail("conflict_binding");
   if (read(RESEARCH_FILES.evidenceText) !== renderResearchEvidence(evidence, plan) || byPath.get(RESEARCH_FILES.evidenceText)!.length > RESEARCH_COVERAGE_POLICY.packetBytes) fail("evidence_render");
   const synth = coverage.synthesis.questions;
   if (!unique(synth.map(q => q.questionId)) || canonical(synth.map(q => q.questionId).sort()) !== canonical([...questions].sort()) || synth.some(q => !unique(q.evidenceIds) || q.evidenceIds.some(e => !evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId))) || (q.disposition !== "unresolved" && !q.evidenceIds.length))) fail("synthesis_coverage");

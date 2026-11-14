@@ -4,7 +4,7 @@ import { RESEARCH_FILES } from "../../src/main/private-agent/research-contract";
 import { deriveBriefUnits, inventoryResearchSources, renderResearchEvidence, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
 import { runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import type { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
+import { parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 
 async function packet() {
   const model = { complete: async (messages: { content: string }[]) => ({ content: researchV4Reply(messages[0]!.content, messages[1]!.content), finishReason: "stop" }) } as unknown as PrivateAgentModel;
@@ -57,10 +57,11 @@ describe("seven-file ready packet invariants", () => {
   it("rejects a tampered complete chunk whose final real attempt failed", async () => {
     const files = await packet(); edit(files, RESEARCH_FILES.coverage, c => { c.chunks[0].attempts[0].status = "invalid"; }); expect(() => validateReadyResearchPacket(files)).toThrow("not_ready");
   });
-  it("rejects packet omissions and unreadable inputs deterministically", async () => {
-    for (const mutation of [(c: any) => { c.sources[0].readable = false; }, (c: any) => { c.omissions.push({ sourceId: c.sources[0].id, questionIds: ["Q1"], quoteSha256: "1".repeat(64), reason: "packet_cap" }); }]) {
-      const files = await packet(); edit(files, RESEARCH_FILES.coverage, mutation); expect(() => validateReadyResearchPacket(files)).toThrow("not_ready");
-    }
+  it("rejects unreadable inputs, and since 7b.2 an omission the evidence counts leave out, deterministically", async () => {
+    const unreadable = await packet(); edit(unreadable, RESEARCH_FILES.coverage, c => { c.sources[0].readable = false; }); expect(() => validateReadyResearchPacket(unreadable)).toThrow("not_ready");
+    const files = await packet();
+    edit(files, RESEARCH_FILES.coverage, c => { c.omissions.push({ sourceId: c.sources[0].id, questionIds: ["Q1"], quoteSha256: "1".repeat(64), chunkIds: [c.chunks[0].id], locator: "line 2", reason: "packet_cap" }); });
+    expect(() => validateReadyResearchPacket(files)).toThrow("evidence_counts");
   });
   it("rejects unknown and missing source/brief assignments", async () => {
     const files = await packet(); edit(files, RESEARCH_FILES.plan, p => { p.questions[0].requirementIds = ["U2"]; }); expect(() => validateReadyResearchPacket(files)).toThrow("plan_binding");
@@ -95,5 +96,79 @@ describe("seven-file ready packet invariants", () => {
   });
   it("does not allow fabricated semantic acceptance or corpus absence flags", async () => {
     const files = await packet(); edit(files, RESEARCH_FILES.coverage, c => { c.semanticAcceptance = "passed"; c.corpusAbsenceEstablished = true; }); expect(() => validateReadyResearchPacket(files)).toThrow();
+  });
+});
+
+/**
+ * Item 7b.2 (BL-20261114-1304-research-priority-trim-design): a real packet the trim cut. Two questions over twenty sources of twelve
+ * rows: each source answers Q1 with rows 0 to 5 and Q2 with rows 6 to 11, except the last, which marks Q2 no_verified_evidence. The
+ * 234 quotes overflow the 64 KiB packet, so the packet holds outcomes of every kind: retained, trimmed and no_verified_evidence.
+ */
+const TRIM_SOURCES = () => Array.from({ length: 20 }, (_, i) => ({ id: `input/trim-${String(i).padStart(2, "0")}.md`, path: `input/trim-${i}.md`,
+  bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+async function trimmedPacket() {
+  const model = { complete: async (messages: { content: string }[]) => {
+    const system = messages[0]!.content, user = messages[1]!.content, input = parseResearchUserContent(user);
+    const question = (id: string) => ({ id, text: `Synthetic question ${id}`, requirementIds: input.units?.map((u: any) => u.id), sourceIds: [], lookFor: [] });
+    if (system.startsWith("You plan")) return { content: JSON.stringify({ version: 2, questions: [question("Q1"), question("Q2")], conflictsToCheck: [], deliverableNotes: "" }), finishReason: "stop" };
+    if (system.startsWith("You extract")) {
+      const last = input.source.id === "input/trim-19.md", rows = String(input.chunk.text).split("\n");
+      return { content: JSON.stringify({ questions: [{ questionId: "Q1", status: "evidence_found" }, { questionId: "Q2", status: last ? "no_verified_evidence" : "evidence_found" }],
+        quotes: rows.flatMap((quote, j) => last && j >= 6 ? [] : [{ quote, questionIds: [j < 6 ? "Q1" : "Q2"], note: "n".repeat(200) }]), conflicts: [] }), finishReason: "stop" };
+    }
+    return { content: researchV4Reply(system, user), finishReason: "stop" };
+  } } as unknown as PrivateAgentModel;
+  const result = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: TRIM_SOURCES(), models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal, record: () => {} });
+  expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); return result.files.map(file => ({ path: file.path, bytes: Buffer.from(file.bytes) }));
+}
+const json = (files: { path: string; bytes: Buffer }[], path: string) => JSON.parse(files.find(f => f.path === path)!.bytes.toString());
+/** Adds a quote's omission with its counts, as the pipeline would have, so that only the identity or binding rule can refuse it. */
+const omit = (files: { path: string; bytes: Buffer }[], omission: Record<string, unknown>) => {
+  edit(files, RESEARCH_FILES.coverage, c => { c.omissions.push(omission); }); edit(files, RESEARCH_FILES.evidence, e => { e.counts.verified++; e.counts.leftByCap++; });
+};
+
+describe("item 7b.2: the ready gate accepts disclosed omissions (BL-20261114-1304-research-priority-trim-design)", () => {
+  it("accepts a trimmed packet whose omissions are counted, unique and bound, with retained, trimmed and no-evidence outcomes", async () => {
+    const files = await trimmedPacket(), ready = validateReadyResearchPacket(files, { brief: RESEARCH_V4_TEST_BRIEF, sources: TRIM_SOURCES() });
+    const statuses = new Set(ready.coverage.chunks.flatMap(c => c.questions.map(q => q.status)));
+    expect([...statuses].sort()).toEqual(["evidence_retained", "evidence_trimmed", "no_verified_evidence"]);
+    expect(ready.evidence.counts.verified).toBe(234); expect(ready.evidence.counts.inPacket + ready.evidence.counts.leftByCap).toBe(234);
+    expect(ready.coverage.omissions).toHaveLength(ready.evidence.counts.leftByCap);
+    // The round-robin keeps both questions in the packet: their packet quotes differ by at most one.
+    const per = ["Q1", "Q2"].map(q => ready.evidence.quotes.filter(e => e.questionIds.includes(q)).length);
+    expect(Math.abs(per[0]! - per[1]!)).toBeLessThanOrEqual(1);
+  });
+  it("refuses counts that do not add up: left-by-cap, verified, and noted conflicts", async () => {
+    for (const change of [(e: any) => { e.counts.leftByCap--; }, (e: any) => { e.counts.verified++; }, (e: any) => { e.counts.conflictsNoted++; }]) {
+      const files = await trimmedPacket(); edit(files, RESEARCH_FILES.evidence, change); expect(() => validateReadyResearchPacket(files)).toThrow("evidence_counts");
+    }
+  });
+  it("refuses a duplicate omission, and an omission of a quote that is in the packet", async () => {
+    const twice = await trimmedPacket(); omit(twice, json(twice, RESEARCH_FILES.coverage).omissions[0]); expect(() => validateReadyResearchPacket(twice)).toThrow("omission_identity");
+    const kept = await trimmedPacket(), quote = json(kept, RESEARCH_FILES.evidence).quotes[0];
+    omit(kept, { sourceId: quote.sourceId, questionIds: quote.questionIds, quoteSha256: digest(quote.quote), chunkIds: quote.chunkIds, locator: quote.locator, reason: "packet_cap" });
+    expect(() => validateReadyResearchPacket(kept)).toThrow("omission_identity");
+  });
+  it("refuses an evidence_trimmed outcome that keeps evidence ids or that no omission names", async () => {
+    const withIds = await trimmedPacket();
+    edit(withIds, RESEARCH_FILES.coverage, c => { c.chunks.flatMap((chunk: any) => chunk.questions).find((q: any) => q.status === "evidence_retained").status = "evidence_trimmed"; });
+    expect(() => validateReadyResearchPacket(withIds)).toThrow("question_outcome");
+    const unbound = await trimmedPacket();
+    edit(unbound, RESEARCH_FILES.coverage, c => { c.chunks.flatMap((chunk: any) => chunk.questions).find((q: any) => q.status === "no_verified_evidence").status = "evidence_trimmed"; });
+    expect(() => validateReadyResearchPacket(unbound)).toThrow("question_outcome");
+  });
+  it("refuses an omission bound to another source's chunk, to an unknown question, or to a pair with no verified evidence", async () => {
+    const coverage = json(await trimmedPacket(), RESEARCH_FILES.coverage), last = coverage.chunks.find((c: any) => c.sourceId === "input/trim-19.md");
+    const fresh = (omission: Record<string, unknown>) => ({ sourceId: last.sourceId, questionIds: ["Q1"], quoteSha256: "3".repeat(64), chunkIds: [last.id], locator: "line 999", reason: "packet_cap", ...omission });
+    for (const [omission, code] of [[fresh({ chunkIds: [coverage.chunks[0].id] }), "omission_binding"], [fresh({ questionIds: ["Q1", "Q3"] }), "omission_binding"],
+      [fresh({ questionIds: ["Q2"] }), "omission_question"]] as const) {
+      const files = await trimmedPacket(); omit(files, omission); expect(() => validateReadyResearchPacket(files)).toThrow(code);
+    }
+  });
+  it("refuses a conflict omission from an unknown source", async () => {
+    const files = await trimmedPacket();
+    edit(files, RESEARCH_FILES.coverage, c => { c.conflictOmissions.push({ sourceId: "input/elsewhere.md", questionIds: ["Q1"], noteSha256: "4".repeat(64), reason: "conflict_cap" }); });
+    edit(files, RESEARCH_FILES.evidence, e => { e.counts.conflictsNoted++; });
+    expect(() => validateReadyResearchPacket(files)).toThrow("conflict_binding");
   });
 });

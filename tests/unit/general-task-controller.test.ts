@@ -1084,7 +1084,9 @@ describe("desktop general-task host controller", () => {
   it.each([
     ["runtime_contract_drift", GENERIC_INCOMPLETE], ["checkpoint_identity_mismatch", GENERIC_INCOMPLETE], ["host_validation_not_replayed", GENERIC_INCOMPLETE],
     ["repeated_incomplete_tool_arguments_at_output_limit", GENERIC_INCOMPLETE], ["duplicate_tool_call_id", GENERIC_INCOMPLETE],
-    ["bounded_allowance_exhausted", GENERIC_INCOMPLETE], ["consultation_budget_unavailable", GENERIC_INCOMPLETE],
+    ["bounded_allowance_exhausted", GENERIC_INCOMPLETE],
+    // Backlog item 6 follow-up (6.4): still terminal for Resume, but its text names the cure, a Revoke.
+    ["consultation_budget_unavailable", "Revoking it lets a resume continue locally within what remains"],
     // Backlog item 6 (A7): a stage that cannot continue has its own text.
     ["public_source_retention_or_text_failed", GENERIC_INCOMPLETE], ["research_stage_not_replayed", "research stage stopped before its evidence was handed to the writer"],
     ["research_request_denied", GENERIC_INCOMPLETE], ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],

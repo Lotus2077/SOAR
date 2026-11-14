@@ -325,4 +325,30 @@ describe("desktop consultation authority and continuity", () => {
     expect(f.controller.decideConsultation({ ...ref, decision: "revoke" })).toMatchObject({ status: "incomplete", canResume: false, reason: stopped.reason });
     expect(() => f.controller.resume(pending.id)).toThrow("general_task_resume_denied"); expect(f.executions).toHaveLength(2);
   });
+  it("backlog item 6 (6.4): a Revoke re-opens a task its approved consultation's budget stop ended, which a resume alone cannot", async () => {
+    const f = fixture(), original = f.options.testing!.runnerFactory!;
+    // After the approval, the run finds that the approved consultation no longer fits the remaining allowance (runner.ts) and stops before any dispatch.
+    f.options.testing!.runnerFactory = args => args.consultation?.view()?.status === "approved" ? { pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId } = args, owner = randomUUID();
+      store.acquireRun(contextId, owner, "unix:///synthetic-controller.sock");
+      try { return { status: "incomplete" as const, reason: "consultation_budget_unavailable", snapshot: [], checks: [], modelCalls: 0 }; }
+      finally { store.releaseRun(contextId, owner, true); store.append(jobId, { type: "run_ended", contextId, elapsedMs: 5, cleanupConfirmed: true }); }
+    } } : original(args);
+    const pending = await f.start(), ref = f.ref(pending);
+    f.controller.previewConsultation(ref); f.controller.decideConsultation({ ...ref, decision: "approve" });
+    f.controller.resume(pending.id); await f.controller.wait(pending.id);
+    const stopped = f.controller.get(pending.id);
+    expect(stopped).toMatchObject({ status: "incomplete", canResume: false });
+    expect(stopped.reason).toBe("The approved consultation no longer fits the task's remaining allowance, so it was not sent and nothing is uncertain. Revoking it lets a resume continue locally within what remains; a resume alone would stop the same way.");
+    expect(() => f.controller.resume(pending.id)).toThrow("general_task_resume_denied");
+    // Only a Revoke can follow an approval: a Decline is refused, and the task stays stopped.
+    expect(() => f.controller.decideConsultation({ ...ref, decision: "decline" })).toThrow("consultation_decision_closed");
+    expect(f.controller.get(pending.id)).toMatchObject({ status: "incomplete", canResume: false });
+    // The Revoke removes the cause: the task re-opens, and the resumed run continues locally to submission with nothing sent.
+    expect(f.controller.decideConsultation({ ...ref, decision: "revoke" })).toMatchObject({ status: "paused", canResume: true, consultation: { state: "revoked" } });
+    f.finish(); f.controller.resume(pending.id); await f.controller.wait(pending.id);
+    expect(f.controller.get(pending.id)).toMatchObject({ status: "submitted", consultation: { state: "revoked" } });
+    expect(f.executions).toHaveLength(3); expect(f.executions[0]!.store.dispatches(pending.id)).toEqual([]);
+  });
 });

@@ -38397,3 +38397,260 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
+
+### BL-20261114-1240-judge-fixture-implemented -- 2026-11-14 -- The E0 judge fixture and its labelling protocol: today's entailment judgement on a separately labelled, planted claim set, scored against the card's agreement level (plan adjustment (b), before E0's judge cell)
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements plan adjustment (b) of BL-20261113-0730-rayline-evaluation-plan-adjustments, which the owner told the session to build on 2026-11-13 ("Yes, build them").
+- **The requirement.** Review §5.6's E0 row runs the local judge on a fixed claim set labelled by a separate session, against an agreement level the E0 card sets. Criteria 3 and 8 (§2.2) become thresholds only if the judge reaches that level.
+- **The gap.** No script existed; package.json had only `fixture:planner`.
+- **What this adds.** The script, a template manifest holding only hashes and counts, and the labelling protocol.
+- **What does not change.** No persisted contract, prompt, schema or dispatch rule. claims.ts is only imported, so the entailment prompt version, the research protocol hash and the harness source-freeze digest stay as they are.
+
+Decisions: (1) **The same judge and the same prompt, in the non-streaming form.**
+- The messages come from `entailmentMessages`.
+- The body is model.ts's vLLM body for the driver's judge config (`buildLocalScreenModelConfig`) with the pass's overrides: thinking disabled, ENTAILMENT_OUTPUT_TOKENS (256) and no tools. A test captures PrivateAgentModel's request through a fake broker and requires byte equality, for both the legacy and the `flash_next_v1` shapes, unsalted and with the fixture's own salt (`--cache-salt`).
+- The driver's judge streams by default and salts per job; that changes the transport and the prefix-cache key, not the prompt or the reply the parse reads.
+- Replies are parsed by judgeClaims's own rule: the outermost braces, then the strict EntailmentReplySchema. A test checks this against the real pass on seven reply shapes.
+
+(2) **A direct POST outside the broker**, as the planner fixture does (BL-20261108-0911, decision 6): public or synthetic claims, zero fee, no dispatch rows.
+- The endpoint comes from loadConfig, so the app's endpoint policy applies.
+- Every raw reply is retained, with mode 0600, under `.soar/experiments/e0-judge-fixture-<time>/replies/`.
+- The out directory must be new; an existing one is refused before any request, and every file is opened exclusively, so a run never replaces an earlier result.
+- `summary.json` holds per-call codes, hashes and verdicts, the metrics, the manifest's canonical digest, the configured reply contract and its activation cell; never claim text or labels.
+- Standard output prints aggregates only.
+
+(3) **Pre-registration: refusal is in code, the commit is procedural.** The manifest (`docs/experiments/e0-judge-fixture-v1.json`, committed as a template) pins:
+- the claim set's and the labels' sha256;
+- the claim count, the count per label and the planted count;
+- the entailment prompt version;
+- the per-class minimum;
+- the agreement measure (`exact` four-way, or `established`, criterion 8's supported-plus-partial split) and its level;
+- the conditions and the repeats, which come only from the manifest.
+
+Before any request the fixture refuses:
+- a template;
+- a mismatched prompt version, hash, count or task;
+- a claim without a label;
+- a class below the minimum;
+- an invalid file, including a claim set that carries provenance;
+- a design without the activation cell: the J1 condition of the configured reply contract.
+
+That the manifest was committed before the run cannot be checked in code. It stays checkable: the run records the manifest's canonical digest, to compare with the committed file.
+
+(4) **Four conditions.**
+- **`j1-legacy` and `j1-flash`** run today's judge in each reply shape. The activation cell is the one matching the endpoint's contract.
+- **`j1-legacy-reversed` and `j1-flash-reversed`** list the four verdicts in reverse order, both in the JSON alternatives and in the definitions, with every other byte unchanged. They are refused under any prompt version other than 1.
+
+The reversed conditions only measure how often a verdict flips with option order; they are never the judge SOAR runs.
+
+(5) **Metrics**, per condition and repeat:
+- exact agreement over all claims, where a claim not judged counts as a disagreement;
+- agreement on the established split, and exact agreement over judged claims only;
+- Cohen's kappa;
+- recall on each side of the established split and on contradicted claims;
+- detection of planted negatives: planted claims labelled not established that the judge also called not established;
+- exact agreement on every planted claim, planted partials included;
+- AUROC for "not established" on the verdict order, with ties counted half;
+- the confusion matrix;
+- `meetsLevel`, from the manifest's measure and level, compared on the unrounded ratio (the reported ratios are rounded to four places).
+
+Two measures compare across runs: the flip rate between a condition and its reversed twin, and consistency across repeats over the claims judged in every repeat.
+
+(6) **Harvest** (`pnpm fixture:judge -- harvest`).
+- It reads each run's `state.sqlite` read-only and takes the last `claims_verified` event per job and context.
+- It skips claims without a source window and keeps a repeated claim once.
+- It renumbers the claims C1, C2, ... and writes each claim's provenance (the run's basename and the original id) to a sidecar, `claims.origin.json`, which the labeller does not receive: a run's id leads to its own judge verdicts.
+- It creates the target directory, writes with mode 0600 and never overwrites a claim set or its sidecar.
+- A missing database, an existing claim set and an unwritable target are reported as fixed codes, never as paths.
+
+(7) **The labelling protocol** is docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.
+- A separate labeller receives only `claims.json`, and sees no verdict, no grade and no provenance.
+- It labels with the judge's own four definitions and two tie rules.
+- It plants unsupported, contradicted and partial claims on real quotes and windows, each wrong for one stated reason.
+- The proposed minimum is 10 per class; the card decides.
+- The files live under the ignored `.soar/`. The manifest is pinned before any run, and a run freezes its set.
+
+(8) **J2**, a single-token, probability-scored judge, is not built. It first needs the adapter probe's logprobs check and the owner's choice on the card (item (c) of BL-20261113-0730).
+
+Changes:
+- New: scripts/judge-fixture.ts; tests/unit/judge-fixture.test.ts (13 tests); docs/experiments/e0-judge-fixture-v1.json (a template); docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.
+- Edited: docs/experiments/README.md; README.md; package.json (`fixture:judge`).
+
+Evidence:
+- `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts tests/unit/private-agent-local-role-config.test.ts` passes 102 tests in 4 files.
+- One independent review on 2026-11-13 found no blocker or major. Its eleven minor findings are fixed here, and the review's corrected wording is used in this entry. Seven mutations, one per behavioural fix, now fail the suite: a rounded level test, counting planted partials as detection, a harvest keyed on the job alone, counting unjudged claims as consistent, and dropping the out-directory, activation-cell or task check.
+- The judge fixture's tests prove:
+  - the bodies are byte-equal to the driver judge's non-streaming request in both shapes, unsalted and salted;
+  - the reversed prompt changes only the verdict order;
+  - the reply parse matches judgeClaims's;
+  - every input refusal happens before any request and writes no file;
+  - the metrics on a known eight-claim case: exact agreement 0.625, established agreement 0.75, kappa 0.6111, AUROC 0.9583, and the flip and consistency rates;
+  - the level test on the unrounded ratio (205 of 247 is below 0.83), and planted detection that excludes planted partials;
+  - a full run against a loopback fake. It uses 32 calls, retains replies with mode 0600, and sends no label, planted flag or labeller note in any request. Its summary contains no address, port, key, reasoning text or claim text.
+  - a rejected or unreachable endpoint leaves claims not judged without stopping the run, and unjudged claims are not counted as consistent;
+  - the `flash_next_v1` activation cell, and the refusals of a design without it;
+  - a second run into the same directory is refused and leaves the first result unchanged;
+  - the harvest per job and context with two of each, the provenance sidecar, the created directory and the refusal to overwrite;
+  - a command-line dry run that prints no address.
+- `pnpm typecheck` passes.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` pass with this entry appended.
+- Nothing ran against an endpoint, and no labelled set exists yet.
+
+Failures or blockers: None in the offline work. The fixture cannot run until a separate session harvests and labels a set and the owner pins the manifest with the E0 card.
+
+Limitations and non-claims:
+- **Implemented, not Verified.** Nothing has run against a server.
+- **Agreement is with one labeller**, on claims like r3's. Planted negatives may be easier to catch than natural errors.
+- **Reaching the level is not enough on its own.** It does not show that the judge separates accepted from rejected drafts, the second condition in review §5.2's S10 row.
+- **AUROC is coarse** over four ordered verdicts.
+- **The flash shape reads `message.content` directly**, as the planner fixture does, not through flash-next-reply.ts.
+- **The reversed conditions test one alternative ordering only.**
+
+Paid exposure: None. Zero model requests and zero envelope spend. Later runs are zero-fee requests to the owner's endpoint on public or synthetic claims, outside the broker by design. Every cap is unchanged.
+
+Next gate:
+- Review, then merge after #86. Its entry, BL-20261113-0730, must precede this one.
+- This entry shares its minute with BL-20261113-0815-doctor-endpoint-identity-implemented, so either of the two pull requests may merge first.
+- Then a separate session harvests and labels a set following the protocol, the owner pins the manifest with the E0 card, and the fixture runs from the owner's Mac.
+
+References:
+- BL-20261113-0730-rayline-evaluation-plan-adjustments, items (b) and (c).
+- BL-20261108-0911-probe-extensions-implemented: the planner fixture, decision 6.
+- docs/PROJECT_REVIEW_2026-11-05.md §2.2 (criteria 3 and 8), §5.2 (S10) and §5.6 (E0).
+- Issue #47, item 2.
+
+### BL-20261114-1241-correction-judge-fixture-restamp -- 2026-11-14 -- Correction: pull request #91's entry is re-stamped after main's tail at its merge of main
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why the judge fixture's entry does not carry its authoring minute. Pull request #91 committed it on 2026-11-13 as BL-20261113-0815 with the slug judge-fixture-implemented. Before this branch merged `main` at 582f880, `main`'s ledger ended with BL-20261114-1121-correction-handoff-start-here, which is later. So, under BL-20261113-0937-owner-decision-restamp-unmerged-entries as BL-20261113-0938-correction-restamp-rule-dates corrects it, the entry's ID minute and its date move after the tail.
+
+Decisions:
+- The judge fixture's BL-20261113-0815, authored at 08:15 UTC on 2026-11-13, is now BL-20261114-1240-judge-fixture-implemented, dated 2026-11-14.
+- Its body is byte-identical to the text reviewed at 76a6344.
+- The body keeps two IDs as written. BL-20261113-0730, the Rayline plan entry it builds on, is on draft pull request #86 and not yet on `main`. The doctor's entry, which shares the original minute 0815, is on pull request #90, which re-stamps it at its own merge. Each re-stamping branch's correction maps its own IDs.
+
+Changes: docs/BUILD_LOG.md (the re-stamped heading and this entry).
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref origin/main` passes on this branch after the merge of `main` at 582f880; its exit status was checked directly, not through a pipe.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. The commit messages and the pull request's description keep the original ID.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: This branch's merge into `main`. If another entry reaches `main` first, the entries re-stamp again with a further correction.
+
+References: BL-20261114-1240-judge-fixture-implemented; BL-20261114-1121-correction-handoff-start-here; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261113-0939-correction-e0-card-restamp; pull requests #86, #90 and #91.
+
+### BL-20261114-1246-correction-judge-fixture-cloud-labeller -- 2026-11-14 -- Correction to BL-20261114-1240-judge-fixture-implemented: the labeller is a cloud model through its API, as the owner decided; the harvest command reaches the harvest under pnpm; the card fixes only the level; and the merge order with #86 does not bind
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the judge fixture's entry, which stays as written, after pull request #91 was checked against `main` at 582f880 on 2026-11-14. Three of its statements no longer hold, and one command it documents never worked. The fixture's scoring, its request bodies, its refusals and its hashes do not change.
+
+Decisions:
+- **The labeller is a cloud model through its API.**
+  - The entry (decision (7), "Failures or blockers" and "Next gate") and the protocol name a separate session as the labeller, and forbid sending labels to a cloud tool.
+  - On 2026-11-13 the owner decided otherwise (BL-20261113-1003-e0-card-owner-answers). A cloud model labels the claim set through its API, separate from the judge and without seeing any judge verdict, before the fixture runs. The claim set holds public and synthetic material only. The paid labelling is approved, with a cap of USD 1.00 in total that the orchestrator recorded and the owner may change.
+  - The protocol, the template's note, both READMEs and the script's header comment now say so:
+    - The labeller receives only `claims.json` and the protocol's instructions for labelling and planting. It gets no sidecar, verdict, grade, run directory, path or address.
+    - Before any claim is sent, an amendment to the E0 card names the labelling: the provider and model, the API host, the name of the key's variable (never its value), the tool that sends the claims, and the cap and envelope line. A new egress destination keeps its gate.
+    - The fee is projected from the claim count before the first call, and no call that would pass the cap is made.
+    - The labels come back from the labeller's API and stay under the ignored `.soar/`. They are never committed, never shown to the judge and never sent to any other tool or model. As before, the fixture never puts a label in a request.
+    - `labeller` in labels.json records the provider and the model as the amendment names them.
+- **The card fixes only the level.**
+  - The merged card (docs/experiments/e0-card-2026-11-13.md, item 2) fixes exact agreement on at least 95% of the labelled claims.
+  - The card's amendment fixes the per-class minimum (the template proposes 10), the conditions and the repeats before the fixture runs. The pinned manifest is committed with that amendment.
+  - The template's single `j1-legacy` condition stays a proposal. Under `flash_next_v1` the activation cell is `j1-flash`, so the pin follows E0's adapter probe or carries both J1 cells.
+- **The harvest command.**
+  - The documented `pnpm fixture:judge -- harvest ...` took the run path and exited 2 with the run's usage line. pnpm 10.12.4 passes the `--` through, and the script read the subcommand from `process.argv[2]`.
+  - The script now drops one leading `--` before it reads the subcommand, as scripts/serving-card.py does. Flags were already found by name, so no invocation that worked before changes.
+- **The merge order.**
+  - The entry's "Next gate" asks for a merge after #86, because its scope cites the Rayline plan entry BL-20261113-0730, which is on draft #86.
+  - Nothing enforces that order. The validator checks citations only inside `Correction` entries, and an entry on `main` may cite an ID that is not on `main` yet (BL-20261113-0938-correction-restamp-rule-dates).
+  - This pull request may merge before #86.
+
+Changes:
+- scripts/judge-fixture.ts: `commandArguments` drops one leading `--`, and the header comment names the labeller.
+- tests/unit/judge-fixture.test.ts: one new test (14 in the file). It runs the harvest with pnpm's argument shape and checks the helper.
+- docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md: the status, the roles, a new section "Before any claim leaves the machine", steps 2 to 4, the files and the non-claims.
+- docs/experiments/e0-judge-fixture-v1.json: the `note` only.
+- README.md and docs/experiments/README.md: the labeller's wording.
+
+Evidence:
+- Before the fix, on this branch after its merge of `main`, `pnpm --silent fixture:judge -- harvest --runs <missing dir> --task synthetic --out <file>` printed the run's usage line (`usage: --claims ...`) and exited 2.
+- After the fix, the same command reaches the harvest. It exits 2 with the harvest's own code, `judge_fixture_harvest_unreadable`.
+- `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts tests/unit/private-agent-local-role-config.test.ts` passes 103 tests in 4 files.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass. The validator's exit status was checked directly.
+
+Failures or blockers: The cloud labelling cannot run until the card's amendment names the labelling: the provider and model, the API host, the key variable, the tool, and the cap and envelope line. No labelling tool exists in the repository.
+
+Limitations and non-claims:
+- Nothing ran against an endpoint or a cloud model.
+- This chooses no provider or model. It does not show that a cloud model's labels are right, and agreement is still measured against one labeller.
+- The owner's decision sends harvested claim text, from public and synthetic runs only, to a cloud model. For everything else, the repository's rule that evaluator gold, raw traces and private data never go to cloud tools still holds: only `claims.json` and the instructions leave the machine, and the labels never go out again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. The approved labelling, capped at USD 1.00 in total, has not run.
+
+Next gate:
+- One light review with privacy checked, and CI.
+- The owner's go to merge, since #91 is not a lane pull request.
+- Then the owner names the labelling in the card's amendment, the harvest runs, the labelling runs inside the cap, and the amendment pins the manifest.
+
+References: BL-20261114-1240-judge-fixture-implemented; BL-20261114-1241-correction-judge-fixture-restamp; BL-20261113-1003-e0-card-owner-answers; BL-20261113-0936-e0-card; BL-20261113-0938-correction-restamp-rule-dates; docs/experiments/e0-card-2026-11-13.md; scripts/serving-card.py; pull requests #86 and #91; issue #57.
+
+### BL-20261114-1327-correction-judge-fixture-review-fixes -- 2026-11-14 -- Correction to BL-20261114-1246-correction-judge-fixture-cloud-labeller: what the original entry said, which rules are the owner's and which are this pull request's, and the light review's fixes to the pin step, the planting flow and the API host
+
+Status: `Implemented`
+
+Scope or hypothesis: Record the light review of pull request #91 at 1ffbd63 and its fixes. The review found no blocker or major and four minor findings. BL-20261114-1246-correction-judge-fixture-cloud-labeller stays as written; this entry corrects two of its statements and records three protocol fixes. The fixture's code, scoring, request bodies, refusals and hashes do not change.
+
+Decisions:
+- **What the original entry said.**
+  - BL-20261114-1246-correction-judge-fixture-cloud-labeller says that the judge fixture's entry and the protocol "name a separate session as the labeller, and forbid sending labels to a cloud tool".
+  - The entry, BL-20261114-1240-judge-fixture-implemented, names a separate session in its scope, its "Failures or blockers" and its "Next gate", and its decision (7) says "a separate labeller".
+  - Only the protocol forbade sending labels to a cloud tool. The entry does not mention one.
+- **Which rules are the owner's.**
+  - The owner's decision (BL-20261113-1003-e0-card-owner-answers): a cloud model labels the claim set through its API, separate from the judge and without seeing any judge verdict, before the fixture runs. The claim set holds public and synthetic material only. The paid labelling is approved, with the USD 1.00 total cap the orchestrator recorded.
+  - The other items that BL-20261114-1246-correction-judge-fixture-cloud-labeller lists are this pull request's rules, not the owner's: the amendment that names the provider, model, public API host, key variable, tool, cap and envelope line; the fee projection; what may be sent; and what happens to the labels.
+  - Those rules are this pull request's reading of three sources: PLAN.md §4's gates on new egress destinations and on spend; docs/HANDOFF.md §3 and §6; and the card's rule that an amendment names a fixture's command before the fixture runs.
+- **The pin step (finding 1).**
+  - Step 4 still let the card fix the minimum, the measure (`exact` or `established`), the conditions and the repeats. Leaving the measure open matters, because the code accepts either.
+  - Step 4 now sets `agreement` to `{"measure": "exact", "level": 0.95}` from the card, and takes the minimum, the conditions and the repeats from the amendment.
+  - The amendment that names the labelling is committed before the first claim is sent. The pinned manifest is committed before any run.
+  - The same wording is aligned in the protocol's opening section, docs/experiments/README.md and the script's header comment.
+- **The planting flow (finding 2).** Steps 2 and 3 were written for a labeller that can edit files. For a model behind an API, the protocol now says:
+  - The tool sends the amendment's per-class minimum with the instructions.
+  - One request labels and plants. If a second request cannot be avoided, it carries only the number of claims still to plant per class, never a label.
+  - For each planted claim, the model returns only the source claim's id, the intended label, the new sentence and a note. The tool copies the source's quote and context byte for byte from the local claim set, assigns the next id, marks the claim planted, and writes both files, which step 4 hashes.
+  - A relabelling is a second paid labelling. It counts against the same USD 1.00 total, or needs the owner's go.
+- **The API host (finding 3).** The amendment names the provider's public API host. An account-specific or private base URL stays in local configuration and is named only by its variable, as build-log rule 7 and docs/HANDOFF.md §6 require.
+
+Changes: docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/README.md (the manifest's fields); scripts/judge-fixture.ts (the header comment only).
+
+Evidence:
+- The review at 1ffbd63 confirmed these points:
+  - The harvest fix works.
+  - The new test fails against the reverted dispatch.
+  - The re-stamped body is byte-identical.
+  - The counts and commands in both earlier corrections hold.
+- After these fixes:
+  - `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts tests/unit/private-agent-local-role-config.test.ts` passes 103 tests in 4 files.
+  - `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass. The validator's exit status was checked directly.
+
+Failures or blockers: None new. The cloud labelling still needs the card's amendment and a labelling tool, and neither exists yet.
+
+Limitations and non-claims:
+- Nothing ran against an endpoint or a cloud model.
+- The planting rules constrain the tool that will be written. Nothing in the repository enforces them yet.
+- The E0 card on `main` (docs/experiments/e0-card-2026-11-13.md, line 53) still says the claim set is "labelled by a separate session". The amendment can correct it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the new head, then the owner's go to merge.
+
+References: BL-20261114-1246-correction-judge-fixture-cloud-labeller; BL-20261114-1240-judge-fixture-implemented; BL-20261113-1003-e0-card-owner-answers; PLAN.md §4; docs/HANDOFF.md §3 and §6; docs/experiments/e0-card-2026-11-13.md; pull request #91.

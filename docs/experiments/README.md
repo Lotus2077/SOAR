@@ -59,6 +59,14 @@ This folder holds the committed, sanitized record of live trials (see
   (`scripts/planner-fixture.ts`): the exposed r3 index, its brief and source ids by
   sha256, the chunk count and the proposed 3 x 10 design. It is a template until the
   owner fills its hashes; the index and the brief stay under the ignored `.soar/`.
+- `e0-judge-fixture-v1.json`: the hashes-only manifest of the E0 judge fixture
+  (`scripts/judge-fixture.ts`). It holds the claim set's and the labels' sha256, the
+  claim, class and planted counts, the card's agreement measure and level, and the
+  per-class minimum, conditions and repeats from the card's amendment. It is a template
+  until the owner pins it. [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md)
+  says how the claims are harvested, labelled by a cloud model through its API, planted
+  and pinned. The claims and the labels (evaluator gold) stay under the ignored
+  `.soar/`.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `phase2-tasks-v1.json`: the hashes-only manifest of the frozen Phase 2 tasks (task
@@ -72,7 +80,8 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 
 - raw outputs, traces and databases, including the probe results and the raw model
   replies the probes and fixtures retain (`serving-probe-*/`, `e0-planner-fixture-*/`,
-  `role-schemas.json`);
+  `e0-judge-fixture-*/`, `role-schemas.json`), and the judge fixture's claim set and
+  labels (`e0-judge/`);
 - task gold data and endpoints;
 - anything derived from personal or professional data.
 

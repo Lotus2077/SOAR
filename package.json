@@ -26,6 +26,7 @@
     "probe:export-schemas": "node --import tsx scripts/export-role-schemas.ts",
     "probe:assess": "node --import tsx scripts/assess-probe-replies.ts",
     "fixture:planner": "node --import tsx scripts/planner-fixture.ts",
+    "fixture:judge": "node --import tsx scripts/judge-fixture.ts",
     "card:serving": "python3 scripts/serving-card.py",
     "setup:general": "node --import tsx scripts/setup-general.ts",
     "setup:patch-pilot": "node scripts/setup-patch-pilot.mjs",

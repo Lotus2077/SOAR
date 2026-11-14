@@ -38397,3 +38397,211 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
+
+### BL-20261114-1253-e1-recoverability-gate-ci-verified -- 2026-11-14 -- E1-G: E1's four gate clauses are Verified in CI; the gate stays held until the owner's Docker run of E1-L's sandbox suite is recorded Verified
+
+Status: `Verified`
+
+Scope or hypothesis: This entry records the result of experiment E1, the recoverability tests that run with no live model, against its card BL-20261109-0351-e1-recoverability-card.
+- **The card's four gate clauses:**
+  1. zero zero-fee UNKNOWN rows;
+  2. a research stage with a retried call still reaches the writer;
+  3. local work continues after a cloud UNKNOWN;
+  4. cancellation still stops the stage.
+- **Its decision rule**, decision (3): the gate passes when every "E1 recoverability" test passes in CI on the commit that merges the last E1 PR.
+- **Its stop rule**, as BL-20261113-0848-correction-e1-train-1-reviews decision 3 labels it: "A failure caused by a defect holds the gate until its fix merges."
+- **#88's owner question**, decision 2 of the same entry, with its default: when a fix changes LIST_FILES, the gate also needs that fix's Docker-gated run, recorded `Verified`.
+- **Every E1 PR is merged:**
+  - in train 1 (`main` 9d10b9a): E1-T1 (#66), E1-R (#68), E1-J (#70) and E1-L (#74);
+  - in train 2b (#94, `main` 83bf38c): the corrections (#88), E1-T2 (#84), E1-T3 (#75) and E1-J2 (#80).
+- `Verified` here covers the four clauses as CI shows them. The gate itself stays held (decision 2).
+
+Decisions:
+1. **The clause map.**
+   - `pnpm exec vitest run -t "E1 recoverability"` runs 102 tests in 12 files. Ten more tests, outside E1's describe blocks, carry clauses 2 and 3.
+   - Each E1 test belongs to one or more rows below, by what it asserts. The names are the describe blocks and tests in those files.
+   - **Clause 1 (36 tests).** Each test fails or stops a zero-fee call through the real broker and store, then asserts either the job's rows exactly or that none is `unknown` or `committed`:
+     - tests/integration/private-agent-broker.test.ts, "E1 recoverability: zero-fee bad bodies and eight zero-fee failure modes leave nothing unresolved (S3, gate clause 1)": 2;
+     - tests/unit/private-agent-runner-budget.test.ts, "E1 recoverability: the writer's model call through the real broker (S1, S2, S3)": all 6. They cover a cancel, the run's deadline, an external abort, a pause, a D4 retry, and two bodies that are not JSON;
+     - tests/unit/private-agent-research-session.test.ts, 24 in all:
+       - the S1 stop matrix: four stops (cancel, external abort, session deadline, pause) at four stages, plus three stops on the second of two extraction calls (19);
+       - the D14 cases at the index, plan and synthesis stages (3);
+       - the cancel during a D4 backoff (1);
+       - the item-7 gap's exhausted retries (1);
+     - tests/unit/private-agent-research-recoverability.test.ts, "E1 recoverability: a malformed body inside a research stage, on the real broker (S3)": 4.
+   - **Clause 2 (7 tests, plus 1 outside).** A research stage, or the writer, the producer or the loop, meets a retried call and still completes:
+     - the D14 cases at the index, plan and synthesis stages (research-session, 3);
+     - "D14: a stage whose extraction call was retried once still reaches the writer, and the producer binds the superseded row uncounted" (research-session, outside E1's describes);
+     - the split arm's Anthropic planner, retried after a 529 (research-recoverability, 1);
+     - the writer's call, retried by D4 (runner-budget, 1);
+     - a loop sample whose ledger holds superseded rows (tests/unit/phase4-loop.test.ts, 1);
+     - superseded rows before every stage's call, bound through the producer and loaded by the seed (tests/unit/private-agent-research-seed.test.ts, 1).
+   - **Clause 3 (4 tests, plus 8 outside).**
+     - The emulated assist (research-session, "E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)", 1).
+     - A skipped assist beside a superseded local attempt, through the producer and the seed (research-seed, 1).
+     - Item 10's injected-row tests, outside E1's describes (8):
+       - in the broker test, "lets local work continue past a skipped assist while pinning its reservation and barring a second assist", "refuses every grant-free cloud dispatch after a skipped assist, admits the job's local work, and leaves a granted consultation to its own rules", and "still blocks everything on an unknown row of any other purpose and on a committed assist row";
+       - in runner-budget, "goes on to terminal verification past the reading stage's skipped assist row, but not past one in its own context (backlog item 10)", and the `cloud_after_assist_unknown` case of "records %s as a refusal that recurs, ending this run and every later one without a request";
+       - in tests/unit/general-task-controller.test.ts, "keeps a paused task resumable past a skipped assist row, but not past any other unknown row (backlog item 10)";
+       - in research-seed, "binds assist rows to the stage their purpose names: a settled assist is the stage's call, a skipped, failed or superseded one binds uncounted (backlog item 10)";
+       - in phase4-loop, the `unknown` case of "admits a sample whose assist row is %s (backlog item 10)".
+     - Pinned for 10.b: the legacy split arm's plain-purpose cloud planner, left UNKNOWN by no answer or by an external abort, stops its stage, and the job cannot resume (research-session, 2).
+   - **Clause 4 (36 tests).** A cancel, pause, external abort or deadline stops the work in flight with nothing further sent, or the test pins a limit of that:
+     - the S1 matrix (19) and the cancel during a D4 backoff (1), in research-session;
+     - the writer's cancel, deadline, external abort and pause (runner-budget, 4);
+     - the judge's stopped call, labelled by its cause (tests/unit/private-agent-claims.test.ts, 4; tests/unit/private-agent-session.test.ts, 3);
+     - the loop's interrupts during b and during the repair, and item 11's part 3b resuming, once, a sample the loop's interrupt cut (phase4-loop, 3);
+     - two pinned limits:
+       - E1's bug (e): a cancel during flash_next_v1 token admission ends with the admission stop (runner-budget, 1);
+       - the split arm's external-abort case above (1).
+   - **Supporting rows:** the fixes and the card's other arms.
+     - E1-R's retry-wait rule, 20 tests: tests/integration/private-agent-broker-anthropic.test.ts 7, the broker test 11, and tests/integration/private-agent-flash-next.test.ts 2.
+     - E1-L's host half, 14 tests:
+       - runner-budget 7, among them the S6 lister case at tests/unit/private-agent-runner-budget.test.ts:1524;
+       - tests/unit/private-agent-sandbox-capture.test.ts 7.
+     - Arms S3, S5 and S7, and E1-J2, 14 tests:
+       - tests/unit/private-agent-research-pipeline.test.ts 8;
+       - runner-budget's S5 case 1;
+       - research-recoverability's f2-shaped session 1;
+       - E1-J2 in the claims test 4.
+   - **How the rows overlap.**
+     - 24 tests count under clauses 1 and 4, 4 under clauses 1 and 2, and 1 under clauses 3 and 4.
+     - The rows hold 36 + 7 + 4 + 36 + 20 + 14 + 14 = 131 entries. Less the 29 counted twice, they hold 102 distinct tests.
+2. **What is `Verified`, and what is held.**
+   - **`Verified`:** the four clauses, as the card's decision rule states them.
+     - The 102 "E1 recoverability" tests passed in CI on 83bf38c, the commit that merged the last E1 pull requests: train 2b, #94, run 43401531658.
+     - They passed again on `main` 582f880, in run 43590674079.
+     - Between the two, 7c (#93, BL-20261113-0934-correction-research-v5-train-2b-expectations) turned E1-T2's two pins named for it into host-fallback cases. Invalid JSON twice at the plan or the synthesis now takes the host fallback and reaches a ready packet.
+     - No E1 test failed on either commit.
+   - **Held: the gate.**
+     - E1-L changes LIST_FILES. Under #88's default, decision 2 of BL-20261113-0848-correction-e1-train-1-reviews, the gate therefore waits for E1-L's Docker-gated run on the owner's Mac, recorded `Verified`.
+     - **The suite:** tests/integration/private-agent-sandbox.test.ts, 18 tests, all skipped in CI.
+     - **The command:** `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-sandbox.test.ts --maxWorkers=1 --testTimeout=120000`.
+     - **The image:** the one the suite pins, `sha256:95be0fdf09ef20ff31c5f605108f068422a58edb93b35834c5cfaf45312d3071`, must be present locally. The suite never pulls or builds it.
+     - This is the same command and image as BL-20261107-1111-stop-bricking-tasks-docker-suite-verified.
+     - **Until that run is recorded,** no E2 to E6 live run and no harness loop may start.
+3. **Standing defaults, not owner decisions.** Four questions stand at their proposed defaults, and none has the owner's answer. The orchestrator's train-1 owner list numbers them E1-1, E1-2, E1-3 and E1-6:
+   - **E1-1**, the first question of the card's decision (7): the card entry is E1's card. There is no card file under docs/experiments/ and no registry row.
+   - **E1-2**, the second: clause 3 passes on injected rows and the session-level emulation. 10.b must re-prove it end to end under the same describe name, and E3's card must cite that test.
+   - **E1-3**, the third: the gate waits only for E1-R and E1-L, the two defects that left a task unable to complete or resume. These did not hold the gate:
+     - bug (b), which 6.2 pins until 10.b;
+     - the label defect (c), which E1-J fixed;
+     - the label defect (e), which is pinned above;
+     - the uninterruptible critique (d), which 11.3a fixed.
+   - **E1-6**, #88's question: decision 2 above.
+   - Because these stand as defaults, merging this entry needs the owner's go-ahead.
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- docs/HANDOFF.md, "Start here":
+  - §5 step 3 gains a progress note naming this entry;
+  - §7's first bullet is restated. It said that nothing merged since 2026-11-07 is `Verified`.
+- No file under src/ or tests/ changes.
+
+Evidence:
+- **CI run 43401531658** (workflow CI, push) on 83bf38c: check and electron-e2e succeeded. `pnpm exec vitest list -t "E1 recoverability"` in a detached worktree at 83bf38c lists the same 102 tests in the same 12 files as at 582f880. The only difference is the two cases 7c later changed.
+- **CI run 43590674079** on 582f880: check and electron-e2e succeeded. The check job ran 195 files (182 passed, 13 skipped) and 3,668 tests (3,583 passed, 85 skipped).
+- **Locally, on this branch's tree:** that is 582f880 plus the two docs files, at a load average of about 4.
+  - `pnpm exec vitest run -t "E1 recoverability"`: 12 files and 102 tests passed, 0 failed.
+  - `pnpm exec vitest run`: 195 files (182 passed, 13 skipped) and 3,668 tests (3,582 passed, 86 skipped, 0 failed).
+  - tests/integration/private-agent-sandbox.test.ts without the flag: 18 skipped.
+  - `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+- **The map** in decision 1 assigns each of the 102 listed tests by reading what it asserts. The eight injected-row tests and the extraction D14 case are named in full.
+
+Failures or blockers: None in the CI clauses. The gate is held on the owner's Docker run, as decision 2 says.
+
+Limitations and non-claims:
+- **Nothing live ran.** No model, endpoint, Docker container or paid call was involved. The tests prove their stated contracts on loopback fixtures, mocks and the host's python3. Nothing here measures product quality or a live run.
+- **The container halves** of S5 and S6 belong to the Docker-gated suites, which CI skips. E1-L stays `Implemented` until its run.
+- **Clause 3 is component-proven only:** injected rows and a test-local emulation. 10.b's wrapper must prove it end to end, and E3 must not rely on E1 alone.
+- **K = 1.** Every stop and retry case assumes one in-flight dispatch per job, today's serial ledger. Once 8.2b admits K > 1, they must be rerun with K > 1 from a test card.
+- **Predicate-level coverage only:** a zero-fee `connection_failed` or `transport_failed` row is covered only by the zero-risk test "confirms every zero-risk failure but retries only the transient aborts" (BL-20261113-0848-correction-e1-train-1-reviews, decision 5).
+- **Pinned limits that remain:**
+  - the item-7 gap: a denied call, one malformed body included, ends its stage, and no planned PR changes this;
+  - the legacy split arm's cloud UNKNOWN, until 10.b;
+  - bug (e), until E0's adapter verdict;
+  - D8's 40-chunk ceiling, which no PR in this program lifts;
+  - D4's packet-cap omission, until 7b.2.
+- **An open question: does E1's held gate also cover E0's r3 research run?** The card's default that E1 does not gate E0 (the last question of decision (7)) rests on E0's probes using no broker or session. The r3 run drives the broker, a session and the Docker sandbox.
+- **The local runs used one machine.** The CI counts are CI's own.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The owner's Docker-gated run of tests/integration/private-agent-sandbox.test.ts, with the command and image in decision 2, recorded in a `Verified` entry for E1-L. That releases the gate.
+- Until then, no E2 to E6 live run and no harness loop.
+- The owner's go-ahead to merge this entry, since it states four questions at their defaults.
+
+References:
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261113-0848-correction-e1-train-1-reviews
+- BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented
+- BL-20261109-0436-retry-wait-atomic-supersede-implemented
+- BL-20261109-0444-judge-cancel-label-implemented
+- BL-20261109-0513-capture-keeps-pinned-paths-implemented
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented
+- BL-20261113-0853-e1-recoverability-session-implemented
+- BL-20261113-0857-claims-trailing-strip-linear-implemented
+- BL-20261113-0934-correction-research-v5-train-2b-expectations
+- BL-20261107-1111-stop-bricking-tasks-docker-suite-verified
+- docs/PROJECT_REVIEW_2026-11-05.md, section 5.6, row E1
+- docs/HANDOFF.md, "Start here" §5 step 3
+
+### BL-20261114-1333-correction-e1-recoverability-gate-review -- 2026-11-14 -- Correction to BL-20261114-1253-e1-recoverability-gate-ci-verified: nine tests outside E1's describes, not ten; the supporting rows are counted apart from the clauses; the gate's release depends on decision 3's defaults; three wordings
+
+Status: `Implemented`
+
+Scope or hypothesis: The light review of #97 at 22f3534 found six minor issues, and no blocker or major one.
+- Four of them concern sentences of BL-20261114-1253-e1-recoverability-gate-ci-verified. That entry is committed and is not edited, so this entry corrects those sentences.
+- The fifth issue is that docs/HANDOFF.md's §5 step 3 leaves out the r3 question; it is fixed there in this push.
+- The sixth is fixed in the pull request's description.
+- No count, verdict or status in the entry changes.
+
+Decisions:
+1. **Nine tests outside E1's describes, not ten.**
+   - Decision 1 of the entry says: "Ten more tests, outside E1's describe blocks, carry clauses 2 and 3." Its own lists hold nine: clause 2's extraction D14 case and clause 3's eight injected-row tests. Read "nine".
+   - The message of commit a622842 repeats "ten"; it stays as history.
+2. **The supporting rows are counted apart from the clause rows.**
+   - Three rows are counted on their own, even where one of their tests also meets a clause's test: E1-R, E1-L's host half, and arms S3, S5, S7 and E1-J2.
+   - For example, E1-R's eight zero-fee broker cases (tests/integration/private-agent-broker.test.ts:862-929) and its two flash-next cases each cut a zero-fee call through the real broker and store, then assert the rows exactly. That meets clause 1's test.
+   - E1-R's cancel-during-wait cases also meet clause 4's test.
+   - Counting such tests under the clauses as well would only add support. The 36, 36, 131 and 29 of decision 1 stay as counted, and no verdict changes.
+3. **The gate's release depends on decision 3's defaults.** The entry's Next gate says the owner's Docker run "releases the gate". It does so only while decision 3's defaults stand:
+   - if the owner answers "No" to E1-2, the gate also waits for 10.b's end-to-end proof of clause 3;
+   - if the owner widens E1-3's set, the gate also waits for those fixes.
+
+   Read: "Under the defaults in decision 3, that releases the gate."
+4. **Three wordings.**
+   - **The loop test's name.** The Evidence says the eight injected-row tests are "named in full", but decision 1 shortens the loop test's name. Its full name is "admits a sample whose assist row is %s (backlog item 10) and goes on to b, the critique and the repair, counting it apart", in its `unknown` case (tests/unit/phase4-loop.test.ts:209).
+   - **The 83bf38c listing.** The Evidence says the listing at 83bf38c "lists the same 102 tests in the same 12 files", and then that "The only difference is the two cases 7c later changed", which contradicts itself. Read: it lists 102 tests in the same 12 files; 100 are identical, and the other two are the cases 7c later rewrote.
+   - **Clause 1's criterion.** Clause 1's criterion says each test "fails or stops a zero-fee call". The writer's pause case does neither (tests/unit/private-agent-runner-budget.test.ts:1464): it pauses during the call, and the call settles. Read: "fails, stops or pauses during a zero-fee call".
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- docs/HANDOFF.md, "Start here" §5 step 3: the review's fifth issue. It now says that whether the hold also covers E0's r3 run (step 2) is an open owner question in that entry, and it states no default.
+- No file under src/ or tests/ changes.
+
+Evidence:
+- The review's citations, rechecked at 22f3534:
+  - the loop test's name at tests/unit/phase4-loop.test.ts:209;
+  - the writer's pause case at tests/unit/private-agent-runner-budget.test.ts:1464;
+  - the entry's sentences at the lines the review names.
+- At this push's head, `origin/main` is still 582f880:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0;
+  - `pnpm typecheck` and `pnpm validate:readiness` pass;
+  - `pnpm exec vitest run -t "E1 recoverability"` gives 12 files and 102 tests passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. Nothing new is verified by it, and the entry's status, counts and verdicts stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The owner's go-ahead for #97, which the coordinating session has requested, and CI green.
+- At integration, the re-stamp into the minute block the coordinating session assigns, with its Correction.
+
+References:
+- BL-20261114-1253-e1-recoverability-gate-ci-verified
+- BL-20261113-0848-correction-e1-train-1-reviews
+- The light review of #97 at 22f3534, which is review data and is not committed.

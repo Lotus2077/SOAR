@@ -38397,3 +38397,46 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
+
+### BL-20261114-1314-revoke-reopens-budget-stop-design -- 2026-11-14 -- Backlog item 6 follow-up decided: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text says so
+
+Status: `Proposed`
+
+Scope or hypothesis: The light review of #82 (plan 6.3) found a minor regression, left for later: a Revoke can no longer recover a task stopped by `consultation_budget_unavailable`. This entry decides the fix, plan ID 6.4, lane S-desk.
+- **The stop.** The runner stops with that reason, before any dispatch, when an approved consultation no longer fits the task's remaining allowance: fewer than two model calls, no tool call, or fewer than two broker requests left (src/main/private-agent/runner.ts).
+- **Why Resume cannot clear it.** src/main/general-tasks/run-reasons.ts classes the reason terminal. That is right for Resume: while the consultation stays approved, a later run stops the same way.
+- **Why a Revoke can.** A Revoke removes the cause. A revoked consultation resumes locally, with a fixed host reply and no dispatch (src/main/private-agent/consultation.ts).
+- **How 6.3 closed the cure.** Before 6.3, `decideConsultation` reset any record that was not running to `paused` / `consultation_ready`, so a Revoke re-opened such a task. 6.3's review fix (a) (BL-20261113-0818-runner-storage-integrity-implemented) limited the reset to a paused record or a resumable stored reason, so that a decision cannot re-open a terminal stop such as damaged storage. That also closed this one cure.
+
+Decisions:
+
+(1) **The reset.** A Revoke resets a record stopped by `consultation_budget_unavailable` to `paused` / `consultation_ready`, as a decision already does for a paused or resumably stopped record. Nothing else changes:
+- An approval cannot cure a budget shortfall, so it does not re-open the record.
+- `consultation_response_missing_no_replay` stays terminal, because an uncertain consultation is never replayed.
+- `task_integrity_failed` and every other terminal stop stay terminal: 6.3's guard stands.
+- The decision is still recorded either way.
+
+(2) **The stop's text.** The reason gets a fixed text in the controller, which today shows only the general terminal wording: "The approved consultation no longer fits the task's remaining allowance, so it was not sent and nothing is uncertain. Revoking it lets a resume continue locally within what remains; a resume alone would stop the same way."
+
+(3) **What else stays.** run-reasons.ts keeps the reason terminal, so the desktop offers no Resume until the owner revokes. A re-opened record is paused, so a version 3 record's clock runs live from then on, as for any paused record (6.1's decision 7).
+
+Changes: Planned in one pull request on `fix/6.4-revoke-reopens-budget-stop`, from `main` at 582f880:
+- src/main/general-tasks/controller.ts: the reset condition in `decideConsultation`, and the reason's fixed text;
+- tests/unit/general-task-consultation-controller.test.ts. A task's run stops with this reason after an approval, offering no Resume and showing the new text. A Revoke re-opens it with Resume offered, and the resumed run continues locally to submission with nothing dispatched. The 6.3 test for damaged storage still holds.
+
+Consequences:
+- controller.ts merge order: 7d.C (#99), then this. The two touch different functions.
+- The desktop's build identity changes, as with every desktop change.
+- Unchanged: `researchProtocolSha256`, the private-agent source freeze, run-reasons.ts and the runner.
+
+Evidence: None yet; this entry decides. Under the owner's lighter-review rule, the pull request gets one light review.
+
+Failures or blockers: None. One owner question, which does not gate the change. Should a Revoke re-open a task stopped because its approved consultation no longer fit the remaining allowance? Proposed default: yes, as before 6.3. The task then continues locally within what remains, and the alternative would leave the owner only a new task.
+
+Limitations and non-claims: `Proposed` only: nothing is implemented or verified by this entry. A re-opened task may soon stop on its own remaining allowance; the reset promises no particular outcome.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with its test and its `Implemented` entry. Then the checks, the light review, CI, and a merge under the owner's standing go-ahead, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

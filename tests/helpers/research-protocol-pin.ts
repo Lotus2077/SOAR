@@ -27,5 +27,7 @@
  * - 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92: backlog item 7(c), research v5 (BL-20261113-0927-research-v5-design;
  *   BL-20261113-0928-research-v5-implemented recorded 35a622eecf83... on #76's bd876d9), the same value on #76's 2fe1ec8 and on main
  *   after merge train 1: assist slots, host fallbacks, coverage v2, the presentation check, and encodable index fields and plans.
+ * - 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5: item 7b.2 (BL-20261114-1304-research-priority-trim-design): the priority trim with
+ *   disclosed omissions the ready gate accepts, coverage v3, the presentation guard, and the synthesis and writer instructions on trimmed evidence.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92";
+export const RESEARCH_PROTOCOL_SHA256 = "7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5";

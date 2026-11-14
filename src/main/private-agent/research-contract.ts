@@ -15,9 +15,15 @@ export const RESEARCH_PIPELINE_BUDGET: Readonly<ResearchBudget> = Object.freeze(
 export const RESEARCH_SLOT_POLICY = Object.freeze({ version: 1, plan: Object.freeze({ assist: 1 }), synthesis: Object.freeze({ assist: 1, assistRetryOnTruncation: 1 }),
   assistPosition: "first_under_forced_split_else_after_every_stage_attempt", stageAfterAssist: "fresh_without_repair_context" });
 export interface ResearchSourceIdentity { id: string; path: string; sha256: string; bytes: number }
-export const RESEARCH_COVERAGE_POLICY = Object.freeze({ version: 1, briefSegmentation: "exact_numbered_spans_or_whole", sourceOrder: "id_utf16_ascending", chunkBytes: 65536,
+/**
+ * Version 2 since item 7b.2 (BL-20261114-1304-research-priority-trim-design, finding D4): a packet the priority trim cut is ready
+ * when every quote and conflict note it left out is disclosed in coverage.json, counted in evidence.json and bound to its chunks and
+ * questions (research-coverage.ts); research-trim.ts says which ones it keeps.
+ */
+export const RESEARCH_COVERAGE_POLICY = Object.freeze({ version: 2, briefSegmentation: "exact_numbered_spans_or_whole", sourceOrder: "id_utf16_ascending", chunkBytes: 65536,
   overlapBytes: 2048, mandatoryBeforeRepair: true, indexRepairsPerBatch: 1, extractionRepairsPerChunk: 1, readyRequiresAllReadable: true,
-  readyRequiresAllChunks: true, readyRequiresNoVerifiedQuoteOmissions: true, readyRequiresNoConflictOmissions: true, packetBytes: 65536, maxQuestions: 12, semanticAcceptance: "independent_review_required" });
+  readyRequiresAllChunks: true, readyRequiresNoVerifiedQuoteOmissions: false, readyRequiresNoConflictOmissions: false,
+  omissionsReadyWhen: "disclosed_counted_unique_and_bound", packetBytes: 65536, maxQuestions: 12, semanticAcceptance: "independent_review_required" });
 export const RESEARCH_PRESENTATION_POLICY = Object.freeze({ version: 1, maxBytes: 196608, policy: "complete_untrusted_packet_once", encoding: "json_string_complete_utf8",
   files: [RESEARCH_FILES.argument, RESEARCH_FILES.evidenceText, RESEARCH_FILES.plan, RESEARCH_FILES.coverage], sourceInstructions: "data_only", oversize: "refuse_without_trimming" });
 /**

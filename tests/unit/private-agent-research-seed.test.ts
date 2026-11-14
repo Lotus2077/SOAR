@@ -19,7 +19,7 @@ import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../h
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const h = (n: string) => n.repeat(64), task = { jobSha256: h("1"), briefSha256: h("2") }, jobId = "job-a", contextId = "reader";
-const researchInput = () => createResearchInput(RESEARCH_V4_TEST_BRIEF, researchV4Sources());
+const researchInput = (sources: Parameters<typeof createResearchInput>[1] = researchV4Sources()) => createResearchInput(RESEARCH_V4_TEST_BRIEF, sources);
 const pipeline = () => ({ name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: { ...RESEARCH_PIPELINE_BUDGET }, planner: "local", writer: "local" });
 let produced: SessionFile[], receipts: Record<string, unknown>[];
 
@@ -45,16 +45,18 @@ type Options = { kind?: ResearchProducer["kind"]; freeze?: Record<string, unknow
   corrupt?: boolean; duplicateTransfer?: boolean; controlledSessionEvent?: boolean; files?: (files: SessionFile[]) => SessionFile[];
   producer?: (producer: ResearchProducer) => unknown; receipts?: (rows: Record<string, unknown>[]) => Record<string, unknown>[];
   /** 7c: another generated packet and its ledger in place of the shared happy run. */
-  base?: { files: SessionFile[]; receipts: Record<string, unknown>[] } };
+  base?: { files: SessionFile[]; receipts: Record<string, unknown>[] };
+  /** 7b.2: the corpus that packet was read from, in place of the two v4 sources. */
+  sources?: { id: string; path: string; bytes: Buffer }[] };
 function sourceRun(input: Options = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "soar-seed-v4-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   const kind = input.kind ?? "session";
   const freeze = Object.fromEntries(Object.entries({ version: 1, jobId, taskBinding: task, deployment: "synthetic_only_unverified_for_private_data",
-    pipeline: pipeline(), researchInput: researchInput(), researchProducerKind: kind, startedAt: new Date(1).toISOString(), ...input.freeze }).filter(([, value]) => value !== undefined));
+    pipeline: pipeline(), researchInput: researchInput(input.sources), researchProducerKind: kind, startedAt: new Date(1).toISOString(), ...input.freeze }).filter(([, value]) => value !== undefined));
   writeFileSync(join(dir, "freeze.json"), `${canonical(freeze)}\n`);
   const baseFiles = input.base?.files ?? produced, baseReceipts = input.base?.receipts ?? receipts;
   const copies = baseFiles.map(file => ({ ...file, bytes: Buffer.from(file.bytes) })), files = input.files?.(copies) ?? copies;
-  const originalProducer = createResearchProducer({ kind, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: baseFiles, receipts: baseReceipts });
+  const originalProducer = createResearchProducer({ kind, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: input.sources ?? researchV4Sources(), files: baseFiles, receipts: baseReceipts });
   const producer = input.producer?.(originalProducer) ?? originalProducer;
   const db = new Database(join(dir, "state.sqlite")), store = new PrivateAgentStore(db);
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["fixture"], maxRequests: 80, maxFeeMicrousd: 0 });
@@ -65,7 +67,7 @@ function sourceRun(input: Options = {}): string {
   const binding = { snapshot, snapshotSha256: checkpoints.fingerprint(snapshot), files: sessionFileManifest(files), summary };
   if (kind === "session" || input.controlledSessionEvent) {
     store.append(jobId, { type: "session_started", identity: h("3"), startedAt: 1, privateContextId: "p", publicContextId: "q", readerContextId: contextId });
-    const appendInput = () => store.append(jobId, { type: "research_input", contextId, recordedAt: input.inputTime ?? 1, input: researchInput() });
+    const appendInput = () => store.append(jobId, { type: "research_input", contextId, recordedAt: input.inputTime ?? 1, input: researchInput(input.sources) });
     if (input.inputEvent !== false && !input.inputAfterStage) appendInput();
     for (const counts of summary.stages) store.append(jobId, { type: "research_stage", contextId, ...counts });
     if (input.inputAfterStage) appendInput();
@@ -324,6 +326,30 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const forcedProducer = createResearchProducer({ ...localInput, files: forced.files, receipts: forced.receipts });
     expect(forcedProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", "unknown"], ["synthesise", "failed"]]);
     expect(loadResearchSeed(sourceRun({ base: forced, producer: () => forcedProducer }), task).seed.producer.receipts).toEqual(forcedProducer.receipts);
+  });
+  it("7b.2: seeds a packet the priority trim cut, its omissions disclosed and bound (BL-20261114-1304-research-priority-trim-design)", async () => {
+    // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.
+    const sources = Array.from({ length: 20 }, (_, i) => ({ id: `input/trim-${String(i).padStart(2, "0")}.md`, path: `input/trim-${String(i).padStart(2, "0")}.md`,
+      bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+    const rows: Record<string, unknown>[] = [];
+    const request = async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
+      const extract = system.startsWith("You extract") ? JSON.parse(user.split("\n")[1]!) as { chunk: { text: string } } : undefined;
+      const content = extract ? JSON.stringify({ questions: [{ questionId: "Q1", status: "evidence_found" }], conflicts: [],
+        quotes: extract.chunk.text.split("\n").map(quote => ({ quote, questionIds: ["Q1"], note: "n".repeat(200) })) }) : researchV4Reply(system, user);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      rows.push({ id: `receipt-${rows.length}`, jobId, contextId, contextSha256: h("3"), packetSha256: digest(input.body), destinationId: "fixture", destinationSha256: h("4"), purpose: input.purpose,
+        policyRevision: 0, committedAt: rows.length + 1, reservedFeeMicrousd: 0, status: "settled", feeMicrousd: settle(bytes), responseSha256: digest(bytes), scan: { status: "not_required_for_synthetic_local_test" } });
+      return { bytes, receipt: rows.at(-1) };
+    };
+    const config = { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium" as const, inputUsdPerMillion: 0, outputUsdPerMillion: 0 };
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, jobId, contextId);
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources, models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal, record() {} });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const dir = sourceRun({ base: { files: outcome.files, receipts: rows }, sources });
+    expect(researchTransferStatus(dir).code).toBeNull();
+    const seed = loadResearchSeed(dir, task), coverage = JSON.parse(seed.files.find(file => file.path === RESEARCH_FILES.coverage)!.bytes.toString());
+    expect(coverage.omissions.length).toBeGreaterThan(0); expect(coverage.omissions.length + JSON.parse(seed.files.find(file => file.path === RESEARCH_FILES.evidence)!.bytes.toString()).quotes.length).toBe(240);
   });
   it("uses the same production transfer path for a loaded seed and a freshly generated packet", () => {
     const base: SessionPhase = { files: researchV4Sources().map(({ path, bytes }) => ({ path, bytes })), checks: [{ id: "c", python: "pass" }],

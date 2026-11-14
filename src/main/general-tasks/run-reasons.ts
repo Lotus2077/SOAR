@@ -70,11 +70,14 @@ export function storedRunReason(reason: unknown): string {
   return typeof reason === "string" && RUN_REASON_SHAPE.test(reason) && classifiedRunReason(reason) !== "not_a_stop" && !PROJECTION_ONLY_REASONS.has(reason) ? reason : "incomplete";
 }
 /**
- * Integrity failures: the controller's own checks (the stored inputs, the storage directories or the task's context no longer match) and
- * the checkpoint store's refusals of a stored file (src/main/private-agent/checkpoints.ts). A failed checkpoint write is not one.
+ * Integrity failures: the controller's own checks (the stored inputs, the storage directories or the task's context no longer match), the
+ * checkpoint store's refusals of a stored file (src/main/private-agent/checkpoints.ts), and the retained public sources no longer matching
+ * their settled receipts or context (src/main/private-agent/public-sources.ts; deterministic, since a settled receipt is final). A failed
+ * checkpoint write is not one, and neither are the observation and progress checks' codes, which also wrap environmental errors (6.3).
  */
 export const TASK_INTEGRITY_ERRORS: ReadonlySet<string> = new Set(["general_task_input_changed", "general_task_storage_changed", "general_task_context_changed",
-  "checkpoint_digest_mismatch", "checkpoint_file_invalid", "checkpoint_path_invalid", "checkpoint_size_exceeded", "checkpoint_directory_invalid"]);
+  "checkpoint_digest_mismatch", "checkpoint_file_invalid", "checkpoint_path_invalid", "checkpoint_size_exceeded", "checkpoint_directory_invalid",
+  "public_source_identity_invalid", "public_source_duplicate", "public_source_context_invalid"]);
 /** The runner's refusals of its own contract when it is built; each is recorded as itself. */
 export const RUNNER_CONTRACT_ERRORS: ReadonlySet<string> = new Set(["general_job_contract_invalid", "general_initial_evidence_missing",
   "general_initial_evidence_context_invalid", "general_session_deadline_invalid", "general_public_fetch_limit_invalid"]);

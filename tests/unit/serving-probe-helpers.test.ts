@@ -1,12 +1,16 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { digest } from "../../src/main/private-agent/contracts";
+import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { RESEARCH_SYNTHESIS_LENGTH_POLICY } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_EXTRACTION_LAYOUT, researchExtractionUserContent } from "../../src/main/private-agent/research-pipeline";
 import { currentSyntheticProbe, runCardWriter } from "../helpers/serving-card-fixture";
+import { P10_ROLES, P10_THINKING_MODES, buildRoleSchemaExport } from "../../scripts/export-role-schemas";
+import { assessProbeFile } from "../../scripts/assess-probe-replies";
 
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-probe.py");
 const root = mkdtempSync(join(tmpdir(), "soar-probe-helpers-"));
@@ -196,4 +200,110 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
     expect(schemas.status).toBe(2); expect(schemas.stderr).toContain("P10 needs the role schemas");
     expect(probe(["--p11-ks", "0"], { SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1" }).status).toBe(2);
   });
+});
+
+describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-align-design)", () => {
+  const exported = (streamingEnabled: boolean) => buildRoleSchemaExport("2026-11-13T00:00:00.000Z", { vllm: { model: "Synthetic" }, streamingEnabled });
+  /** python3 -I without blocking the event loop, so a loopback server in this process can answer the probe. */
+  function python(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    return new Promise((done, fail) => {
+      const child = spawn("python3", ["-I", ...args], { env: { PATH: process.env.PATH ?? "" } });
+      let stdout = "", stderr = ""; child.stdout.on("data", chunk => { stdout += chunk; }); child.stderr.on("data", chunk => { stderr += chunk; });
+      child.on("error", fail); child.on("close", code => done({ code, stdout, stderr })); child.stdin.end();
+    });
+  }
+
+  it("takes each body from the export, adds only response_format, and reassembles a streamed reply into a plain one", () => {
+    const data = JSON.parse(JSON.stringify(exported(true)));
+    const [bodies] = values([{ fn: "p10_bodies", args: [data, "Synthetic"] }]);
+    for (const role of P10_ROLES) for (const mode of P10_THINKING_MODES) expect(bodies[role][mode]).toEqual(data.requests[role][mode].body);
+    // Refused before any request: an older export, no bodies, another model, a missing cell, and a body that already sets response_format.
+    const planOn = data.requests.plan.on;
+    const refused = run([{ fn: "p10_bodies", args: [{ ...data, version: 1 }, "Synthetic"] }, { fn: "p10_bodies", args: [{ ...data, requests: null }, null] },
+      { fn: "p10_bodies", args: [data, "Another"] }, { fn: "p10_bodies", args: [{ ...data, requests: { ...data.requests, extract: { on: data.requests.extract.on } } }, null] },
+      { fn: "p10_bodies", args: [{ ...data, requests: { ...data.requests, plan: { ...data.requests.plan, on: { ...planOn, body: { ...planOn.body, response_format: {} } } } } }, null] }]);
+    expect(refused.map(r => [r.ok, r.error])).toEqual(Array(5).fill([false, "ConfigError"]));
+    expect(refused[0]!.message).toContain("role export version 2"); expect(refused[2]!.message).toContain("another model"); expect(refused[3]!.message).toContain("extract/off");
+    const [body] = values([{ fn: "p10_request_body", args: [planOn.body, "plan", { type: "object" }, true] }]);
+    const { response_format: format, ...rest } = body;
+    expect(rest).toEqual(planOn.body); expect(format).toEqual({ type: "json_schema", json_schema: { name: "research_plan", strict: true, schema: { type: "object" } } });
+    const chunk = (delta: object, extra: object = {}) => `data: ${JSON.stringify({ model: "Synthetic", choices: [{ index: 0, delta, ...extra }] })}`;
+    const lines = [": keep-alive", chunk({ role: "assistant" }), chunk({ reasoning_content: "thinking " }), chunk({ reasoning_content: "more" }), chunk({ content: "{\"version\":" }),
+      chunk({ content: "2}" }, { finish_reason: "stop" }), `data: ${JSON.stringify({ model: "Synthetic", choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } })}`, "data: [DONE]", chunk({ content: "after DONE" })];
+    const [[reply, chunks]] = values([{ fn: "reassemble_stream", args: [lines] }]);
+    expect(chunks).toBe(6);
+    expect(reply).toEqual({ object: "chat.completion", model: "Synthetic", usage: { prompt_tokens: 11, completion_tokens: 7 },
+      choices: [{ index: 0, message: { role: "assistant", content: "{\"version\":2}", reasoning_content: "thinking more" }, finish_reason: "stop" }] });
+    expect(run([{ fn: "reassemble_stream", args: [["data: {not json"]] }])[0]).toMatchObject({ ok: false, error: "JSONDecodeError" });
+  });
+
+  it("refuses at start-up, before any request, an export without bodies or with another model than the configured one", () => {
+    const dir = mkdtempSync(join(root, "p10-refuse-")), old = join(dir, "old.json"), current = join(dir, "current.json");
+    const data = exported(true); writeFileSync(old, JSON.stringify({ ...data, version: 1, requests: undefined })); writeFileSync(current, JSON.stringify(data));
+    const stale = probe(["--only", "P10", "--schemas", old], { SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1" });
+    expect(stale.status).toBe(2); expect(stale.stderr).toContain("role export version 2");
+    const other = probe(["--only", "P10", "--schemas", current], { SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1", SOAR_VLLM_MODEL: "Another" });
+    expect(other.status).toBe(2); expect(other.stderr).toContain("another model");
+  });
+
+  it("sends each cell the exported body plus response_format on a loopback server, streamed or not, and retains replies the assessor reads", async () => {
+    for (const streamingEnabled of [true, false]) {
+      const data = exported(streamingEnabled), dir = mkdtempSync(join(root, "p10-run-")), schemasPath = join(dir, "role-schemas.json");
+      writeFileSync(schemasPath, JSON.stringify(data));
+      const received: Record<string, unknown>[] = [], content = "{\"version\":2}";
+      const server = http.createServer((request, response) => {
+        let raw = ""; request.on("data", piece => { raw += piece; }); request.on("end", () => {
+          if (request.method === "GET") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "Synthetic", max_model_len: 262144 }] })); return; }
+          const body = JSON.parse(raw) as Record<string, unknown>; received.push(body);
+          if (body.stream === true) {
+            response.setHeader("content-type", "text/event-stream");
+            for (const piece of [{ choices: [{ index: 0, delta: { content: content.slice(0, 5) } }] }, { choices: [{ index: 0, delta: { content: content.slice(5) }, finish_reason: "stop" }] },
+              { choices: [], usage: { prompt_tokens: 9, completion_tokens: 4 } }]) response.write(`data: ${JSON.stringify({ model: "Synthetic", ...piece })}\n\n`);
+            response.end("data: [DONE]\n\n");
+          } else {
+            response.setHeader("content-type", "application/json");
+            response.end(JSON.stringify({ model: "Synthetic", choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }], usage: { prompt_tokens: 9, completion_tokens: 4 } }));
+          }
+        });
+      });
+      await new Promise<void>(ready => server.listen(0, "127.0.0.1", ready));
+      try {
+        const port = (server.address() as AddressInfo).port;
+        const driver = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('serving_probe', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+          "ep = m.Endpoint({'base': f'http://127.0.0.1:{sys.argv[2]}/v1', 'model': 'Synthetic', 'key': None})",
+          "ctx = {'args': m.parse_args(['--p10-calls', '2']), 'schemas': json.load(open(sys.argv[3])), 'run_dir': sys.argv[4]}",
+          "print(json.dumps(m.probe_p10(ep, {}, ctx)))"].join("\n");
+        const result = await python(["-c", driver, SCRIPT, String(port), schemasPath, dir]);
+        expect(result.code).toBe(0);
+        const p10 = JSON.parse(result.stdout);
+        // Per role: the two 16-token acceptance requests, then two calls per mode; every cell call is the exported body with the strict format only.
+        expect(received).toHaveLength(18);
+        let index = 0;
+        for (const role of P10_ROLES) {
+          expect(received.slice(index, index + 2).map(body => body.max_tokens)).toEqual([16, 16]); index += 2;
+          for (const mode of P10_THINKING_MODES) for (let call = 0; call < 2; call++) {
+            const { response_format: format, ...rest } = received[index++]!;
+            expect(canonical(rest)).toBe(canonical(data.requests[role][mode].body));
+            expect((format as { json_schema: { strict?: boolean } }).json_schema.strict).toBe(true);
+          }
+          for (const mode of P10_THINKING_MODES) {
+            const cell = p10.cells[`${role}/${mode}`];
+            expect(cell).toMatchObject({ streamed: streamingEnabled, request_body_sha256: data.requests[role][mode].bodySha256, max_tokens: data.requests[role][mode].body.max_tokens, strict: true });
+            expect(cell.calls.map((call: { classification: string; status: number }) => [call.status, call.classification])).toEqual([[200, "unassessed"], [200, "unassessed"]]);
+            if (streamingEnabled) expect(cell.calls.every((call: { stream_chunks?: number }) => call.stream_chunks === 3)).toBe(true);
+            else expect(cell.calls.some((call: object) => "stream_chunks" in call)).toBe(false);
+          }
+        }
+        expect(p10).toMatchObject({ export_version: 2, request_settings: data.requestSettings });
+        // The retained replies are plain chat completions with the joined content, which the assessor reads with no change.
+        const first = JSON.parse(readFileSync(join(dir, "p10", p10.cells["plan/on"].calls[0].reply_file), "utf8"));
+        expect(first.choices[0]).toMatchObject({ message: { content }, finish_reason: "stop" });
+        writeFileSync(join(dir, "probe.json"), JSON.stringify({ probe_version: 2, P10: p10 }));
+        const summary = assessProbeFile(join(dir, "probe.json"));
+        for (const role of P10_ROLES) for (const mode of P10_THINKING_MODES) expect(summary.cells[`${role}/${mode}`]).toMatchObject({ total: 2, unassessed: 0, request_rejected: 0 });
+      } finally {
+        await new Promise<void>(closed => { server.closeAllConnections(); server.close(() => closed()); });
+      }
+    }
+  }, 60_000);
 });

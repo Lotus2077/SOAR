@@ -38711,3 +38711,79 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The review of this pull request, which checks the re-stamp and this correction.
 
 References: BL-20261114-1343-registry-columns-design; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1405-registry-columns-implemented -- 2026-11-14 -- Plan 11.4 implemented: receipts record their destination kind, body and disclosed bytes, and registry rows carry reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-1343-registry-columns-design (plan 11.4; backlog item 11; issue #63) as decided there:
+- the receipt disclosure fields, written at the broker's commit and checked in the store;
+- the registry columns on `--run-dir` and `--loop-dir` rows;
+- `--launcher-ledger`;
+- the README rows.
+
+Implemented is not Verified: no run under this code exists yet. Nothing here ran a model, an endpoint, Docker or a paid call.
+
+Decisions: The design's decisions (1) to (5) and HARN-27's defaults are as recorded there. These implementation choices go beyond the design:
+- **(a) One disclosure function.** The rule is one exported function, `dispatchDisclosure` in broker.ts. The commit uses it, and the tests call it directly, because every broker test destination is a loopback fixture whose disclosure is 0 by rule.
+- **(b) Refusing a malformed field.** The store refuses one with `private_agent_receipt_invalid`, inside the commit's transaction, so nothing is written.
+- **(c) Host tokens.**
+  - A cloud call's purpose is recorded only when it is a fixed host token: lowercase letters, digits, spaces, `_` or `-`, up to 64 characters. Its status is recorded only when it is a known status. Anything else reads `other`.
+  - A tool name likewise. A finished call whose start was not recorded counts as `other`.
+- **(d) What counts as a number.** A number read from a row counts only when it is finite and non-negative. `disclosedBytes` and `bodyBytes` count only when they are non-negative integers. A malformed disclosure makes the row's `disclosedBytes` null rather than wrong.
+- **(e) Loop rows.** A loop row's parts include the critique directory's ledger when it has one. `researchFallback` comes from the run `stage_run` names.
+- **(f) `--launcher-ledger`'s refusals.** It refuses a ledger that is a symbolic link, unreadable or not JSON. It refuses a ledger without exactly one `run_exited` record for the run's job id. It also refuses the flag without `--run-dir`.
+- **(g) The docstring.** The registry's module docstring names the new columns and the flag.
+
+Changes:
+- src/main/private-agent/store.ts: the `DispatchReceipt` fields, `DISPATCH_DESTINATION_KINDS`, and the commit's check.
+- src/main/private-agent/broker.ts: `dispatchDisclosure`, and its use at the commit.
+- scripts/registry-row.py: `depth_parts`, `depth_columns` and `launcher_signalled`; the row and loop wiring; the flag; the docstring.
+- docs/experiments/README.md: seven table rows, and a launcher paragraph. The assist sentence and 7(c)'s fallback paragraph now name the columns.
+- tests/integration/private-agent-broker.test.ts: 3 tests.
+- tests/unit/registry-row-columns.test.ts: new, 4 tests.
+
+`localScreenSourceFreeze()` rotates, because store.ts and broker.ts are in it. `researchProtocolSha256()` does not move: it covers prompts, schemas and policies, and the full suite's protocol pin holds.
+
+Evidence:
+- **The column tests.** tests/unit/registry-row-columns.test.ts passes 4 of 4, under the machine's Python 3.9.5 and again under 3.9.6. On run directories as the driver leaves them, they show:
+  - every column on a run's row: a retried packet disclosed once; the pinned and committed rows; loopback and `www.` hosts; tools joined by operation; 7(c)'s plan marker;
+  - that no URL, hostname or port reaches the row;
+  - rows written before 11.4: a cloud call by its destination, a null disclosure, no reading stage;
+  - a loop row summed over its runs, a moved run included, with URLs over the union and the fallback from the reading stage's run;
+  - the launcher ledger's signal, and its five refusals.
+- **The broker tests.** The broker integration file and the golden identity test pass 103 of 103, including 3 new tests. They cover the disclosure rule on https and loopback URLs, the fields on committed and settled rows, hashes equal to the preview's, and the store's refusals.
+- **The existing tests.** The registry, classification and loop-resume tests pass 253 of 253.
+- **Mutants.** 10 single-edit mutants were each restored with `git checkout` from the committed implementation before the next, and each fails at least one test:
+  - disclosure counted per row;
+  - settled rows pinned;
+  - loopback hosts counted;
+  - `www.` kept;
+  - the launcher's signal ignored;
+  - no fallback on loops;
+  - pre-11.4 rows disclosed;
+  - the broker ignoring loopback;
+  - a GET disclosing its body;
+  - the store not checking counts.
+- **Checks.** At 9ab3bb7, after `main` (19d7826, with 7d.C) was merged in, on Node 22.22.2 and pnpm 10.12.4: `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm exec vitest run`, run alone, ran 198 files and 3,686 tests: 3,597 passed, 86 were skipped, and 3 timed out under the suite's load. Those were two in tests/unit/private-agent-sandbox-capture.test.ts and one in tests/unit/private-agent-host-flags.test.ts; both files pass alone (52 passed, 1 skipped). The registry, host-flags, classification, loop and broker tests pass 368 of 368 on the merged tree. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit.
+
+Failures or blockers:
+- The column test's first run expected a `reservedUsd` of 0.58, an arithmetic slip in the test. The script was right (0.42), and the test was corrected.
+- Under full-suite load, tests/unit/document-review-flags.test.ts timed out once on a `python3` spawn. It passes alone, 154 of 154.
+
+Limitations and non-claims:
+- Implemented, not Verified. No real cloud call, public fetch or run happened under this code. A real cloud request's disclosure is tested only through `dispatchDisclosure`.
+- Rows written before the merge carry no receipt fields: their `disclosedBytes` is null, and so is each cloud call's `bodyBytes`. `domains` is approximate.
+- The source freeze rotates: recompute `--runtime-sha256`, and let no loop or E-run span the merge.
+- This merges after 7d.C on registry-row.py and after 8.1 on store.ts and broker.ts. `main` is merged in as each lands, and that may change this code at their conflict points.
+- The served-model pieces wait for #86.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on this pull request.
+- `main` merged in after 7d.C and after 8.1, with the checks run again.
+- The coordinator's light review.
+- The merge under the standing go-ahead, with this branch's entries re-stamped after `main`'s tail.
+
+References: BL-20261114-1343-registry-columns-design; BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261114-1250 (pull request #98); HARN-27.

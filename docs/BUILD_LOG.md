@@ -39780,3 +39780,155 @@ Next gate:
 - A draft until item 9 merges; then CI, and a merge in the order of decision 7.
 
 References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented.
+
+### BL-20261114-1729-local-fanout-implemented -- 2026-11-14 -- Backlog item 8, part 2b (8.2b) implemented: the index and extraction loops and the claims judge run K zero-risk local calls at a time on the ordered pool, applied in item order, with K from the serving card's localStreams, now consumed
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261114-1645-local-fanout-design, decisions 1 to 6, on branch `feat/8.2b-local-fanout` from `main` at bc6c61b. The code is in aa4c08d and d1d960d, and the tests in d1d960d and e051596. The hypothesis is 1645's:
+- with K = 1 every loop is today's, byte for byte;
+- with K > 1 a stage's counts, files, packet bytes and diagnostics entries equal K = 1's for the same replies, whatever order the replies arrive in;
+- the exception is a stage that a denial ends.
+
+Decisions:
+1. **As designed.** 1645's decisions 1 to 6 are implemented as written:
+   - research-pipeline.ts runs the index pass, the index repairs, the extraction pass and the extraction repairs through one helper, `fanOut`, on `runOrderedPool`.
+     - Each call is split into a launch (`indexLaunch`, `extractLaunch`) and an apply (`indexApply`, `extractApply`).
+     - `call()` takes the launch's own signal for its early check, its request and its catch label.
+     - Each repair list is cut to the slots left before its pool starts.
+   - `fanOut` holds the denial rule:
+     - a sibling stop is a `cancelled` reply applied with `afterAbort`, and nothing else is;
+     - the stage's denial is the lowest-index denial that is not a sibling stop;
+     - every settled reply is applied in order;
+     - a pool stopped with the stage's signal aborted and no denial applied ends `cancelled`.
+   - claims.ts's `judgeClaims` takes a `limit`:
+     - a failed call stops the pool, which does not abort it;
+     - the pause and deadline checks run in `beforeLaunch`;
+     - a claim without context is answered in `launch` without a call;
+     - a failed call is labelled in `launch`;
+     - the claims never launched are labelled after the pool.
+   - `PrivateAgentModel.zeroRisk()` is factored out of `deadlineRefuses`, which keeps its result.
+   - The session's `research.localStreams` reaches the pipeline and the judge's `limit`, each only for a zero-risk model.
+   - `SERVING_CARD_CONSUMED.localStreams` is true, and `servingCardFreeze()` records `localStreams`.
+2. **One rule for a K out of range.**
+   - `orderedPoolLimit` (ordered-pool.ts) gives 1 for an absent, non-integer or out-of-range K, in the pipeline and the judge alike.
+   - Without it, the pipeline would have thrown `ordered_pool_limit_invalid` at its first loop, while the judge fell back to 1.
+   - The card reader already refuses such a K, so only a direct caller can pass one.
+3. **The driver's K.** `localScreenResearchStreams(servingCard)` in scripts/private-agent-local-screen.ts is the one place the driver turns the card into the session's K: the card's `policy.localStreams`, and nothing without a card. A unit test can therefore check it.
+4. **What K > 1 shows in the judge.**
+   - A cancel or pause that lands with several calls in flight labels each of them with its stop, and the claims never launched `pass_stopped`. At K = 1 one call is in flight, as before.
+   - A claim without context keeps its window slot until it is applied in turn, as the pool's rule of at most K launched and not yet applied requires.
+
+Changes:
+- src/main/private-agent/research-pipeline.ts: `fanOut`, the launch and apply split of the index and extraction loops, `call()`'s signal, the repair cut, and `ResearchPipelineInput.localStreams`.
+- src/main/private-agent/claims.ts: `judgeClaims` on the ordered pool, with `limit`.
+- src/main/private-agent/model.ts: `zeroRisk()`.
+- src/main/private-agent/session.ts: `research.localStreams`, passed to the pipeline and the judge.
+- src/main/private-agent/ordered-pool.ts: `orderedPoolLimit`, and the listener comment reworded (BL-20261110-0619).
+- src/main/private-agent/serving-card-flags.ts: `localStreams: true`.
+- src/main/private-agent/serving-card.ts: `ServingCardFreeze.localStreams`.
+- scripts/private-agent-local-screen.ts: `localScreenResearchStreams`, used in the research options.
+- Tests:
+  - tests/unit/ordered-pool.test.ts;
+  - tests/unit/private-agent-research-pipeline.test.ts;
+  - tests/unit/private-agent-claims.test.ts;
+  - tests/unit/private-agent-research-session.test.ts, whose loopback fixture gains an opt-in reply delay and a count of the calls in flight;
+  - tests/unit/serving-card-reader.test.ts;
+  - tests/unit/private-agent-local-role-config.test.ts.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The ordered pool** (#71's review, BL-20261110-0619): 12 tests, 2 of them new.
+  - Listener counts are taken with `events.getEventListeners` at K = 8 over 16 items. The stage's signal holds none throughout. Each launch has its own signal, and each holds only the 3 listeners its call adds. This replaces the MaxListeners test, which could not fail on Node 22.22.2.
+  - Nothing is applied after a callback throws: nothing after an apply or interrupt throw at item 0, and only item 0 after a `beforeLaunch` throw at item 3.
+  - `ORDERED_POOL_MAX_LIMIT` equals `MAX_LOCAL_STREAMS`, and `orderedPoolLimit` maps an absent, 0, 9, 1.5, NaN or -1 K to 1.
+  - Review F3's case: item 0 fails for its own reason, but its reaction comes after item 2's denial aborted it, so it is applied with `afterAbort`. It is still genuine under the sibling-stop rule.
+- **The pipeline at K > 1:** 8 tests. The fixture reader's broker dispatches at zero risk, holds each call, and honours its signal. The fixture has seven sources: three index batches and seven extraction chunks.
+  - **Equivalence.** The fixture has an index repair, two invalid extraction replies, a truncated one, and a held chunk that invents its only quote. With replies settling in reverse within each window of four, K = 4 and K = 1 give byte-identical:
+    - files and summary;
+    - recorded stage rows and retained diagnostics;
+    - request bodies, in launch order.
+
+    The calls in flight peak at 3 for the index and 4 for extraction at K = 4, and at 1 at K = 1. Plan and synthesis stay at 1.
+  - **The repair cut.** With 4 index calls and 10 extraction calls, and every first reply failing, both K = 4 and K = 1 run 1 index repair and 3 extraction repairs, with byte-identical output.
+  - **A denial (ASSIST-1).** Chunk 3 settles, then chunk 2 is denied `budget_denied` while chunks 0 and 1 are in flight.
+    - The two siblings' signals are aborted, nothing more launches, and chunk 3's reply is applied.
+    - The row records 1 call and `budget_denied`. The serial loop records 2 calls and never launches chunk 3, the difference that 1645 decision 2 records.
+  - **The lowest-index genuine denial.** Chunks 0 and 2 fail, 2 first. The stage's denial is chunk 0's `request_failed` in both orderings:
+    - in one synchronous block, where neither is marked;
+    - with chunk 0 one microtask later, where chunk 0 reads its signal before chunk 2's abort and is applied with `afterAbort`. This is review F3's case: only the sibling-stop rule keeps it genuine.
+  - **A cancel.** A cancel with four calls in flight ends `research_cancelled`, with 0 calls and no launch after it. A cancel inside chunk 0's apply ends `research_cancelled` with 1 call at K = 1, when nothing is in flight, and at K = 4.
+  - **Where K is 1.** A reader that is not zero-risk, no K, and a K of 0, 9 or 2.5 each run one call at a time. K = 8 leaves the summary, including the protocol hash, and the files unchanged.
+  - **`zeroRisk()`.** It is true only when every rate is zero, the long tier's included, and the broker dispatches the call at zero risk with a fee of 0.
+- **The judge at K > 1:** 8 tests.
+  - Verdicts stay in claim order when calls finish in reverse, with at most K in flight.
+  - **A failure.** At K = 4, claim 3 fails while 1, 2 and 4 are in flight.
+    - Nothing more launches, even when claim 1's verdict frees a slot before claim 3 is applied.
+    - Claim 4 is not aborted, and its verdict is kept.
+    - Claims 5 to 7 are `pass_stopped`.
+  - **A pause** stops at a free slot: the claims in flight keep their verdicts, and the first claim left is `paused`.
+  - **A deadline.** The claim a deadline stopped at keeps the deadline's label, though a pause arrives while the calls in flight finish.
+  - **A cancel.** One with two calls in flight labels both `deadline_or_cancelled`. A cancel or pause between claims at K = 1 labels the next claim as the serial pass did.
+  - **Claims without context** are answered without a call or a pause check.
+  - **An out-of-range K** runs one call at a time.
+- **The session** (tests/unit/private-agent-research-session.test.ts): 20 new tests.
+  - **K and the identity.** The fixture has four corpus sources and four verified claims, on the zero-fee local destination.
+    - With K = 3 the calls in flight peak at 2 for the index, 3 for extraction and 3 for the judge. Without K they peak at 1. With K = 3 and every model reported not zero-risk, they also peak at 1.
+    - The session identity is the same, and a resume with another K is no contract drift.
+    - The stage events, the receipts (purpose, status and response hash), and the entailment verdicts are equal with and without K.
+  - **E1-T3's stop cases (#75), rerun at K = 2,** as #71's review asks.
+    - The 16 single-call cases (four stages by four stops) pass unchanged.
+    - With both extraction calls in flight, a cancel, an external abort and a pause each leave:
+      - both rows `failed` with code `cancelled`, and none `unknown` or `committed`;
+      - a stage row with 0 calls and `denied: cancelled`;
+      - a resume that sends nothing again.
+- **The card:**
+  - Under the real flags, a card with K = 4 and its proven P11 burst loads, and its policy and freeze fragment carry K = 4. This is the positive case for the R2 row that 8.2b removed.
+  - Through the pair, the driver's `localScreenResearchStreams` gives `{ localStreams: 4 }` from a K = 4 card, and nothing without a card.
+- **Mutation check:** 26 single-change mutants of the new logic, each run against its test file. The source files were restored and checked by hash.
+  - The mutants: 15 in the pipeline, 6 in the judge, 2 in the session, and 1 each in model.ts, ordered-pool.ts and the driver.
+  - 22 were caught on the first run. Two of the four survivors showed gaps in the tests (Failures), and both are now caught: 24 of 26.
+  - The 2 left are equivalent:
+    - the interrupt also aborting on a `cancelled` reply;
+    - `call()`'s early check reading the stage's signal.
+
+    A `cancelled` reply, from `call()` or from the broker's only `cancelled` code (its external abort), arises only after that call's signal has aborted, by the stage or by the pool. The pool launches nothing once either has aborted.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref bc6c61b`: exit 0, append-only. bc6c61b is this branch's base.
+    - `main` has since moved to 6c5e931, which adds BL-20261114-1656-registry-row-git-racy-checkout. This branch does not hold that entry, so against `main` the validator exits 1, reporting the log as not append-only, until `main` is merged in.
+    - That entry also sorts after this branch's design entry, so the merge re-stamps this branch's entries after it.
+    - As the orchestrator set for #105, `main` is merged in and the entries re-stamped only when this PR's merge is scheduled.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - `pnpm exec vitest run` at e051596: 186 files passed and 13 skipped; 3,676 tests passed, 86 skipped and 0 failed.
+
+Failures or blockers:
+- Three test expectations were wrong at first, and each was corrected to the code's documented behaviour:
+  - A pool test expected `stopped: true` after a denial with every item launched. `stopped` means that some items were never launched.
+  - A `zeroRisk()` case built an invalid model config: a cache-write rate above four times a zero input rate. It was replaced by reachable cases. The cache-write terms in `zeroRisk()` cannot be reached under a valid config, and stay as a guard.
+  - A judge test assumed that a claim without context frees its slot at once. It holds its slot until it is applied in turn.
+- The first version of the judge's failure test could not detect an interrupt that failed to stop the pool: the failing claim was applied right after claim 1. It was reworked so that a slot frees while the failed claim is still unapplied.
+- The mutation check found two gaps:
+  - The F3 pipeline test first released both failures in one synchronous block. There the pool reads both labels before the abort, so it could not tell `afterAbort` alone from the sibling-stop rule. It now also releases chunk 0 one microtask later.
+  - Recording the judge's `beforeLaunch` stop was untested, because the post-pool loop recomputes the same label unless the stop changes. A test now has a pause arrive after a deadline stop.
+
+Limitations and non-claims:
+- **The fixtures.** Every test uses loopback or stub replies. As 1505 recorded:
+  - byte-identical output is shown on fixture replies only;
+  - a live server may answer differently under concurrent load, and concurrent calls can miss the shared prefix cache;
+  - a K beyond the server's capacity turns queue time into request timeouts.
+- **ASSIST-S4.** K > 1 stays `Implemented`, never `Verified`, until the owner's zero-fee run with an E0 card that sets K > 1. No live, Docker, cloud or paid call ran.
+- **A denied stage's counts** differ from the serial loop's (1645 decision 2), as a test pins.
+- **The run class at K > 1** stays infrastructure (1645 decision 5). No test reproduces the race itself: a D4 retry losing the last request to a sibling.
+- **Wiring the tests do not reach.** The driver passes `localScreenResearchStreams(servingCard)` into the session's research options in one line, which no unit test reaches: no unit test runs the driver end to end. The desktop passes no K, and stays at K = 1 until item 13.
+- **The source-freeze digest.** Every merge of this PR changes the harness source-freeze digest, because its files are under src/main/private-agent. No owner loop or E-run may span it.
+- **The validation base.** This push is validated against the branch's base, bc6c61b, not against `main` (Evidence).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- One light review.
+- A draft until item 9 merges, since serving-card-flags.ts and model.ts merge in the order 7a.2, then 9, then 8.2b.
+- Then `main` is merged in, this branch's entries are re-stamped after its tail, CI runs, and the PR merges.
+- K > 1 becomes `Verified` only after the owner's zero-fee E0 run.
+
+References: BL-20261114-1645-local-fanout-design; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented.

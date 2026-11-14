@@ -39890,3 +39890,91 @@ Next gate:
 4. The coordinating session's call on decision (10)'s `html.unescape` follow-up. Proposed: keep a character reference whose number cannot be converted as written, in its own pull request.
 
 References: BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261113-0857-claims-trailing-strip-linear-implemented; BL-20261109-0447-research-tolerance-design; E1-G (#97), not yet on `main`.
+
+### BL-20261114-1724-claims-check-linear-strips-implemented -- 2026-11-14 -- Implemented: the claims check's six other super-linear patterns run in linear time with the same results, as two exported constants and one label read per PDF
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements decisions (1) to (9) of BL-20261114-1711-claims-check-linear-strips-design as decided. Decision (10) changes nothing.
+- The branch is `fix/claims-check-linear-strips`. Before the design entry was committed, `main` moved from bc6c61b to 6c5e931 with #107, which touches no file this branch changes. The branch starts from 6c5e931.
+- Hypothesis: as in the design. The check's result is unchanged on every input, and none of the six inputs makes the check slow any more.
+
+Decisions: None beyond the design, apart from four details it left open:
+- **The time-bound inputs** (decision (9)(a)):
+  - A: 200,000 lines that open a fence (1 MB);
+  - B: 250,000 comment openers (1 MB);
+  - C: 125,000 script openers (1 MB);
+  - D: 1,000,000 `<` (1 MB);
+  - E: 100,000 run breaks (2.4 MB of document XML in a deflated DOCX).
+- **The differential sizes** (decision (9)(c)) are smaller than the prototype's runs, which keeps each test under about 2.2 s on the owner's Mac:
+  - every token sequence up to length 6 for fences and comments, 7 for tags, and 4 for scripts and runs;
+  - 6,000 seeded random strings for each helper;
+  - 40,000 structured documents each for fences, scripts and runs.
+- **A fixture helper**, `buildDocxFromXml` in tests/helpers/claims-fixtures.ts, builds the DOCX for E. The design's list of changes did not name it.
+- **The step count** (decision (9)(b)) also covers a `page_labels` that raises: every page keeps its number, and the read happens once.
+
+Changes:
+- src/main/private-agent/claims.ts:
+  - `CLAIMS_REPORT_STRIP_PY` (`strip_fences`, `strip_comments`) and `CLAIMS_MARKUP_STRIP_PY` (`strip_scripts`, `strip_tags`, `join_runs`, with their compiled patterns), each a `String.raw` constant interpolated into the check;
+  - `units`' DOCX and HTML lines call the helpers in the former order;
+  - its PDF loop reads `page_labels` once, at the first page;
+  - the body line becomes `body=strip_comments(strip_fences(report))`;
+  - the check's doc comment names the single label read.
+- tests/unit/private-agent-claims.test.ts: the describe "the claims check's text rules: the same results in linear time (decision 6 of E1-J2)", with 13 tests:
+  - five time bounds (A to E) through the real check;
+  - the step count for F, with a stand-in pypdf;
+  - five differential tests, one per helper;
+  - the fixed results;
+  - the source.
+- tests/unit/private-agent-research-headings.test.ts: `claimsPresent` runs `CLAIMS_REPORT_STRIP_PY`. The guard asserts that the check contains it and the new body line, in place of the former body line.
+- tests/helpers/claims-fixtures.ts: `buildDocxFromXml`.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On the owner's Mac, with Python 3.9.5 as the system python3:
+- **The check's text.** The Python that `claimsLedgerCheck` emits was diffed against `main`'s.
+  - It differs only by the two interpolated constants and four changed places: the DOCX and HTML lines, the label read, and the body line.
+  - The constants' Python is the prototype the design measured, block for block.
+- **The new describe**, run alone: 13 passed. The five hostile inputs took 58 ms to 523 ms against their 20 s bound, the step count 84 ms, and the differential tests 0.6 s to 2.1 s each. Their summaries:
+
+  | Helper | Strings compared | Changed by the former pattern | Mismatches |
+  |---|---|---|---|
+  | `strip_fences` | 345,593 | 39,109 | 0 |
+  | `strip_comments` | 305,593 | 58,330 | 0 |
+  | `strip_tags` | 341,923 | 135,663 | 0 |
+  | `strip_scripts` | 100,241 | 13,448 | 0 |
+  | `join_runs` | 157,151 | 25,263 | 0 |
+
+- **The two test files.** tests/unit/private-agent-claims.test.ts and tests/unit/private-agent-research-headings.test.ts: 54 passed and 1 skipped. The skip is `main`'s pypdf test, since pypdf does not import under `-I` here.
+- **Mutation runs on the shipped code**, with claims.ts restored after each:
+  - **The former patterns.** With each former pattern back in its helper (A to E), that pattern's time-bound test was stopped at the 20 s bound (20.0 s each). The source test failed too.
+  - **The label read.** With the label read back inside the page loop, the step count failed, because it saw more than one read. The source test failed too.
+  - **An escaping slip.** With `\s` read as `s` in `RUN_PROPS`, the `join_runs` differential test failed, and so did the fixed results.
+  - The fixed results first caught that slip only through their check of the constant's text: no case had whitespace before `<w:rPr>`. A seventh DOCX case adds it, and the cases alone now fail on the slip.
+- **The same 22 prototype mutants** were run against the smaller differential sizes. The 16 that change behavior each still failed it, with 1,061 to 217,212 mismatches.
+- **`html.unescape` is unchanged.** The new check text, run on the design's workspace with a 4,301-digit reference, passed on 3.9.5. It failed with `ledger_invalid` on 3.11.16 and 3.12.13, as `main`'s did.
+- **The full suite** (`pnpm exec vitest run`), run alone at a load average of about 2 to 8, passed with none failed:
+  - 199 files: 186 passed and 13 skipped;
+  - 3,736 tests: 3,650 passed and 86 skipped.
+- `pnpm typecheck` and `pnpm validate:readiness` passed. `pnpm --silent validate:build-log -- --base-ref origin/main` exited 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No live run took place, and nothing here measures how often real reports or sources contain such inputs.
+- The time bounds for A to E are wall-clock bounds with the margins the design gives, not step counts.
+- The differential tests prove equality on their own inputs. Equality on every input rests on the design's arguments and on its wider prototype runs on 3.9.5, 3.11.16 and 3.12.13.
+- **F's equality on real PDFs** rests on the design's runs with pypdf 6.17.0 and on its argument.
+  - The step count uses a stand-in, and `main`'s pypdf test is skipped wherever pypdf does not import under `-I`, CI included.
+  - The container's pypdf 6.18.0 was not run.
+- The design's decision (10) stands. In particular, the `html.unescape` failure on 3.11 and later is unchanged.
+- As the design records, the check's new text changes the `taskJobSha256` of public-research tasks across the merge, and no harness loop may span it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The coordinating session's light review.
+2. CI green.
+3. The merge go-ahead, and a re-stamp if another entry reaches `main` first.
+4. The coordinating session's call on the design's `html.unescape` follow-up.
+
+References: BL-20261114-1711-claims-check-linear-strips-design; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261113-0857-claims-trailing-strip-linear-implemented.

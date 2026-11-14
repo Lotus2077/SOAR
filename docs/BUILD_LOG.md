@@ -38691,3 +38691,37 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The Implemented entry, with the differentials against policy 4 (no output may send text policy 4 hid) and 67e3374, then the light review with a skeptic on every privacy finding. 10.b's gate is met only when the owner has accepted every listed limit, or asked for more rules.
 
 References: BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design.
+
+### BL-20261114-1430-correction-scrub-policy-5-restamp -- 2026-11-14 -- Correction: the scrub policy 5 design entry is re-stamped after `main`'s tail at this branch's merge of `main`; its original ID and authoring time
+
+Status: `Implemented`
+
+Scope or hypothesis: Branch `feat/10a-scrub-policy-5` brings in `main` at 19d7826 with merge commit 59d0eaa.
+- `main`'s last ID is now BL-20261114-1342-correction-host-flags-surfaces-review, which comes after this branch's design entry. The validator refuses an ID that moves backward.
+- So the design entry is re-stamped after the tail in that merge, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+
+The entry, with its original ID and authoring time: **the design entry**, authored at 13:12 UTC on 2026-11-14 as BL-20261114-1312 in commit 9d322f0. It is now BL-20261114-1345-scrub-policy-5-design.
+
+Decisions:
+- **Choice of minute.** 13:45 follows `main`'s tail at 13:42. 13:43 and 13:44 are left for this lane's other branch, `feat/8.1-concurrent-local-admission`, whose two entries re-stamp after the same tail. If another pull request reaches `main` first with later IDs, this branch re-stamps again at its next merge of `main`, under the same rule.
+- **Only the ID changed.** The heading's ID is the only change. No other entry, comment or test cited the design entry's ID; the Implemented entry that follows cites the new one. Mapped back, the body is byte-identical to 9d322f0's.
+- **A merge, not a rebase.** The branch had not been pushed. A merge still keeps the commit that the Implemented entry cites, bf445b4, in its history, and `main`'s log stays whole as a byte prefix of this branch's.
+
+Changes:
+- docs/BUILD_LOG.md: the design entry's heading, and this entry.
+- No behaviour changes.
+
+Evidence:
+- At 59d0eaa, `pnpm --silent validate:build-log -- --base-ref origin/main` (19d7826) exits 0: 606 entries, append-only against `main`.
+- With its ID mapped back, the design entry equals 9d322f0's byte for byte.
+- `git grep` finds the original ID with its slug nowhere in the tree.
+
+Failures or blockers: None.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages keep the original ID.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The light review of this branch's pull request, which checks this re-stamp.
+
+References: BL-20261114-1345-scrub-policy-5-design; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

@@ -1,5 +1,5 @@
 /**
- * Plan 11.5 (BL-20261114-1250-experiment-launcher-design): a supervised launcher that runs an experiment card's queue of harness
+ * Plan 11.5 (BL-20261114-1344-experiment-launcher-design): a supervised launcher that runs an experiment card's queue of harness
  * runs, H4 loops through scripts/phase4-loop.ts and single runs through scripts/private-agent-local-screen.ts. It runs them one at
  * a time, in the queue's order, only inside the card's windows, only on an idle endpoint and only under the batch's fee cap. It is a
  * tracked, tested port of the H4 and H5 supervisor (BL-20261101-0036, BL-20261101-0135): each run is a child in its own process

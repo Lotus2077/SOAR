@@ -1,6 +1,6 @@
 # Experiment launcher
 
-`scripts/experiment-launcher.ts` (plan 11.5; design BL-20261114-1250-experiment-launcher-design) runs an experiment card's batch of
+`scripts/experiment-launcher.ts` (plan 11.5; design BL-20261114-1344-experiment-launcher-design) runs an experiment card's batch of
 harness runs unattended:
 
 - H4 loops through `scripts/phase4-loop.ts`;

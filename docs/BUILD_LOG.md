@@ -38609,7 +38609,7 @@ Next gate: The coordinating session's check of this push, and CI. Then the merge
 
 References: BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261110-1509-host-flags-event-design.
 
-### BL-20261114-1250-experiment-launcher-design -- 2026-11-14 -- Decide plan 11.5: a supervised launcher that runs a card's queue one run at a time, inside the card's windows, on an idle endpoint and under a batch cap
+### BL-20261114-1344-experiment-launcher-design -- 2026-11-14 -- Decide plan 11.5: a supervised launcher that runs a card's queue one run at a time, inside the card's windows, on an idle endpoint and under a batch cap
 
 Status: `Proposed`
 
@@ -38674,11 +38674,11 @@ Next gate: The implementation with deterministic tests and its `Implemented` ent
 
 References: BL-20261101-0036-planner-diagnostic-result; BL-20261101-0135-h5-held-closure-supervision; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261109-0422-registry-run-commit-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; issue #63; .soar/next-milestones plan item 11.5.
 
-### BL-20261114-1307-experiment-launcher-implemented -- 2026-11-14 -- Plan 11.5 implemented: the supervised experiment launcher, tested on fakes for the clock, the children, the metrics and git
+### BL-20261114-1345-experiment-launcher-implemented -- 2026-11-14 -- Plan 11.5 implemented: the supervised experiment launcher, tested on fakes for the clock, the children, the metrics and git
 
 Status: `Implemented`
 
-Scope or hypothesis: Implement BL-20261114-1250-experiment-launcher-design (plan 11.5; backlog item 11; issue #63) as decided there:
+Scope or hypothesis: Implement BL-20261114-1344-experiment-launcher-design (plan 11.5; backlog item 11; issue #63) as decided there:
 - scripts/experiment-launcher.ts, with `pnpm launcher`;
 - its deterministic tests;
 - docs/experiments/LAUNCHER.md.
@@ -38762,4 +38762,29 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: CI on this pull request; the coordinator's light review; and its merge under the standing go-ahead, with the entries re-stamped after `main`'s tail if it has moved. Then plan 11.4 in this lane, after S-desk's 7d.C on registry-row.py and S-assist's 8.1 on store.ts and broker.ts. The first E3 batch under the launcher verifies it.
 
-References: BL-20261114-1250-experiment-launcher-design; BL-20261113-0836-infra-resume-design; BL-20261101-0135-h5-held-closure-supervision; BL-20261101-0036-planner-diagnostic-result; BL-20261113-0937-owner-decision-restamp-unmerged-entries.
+References: BL-20261114-1344-experiment-launcher-design; BL-20261113-0836-infra-resume-design; BL-20261101-0135-h5-held-closure-supervision; BL-20261101-0036-planner-diagnostic-result; BL-20261113-0937-owner-decision-restamp-unmerged-entries.
+
+### BL-20261114-1407-correction-experiment-launcher-ids -- 2026-11-14 -- Correction: plan 11.5's two entries carry IDs BL-20261114-1344 and BL-20261114-1345 in the merged ledger; they were authored at 12:50 and 13:07 UTC on 2026-11-14 as BL-20261114-1250 and BL-20261114-1307
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why plan 11.5's entries, BL-20261114-1344-experiment-launcher-design and BL-20261114-1345-experiment-launcher-implemented, do not carry their authoring minutes. 7d.C (#99) merged into `main` while #98 was in review, and `main`'s last ID became BL-20261114-1342-correction-host-flags-surfaces-review. The owner's re-stamp rule applies (BL-20261113-0937-owner-decision-restamp-unmerged-entries): at this branch's merge of `main` (0ac52e3), the two entries take minutes after `main`'s tail, and the references that point to them are updated. They take 13:44 and 13:45 rather than 13:43, which plan 11.4's open pull request (#104) uses for its own re-stamped design entry, so no two open entries share a minute. Nothing else about the entries changed.
+
+Decisions:
+- The bodies are byte-identical to what #98 carried at c946a16, except the implementation entry's two references to the design entry, in its Scope and its References.
+- The other references are the header comment of scripts/experiment-launcher.ts, the test file's description and docs/experiments/LAUNCHER.md.
+- Plan 11.4's design entry (on #104) cites the design entry by its original short ID, BL-20261114-1250. Under BL-20261113-0938-correction-restamp-rule-dates it keeps that ID, and this correction maps it.
+
+Changes: docs/BUILD_LOG.md (two headings, the implementation entry's two references, and this entry); scripts/experiment-launcher.ts, tests/unit/experiment-launcher.test.ts and docs/experiments/LAUNCHER.md (one reference each). No behaviour changes.
+
+Evidence: `git grep BL-20261114-1250` and `git grep BL-20261114-1307` find only this correction. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this commit, `pnpm typecheck` and `pnpm validate:readiness` pass, and the launcher's tests pass 15 of 15.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #98's earlier descriptions keep the original IDs. If another branch's entries reach `main` first, these entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of #98, which checks the re-stamp and this correction; then its merge.
+
+References: BL-20261114-1344-experiment-launcher-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

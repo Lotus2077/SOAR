@@ -7,7 +7,7 @@ import { IDLE_RETRY_MS, IDLE_SPACING_MS, MAX_LOOP_REINVOCATIONS, REAP_WAIT_MS, T
   readLoopView, runLauncher, type ChildExit, type ForwardedSignal, type LauncherDependencies, type QueueRun } from "../../scripts/experiment-launcher";
 
 /**
- * Plan 11.5 (BL-20261114-1250-experiment-launcher-design): the launcher's rules on fakes for the clock (vitest's fake timers), the
+ * Plan 11.5 (BL-20261114-1344-experiment-launcher-design): the launcher's rules on fakes for the clock (vitest's fake timers), the
  * children, the endpoint's metrics and git, with real run directories, ledgers and loop records. Nothing starts a process, reads an
  * endpoint or spends.
  */

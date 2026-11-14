@@ -38645,3 +38645,82 @@ References:
 - BL-20261113-0927-research-v5-design;
 - BL-20261113-0850-e1-recoverability-pipeline-seed-implemented;
 - BL-20261113-1023-p10-align-implemented.
+
+### BL-20261114-1422-correction-research-priority-trim-review -- 2026-11-14 -- Correction to BL-20261114-1331-research-priority-trim-implemented and BL-20261114-1304-research-priority-trim-design after the light review of #102: the scale evidence restated with ids equal to paths, the synthesis request cap the trim assumes, and the synthesis request's change stated whole
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261114-1331-research-priority-trim-implemented and BL-20261114-1304-research-priority-trim-design. The coordinator's light review of #102 at 432eeb9 was clean: no blocker, no major and no privacy finding, with four minor findings.
+- This entry records findings 1, 2 and 3, and the review's two open points.
+- Finding 4 is a test, in the commit below.
+- Neither entry is edited.
+
+Decisions:
+(1) **Finding 1: the scale evidence used short ids.**
+- **The claim.** 1331's evidence says that at 480 verified quotes the presentation fits without the guard with 10- and 200-character source paths, and that the guard keeps 86 and 38 quotes with 600- and 1,000-character paths.
+- **Why it is fixture-only.** Those runs lengthened `path` but kept 13-character ids. The session builds every source with its id equal to its path, and every omission repeats `sourceId`.
+- **The restated numbers.** The review measured with ids equal to paths, 40 dense sources, 480 quotes and a 640 KiB synthesiser:
+
+  | id length | Result |
+  | --- | --- |
+  | 10 | completes, packet of 119 quotes |
+  | 30 | completes, packet of 105 quotes |
+  | 50 | completes, packet of 68 quotes |
+  | 70 | completes, packet of 32 quotes; 75 `presentation_cap`, 448 omissions |
+  | 100 or 200 | `research_presentation_too_large` before synthesis |
+
+  This session's fixture agrees on the stop: it completes at 13, 30, 50 and 70 characters and stops at 100. The stop is disclosed and spends nothing.
+- **A possible follow-up, not done:** a more compact omission, whose `sourceId` is derived from its `chunkIds`.
+
+(2) **Finding 2: the guard bounds the writer's presentation, not the synthesis request.**
+- **What the request carries.** Besides the coverage and plan the presentation bounds, the synthesis request carries the packet's evidence as JSON and the brief twice (as `brief` and `units`).
+- **Measured** with ids equal to paths and 40 dense sources: 192,671 bytes with 13-character ids, and 201,072 with 30.
+- **Every research synthesiser today has 640 KiB.**
+  - The driver requires `--profile heavy` for `--pipeline research`, and the heavy profile allows 640 KiB.
+  - The split arm's cloud model takes the profile's cap.
+  - The desktop runs no research stage.
+- **Under the broker's 192 KiB default** (196,608 bytes), such a request is refused before dispatch. The stage ends `research_request_denied`, its synthesis row is denied `request_body_size_exceeded` with zero calls, and nothing is spent.
+- **The assumption.** The trim therefore assumes a synthesiser request cap of about 210 KB or more. A new test pins both sides.
+- **Bounding the request in the guard** stays possible later. It would change the trim policy and the protocol hash.
+
+(3) **Finding 3: the synthesis request's change, stated whole.**
+- **The claim.** 1331 (3) says an untrimmed run's synthesis request changes only in coverage's version and protocol hash.
+- **What is true.** That holds for its user message. Its system message, `SYNTHESIS_SYSTEM`, also gains one sentence, as 1304 (9) states. So every run's synthesis system message changes.
+- **Why it matters for E0.** P10 sends these bodies, so its synthesis cells change.
+- **The cited pin** compares the user message only.
+
+(4) **Finding 4, a test: the guard's bound on the synthesis section is now pinned.**
+- **The fixture.** Twelve questions share every quote, and every synthesis reply is rejected. The skeleton's argument then outgrows the 9,600-byte reserve, and the skeleton's argument and section fill the presentation to within its cap: 196,463 bytes on this fixture.
+- **The mutant.** Leave the section out of the bound, as the review did. The packet then keeps 319 quotes, two synthesis calls are spent, and the skeleton's presentation reaches 216,488 bytes. The test fails on it.
+
+(5) **The review's open points.**
+- **D4's incomplete-chunk clause.** The default stands: an incomplete chunk still ends `research_extraction_incomplete`. The coordinator lists it for the owner with that default, and nothing in the code changes.
+- **7d.C (#99) merged without a trimmed count.** `main`'s controller counts a question whose evidence was all trimmed under "N research questions have no retained evidence". The follow-up is S-desk's, and the coordinator passes it on after 7b.2 lands. This replaces 1304 (10)'s "Whether 7d.C adds a trimmed count is S-desk's call".
+
+Changes:
+- **Commit eaab4a5:** two tests in tests/unit/private-agent-research-pipeline.test.ts.
+  - **The request cap:** 40 sources with 30-character ids equal to their paths. With a 192 KiB synthesiser the stage is refused before any synthesis call; with 640 KiB it completes with a request between 192 KiB and 210 KiB.
+  - **The synthesis section:** the twelve-question skeleton fits.
+- No source change, so the protocol hash stays 7100b7a2…. This entry.
+
+Evidence: At eaab4a5:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The research suites** pass, with the export, probe, host-flags, run-reasons and planner-fixture tests: 23 files, 508 tests.
+- **The mutant** in (4) fails exactly the new section test, and the other research tests pass.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref 582f880` passes; 582f880 is the PR's base. Against `main` (19d7826) it fails only because #99's entries are not merged in. The coordinator asked for no merge and no re-stamp before the merge is scheduled.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint.
+- The sizes in (1) and (2) come from synthetic fixtures, not real corpora.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the coordinator's check of the fixes;
+- the merge, still held for the owner's E0 timing call. Then `main` is merged in, and all three of this item's entries are re-stamped after `main`'s tail.
+
+References:
+- BL-20261114-1331-research-priority-trim-implemented and BL-20261114-1304-research-priority-trim-design (corrected);
+- the light review of #102.

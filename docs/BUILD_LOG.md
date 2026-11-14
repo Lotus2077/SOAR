@@ -38397,3 +38397,68 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
+
+### BL-20261114-1250-experiment-launcher-design -- 2026-11-14 -- Decide plan 11.5: a supervised launcher that runs a card's queue one run at a time, inside the card's windows, on an idle endpoint and under a batch cap
+
+Status: `Proposed`
+
+Scope or hypothesis: Plan 11.5 (backlog item 11; lane S-harn; issue #63) is a tracked, tested port of the H4 and H5 supervisor (BL-20261101-0036-planner-diagnostic-result, BL-20261101-0135-h5-held-closure-supervision). That supervisor was an ignored operator asset, and no copy of it is in the repository. The launcher runs an experiment card's batch of harness runs unattended: H4 loops through scripts/phase4-loop.ts and single runs through scripts/private-agent-local-screen.ts. It starts them one at a time, only inside the card's windows, only on an idle endpoint and only under the batch's fee cap. It records what it did as codes. This entry records the design and its defaults before the code. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) What it is.** `node --import tsx scripts/experiment-launcher.ts --queue QUEUE.json --state-directory DIR`, also run as `pnpm launcher`. It is not in `localScreenSourceFreeze()`, so it changes neither the runtime hash nor `researchProtocolSha256()`, and it may merge inside E0's window. It records its own sha256 and the commit in its ledger. It imports the repository's helpers: the run ledger reader, the commit helper and `loadConfig`. It changes no driver, loop, broker, store or registry code.
+- **(2) The queue.** The operator writes it from the card. The schema is strict: `version` 1, a `batch` identifier, `batchCapUsd`, `windows` as start and end instants in UTC, and `runs` in the card's interleaved order. Each run has an `id`, a `kind` (`loop` or `run`), `capUsd`, the script's `argv` and an optional `projectedSeconds`.
+  - `argv` must name the run's own directory exactly once: `--loop-directory` for a loop, `--output-directory` for a run.
+  - `capUsd` must cover the arguments' own cap. That is at least `--max-fee-usd` for a run, and three times it for a loop, whose a, b and repair may each spend it. Part 3b's resumes are zero fee.
+  - The ledger records the queue's sha256, so a batch can be checked against its card.
+- **(3) The six batch rules (HARN-26), proposed as defaults.**
+  - One run at a time, in the queue's order.
+  - New starts only inside a window, and only after 3 observations 20 s apart in which `vllm:num_requests_running` and `vllm:num_requests_waiting` are both 0. They are read at the `/metrics` route of the endpoint's origin, with the endpoint taken from `loadConfig`, as scripts/serving-probe.py reads them. An unreadable route or a missing metric means not idle (`idle_check_unavailable`), and nothing starts.
+  - An admitted run is never cut at the end of a window.
+  - The batch cap counts every run the batch made: settled fees plus pinned reservations, by store.ts's exposure formula, over every ledger in each run's directory, moved-aside runs included. For a loop, the settled part is never less than `loop.json`'s `totals.feeMicrousd`. That sum plus the next run's `capUsd` must stay within `batchCapUsd`, or the launcher stops with `batch_cap_reached`. A ledger it cannot read stops it too (`batch_cap_unreadable`). The cards set the caps (E3 USD 20.4, E4 USD 20.5); nothing is hard-coded.
+  - A dirty tree is refused: `localScreenGitState()` must return `dirty: false`, and a null answer refuses as well (#73's review).
+  - No automatic paid re-run. A single run is never started again. A loop is re-invoked only on the stops in (6), whose resumes part 3b makes zero fee.
+- **(4) Refusals before any start.** HEAD must be an ancestor of the local `origin/main` (HARN-16), and the operator fetches first. One launcher per state directory, held by part 3b's OS-released lock. A queue that fails the schema, and on macOS an inhibitor that does not start, refuse as well.
+- **(5) Supervision, from the H4 and H5 supervisor.**
+  - Each run is a child in its own process group. Its output goes to files in the state directory.
+  - On macOS, `caffeinate -i -w` holds off idle sleep for the launcher's life.
+  - SIGINT, SIGTERM and SIGHUP are forwarded to the child's group, and the ledger records `signal_forwarded`. After a bounded wait of 120 s the launcher sends SIGKILL to the group; a second signal sends it at once. It then waits up to 10 s for the reap, and records `reap_unconfirmed` if none comes.
+  - After an owner's signal, nothing new starts.
+  - A STOP file in the state directory also stops new starts, while an admitted run finishes.
+  - After each run the launcher takes 3 more observations and records whether the endpoint is quiescent. The next start's own idle check is what gates it.
+- **(6) Re-invoking a loop (HARN-22).** A loop is re-invoked when its `loop.json` ends with `loop_stage_infra`, `loop_interrupted`, `loop_stage_cleanup_required` or `loop_stage_ledger_unreadable`, with no stop and no final selection.
+  - The re-invocation happens in a later window, not the one the loop stopped in, after a fresh idle check, and at most 4 more times.
+  - It never happens on `loop_terminal` or `loop_locked` (read from the loop's failure line, since a locked invocation leaves `loop.json` as it was), on a terminal stop, or on any other code.
+  - When it stops re-invoking, the operator ends the loop with `--close`.
+- **(7) The ledger.** `DIR/launcher.jsonl` is append-only and holds codes and counts only:
+  - the launcher's sha256, the commit and the queue's sha256;
+  - the queue's run ids, attempts, exit codes and signals;
+  - the loop's failure code and the run's `jobId`;
+  - the idle checks' results and the batch's spend in micro-USD.
+
+  It never holds a path, the endpoint's address, a key, an error message or a child's output. The state directory belongs under the git-ignored `.soar/` and is never committed.
+- **(8) Restart.** A restarted launcher replays its ledger, and finished runs are not started again. If an admission has no exit and the recorded pid is alive, the launcher refuses (`previous_run_running`). If the pid is gone, it records `run_lost` and treats the run as having exited with no code.
+- **(9) The optional last-start check** (a card parameter). When a run gives `projectedSeconds`, it starts only if that much time remains in the window. Without it there is no feasibility check, which is the H5 supervisor's rule.
+- **(10) The stop-signal record reaches the registry in plan 11.4.** Today registry-row.py's `--run-dir` path always passes `stop_signalled` False (registry-row.py:127). From 11.4, the registry reads the ledger's `signal_forwarded` and `run_exited` records, joined by `jobId`. A single run's `cancelled_or_deadline` then counts as `operator_stop` only when the launcher recorded a forwarded signal (HARN-12). The launcher itself changes no registry code.
+
+Changes: This entry only. The launcher (scripts/experiment-launcher.ts), its tests (tests/unit/experiment-launcher.test.ts), docs/experiments/LAUNCHER.md, a `launcher` script in package.json and the `Implemented` entry follow in this pull request.
+
+Evidence: Reading only, at 582f880:
+- the lane brief's PR 5 and HARN-26 (.soar/next-milestones), and the H4 and H5 entries above;
+- store.ts:276, the exposure formula;
+- registry-row.py:127;
+- `localScreenGitState()` in scripts/private-agent-local-screen.ts;
+- the loop's exit codes and failure line (scripts/phase4-loop.ts:142-145 and 786-803);
+- serving-probe.py's `metric()`;
+- `loadConfig` in src/main/config.ts.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Proposed only; nothing is implemented, tested or verified by this entry. The tests will drive the launcher through fakes for the spawn, the metrics, the clock and git. No real child, endpoint, Docker container or paid call runs, and the first E3 batch under the launcher is what verifies it. The queue is the operator's transcription of a card; no card for E3 or E4 exists yet.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests and its `Implemented` entry, in this pull request; then one light review. Owner questions, each with the default proposed here:
+- HARN-26: do you confirm the six batch rules? Default: yes, as listed.
+- The 120 s wait before SIGKILL on an owner's stop, and the cap of 4 re-invocations per loop. Default: these values.
+
+References: BL-20261101-0036-planner-diagnostic-result; BL-20261101-0135-h5-held-closure-supervision; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261109-0422-registry-run-commit-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; issue #63; .soar/next-milestones plan item 11.5.

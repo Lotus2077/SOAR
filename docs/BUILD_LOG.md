@@ -38332,3 +38332,41 @@ References:
 - BL-20261113-1003-e0-card-owner-answers on #87;
 - BL-20261109-0334-research-request-shapes-design;
 - BL-20261108-1459-serving-card-reader-design.
+
+### BL-20261114-1119-handoff-start-here -- 2026-11-14 -- Handoff: docs/HANDOFF.md "Start here" restated for `main` at 6c30bbf, with the merges, decisions, open questions and next steps as of 2026-11-14
+
+Status: `Implemented`
+
+Scope or hypothesis: Replace the "Start here (2026-11-07)" section of docs/HANDOFF.md, which still said that steps 2 onwards had not started and that the next action was E0, with "Start here (2026-11-14)", so that the next session starts from the state of `main` at 6c30bbf (the merge of #95). This is the handoff note that the Next gates of BL-20261110-1506-merge-train-1-integration and BL-20261113-0937-owner-decision-restamp-unmerged-entries ask for. The section keeps its seven subsections. The "September 2026 record" and everything below it are unchanged. This entry records what the section now says; it decides nothing.
+
+Decisions: None. The section restates decisions and defaults recorded elsewhere:
+- **1. Get the work.** `main` is at 6c30bbf. A table lists the merges in UTC: step 1 (#37, #38 and #40 to #43) on 2026-11-08; SC (#65) on 2026-11-09; then, on 2026-11-13, merge train 1 (#85 at 9d10b9a, with fourteen pull requests), #92 (7d.B), #82 (6.3), #89 (11.3b), train 2b (#94, with #88, #84, #75 and #80), #79 (10.a), #93 (7c), #87 (E0's card) and #95 (P10-align). It gives the research protocol hash after #93, 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, as tests/helpers/research-protocol-pin.ts pins it.
+- **2. Read.** The review's sections, PLAN.md, and the build-log entries on the approvals, train 1, the re-stamp rule, E0's card and its answers, P10-align and E1's gate question.
+- **3. Decided.** The five earlier items, shortened, plus two owner decisions of 2026-11-13: the re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries and BL-20261113-0938-correction-restamp-rule-dates), with train 1's sorted union as a one-time exception; and E0's card answers (BL-20261113-1003-e0-card-owner-answers), with the USD 1.00 labelling cap attributed to the orchestrator.
+- **4. Still open.** The owner-decision table without decision 1, which BL-20261113-1003-e0-card-owner-answers answers. Also: the four owner-only Docker-gated runs (#74, #81, #73 and #72), none of them run; a pointer to train 1's compiled owner questions in the git-ignored `.soar/next-milestones/reviews/train-1/owner-decisions-train-1.md`; the later owner questions of #89 (question (b) of BL-20261113-0836-infra-resume-design), #92 (BL-20261110-1509-host-flags-event-design), #88 (decision 2 of BL-20261113-0848-correction-e1-train-1-reviews) and #80 (decision 6 of BL-20261113-0856-claims-trailing-strip-linear-design); and the open drafts #86, #90 and #91 from another session.
+- **5. Act next.** Step 1 is done. Step 2, E0: the card and P10-align are done, and the owner's remaining steps are the r3 index run and the planner-fixture pin, #91 and the cloud labelling, then the probes per issue #57. Step 3, E1: every E1 test and fix PR is merged, E1-G is next, and under #88's default the gate stays held until the owner's Docker run of E1-L's sandbox suite is recorded `Verified`. Step 4, E5: not started. Step 5: fourteen parts of items 6 to 11 are done; 7a.2, 7b.2, 7b.3, 7d.C, 8.1, 8.2b, item 9, 10.b, 11.4, 11.5 and RA remain; E2 and E6 have not run. Steps 6 and 7 (E3, E4) wait as before.
+- **6. Rules.** The earlier rules, the validator's exit status as the gate, and four process choices that the owner made in the orchestrating session's chat and that are not in this log: lighter reviews (2026-11-10), merging lane PRs with a merge commit once the review is clean and CI is green (2026-11-13), no force-push (2026-11-13), and reserved minute blocks with one integration PR when several branches are ready (2026-11-13).
+- **7. Known limits.** Nothing merged since 2026-11-07 is `Verified`; no live, Docker or paid run has happened since then; the source-freeze digest moved with every code merge from #85 to #93, so `--runtime-sha256` is recomputed before any loop or E-run; the research protocol hash moved twice.
+
+Changes: docs/HANDOFF.md, the "Start here" section only (lines 3 to 214, 212 lines where the old section had 195). docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- Each fact was checked read-only against `git log --first-parent origin/main`, this log, tests/helpers/research-protocol-pin.ts and `gh pr list`/`gh pr view`/`gh issue list` on Lotus2077/SOAR. The PR merge dates come from GitHub's `mergedAt`, in UTC.
+- The source-freeze claim comes from `git diff --name-only` between consecutive first-parent merges, over the paths `localScreenSourceFreeze()` hashes: #85 changes 18 of them, #92 3, #82 1, #89 4, #94 1, #79 6, #93 9, and #87 and #95 none.
+- Two statements were corrected while checking. Item 9 is not without a lane: the git-ignored lane plan puts it last in S-pipe's sequence, after 7b.2 and 7a.2. And "nothing is `Verified`" holds only from 2026-11-07: BL-20261107-1111-stop-bricking-tasks-docker-suite-verified is the last `Verified` entry, and no entry since records a live, Docker or paid run.
+- The section below "Start here" is byte-identical to `main`'s (compared with `cmp`).
+- `node --experimental-strip-types scripts/validate-build-log.ts --base-ref origin/main` and `pnpm --silent validate:readiness` pass at this entry's commit.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A documentation change only. Nothing ran: no model, endpoint, Docker container, test suite or paid call.
+- The four process choices in section 6 rest on the orchestrating session's account of the owner's chat. This log does not record them.
+- The section summarises its sources and does not replace them. Where it and a cited entry differ, the entry governs.
+- The open draft #86 also edits "Start here", so whichever of #86 and this change merges second resolves the conflict.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: One light review, CI green and the merge into `main`. The next handoff note updates this section after E0 or E1-G lands.
+
+References: docs/HANDOFF.md "Start here"; BL-20261110-1506-merge-train-1-integration; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261113-1023-p10-align-implemented; BL-20261113-0848-correction-e1-train-1-reviews; BL-20261113-0836-infra-resume-design; BL-20261110-1509-host-flags-event-design; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; pull requests #37 to #95 as the section lists them; issues #46, #47 and #57.

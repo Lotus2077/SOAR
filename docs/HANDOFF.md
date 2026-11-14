@@ -1,24 +1,21 @@
 # SOAR handoff
 
-## Start here (2026-11-07)
+## Start here (2026-11-14)
 
 This section is the entrypoint for the next session. It supersedes every earlier
 "next step" in this file; the rest of the file is the September 2026 record.
 
-**Planning map (2026-11-08).** Steps 2 to 7 of §5 are charted as parallel lanes in the
-GitHub issue [Wayfinder map: route the next milestones (E0 to E4) in parallel
-lanes](https://github.com/Lotus2077/SOAR/issues/46). Its child issues hold the open
-owner decisions of §4 and the experiment cards that gate each lane, and their blocking
-links show which ones can be taken now. Read the map before acting on §5. A ticket's
-resolution stays `Proposed` until the owner's build-log entry records it. E1 and
-backlog items 6-11 need no owner decision.
+**Planning map.** Steps 2 to 7 of §5 are charted as parallel lanes in the GitHub issue
+[Wayfinder map: route the next milestones (E0 to E4) in parallel
+lanes](https://github.com/Lotus2077/SOAR/issues/46). Its child issues (#47 to #63) hold
+the open owner decisions of §4 and the cards that gate each lane. A ticket's resolution
+stays `Proposed` until the owner's build-log entry records it. The lanes' order of work
+is in the git-ignored `.soar/next-milestones/plan.md` of the owner's checkout.
 
 ### 1. Get the work
 
-Everything after `main`'s `153b8e6` (the 2026-11-05 review, its five checks and the
-2026-11-07 owner decisions) was developed on branch `claude/great-meitner-kri52m` and
-merged into `main` on 2026-11-08 as PR #39, so work from `main`. Select Node 22.22.2
-and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
+`main` is at 6c30bbf, the merge of #95; work from it. Select Node 22.22.2 and pnpm
+10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
 `engine-strict=true`, so another Node major fails the install.
 
 ```sh
@@ -29,67 +26,80 @@ pnpm install --frozen-lockfile
 
 Then run the checks in "Setup and safe verification" below. CI runs only on pull
 requests and on pushes to `main`. Base each new pull request on `main` (PLAN.md D10
-approves pushing reviewed work to public `main`). The step-1 pull requests listed
-under §5 (#37, #38 and #40 to #44) are all merged into `main` as of 2026-11-08, so the
-next action is step 2, E0.
+approves pushing reviewed work to public `main`).
+
+| Merged (UTC) | Pull requests | What |
+| --- | --- | --- |
+| 2026-11-08 | #37, #38, #40, #41, #42, #43 | Step 1: backlog items 1-5 and item 10's assist-purpose exception |
+| 2026-11-09 | #65 | SC, the serving-card reader |
+| 2026-11-13 | #85, merge train 1 (9d10b9a) | #66 E1-T1, #67 11.1, #68 E1-R, #69 7b.1, #70 E1-J, #71 8.2a, #72 6.1, #73 11.2, #74 E1-L, #76 7a.1, #77 6.2, #78 11.3a, #81 7d.A and #83 (BL-20261110-1506-merge-train-1-integration) |
+| 2026-11-13 | #92, #82, #89 | 7d.B; 6.3; 11.3b |
+| 2026-11-13 | #94, train 2b | #88 (corrections for #66, #70 and #74), #84 E1-T2, #75 E1-T3 and #80 E1-J2 |
+| 2026-11-13 | #79, #93 | 10.a, the assist core; 7c, research pipeline v5 |
+| 2026-11-13 | #87, #95 | E0's card, docs/experiments/e0-card-2026-11-13.md; P10-align |
+
+Since #93, `researchProtocolSha256()` is
+`505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92`, pinned in
+tests/helpers/research-protocol-pin.ts.
 
 ### 2. Read, in this order
 
-1. [PROJECT_REVIEW_2026-11-05.md](PROJECT_REVIEW_2026-11-05.md): §2 (the goal
-   statement, confirmed; §2.1-2.5 stay proposed except where E3's and E4's approved
-   rules use them), §5.2 (architecture v5: local volume work, sealed cloud
-   assists), §5.6 (experiments E0-E7, their caps and pre-registered rules, and
-   their order), §5.7 (the engineering backlog, in order) and §5.10 (owner
-   decisions).
+1. [PROJECT_REVIEW_2026-11-05.md](PROJECT_REVIEW_2026-11-05.md): §2 (the goal), §5.2
+   (architecture v5), §5.6 (experiments E0-E7, their caps, rules and order), §5.7
+   (the backlog) and §5.10 (owner decisions).
 2. [PLAN.md](PLAN.md): the owner-direction note in §1 and the envelope in §4.
-3. [BUILD_LOG.md](BUILD_LOG.md): BL-20261107-0650-owner-decisions-review-items-2-5
-   and its correction BL-20261107-0718-correction-owner-decisions-record (what is approved and what still
-   gates each experiment), then BL-20261105-1821-owner-direction-equal-weights-new-model
-   and BL-20261105-1822-project-review-reset-proposed with their corrections,
-   BL-20261105-2016-correction-direction-and-review-entries through
-   BL-20261105-1722-fifth-check-corrections.
+3. [BUILD_LOG.md](BUILD_LOG.md), by grepping these IDs (the file is about 38,000
+   lines): BL-20261107-0650-owner-decisions-review-items-2-5 with its correction
+   BL-20261107-0718-correction-owner-decisions-record (what is approved and what
+   gates each experiment); BL-20261110-1506-merge-train-1-integration;
+   BL-20261113-0937-owner-decision-restamp-unmerged-entries and
+   BL-20261113-0938-correction-restamp-rule-dates; BL-20261113-0936-e0-card,
+   BL-20261113-1003-e0-card-owner-answers and
+   BL-20261113-1023-p10-align-implemented, with the E0 card and issue #57; and
+   decision 2 of BL-20261113-0848-correction-e1-train-1-reviews (E1's gate).
 
 ### 3. Decided
 
-- **The goal** (review §2; the statement was confirmed on 2026-11-07): "Deliver
-  Manus-level results on the owner's real work, public deep research first, at a
-  fraction of Manus's cost, without private data ever leaving the owned device
-  unless the owner approves the exact bytes: the local model does all the volume
-  work at zero fee, and the cloud takes only the hardest step, as sealed one-shot
-  packets." Privacy, result quality and token cost weigh equally; the 2026-09-29
-  labelled-data rule and D15 are unchanged, and OAJ stays the adoption north star.
-  The ≤ USD 0.50 P50 cost target (review §2.3) is proposed and binds only through
-  E4's approved decision rule.
-- **Zero-fee work needs no approval.** Zero-fee local runs on public, synthetic or
-  owner-declared-public inputs within the Heavy caps need no approval entry and no
-  per-trial named authority (PLAN.md §4(c)). Retiring slot, claim and allocation
-  accounting and the untracked launcher as gates is part of the review's stop list
-  (§5.8), which stays proposed. Paid runs, real private data, new egress
-  destinations and public pushes keep their gates.
+- **The goal** (review §2; confirmed on 2026-11-07): "Deliver Manus-level results on
+  the owner's real work, public deep research first, at a fraction of Manus's cost,
+  without private data ever leaving the owned device unless the owner approves the
+  exact bytes: the local model does all the volume work at zero fee, and the cloud
+  takes only the hardest step, as sealed one-shot packets." Privacy, result quality
+  and token cost weigh equally; the 2026-09-29 labelled-data rule and D15 are
+  unchanged, and OAJ stays the adoption north star. The ≤ USD 0.50 P50 cost target
+  (review §2.3) is proposed and binds only through E4's approved decision rule.
+- **Zero-fee local runs need no approval entry** on public, synthetic or
+  owner-declared-public inputs within the Heavy caps (PLAN.md §4(c)). Paid runs, real
+  private data, new egress destinations and public pushes keep their gates.
 - **E3 and E4 are approved** against the Phase 4 harness track line (USD 33, about
-  USD 28.4-28.7 left): E3, the closed-corpus route round, with a cap of USD 20.4,
-  and E4, the Manus-bar web round, with a cap of USD 20.5. The owner chose neither
-  E4's admission condition nor a reallocation, so the record applies the admission
-  condition: E4 starts only if the line's balance after E3 settles covers its cap,
-  unless the owner records a reallocation from the weekly public-work line. The
-  record reads the approval as covering the T1 and T2 packets that E3's and E4's
-  cloud-assisted arms send, including each task's brief.
-- **E4's paid judges** run at api.openai.com: GPT-5.5 for DeepResearch Bench RACE
-  with the key the owner names JAO, and LiveDRBench's official grader with the key
-  the owner names JAT. The grader's judge model is not yet named: its wrapper takes
-  it as the required `--judge` argument (`benchmarks/harness/evaluate_livedr_row.py`),
-  so E4's card proposes it and the owner records it before E4 starts. The wrapper
-  reads `OPENAI_API_KEY`, so each judge run sets that variable, in its own process,
-  to the named key's value.
-- **Who decides the cloud's role:** E3's pre-registered rule picks it for the
-  harness, E4's result decides what runs behind the desktop's assist toggle, and
-  the owner decides trades and ties.
+  USD 28.4-28.7 left): E3 capped at USD 20.4, E4 at USD 20.5. E4 starts only if the
+  line's balance after E3 covers its cap, unless the owner records a reallocation.
+  The approval covers the T1 and T2 packets of their cloud-assisted arms, briefs
+  included.
+- **E4's paid judges** run on OpenAI's API: GPT-5.5 for DeepResearch Bench RACE with
+  the key named JAO, and LiveDRBench's grader with the key named JAT. The grader's
+  judge model (`--judge` of `benchmarks/harness/evaluate_livedr_row.py`) is proposed
+  by E4's card and recorded by the owner before E4 starts.
+- **The cloud's role:** E3's rule picks it for the harness, E4's result decides the
+  desktop's assist toggle, and the owner decides trades and ties.
+- **Re-stamping** (2026-11-13; BL-20261113-0937-owner-decision-restamp-unmerged-entries
+  and BL-20261113-0938-correction-restamp-rule-dates). An unmerged branch re-stamps
+  its entries after `main`'s tail at merge, date included, with a `Correction` entry
+  that records the original IDs. Train 1's sorted union
+  (BL-20261110-1506-merge-train-1-integration) was a one-time exception and is not
+  reopened.
+- **E0's card** (2026-11-13; BL-20261113-1003-e0-card-owner-answers).
+  - Decision 1: the endpoint serves the model qualified on 2026-11-04, so E0 is a
+    delta check. If P1 or a `--compare-*` row differs, E0 re-derives every bound.
+  - The judge fixture's agreement level is 95%. Before the test a cloud model labels
+    its claim set through its API, on public and synthetic material only, capped at
+    USD 1.00 (the cap is the orchestrator's figure; the owner stated none).
+  - Reasoning text is kept, and P10 is aligned with the pipeline's requests (#95).
 
 ### 4. Still open, and what each blocks
 
 | Owner decision (review §5.10) | Blocks |
 | --- | --- |
-| 1: is the endpoint's model the one qualified on 2026-11-04? | Whether E0 is a delta check; E0's probe P1 and the owner answer it |
 | 5, open parts: a reallocation from the weekly public-work line; the LiveDRBench grader's judge model | The reallocation only if the line's balance after E3 settles is below USD 20.5; the model before E4 starts |
 | 6: which provider carries the assists and E3's arm D | E3's card |
 | 7: a thinking-off writer arm | That E2 arm only |
@@ -97,77 +107,72 @@ next action is step 2, E0.
 | 9: the P11 transport timeline | Any labelled work |
 | 10: the Manus product baseline | The E4 option only |
 | 11: blind proxy grades as provisional | E3's and E4's verdicts |
-| 12: numbered briefs; disclosing the public brief | Task authoring (D11's brief units) and the desktop's first assist packet on a public task (backlog item 13); E3's and E4's approved arms carry their own task briefs in T1 and T2 |
+| 12: numbered briefs; disclosing the public brief | Task authoring (D11's brief units) and the desktop's first assist packet on a public task (item 13) |
 | 13: the Phase 2 dashboard reconciliation; D20(b) | The uncached all-cloud baselines (USD 3.05-3.77); T3 and any coding on private source code |
-| 2, last part: whether the assist toggle starts on | The toggle's default for URL-backed public tasks in the desktop wiring (backlog item 13), once E4 ships a cloud-assisted arm |
+| 2, last part: whether the assist toggle starts on | The toggle's default for URL-backed public tasks (item 13), once E4 ships a cloud-assisted arm |
+
+- **Owner-only Docker-gated runs, none run yet:** #74's sandbox suite, #81's
+  document-review suite, #73's runtime freeze `git` assertion and #72's general-task
+  e2e assertion.
+- **Train 1's owner questions:** see the git-ignored
+  `.soar/next-milestones/reviews/train-1/owner-decisions-train-1.md`.
+- **Later owner questions**, each default standing until answered:
+  - #89, question (b) of BL-20261113-0836-infra-resume-design: criterion 7 reads
+    `activeSeconds` for a resumed loop. It amends E3's and E4's approved rules, so it
+    needs the owner's own answer.
+  - #92 (BL-20261110-1509-host-flags-event-design): D11 (#55) keeps the segmentation
+    and flags single-unit briefs; "misses" means the run's own misses.
+  - #88 (decision 2 of BL-20261113-0848-correction-e1-train-1-reviews): when a fix
+    changes LIST_FILES, E1's gate waits for that fix's Docker run, recorded `Verified`.
+  - #80 (decision 6 of BL-20261113-0856-claims-trailing-strip-linear-design): the
+    claims check's other slow patterns go in one follow-up PR.
+- **Open drafts from another session:** #86 (the Rayline evaluation; it also edits
+  this section, so whichever merges second resolves the conflict), #90 (the doctor)
+  and #91 (the judge fixture).
 
 ### 5. Act next, in this order
 
 Follow the order in review §5.6. Each step is done when its condition holds.
 
-1. **Backlog items 1-5 and item 10's assist-purpose exception** (review §5.7), as
-   small PRs with tests. Item 1 includes the fix for finding D14. A change to a
-   persisted contract or to dispatch semantics gets its build-log decision entry
-   first. Done: the tests and CI pass, and the entries are appended. **Done on
-   2026-11-08**: see the progress note below.
-2. **E0** from the owner's Mac against the new endpoint, at zero fee and with no
-   approval entry, after its card is committed: probes P1-P9 in
-   `scripts/serving-probe.py`, the new P10, P11 and adapter probe (backlog item 5),
-   and the role fixtures. Done: a serving card that records the alias, engine
-   version and context, never the address, with every stage bound re-derived from
-   it.
-3. **E1**, the recoverability tests with no live model. Done: its gate in review
-   §5.6 passes.
-4. **E5** on the existing local routes in the owner's desktop build, with backlog
-   item 2's verdict capture. Ask the owner about the P11 interim (an SSH local
-   forward, whose timeline is open decision 9) and the box checklist (deferred at
-   the owner's request, PLAN.md D5); both gate labelled work only, so the steps
-   below do not wait for them.
-5. **E2 and E6**, backlog items 6-11, and the start of item 12.
-6. **E3**, once backlog items 6-11 are done (among them item 10's assist wrapper,
-   which arms B and C and E3's zero-cache-write condition need, and item 11's
-   harness changes), decisions 6 and 11 are made, and its card is committed. The
-   card names the provider and D's call allowance, and shows that the allowance's
-   projected fee, late reservation included, stays under USD 3.00 on f2, or the
-   owner raises D's cap and E3's with it.
-7. **E4**, once E3 has settled and the harness line's balance covers E4's USD 20.5
-   cap (or the owner records a reallocation), decision 8 is made, items 11
-   (paired retrieval) and 12 are done, its cloud-assisted arm is chosen from E3's
-   result or named by the owner, the grader's judge model is recorded, and its
-   card, with the RACE threshold set from GPT-5.5-judged product scores (review
-   §2.2, criterion 4), is committed. Then backlog item 13, the desktop wiring.
-
-**Progress on step 1** (2026-11-07, a later session on the owner's Mac). Backlog items 1-5
-and item 10's assist-purpose exception are implemented as small pull requests with
-deterministic tests, each with a `Proposed` decision entry before its code and an
-`Implemented` entry after it. Every one is merged into `main` (2026-11-08, in the order
-#37, #38, #42, #44, #43, #40, #41; `main` is a240afc). Three entries carry IDs later than
-their authoring minute because the ledger appends in merge chronology and its validator
-refuses an ID that precedes the base's tail: the corrections BL-20261108-0856, -0906 and
--0912 record the original times. When a sibling branch merges after another, re-stamp its
-entries after `main`'s tail and add such a correction; never interleave.
-
-| Item | Pull request | Branch | Entries |
-| --- | --- | --- | --- |
-| 1 (with D14) | #37 | `fix/zero-fee-failures-resolve` | BL-20261107-0809, -0812 |
-| 10 (week 1) | #38, on #37 | `fix/assist-purpose-exception` | BL-20261107-0839, -0842 |
-| 2 | #40 | `fix/owner-verdict-capture` | BL-20261108-0904, -0852 |
-| 5 | #41 | `feat/serving-probe-extensions` | BL-20261108-0911 |
-| 3 | #43, on #38 | `fix/stop-bricking-tasks` | BL-20261107-0924, -0936, -1006, -1041, -1110, -1111 |
-| 4 | #42, on #38 | `feat/label-keyed-diagnostics` | BL-20261107-0859, -0923 |
-
-Item 3's implementation went through three adversarial review rounds; the brick paths they
-found and the smaller corrections are decided in BL-20261107-1006 and BL-20261107-1041 and
-implemented in the same pull request, and its Docker-gated sandbox suite was run on the
-owner's Mac (the `Verified` entry). Finding D14 is reproduced by a deterministic session
-test and fixed in #37 (see §7). Step 1 is complete; nothing live has run. The owner questions
-these entries leave open: whether a desktop consultation may follow a skipped assist, and
-whether the pre-commit refusals outside item 3's seven denial codes should record a marker
-now or wait for item 13 (items 10 and 3); the second-verdict policy, `git` on superseding
-rows and the `verdictBy` enum (item 2); which r3 index the planner fixture pins and whether
-reasoning text may ever be retained (items 4 and 5); the E0 card still gates every live
-probe. Steps 2 onwards have not been started: E0 needs the owner's `.env.local`, which no
-agent session has.
+1. **Backlog items 1-5 and item 10's assist-purpose exception.** Done on 2026-11-08.
+2. **E0** from the owner's Mac, at zero fee, per its card. Done: a serving card that
+   records the alias, engine version and context, never the address, with every stage
+   bound re-derived from it or, for the delta check, matched to 2026-11-04.
+   - Done: the card (#87) and P10-align (#95).
+   - The owner's remaining steps, in order:
+     1. Produce the current-format r3 research index with one zero-fee local research
+        run (the command is in #95's description; the r3 task directory is
+        `.soar/experiments/phase2-v1/tasks/r3-grid-batteries` in the owner's
+        checkout), then pin docs/experiments/e0-planner-fixture-v1.json. Which brief
+        it pins is open (BL-20261113-1023-p10-align-implemented, (5)).
+     2. For the judge: #91 merges, then the cloud labelling.
+     3. The probes, per issue #57: P1 alone first, checked by hand; then P1, P10, P11
+        and the adapter probe in one invocation after `pnpm probe:export-schemas`;
+        then `pnpm probe:assess`; then the card writer with the `--compare-*` flags.
+   - No PR that changes `researchProtocolSha256()` may merge between the export and
+     the assessment; 7b.2, 7a.2 and item 9 will change it.
+3. **E1**, the recoverability tests with no live model. Every E1 test and fix PR is
+   merged. Next is E1-G, the `Verified` entry that maps the gate clauses to tests.
+   Under #88's default, E1-G records the CI clauses `Verified` and holds the gate, with
+   no E2 to E6 live run, until the owner's Docker run of E1-L's sandbox suite is
+   recorded `Verified`. Done: its gate in review §5.6 passes.
+4. **E5** on the existing local routes in the owner's desktop build, with item 2's
+   verdict capture. Not started. Ask the owner about the P11 interim (decision 9) and
+   the box checklist (PLAN.md D5); both gate labelled work only.
+5. **E2 and E6** (cards #62 and #54), backlog items 6-11, and the start of item 12.
+   - Done: 6.1, 6.2, 6.3, 7a.1, 7b.1, 7c, 7d.A, 7d.B, 8.2a, 10.a, 11.1, 11.2, 11.3a
+     and 11.3b.
+   - Remaining, as the entries name them: 7a.2, 7b.2, 7b.3, 7d.C, 8.1, 8.2b, item 9,
+     10.b, 11.4, the part 5 launcher (11.5) and RA (the assist receipt fields). The
+     lane plan puts item 9 last in S-pipe's sequence, after 7b.2 and 7a.2.
+   - E2 and E6 have not run, and item 12 has not started.
+6. **E3** waits as before: items 6-11 done (10.b and item 11 among them), decisions 6
+   and 11 made, and its card (#63) committed, naming the provider and D's call
+   allowance with a projected fee under USD 3.00 on f2.
+7. **E4** waits as before: E3 settled and the line covering E4's cap (or a recorded
+   reallocation), decision 8 made, items 11 and 12 done, its cloud-assisted arm
+   chosen, the grader's judge model recorded, and its card, with the RACE threshold
+   (review §2.2, criterion 4), committed. Then item 13, the desktop wiring.
 
 ### 6. Rules for every step
 
@@ -175,25 +180,37 @@ agent session has.
   append-only entries, and corrections only as new `Correction` entries. Keep
   `Proposed`, `Approved`, `Implemented`, `Verified` and `Released` distinct.
 - The endpoint's address lives only in the owner's ignored `.env.local`
-  (`SOAR_VLLM_BASE_URL`, `SOAR_VLLM_MODEL`, `SOAR_VLLM_COST_POLICY=local_zero_cost`;
-  review §5.9). The JAO and JAT keys live only in the owner's local configuration.
-  Never commit or log an address, a key, a local path, a raw trace or gold.
-- Every experiment, zero-fee ones included, is pre-registered: commit its card
-  (hypothesis, arms, budget, decision rule, stop rule; PLAN.md §4) before it runs,
-  and write one registry row per run with the three columns. E0's card sets the
-  judge fixture's agreement level before that fixture runs, and a separate session
-  labels its claim set (review §5.6). Run paid work only inside an approved cap.
-- Before pushing, run `pnpm --silent validate:build-log -- --base-ref origin/main`,
-  `pnpm typecheck`, `pnpm validate:readiness` and the tests for what changed.
+  (`SOAR_VLLM_BASE_URL`, `SOAR_VLLM_MODEL`, `SOAR_VLLM_COST_POLICY=local_zero_cost`);
+  the JAO and JAT keys only in the owner's local configuration. Never commit or log an
+  address, a key, a local path, a raw trace or gold.
+- Pre-register every experiment, zero-fee ones included: commit its card before it
+  runs, and write one registry row per run. Run paid work only inside an approved cap.
+- Before pushing, `git fetch` (other sessions move `origin/main`), then run
+  `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck`,
+  `pnpm validate:readiness` and the tests for what changed. Gate on the validator's
+  own exit status, never through a pipe (BL-20261113-0938-correction-restamp-rule-dates).
+- The owner's process choices, made in the orchestrating session's chat and not in
+  the log:
+  - Lighter reviews (2026-11-10): one reviewer per PR, a skeptic only for a blocker
+    or major finding, and privacy findings always checked.
+  - Merging (2026-11-13): merge a lane PR with a merge commit once its review is clean
+    and CI is green.
+  - Never force-push (2026-11-13): bring `main` into a branch with a merge.
+  - Integration (2026-11-13): when several branches are ready, the lanes re-stamp
+    into reserved, ascending minute blocks and one integration PR lands them.
 
 ### 7. Known limits
 
-Five adversarial checks of the review converged, confirming 96, 54, 37, 17 and 2
-findings, but each check after the first covered only the previous revision's
-changes. Finding D14 (a retried research call loses a completed stage) was found by
-reading code; a later session reproduced it with a deterministic session test and fixed
-it in PR #37 (BL-20261107-0812). One independent review checked the
-2026-11-07 decision record; BL-20261107-0718-correction-owner-decisions-record records its fixes.
+- Nothing merged since 2026-11-07 is `Verified`; the last `Verified` entry is
+  BL-20261107-1111-stop-bricking-tasks-docker-suite-verified. No live, Docker or paid
+  run has happened since 2026-11-07, and the approved cloud labelling has not run.
+- The harness source-freeze digest moved with every code merge from #85 to #93 (#87
+  and #95 leave it unchanged): recompute `--runtime-sha256` before any loop or E-run.
+- The research protocol hash changed with train 1 and again with #93: a research run
+  directory from before #93 no longer seeds, and a research session paused before it
+  resumes as `session_contract_drift`.
+- Five adversarial checks of the 2026-11-05 review converged, but each check after
+  the first covered only the previous revision's changes.
 
 ## September 2026 record
 

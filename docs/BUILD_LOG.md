@@ -39251,3 +39251,46 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #101's new head, then the orchestrator's merge under the owner's standing go-ahead.
 
 References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1507-correction-concurrent-local-admission-restamp; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented.
+
+### BL-20261114-1522-correction-concurrent-local-admission-second-restamp -- 2026-11-14 -- Correction: pull request #101's four entries are re-stamped again after `main`'s tail at its merge of `main` at 3cecf7a; their original IDs, first re-stamps and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: Pull request #101 (backlog item 8.1) brings in `main` at 3cecf7a (#98, plan 11.5) with merge commit 2bc20e8.
+- `main`'s last ID is now BL-20261114-1503-correction-experiment-launcher-hangup, which comes after all four of #101's entries.
+- The orchestrator scheduled #101's merge and asked for this re-stamp.
+- The four entries move after the tail and keep their order, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+
+Each entry, with its IDs and authoring time on 2026-11-14:
+- **The design entry.** Authored at 13:08 UTC as BL-20261114-1308 (a3f1db2), and first re-stamped to BL-20261114-1343 (0e2c1bb). It is now BL-20261114-1505-concurrent-local-admission-design.
+- **The implemented entry.** Authored at 13:28 UTC as BL-20261114-1328 (0d3a5a3), and first re-stamped to BL-20261114-1344 (0e2c1bb). It is now BL-20261114-1506-concurrent-local-admission-implemented.
+- **The first re-stamp correction.** Authored at 14:29 UTC as BL-20261114-1429 (29af996). It is now BL-20261114-1507-correction-concurrent-local-admission-restamp.
+- **The review correction.** Authored at 15:04 UTC as BL-20261114-1504 (e162068). It is now BL-20261114-1508-correction-concurrent-local-admission-review.
+
+Decisions:
+- **Choice of minutes.** 15:05 to 15:08 follow `main`'s tail at 15:03, in the entries' order. 15:04 is skipped: the review correction was BL-20261114-1504 until this merge, so a short form `1504` would read both ways.
+- **Only the IDs changed.** 12 lines changed in all: the four headings, and eight lines that cite them in full. Mapped back, the four entries are byte-identical to e162068's.
+- **The first re-stamp correction keeps its body.** Its "Choice of minutes" paragraph describes the first re-stamp, to 13:43 and 13:44 after the tail at 13:42. This entry records the second.
+- **A merge, not a rebase.** The push fast-forwards from e162068, so every commit SHA that the entries and the pull request cite stays in #101's history.
+
+Changes:
+- docs/BUILD_LOG.md: the four headings, the lines that cite them, and this entry.
+- No behaviour changes.
+
+Evidence:
+- At 2bc20e8, `pnpm --silent validate:build-log -- --base-ref origin/main` (3cecf7a) exits 0: 615 entries, append-only against `main`.
+- Mapping the four new IDs back gives e162068's four entries byte for byte.
+- `git grep` finds none of the four previous IDs with their slugs in the tree.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is a record correction only. Nothing is implemented, verified or released by it.
+- Commit messages, the pull request's earlier descriptions and the reviews keep the IDs they had.
+- If another pull request reaches `main` first with later IDs, #101 re-stamps again at its next merge of `main`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #101's new head, then the orchestrator's merge under the owner's standing go-ahead.
+
+References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1507-correction-concurrent-local-admission-restamp; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

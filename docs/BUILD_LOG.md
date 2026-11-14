@@ -39828,3 +39828,88 @@ References:
 - BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
 - BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
 - #108 and its light review, finding 2.
+
+### BL-20261114-1742-serving-card-request-settings-implemented -- 2026-11-14 -- SC settings binding implemented: the card copies P10's request settings, and the reader refuses a structured-output flag under other settings; nothing changes for a card without flags
+
+Status: `Implemented`
+
+Scope or hypothesis: The implementation of BL-20261114-1734-serving-card-request-settings-design. The branch starts from `main` 6c5e931 and is independent of #102, #103 and #108.
+
+Decisions: As designed, with no deviation. What was built:
+(1) **The writer** (scripts/serving-card.py).
+- `P10_SETTINGS_KEYS` and `p10_request_settings` copy and check `$.P10.request_settings` into `evidence.p10.requestSettings`, or write null when there is none.
+- `proposed_structured_output` proposes nothing without a record.
+
+(2) **The reader** (serving-card.ts).
+- `P10RequestSettingsSchema` is strict, and a reply contract and its context are present together. It is optional and nullable in `P10EvidenceSchema`.
+- `ServingCardRequestSettings` and `servingCardRequestSettings(config, cacheSalt)`.
+- `ServingCardExpectation.requestSettings`, which is required, and `servingCardExpectation(config, cacheSalt)`.
+- The check, after the protocol check, with `serving_card_p10_settings_drift` added to `SERVING_CARD_CODES`, which now has 15 codes.
+
+(3) **The driver** calls `buildLocalScreenServingCard(config, cacheSalt)` with the run's `--cache-salt`.
+
+(4) **The role export** builds its `requestSettings` with `servingCardRequestSettings(settings, true)`. Its bytes are unchanged.
+
+(5) **The fixture and the docs.**
+- The synthetic probe fixture's P10 record gains the `request_settings` a P10-align probe writes.
+- docs/experiments/README.md describes the binding.
+
+Changes:
+- **Commit b176773:**
+  - scripts/serving-card.py and src/main/private-agent/serving-card.ts;
+  - scripts/export-role-schemas.ts and scripts/private-agent-local-screen.ts;
+  - docs/experiments/README.md;
+  - tests/helpers/serving-probe-fixture.ts;
+  - the reader, partial-flags, consumed-flags, writer, export and driver-configuration tests.
+- This entry.
+
+Evidence: At b176773:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related suites.** The serving-card reader and writer, export, probe-helper and driver-configuration suites pass: 7 files, 162 tests.
+- **The Markdown card is unchanged.** The writer's Markdown digests (W1) still hold, because the Markdown does not read the new record.
+- **What the tests show.**
+  - **The writer.**
+    - It copies the record in the reader's key order, and it copies a Flash record.
+    - Without a record it writes null and proposes no flag.
+    - It refuses four malformed records: one with another key, one with a path-like model, a reply contract without its context, and another profile.
+  - **The reader.**
+    - Under the run's settings, the writer's card reaches today's fail-closed step.
+    - Changing any one setting (the model, streaming, the reply contract with its context, the cache salt) refuses at the first flagged mode. So does a missing or null record.
+    - A card without flags resolves under other settings.
+    - An unknown key, or a contract without its context, is invalid.
+    - With every flag consumed (mocked), a streaming change still refuses.
+  - **The export.** Its record equals the reader's function for plain, streamed and Flash settings.
+  - **The driver.**
+    - The expectation carries the run's cache salt and, only under the contract, the context.
+    - Through the real driver, the writer's card stops at the fail-closed step with the salt, and at the settings check without it. Neither leaves an output directory.
+- **Mutants.** Nine single edits each fail a test:
+  - **The reader:** no settings check; a check that passes a card without a record; run settings that ignore the cache salt; a schema that accepts a contract without its context.
+  - **The driver:** it drops `--cache-salt`.
+  - **The writer:** it drops the record; it proposes flags without a record; it accepts any profile.
+  - **The export:** it records another salt.
+- **The full suite.** `pnpm exec vitest run` at b176773: 186 files and 3,644 tests pass, 13 files and 86 tests are skipped, and none fails.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists.
+- **The design's limits stand:**
+  - the model layer's own body construction stays unbound;
+  - the token-admission helper is not bound;
+  - the payloads stay synthetic.
+- **On `main` without item 9**, structured output is still unconsumed. This change alters which refusal a flagged card meets, not whether it resolves.
+- **#108 edits the same loop and code list** in serving-card.ts. Whichever of the two merges second merges `main` in and keeps both checks.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review;
+- CI green;
+- the merge, before E0's card is adopted, and before E0's export if the owner chooses.
+
+References:
+- BL-20261114-1734-serving-card-request-settings-design (implemented here);
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- #108 and its light review, finding 2.

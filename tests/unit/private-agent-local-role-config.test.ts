@@ -9,7 +9,14 @@ import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
 import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
 import { DEFAULT_SERVING_POLICY, ServingCardError, servingCardExpectation, servingCardFreeze } from "../../src/main/private-agent/serving-card";
-import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
+import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenResearchOption, localScreenSourceFreeze, researchPipelineFreeze, runLocalArtifactScreen,
+  withClaimsLedger } from "../../scripts/private-agent-local-screen";
+import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
+import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
+import { writeResearchSeedSource } from "../helpers/research-seed-source";
+import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import { PipelineFreezeSchema } from "../../src/main/private-agent/research-seed";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -134,5 +141,67 @@ describe("shared harness local role configuration", () => {
     for (const error of [tampered, new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json")]) {
       expect(localScreenFailureLine(error)).not.toContain("/synthetic"); expect(localScreenFailureLine(error)).not.toContain("parameter");
     }
+  });
+  it("7a.2: the freeze's pipeline block is the pre-7a.2 block without a card, and names a non-default card's policy with the protocol computed under it (BL-20261114-1346-research-role-policy-design)", () => {
+    const before = { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET, planner: "local", writer: "local" };
+    expect(canonical(researchPipelineFreeze("local"))).toBe(canonical(before));
+    expect(canonical(researchPipelineFreeze("cloud", structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy))).toBe(canonical({ ...before, planner: "cloud" }));
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy; roles.synthesis.thinking = ["disabled", "model"];
+    const block = researchPipelineFreeze("local", roles);
+    expect(block).toEqual({ ...before, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles), roles });
+    expect(block.protocolSha256).not.toBe(before.protocolSha256); expect(PipelineFreezeSchema.parse(block)).toEqual(block);
+  });
+  /**
+   * 7a.2's review (#103, finding 1 and 2): a synthetic operator task like L2's, whose one input holds a quotable line so that a research
+   * stage can read it, and the driver's options for it; configuration comes only from `environment`.
+   */
+  const operatorTask = (root: string) => {
+    const task = join(root, "operator-task"); mkdirSync(join(task, "input"), { recursive: true });
+    const data = Buffer.from("The synthetic survey recorded twelve healthy trees in the orchard.\n"), brief = "Summarise input/input.txt in output/result.txt with its claims ledger.";
+    const job = canonical({ schemaVersion: 1, jobId: "synthetic_operator_fixture", goalFile: "brief.md",
+      inputs: [{ path: "input.txt", sha256: digest(data), bytes: data.length, confidentiality: "private" }],
+      requiredArtifacts: ["output/result.txt"], requiredCapabilities: ["local_calculation"],
+      permissions: { externalModelDisclosure: "none", publicWeb: "none", publish: false, send: false, mutateInputs: false },
+      verification: { deterministic: "independent arithmetic", humanCriteria: ["computed result"], runtimeAndPrivacyReceiptRequired: true },
+      labelIsMetadataOnly: true, synthetic: true });
+    writeFileSync(join(task, "job.json"), job); writeFileSync(join(task, "brief.md"), brief); writeFileSync(join(task, "input/input.txt"), data);
+    return { taskDirectory: task, expectedJobSha256: digest(job), expectedBriefSha256: digest(brief), syntheticAuthoritySha256: digest("authored synthetic fixture"),
+      expectedRuntimeSha256: localScreenSourceFreeze().sha256, imageId: `sha256:${"0".repeat(64)}`, outputDirectory: join(root, "operator-result"),
+      profile: "heavy" as const, claimsLedger: true };
+  };
+  const plainEnvironment = { SOAR_PROVIDER_MODE: "local", SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1", SOAR_VLLM_COST_POLICY: "local_zero_cost", SOAR_VLLM_MODEL: "RM-01 VLM" };
+  const nonDefault = (): ResearchRolePolicy => { const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy; roles.extract.maxOutputTokens = [1024, 2048]; return roles; };
+
+  it("7a.2 review: a card whose synthesis attempt cannot hold the 100-word floor is refused before any directory, database or request exists", async () => {
+    const root = workspace(), cwd = join(root, "empty-cwd"); mkdirSync(cwd);
+    const options = { ...operatorTask(root), pipeline: "research" as const };
+    // 1,148 tokens leave floor((1,148 - 1,024) / 1.245) = 99 words: the reader accepts the cap (128 or more), the floor does not.
+    const card = adopt(proposedServingCard(), ADOPTING_ENTRY, { defaults: true }); card.roles.synthesis.maxOutputTokens = [8192, 1148];
+    const written = writeCard(root, card, "below-floor.json");
+    await expect(runLocalArtifactScreen(options, { environment: { ...plainEnvironment, SOAR_SERVING_CARD_FILE: written.path, SOAR_SERVING_CARD_SHA256: written.sha256 }, cwd }))
+      .rejects.toThrow("research_role_policy_invalid");
+    expect(existsSync(options.outputDirectory)).toBe(false);
+  });
+
+  it("7a.2 review: a seeded run without a card refuses, before any output exists, a source that read under a non-default role policy", async () => {
+    const root = workspace(), cwd = join(root, "empty-cwd"); mkdirSync(cwd);
+    const options = operatorTask(root), task = loadPreparedOperatorTask(options.taskDirectory, { jobSha256: options.expectedJobSha256, briefSha256: options.expectedBriefSha256 });
+    // The source read the seeded run's own brief (the goal with the claims ledger's instructions) and inputs, under a card's policy.
+    const source = join(root, "source-run");
+    await writeResearchSeedSource(source, { taskBinding: task.binding, brief: withClaimsLedger(task.phase, false).contract.goal,
+      sources: task.phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })), roles: nonDefault() });
+    await expect(runLocalArtifactScreen({ ...options, researchFrom: source }, { environment: plainEnvironment, cwd })).rejects.toThrow("research_seed_protocol_mismatch");
+    expect(existsSync(options.outputDirectory)).toBe(false);
+  });
+
+  it("7a.2 review: the research option hands the session the card's role policy, the local reader, and the split arm's planner and synthesiser", () => {
+    const broker = {} as PrivateAgentBroker, local = buildLocalScreenModelConfig(config(true), COORDINATOR_PROFILES.heavy);
+    const cloud = { ...local, destinationId: "cloud_split_arm", inputUsdPerMillion: 3, outputUsdPerMillion: 15 }, roles = nonDefault();
+    const option = localScreenResearchOption(broker, "job", local, cloud, { roles });
+    expect(option.roles).toEqual(roles); expect(option).not.toHaveProperty("diagnostics");
+    const models = option.models("reader-context");
+    expect([models.reader.config, models.planner.config, models.synthesiser.config]).toEqual([local, cloud, cloud]);
+    const plain = localScreenResearchOption(broker, "job", local, undefined);
+    expect(plain).not.toHaveProperty("roles"); expect(Object.values(plain.models("reader-context")).map(model => model.config)).toEqual([local, local, local]);
   });
 });

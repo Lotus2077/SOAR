@@ -13,6 +13,8 @@ import { ResearchPlanAttemptSchema, ResearchPlanSchema } from "../../src/main/pr
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 import { F2_SHAPE_KIB, inventedCorpus, previewBoundarySource } from "../helpers/research-corpus";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import { researchSynthesisLengthCap as lengthCapFor } from "../../src/main/private-agent/research-admission";
 
 type Stage = "index" | "plan" | "extract" | "synthesise";
 type Script = (stage: Stage, input: any, sequence: number, system: string) => string | { content: string; truncated: boolean } | Error;
@@ -50,7 +52,9 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   // 7a.1 (BL-20261109-0447): what a kept extraction reply lost or had corrected, and the accepted argument's rewritten headings; all counts.
   "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged",
   // 7(c) (BL-20261113-0927-research-v5-design): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
-  "fallback", "synthesisAttempts"]);
+  "fallback", "synthesisAttempts",
+  // 7a.2 (BL-20261114-1346-research-role-policy-design): attempt 2's synthesis length cap, only when a role policy makes it differ; a count.
+  "secondAttemptLengthCapWords"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
     expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
@@ -1210,5 +1214,71 @@ describe("E1 recoverability: the reading stage's recoveries and pinned limits at
     expect(row.quotesLeftByCap).toBeGreaterThan(0); expect(row.quotesInPacket! + row.quotesLeftByCap!).toBe(252); expect(row.packetBytes).toBeLessThanOrEqual(64 * 1024);
     expect(coverage.omissions).toHaveLength(row.quotesLeftByCap!); expect(coverage.omissions.every((o: any) => o.reason === "packet_cap")).toBe(true);
     expect(m.calls.some(c => c.stage === "synthesise")).toBe(false);
+  });
+});
+
+/** Item 7a.2 (BL-20261114-1346-research-role-policy-design): a role policy as an adopted serving card resolves it. */
+const rolePolicy = (edit: (roles: any) => void = () => {}): ResearchRolePolicy => { const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as any; edit(roles); return roles; };
+const CARD = rolePolicy(r => { r.index.maxOutputTokens = [1024, 1536]; r.plan.maxOutputTokens = [4096, 8192]; r.plan.thinking = ["disabled", "model"];
+  r.extract.maxOutputTokens = [1024, 2048]; r.synthesis.maxOutputTokens = [8192, 6000]; r.synthesis.thinking = ["disabled", "model"]; });
+/** A model of the fixture's shape with another configuration, on the same fixture broker. */
+const modelOf = (m: ReturnType<typeof models>, change: Record<string, unknown>) => new PrivateAgentModel({ request: m.request } as unknown as PrivateAgentBroker,
+  { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", ...change }, "job", "reader");
+/** The first attempt of every stage is broken, so each role sends attempt 1 and attempt 2. */
+const twoAttempts = (stage: Stage, input: any, n: number, system: string) => n === 0 && stage !== "extract" ? "not json" : stage === "extract" && n === 0 ? "not json" : happy(stage, input, n, system);
+const sent = (m: ReturnType<typeof models>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => [c.body.max_tokens, c.body.reasoning_effort ?? "off", c.body.chat_template_kwargs?.enable_thinking ?? null]);
+
+describe("item 7a.2: per-role caps and per-attempt thinking from an adopted card (BL-20261114-1346-research-role-policy-design)", () => {
+  it("sends each local role's attempt 1 and attempt 2 their caps and thinking, and each synthesis attempt its own length cap", async () => {
+    const m = models(twoAttempts), events: ResearchStageCounts[] = [], result = await run(m, { roles: CARD }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(sent(m, "index")).toEqual([[1024, "off", false], [1536, "off", false]]);
+    expect(sent(m, "plan")).toEqual([[4096, "off", false], [8192, "medium", null]]);
+    // Two chunks: the first one's initial call is broken and repaired after the second's.
+    expect(sent(m, "extract")).toEqual([[1024, "off", false], [1024, "off", false], [2048, "off", false]]);
+    expect(sent(m, "synthesise")).toEqual([[8192, "off", false], [6000, "medium", null]]);
+    const caps = [lengthCapFor(RESEARCH_V4_TEST_BRIEF, { maxOutputTokens: 8192, thinking: "disabled" }).words, lengthCapFor(RESEARCH_V4_TEST_BRIEF, { maxOutputTokens: 6000, thinking: "model" }).words];
+    expect(caps).toEqual([5757, 1200]);
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap.words)).toEqual(caps);
+    expect(events[3]).toMatchObject({ stage: "synthesise", lengthCapWords: 5757, secondAttemptLengthCapWords: 1200 }); for (const event of events) hashOnlyStageRow(event);
+    expect(result.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD)); expect(result.summary.protocolSha256).not.toBe(RESEARCH_PROTOCOL_SHA256);
+  });
+  it("keeps today's values for a cloud planner and synthesiser while the local reader follows the card", async () => {
+    const m = models(twoAttempts), priced = { inputUsdPerMillion: 1, outputUsdPerMillion: 1 };
+    // A synthesis ceiling below the floor would refuse a local synthesiser; a cloud one never reads the policy.
+    const card = rolePolicy(r => { Object.assign(r, structuredClone(CARD)); r.synthesis.maxOutputTokens = [1100, 1100]; });
+    const result = await run(m, { roles: card, models: { reader: m.models.reader, planner: modelOf(m, priced), synthesiser: modelOf(m, priced) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(sent(m, "index")).toEqual([[1024, "off", false], [1536, "off", false]]); expect(sent(m, "extract").map(row => row[0])).toEqual([1024, 1024, 2048]);
+    expect(sent(m, "plan")).toEqual([[8192, "medium", null], [8192, "medium", null]]); expect(sent(m, "synthesise")).toEqual([[8192, "medium", null], [8192, "medium", null]]);
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap.words)).toEqual([1200, 1200]);
+  });
+  it("refuses before any request a cap above its role model's limit, a synthesis ceiling below the floor, and a malformed policy", async () => {
+    const cases: [Parameters<typeof runResearchPipeline>[0]["roles"], (m: ReturnType<typeof models>) => Partial<Parameters<typeof runResearchPipeline>[0]>][] = [
+      // A 4,096-token role model under a non-default policy: plan's 8,192 would be cut silently, so it is refused even though only extract changed.
+      [rolePolicy(r => { r.extract.maxOutputTokens = [1024, 2048]; }), m => ({ models: { reader: modelOf(m, { maxOutputTokens: 4096 }), planner: modelOf(m, { maxOutputTokens: 4096 }), synthesiser: modelOf(m, { maxOutputTokens: 4096 }) } })],
+      // 1,100 tokens leave floor((1,100 - 1,024) / 1.245) = 61 words, below the 100-word floor.
+      [rolePolicy(r => { r.synthesis.maxOutputTokens = [8192, 1100]; }), () => ({})],
+      [{ ...rolePolicy(), extract: { maxOutputTokens: [0, 2048], thinking: ["disabled", "disabled"], structuredOutput: null } } as unknown as ResearchRolePolicy, () => ({})],
+    ];
+    for (const [roles, extra] of cases) {
+      const m = models(), events: ResearchStageCounts[] = [], result = await run(m, { roles, ...extra(m) }, events);
+      expect(result).toMatchObject({ status: "incomplete", reason: "research_role_policy_invalid" });
+      expect(m.request).not.toHaveBeenCalled(); expect(events).toEqual([]); expect(result.files.map(f => f.path)).toEqual([RESEARCH_FILES.summary]);
+    }
+    // The same 4,096-token models without a card run as they always did: the default policy is never checked.
+    const m = models(), result = await run(m, { models: { reader: modelOf(m, { maxOutputTokens: 4096 }), planner: modelOf(m, { maxOutputTokens: 4096 }), synthesiser: modelOf(m, { maxOutputTokens: 4096 }) } });
+    expect(result.status).toBe("completed");
+  });
+  it("binds the policy into the protocol only when it is not the default: without a card every body, row and hash is byte-identical", async () => {
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY)).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, rolePolicy())).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD)).not.toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, rolePolicy(r => { r.plan.thinking = ["model", "disabled"]; }))).not.toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD));
+    const bare = models(twoAttempts), carded = models(twoAttempts), bareEvents: ResearchStageCounts[] = [], cardEvents: ResearchStageCounts[] = [];
+    const without = await run(bare, {}, bareEvents), withDefault = await run(carded, { roles: rolePolicy() }, cardEvents);
+    expect(carded.calls.map(c => canonical(c.body))).toEqual(bare.calls.map(c => canonical(c.body)));
+    expect(canonical(cardEvents)).toBe(canonical(bareEvents)); expect(canonical(withDefault.files.map(f => [f.path, f.bytes.toString()]))).toBe(canonical(without.files.map(f => [f.path, f.bytes.toString()])));
   });
 });

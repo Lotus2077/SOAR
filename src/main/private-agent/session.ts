@@ -15,6 +15,7 @@ import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, re
 import { validateReadyResearchPacket } from "./research-coverage";
 import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { createResearchInput, createResearchProducer, validateResearchProducer } from "./research-producer";
+import type { ResearchRolePolicy } from "./research-roles";
 
 export interface SessionFile { path: string; bytes: Buffer }
 export interface SessionPhase {
@@ -60,6 +61,8 @@ export interface GeneralSessionOptions {
    * reader context. The planner and synthesiser may be a cloud model only where the job's lineage admits one.
    */
   research?: { models: (contextId: string) => ResearchModels; budget?: ResearchBudget;
+    /** 7a.2: the role policy an adopted serving card resolved; absent is the default, and the identity and every request are as without it. */
+    roles?: ResearchRolePolicy;
     /**
      * Backlog item 4: a sink for the stage's rejected or truncated replies, and since 7a.1 its kept extraction replies with drops. Forwarded to the pipeline only while the reader
      * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
@@ -309,7 +312,8 @@ export class GeneralAgentSession {
         // Spread only when set, so the identity of every pre-existing (no-arm) session stays byte-identical.
         ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: modelIdentity(judgeModel.config) } : {}),
         // H2b: the frozen pipeline protocol and the stage's model identities, spread only when configured.
-        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET),
+        // 7a.2: a non-default role policy is bound through the protocol hash; the default leaves it unchanged.
+        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles),
           budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels) } } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
@@ -407,7 +411,8 @@ export class GeneralAgentSession {
           const diagnostics = options.research.diagnostics && diagnosticRetention(store.context(readerContextId)) === "raw" ? options.research.diagnostics : undefined;
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
-              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}) });
+              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
+              ...(options.research.roles ? { roles: options.research.roles } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {

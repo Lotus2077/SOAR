@@ -1020,7 +1020,7 @@ describe("E1 recoverability: a D4 retry wait cut short never leaves a superseded
   });
 });
 
-describe("receipt disclosure fields (plan 11.4, BL-20261114-1504)", () => {
+describe("receipt disclosure fields (plan 11.4, BL-20261114-1523)", () => {
   it("records the destination kind, the body bytes and HARN-27's disclosed bytes: a POST's body, a GET's URL, nothing to a local model or a loopback URL", () => {
     const body = '{"question":"synthetic é"}', remote = new URL("https://api.example.invalid/v1/messages"), page = new URL("https://www.example.invalid/a?b=c");
     expect(dispatchDisclosure("cloud_model", remote, "POST", body)).toEqual({ destinationKind: "cloud_model", bodyBytes: Buffer.byteLength(body), disclosedBytes: Buffer.byteLength(body) });
@@ -1117,10 +1117,10 @@ describe("concurrent zero-risk local admission (backlog item 8, part 1)", () => 
     const rows = f.store.dispatches("job");
     expect(rows.map(row => [row.status, row.contextId, row.purpose, row.reservedFeeMicrousd, row.feeMicrousd])).toEqual(
       [0, 1, 2].map(() => ["settled", "context", PURPOSE, 0, 0]));
-    // Liveness is never persisted: each receipt has exactly the keys a serial settled receipt has.
+    // Liveness is never persisted: each receipt has exactly the keys a serial settled receipt has, plan 11.4's disclosure fields included.
     for (const row of rows) {
-      expect(Object.keys(row).sort()).toEqual(["committedAt", "contextId", "contextSha256", "destinationId", "destinationSha256", "feeMicrousd", "id", "jobId",
-        "packetSha256", "policyRevision", "purpose", "reservedFeeMicrousd", "responseSha256", "scan", "status"]);
+      expect(Object.keys(row).sort()).toEqual(["bodyBytes", "committedAt", "contextId", "contextSha256", "destinationId", "destinationKind", "destinationSha256",
+        "disclosedBytes", "feeMicrousd", "id", "jobId", "packetSha256", "policyRevision", "purpose", "reservedFeeMicrousd", "responseSha256", "scan", "status"]);
     }
   });
 

@@ -503,20 +503,20 @@ def safe_integer(value):
     return value if abs(value) <= 2 ** 53 - 1 else None
 
 
-# Plan 11.4 (BL-20261114-1504-registry-columns-design): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
+# Plan 11.4 (BL-20261114-1523-registry-columns-design): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
 # and 7(c)'s fallback markers. Every value is a count, a USD amount, a fixed host enum or null: a retained source's URL is read only
 # to count it and its hostname, and never leaves this process.
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 DISPATCH_STATUSES = ("committed", "settled", "unknown", "superseded", "failed")
 HOST_TOKEN = re.compile(r"^[a-z][a-z0-9 _-]{0,63}$")
-# BL-20261114-1507, decision (1): the runner's closed set of tool names, runner.ts's tools with every option on and observations.ts's
+# BL-20261114-1526, decision (1): the runner's closed set of tool names, runner.ts's tools with every option on and observations.ts's
 # read_observation. tests/unit/registry-row-columns.test.ts checks this mirror against the runner's own definitions. A tool_started
 # event records the name the model chose before the runner checks it, so any other name counts as `other` and never reaches a row.
 RUNNER_TOOLS = ("append_file", "check_claims", "execute", "fetch_public", "finish", "read_observation", "remember_plan", "request_consultation", "str_replace", "write_file")
 
 
 def source_key(url: str) -> str:
-    """A retained source's URL as `urls` counts it (BL-20261114-1507, decision (2)). Each run's snapshot receiver listens on its own
+    """A retained source's URL as `urls` counts it (BL-20261114-1526, decision (2)). Each run's snapshot receiver listens on its own
     loopback port, so a loopback URL is counted without its port, and one source read by two runs of a loop counts once."""
     try:
         parts = urllib.parse.urlsplit(url)
@@ -544,7 +544,7 @@ def depth_parts(events: list, dispatches: list) -> dict:
         if kind == "cloud_model" or (kind is None and item.get("destinationId") == "cloud_coordinator"):
             purpose, status = item.get("purpose"), item.get("status")
             # Kept with its commit time for the row's commit order. Only the store's settle records a fee, so a call that did not
-            # settle has none (BL-20261114-1507, decisions (3) and (4)).
+            # settle has none (BL-20261114-1526, decisions (3) and (4)).
             cloud.append((safe_integer(item.get("committedAt")), {
                 "purpose": purpose if isinstance(purpose, str) and HOST_TOKEN.fullmatch(purpose) else "other",
                 "status": status if status in DISPATCH_STATUSES else "other",
@@ -574,7 +574,7 @@ def depth_parts(events: list, dispatches: list) -> dict:
         "retainedBytes": sum(count(event.get("bytes")) for event in retained),
         "tools": tools, "fetchReceipts": len(retained),
         # "Read" on a closed corpus (HARN-27): the sources the reading stage indexed, and null unless it recorded the count, which a
-        # denied index stage does not (BL-20261114-1507, decision (3)); item 12 revises it.
+        # denied index stage does not (BL-20261114-1526, decision (3)); item 12 revises it.
         "sourcesRead": index["sourcesIndexed"] if index is not None and is_count(index.get("sourcesIndexed")) else None,
         "fallback": {"plan": "host_plan" if (plan or {}).get("fallback") == "host_plan" else "none",
                      "synthesis": "skeleton" if (synthesis or {}).get("fallback") == "skeleton" else "none"} if stages else None,
@@ -605,7 +605,7 @@ def depth_columns(parts: list, fallback) -> dict:
         "reservedUsd": sum(part["reserved"] for part in parts) / 1_000_000,
         "pinnedUsd": sum(part["pinned"] for part in parts) / 1_000_000,
         "committedDispatches": sum(part["committed"] for part in parts),
-        # BL-20261114-1507, decision (4): commit order across the runs; a call without a commit time keeps the scan's order, after the others.
+        # BL-20261114-1526, decision (4): commit order across the runs; a call without a commit time keeps the scan's order, after the others.
         "cloudCalls": [call for _, call in sorted((entry for part in parts for entry in part["cloud"]), key=lambda entry: (entry[0] is None, entry[0] or 0))],
         "disclosedBytes": sum(packets.values()) if all(part["complete"] for part in parts) else None,
         "urls": len(urls), "domains": len(hosts),

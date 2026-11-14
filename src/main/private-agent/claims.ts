@@ -144,8 +144,103 @@ def section_present(lines, title):
  return any(strip_trailing(re.sub(r'^[#*_\s]+','',line)).lower()==title.lower() for line in lines)`;
 
 /**
+ * How the claims check removes fenced code, then HTML comments, from the report before it reads citations and headings, in Python (decision 6
+ * of E1-J2, BL-20261114-1711). `strip_fences` pairs a line that opens a fence (three backticks after optional spaces and tabs) with the next
+ * line that is three backticks between optional spaces and tabs, and turns the pair and the lines between into one empty line; an opening line
+ * with no later closing line ends the pairing. `strip_comments` removes each `<!--` through the first `-->` that starts after it. They return
+ * what `re.sub(r'(?ms)^[ \t]*```.*?^[ \t]*```[ \t]*$', '', text)` and `re.sub(r'(?s)<!--.*?-->', '', text)` returned on every input, in linear
+ * time: those patterns scanned to the end from every opener that had no closer. The backtick is `chr(96)`, since this template cannot hold one.
+ * Tests run this constant, not a copy of it.
+ */
+export const CLAIMS_REPORT_STRIP_PY = String.raw`def strip_fences(text):
+ fence=chr(96)*3; lines=text.split('\n'); out=[]; i=0
+ while i<len(lines):
+  if lines[i].lstrip(' \t').startswith(fence):
+   j=i+1
+   while j<len(lines) and lines[j].strip(' \t')!=fence: j+=1
+   if j==len(lines): out.extend(lines[i:]); break
+   out.append(''); i=j+1
+  else: out.append(lines[i]); i+=1
+ return '\n'.join(out)
+def strip_comments(text):
+ out=[]; i=0; p=text.find('<!--')
+ while p>=0:
+  q=text.find('-->',p+4)
+  if q<0: break
+  out.append(text[i:p]); i=q+3; p=text.find('<!--',i)
+ out.append(text[i:])
+ return ''.join(out)`;
+
+/**
+ * How the claims check turns HTML and DOCX markup into text, in Python (decision 6 of E1-J2, BL-20261114-1711): `strip_scripts` replaces each
+ * script or style block with a space, `strip_tags` each tag, and `join_runs` removes the markup between two runs of a DOCX paragraph. They
+ * return what `re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>', ' ', text)`, `re.sub(r'<[^>]+>', ' ', text)` and
+ * `re.sub(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>(?:\s*<w:rPr>.*?</w:rPr>)?\s*<w:t\b[^>]*>', '', chunk, flags=re.S)` returned on every input, in
+ * linear time: each of those scanned to the end from every opener that had no closer.
+ * - A script or style block still ends where the former pattern's backreference says: SCRIPT_PAIR is that pattern, run only on a short string
+ *   made of the name and one candidate closing tag. Names that accept each other share one list of accepted closing positions.
+ * - The run join keeps the former pattern's fixed parts as patterns matched at known positions, and lists once each `</w:rPr>` that its tail follows.
+ * Tests run this constant, not a copy of it.
+ */
+export const CLAIMS_MARKUP_STRIP_PY = String.raw`import bisect, re
+SCRIPT_NAME=re.compile(r'(?is)<(script|style)')
+SCRIPT_PAIR=re.compile(r'(?is)<(script|style)[^>]*>.*?</\1>')
+RUN_HEAD=re.compile(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>',re.S)
+RUN_PROPS=re.compile(r'\s*<w:rPr>',re.S)
+RUN_TAIL=re.compile(r'\s*<w:t\b[^>]*>',re.S)
+def strip_scripts(text):
+ slashes=[]; q=text.find('</')
+ while q>=0: slashes.append(q); q=text.find('</',q+2)
+ kinds=[]; out=[]; i=0; gt=-1; m=SCRIPT_NAME.search(text)
+ while m:
+  name=m.group(1)
+  if gt<m.end(): gt=text.find('>',m.end())
+  if gt<0: break
+  for first,closers in kinds:
+   if SCRIPT_PAIR.fullmatch('<'+first+'></'+name+'>'): break
+  else:
+   closers=[q for q in slashes if SCRIPT_PAIR.fullmatch('<'+name+'>'+text[q:q+len(name)+3])]; kinds.append((name,closers))
+  k=bisect.bisect_left(closers,gt+1)
+  if k==len(closers): m=SCRIPT_NAME.search(text,m.start()+1); continue
+  out.append(text[i:m.start()]); out.append(' '); i=closers[k]+len(name)+3; m=SCRIPT_NAME.search(text,i)
+ out.append(text[i:])
+ return ''.join(out)
+def strip_tags(text):
+ out=[]; i=0; p=text.find('<')
+ while p>=0:
+  r=text.find('>',p+1)
+  if r<0: break
+  if r>p+1: out.append(text[i:p]); out.append(' '); i=r+1; p=text.find('<',i)
+  else: p=text.find('<',r)
+ out.append(text[i:])
+ return ''.join(out)
+def join_runs(chunk):
+ tails=[]; c=chunk.find('</w:rPr>')
+ while c>=0:
+  t=RUN_TAIL.match(chunk,c+8)
+  if t: tails.append((c,t.end()))
+  c=chunk.find('</w:rPr>',c+8)
+ out=[]; i=0; s=chunk.find('</w:t>')
+ while s>=0:
+  end=-1; h=RUN_HEAD.match(chunk,s)
+  if h:
+   o=RUN_PROPS.match(chunk,h.end())
+   if o:
+    k=bisect.bisect_left(tails,(o.end(),))
+    if k<len(tails): end=tails[k][1]
+   if end<0:
+    t=RUN_TAIL.match(chunk,h.end())
+    if t: end=t.end()
+  if end<0: s=chunk.find('</w:t>',s+1); continue
+  out.append(chunk[i:s]); i=end; s=chunk.find('</w:t>',end)
+ out.append(chunk[i:])
+ return ''.join(out)`;
+
+/**
  * Host-owned verifier: quotes verbatim in declared file sources or in retained public sources (named by URL,
  * resolved and digest-checked through CLAIMS_RETAINED_ENV), locators computed by the host, citations resolved.
+ * `units` reads pypdf's `page_labels` once per PDF, at the first page, where the loop first read it before: each read builds every page's
+ * label, so a read per page took time that grew with the square of the page count (decision 6 of E1-J2, BL-20261114-1711).
  */
 export function claimsLedgerCheck(input: { reportPath: string; sources: ClaimsSource[]; publicSources?: boolean; root?: string }): ArtifactCheck {
   if ((!input.sources.length && !input.publicSources) || input.sources.length > 64 || new Set(input.sources.map(source => source.id)).size !== input.sources.length) throw new Error("claims_sources_invalid");
@@ -177,24 +272,28 @@ def file(name):
  for part in parts:
   cur=cur/part; need(not cur.is_symlink(),'invalid_path')
  need(cur.resolve().is_relative_to(root) and cur.is_file() and cur.stat().st_nlink==1 and cur.stat().st_size<=67108864,'invalid_file'); return cur
+${CLAIMS_MARKUP_STRIP_PY}
 def units(path):
  data=path.read_bytes(); low=path.name.lower()
  if data[:5]==b'%PDF-' or low.endswith('.pdf'):
   from pypdf import PdfReader
   reader=PdfReader(io.BytesIO(data)); out=[]
   for index,page in enumerate(reader.pages):
+   if index==0:
+    try: labels=reader.page_labels
+    except Exception: labels=None
    label=None
-   try: label=reader.page_labels[index]
+   try: label=labels[index]
    except Exception: label=None
    out.append(('page %s' % (label or index+1), page.extract_text() or ''))
   return out
  if data[:4]==b'PK\\x03\\x04' or low.endswith('.docx'):
   with zipfile.ZipFile(io.BytesIO(data)) as z: xml=z.read('word/document.xml').decode('utf-8','replace')
-  paras=[html.unescape(re.sub(r'<[^>]+>',' ',re.sub(r'</w:t>\\s*</w:r>\\s*<w:r\\b[^>]*>(?:\\s*<w:rPr>.*?</w:rPr>)?\\s*<w:t\\b[^>]*>','',chunk,flags=re.S))) for chunk in re.split(r'</w:p>',xml)]
+  paras=[html.unescape(strip_tags(join_runs(chunk))) for chunk in re.split(r'</w:p>',xml)]
   return [('paragraph %d' % (i+1),t) for i,t in enumerate(paras) if t.strip()]
  text=data.decode('utf-8','replace'); out=[('line',line) for line in text.split('\\n')]
  if low.endswith(('.html','.htm')) or text.lstrip()[:1]=='<':
-  stripped=html.unescape(re.sub(r'<[^>]+>',' ',re.sub(r'(?is)<(script|style)[^>]*>.*?</\\1>',' ',text)))
+  stripped=html.unescape(strip_tags(strip_scripts(text)))
   out.append(('html text',stripped))
  return out
 def locate(quote, items):
@@ -216,6 +315,7 @@ def locate(quote, items):
   if pos>=0: return ('%s to %s' % (others[index][0],others[index+1][0]), window(joined,pos,len(quote)))
  return None
 ${CLAIMS_SECTION_RULE_PY}
+${CLAIMS_REPORT_STRIP_PY}
 result={'passed':False,'claims':[],'report':{}}
 try:
  ledger_bytes=file(p['ledgerPath']).read_bytes(); need(len(ledger_bytes)<=262144,'ledger_size_limit')
@@ -246,7 +346,7 @@ try:
   result['claims'].append(entry)
  report_file=file(p['reportPath']); report_units=units(report_file)
  report='\\n'.join(text for label,text in report_units if label!='html text') if report_units and report_units[0][0]!='line' else report_file.read_text(encoding='utf-8',errors='replace')
- body=re.sub(r'(?s)<!--.*?-->','',re.sub(r'(?ms)^[ \\t]*\`\`\`.*?^[ \\t]*\`\`\`[ \\t]*$','',report)); lines=body.split('\\n')
+ body=strip_comments(strip_fences(report)); lines=body.split('\\n')
  cited=set(re.findall(r'\\[(C[0-9]{1,3})\\]',body))
  missing=sorted(ids-cited); unknown=sorted(cited-ids)
  sections={title:section_present(lines,title) for title in p['sections']}

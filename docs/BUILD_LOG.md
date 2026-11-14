@@ -38852,3 +38852,176 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: One light review, with a skeptic on every privacy finding, then the owner's answer on the listed residues. 10.b's gate is met only when the owner has accepted each listed limit, or asked for rules. 10.b also waits for 7b.2's merge. At merge, this branch's two entries are re-stamped after `main`'s tail (BL-20261113-0937-owner-decision-restamp-unmerged-entries).
 
 References: BL-20261114-1345-scrub-policy-5-design; BL-20261114-1430-correction-scrub-policy-5-restamp; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries.
+
+### BL-20261114-1637-correction-scrub-policy-5-review -- 2026-11-14 -- Correction to BL-20261114-1432-scrub-policy-5-implemented after the light review of #105: four of the six classes the review found are closed by provisional-path rules, the rest and their wider classes are listed, and D2 and the CPU costs are measured
+
+Status: `Implemented`
+
+Scope or hypothesis: The orchestrator's light review of #105 at 5e6ab61 found no blocker: no input it tried sends text that policy 4 hid.
+- It found six majors. Each is a class that policy 5 still sends, and that BL-20261114-1432-scrub-policy-5-implemented either left out of the residue list or called closed. In each, `main` sends the same or more.
+- It found two minors: D2 was never measured against 4aeac37, and the worst CPU constant was larger than reported.
+- A skeptic confirmed all six with its own harness. It tested a fix for each on patched copies of 5e6ab61, and its guidance governs this entry.
+
+This entry follows that guidance:
+- it closes F1, F2, F4 and F5, as the skeptic worded them, with rules on the provisional path only;
+- it widens F3's user names only, and lists F3's single-label host;
+- it lists F6, F4's wider class, and what each closed class still leaves;
+- it corrects BL-20261114-1432 where that entry called L1 and G4 closed, or left bounds out of its L2 and L6 items. That entry stays as written;
+- it measures both minors, and the quadratic shape the skeptic found outside the six.
+
+The code and tests are commits 87779c0 (the six classes), 6cf7b05 (the counts after a re-scrub) and 7a746b7 (the last rule's password bound). Hypothesis:
+- no output sends text that policy 4 hid;
+- every closed class is closed by a tested row, in both scopes;
+- the residue list below covers every class that the review, the skeptic and this branch's probes found.
+
+Decisions:
+1. **F1, L1: digits glued after a whole URL or path form.** `entrySpan` takes the decimal digits glued after a match into it, so that no alias is followed by a digit. The provisional path then read the token's run only from after those digits, where `?`, `#`, `/` and `;` are not glue.
+   - Now, on the provisional path only, the run of a URL or path form is read from the match's end before its digits. A query, path or fragment after the digits goes too: `see https://intranet.acme.example/doc2?employee=alice now` gives `see [url] now`.
+   - Digits alone keep the alias, as #79's rule for a count or a footnote pins: `input/corpus/alpha-field-notes.md5` stays `S1`.
+   - A source's host followed directly by digits is no match at either path, since a digit glues to a letter. It stays listed (item 3).
+2. **F2: a credential before a URL or path.** A last provisional URL rule takes `user:password@` written directly before a `[url]` or `[file]` placeholder, or before `:` and one, as `[url]`.
+   - `see alice:hunter2@https://acme.example/hr/x now` gives `see [url][url] now`, and `see alice:hunter2@/srv/hr/x now` gives `see [url][file] now`.
+   - The rule runs after every other URL rule, so it never takes part of a token that one of them would have taken whole.
+   - Its password is bounded to 64 characters, the CPU fallback the orchestrator set. With 256, as in the credential rule, the worst CPU constant rose above the reviewed one (Evidence).
+3. **F3, L2: user names of any spaced script.** The provisional credential rule's user name takes letters, digits and marks of any spaced script, with brackets after its first character, so `josé`, `Алиса` and `alice(admin)` go inside the `[url]`.
+   - A credential still starts where policy 4's rule lets it start.
+   - The single-label host without a port or path is listed (item 1), as the skeptic advised.
+   - This corrects BL-20261114-1432, which listed among L2's closed bounds "a single-label host" after a credential. The design entry, and the rule, close it only with a port or a path.
+4. **F4, G4: parameters after a source's name.** A name's tail takes `&` and `;` parameters, as it takes `?` and `#`. `see viewer?file=alpha-field-notes.md&token=sk_live_abcdef now` gives `see viewer?file=[url] now`. The wider class, a query after a file name that names no source, is listed (item 6).
+5. **F5: a rooted path's query.** The provisional rooted-path rule with an extension takes a query, fragment or parameters after the extension. `see /x/q3.html?token=sk_live_abcdef now` gives `see [file] now`, and so do the backslash, quoted and mixed-slash forms. A lone trailing `?` stays outside the placeholder.
+6. **F6, L6's `.`: listed** (item 3). `URL_PATTERNS[4]`, which `URL_PATTERNS_5` shares as the same object, is unchanged.
+7. **Counts after a re-scrub.** The first input found that fires the re-scrub, `alice:hunter2@(hunter2:example.org[alice:hunter2@https://www.example.org-`, showed a bug that 5e6ab61 shares.
+   - The first union's output there is `alice:hunter2@([url][alice:hunter2@[url]`, which the audit flags. The re-scrub gives `[url][url]`, but the counts said three URLs.
+   - BL-20261114-1432's "a re-scrub adds its own" counted the placeholders that a re-scrub span had covered.
+   - Now `union()` records each placeholder or alias it emits, and where. A re-scrub drops those that its spans cover, and moves the rest with the text, so the counts are those of the sent text: two URLs.
+   - The input is a row of the tests, with its counts.
+8. **The policy.**
+   - `SCRUB_POLICY` stays version 5, since that version has not shipped.
+   - Its `provisional` text now names each new rule, and its `union` text names the re-scrub's counts, so the pinned hashes change with the behaviour, including F1 and F4, whose pattern sources are not in the policy. URL_PATTERNS_5 holds 10 rules.
+   - Both pinned assist hashes change. forced_split is now `2fe123bad3b1b49c0ee3dd4dd691e07213abd360ee779a2db9cad2d8833a50fc`, and local_first is `5966a089edf715c99eebd3565833f1b794af49f048cd49d1a1693ff620a2dd34`.
+   - `researchProtocolSha256()` with no assist configured is unchanged.
+9. **The residue list.** It replaces BL-20261114-1432's. Each item still goes out; `main` sends as much or more.
+   1. L2:
+      - A scheme-less password holding white space, a quote or an angle bracket: the whole credential goes out (`see alice:pa ss@acme.example now`).
+      - A schemed URL whose password holds white space sends what follows the space (`see [url] ss@acme.example/x now`).
+      - A credential before a single-label host with no port or path goes out (`ssh admin:Passw0rd@dbserver`).
+      - A credential whose password has more than 64 characters goes out before a URL or path that a rule replaced.
+      - With the pair, so does a credential before `///` and a form two sources share (`see alice:hunter2@///[source] now`).
+   2. L3: userinfo in a spaceless script before a source's host, whether user or password (`张三[url]`, `alice:秘密[url]`).
+   3. L6, under ASSIST-11's default:
+      - a host after `@`, `:`, `_` or `/` (`alice@files.acme.example/hr/x`, `site:acme.example/reports`, `my_host.corp-hq.internal/x`);
+      - a user name with no password before `@//` (`see alice@//[url] now`);
+      - a dotted host after a `.` that no label character precedes (`see ...acme.example/hr/x?employee=alice now`);
+      - a source's host glued to digits, with its path and query (`see example.org1/hr/x?employee=alice now`);
+      - an IPv6 address without brackets;
+      - a query or fragment directly after a host with no path (`other.test?token=abc`).
+   4. L7: after a letter or digit, the word and the `//` before a hidden URL (`x//[url]`).
+   5. G6, the pair's shape: `old-report.htmlS2`. In sent text, `see old-report.htmlreport.html now` goes out whole.
+   6. G4's wider class: a query after a file name that names no source. `see notes.md?token=sk_live_abcdef now` goes out whole in sent text, and gives `see [file]?token=sk_live_abcdef now` in model text.
+   7. G7: `https:\S2`.
+   8. G8: URLs written with division slashes.
+   9. A joiner and then a query after a source's form: `"S2_?token=abc)`.
+   10. An apostrophe and a word after a source's form that keeps its alias: `S2'hunter2`.
+   11. What D2 and D3 still send (Evidence).
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts:
+  - `entrySpan` returns `bare`, the match's end before glued digits, and the provisional run of a URL or path form is read from it;
+  - `NAME_TAIL` takes `&` and `;`;
+  - `USER_CHAR`, `USER` and `USER_START`;
+  - `union()` returns what it emits, and `rescrubbed()` carries it through a re-scrub, so the counts come from the sent text;
+  - the provisional credential rule takes the wider user names, and URL_PATTERNS_5 gains the last rule for a credential before a placeholder, its password up to 64 characters;
+  - PATH_PATTERNS_5's rooted rule with an extension takes a query;
+  - the `provisional` policy text.
+- tests/unit/private-agent-research-assist-scrub.test.ts:
+  - the limits test has 78 rows, 24 more than at bf445b4: 19 for the closed classes (one of them checks that a time is no user name) and 5 residue rows;
+  - the re-scrub's input, with its text and counts, in both scopes;
+  - two scope-specific expectations for G4's wider class;
+  - the provisional URL list's pinned length is 10.
+- tests/unit/private-agent-research-assist.test.ts: the two pinned hashes.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The review's probe rows.** The 100 rows of the review's probes (rows1 to rows7) were run before and after.
+  - Each row of F1, F2, F4 and F5, and each of F3's user names, is now hidden.
+  - Each row of a listed class gives what decision 9 says.
+- **Local differential, at 87779c0:** seed 31, 150,000 inputs over each of the four source sets, both scopes: 1,200,000 outputs. "Sends text X hid" is the substring measure.
+  - 0 throws, 0 outputs that a second scrub changes, and 0 that the audit flags.
+  - 0 outputs send text that policy 4 hid. 299,854 differ from policy 4's, and 189,689 of those hide text that policy 4 sent.
+  - Against 5e6ab61, 10,738 outputs differ, and 9,352 of those hide text that 5e6ab61 sent. One sends a word that 5e6ab61 hid:
+    - In model text, `.xΑΠΟΛΟΓΙΣΜΟΣ-2024.md&claims.json-&-v2İzmir-rapor-2024.mdhttps://example.org/reports/annual-2025.htmlq3_` gives `.x[url]`, where 5e6ab61 gave `[file][url]`.
+    - F4's tail causes it: without F4, the output is 5e6ab61's. `main` sends the `x` too.
+    - In sent text, the same input now hides `&[file]-&-v2İzmir-rapor-2024.md`, which 5e6ab61 sent.
+  - D3: 6,321 outputs send text that 67e3374 hid. 5e6ab61 has 6,342, and policy 4 has 39,170.
+  - The example password: 70 outputs. 5e6ab61 has 77, and policy 4 has 1,554.
+  - D2, now measured against its own baseline: 450 outputs send text that 4aeac37 hid, where policy 4 does in 2,153.
+- **Reviewer B's corpus, at 87779c0:** seed 79061110, 1,637,808 outputs.
+  - 0 throws, 0 unstable outputs, and 0 audit findings.
+  - 0 outputs send text that policy 4 hid, and 0 send text that 5e6ab61 hid.
+  - 233,445 outputs differ from policy 4's, and 170,840 of those hide text it sent.
+  - D3: 1,496 outputs. 5e6ab61 has 1,534, and policy 4 has 21,855.
+  - D2 against 4aeac37: 1,970 outputs, where policy 4 has 5,554.
+- **7a746b7 against 87779c0:** the same text on all 1,200,000 local outputs. The counts differ in 2: the two scopes of the re-scrub input, where 87779c0 counted three URLs and 7a746b7 counts the two that the sent text holds.
+- **Counts.**
+  - In the 160,000-output sample at 87779c0, the counts equal the placeholders and aliases that the sent text holds.
+  - The re-scrub fired in 2 of the 1,200,000 local outputs: the two scopes of one input, which is now a test row with its counts.
+  - 6cf7b05 changes the counts only where a re-scrub fires, and makes them right there.
+- **Mutation check:** 40 single-change mutants on 7a746b7, each run against the scrub and assist unit tests. The file's hash was unchanged afterwards.
+  - 37 were caught.
+  - With the protocol-hash pin test left out, all 12 mutants that change a pattern or a pattern list are still caught by a behaviour row.
+  - 3 survived, and none of them changes any text or count in 80,000 outputs of the local generator:
+    - a second re-scrub (no input found needs one);
+    - two merged marks taking the later placeholder;
+    - the speed rule switched off.
+- **CPU.**
+  - On reviewer B's corpus at 87779c0, policy 5 took 259 s, 5e6ab61 took 250 s, and policy 4 took 109 s.
+  - The review's 30 dense shapes and 7 shapes of the new rules were each timed at 8,000, 32,000 and 128,000 characters.
+    - At 7a746b7, the time grows 0.7 to 4.2 times from the middle size to the largest: linear in the text.
+    - The worst constant at the largest size is 32.1 times policy 4's. `秘:@` repeated takes 1,346 ms, against 42 ms at policy 4 and 1,252 ms at 5e6ab61. `:` repeated takes 251 ms, against 8 ms and 204 ms.
+  - Outside those shapes, C8's comma-backslash-letter shape (`,\a` repeated), which the skeptic found, is quadratic at every head.
+    - At 64,002 characters it takes 4.38 s at policy 4, 13.16 s at 5e6ab61 and 13.13 s at 7a746b7. At 16,002 characters it takes 0.28, 0.84 and 0.85 s.
+    - Policy 5 runs the path rules on both its paths and in the audit, so it costs three times what policy 4 does.
+    - This corrects BL-20261114-1432's "linear in the text", which holds for every shape measured except this one.
+    - At the callers' caps that 10.b owes, of at most 1,000 characters per string, it takes under a tenth of a second.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref 19d7826`: exit 0, append-only. 19d7826 is this branch's base; at the orchestrator's instruction, the branch merges `main` and re-stamps at its scheduled merge.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - The scrub and assist unit test files: 90 passed.
+  - `pnpm exec vitest run` at 7a746b7:
+    - A first run had 2 failures, both timeouts under load in files this branch does not change: tests/unit/document-review-flags.test.ts (a spawned python3) and tests/unit/private-agent-sandbox-capture.test.ts (5 s). Run alone, they pass 167, with 1 skipped.
+    - A rerun: 184 files passed and 13 skipped; 3,594 tests passed, 86 skipped, 0 failed.
+
+Failures or blockers:
+- Five rules tried on the way sent text that 5e6ab61 hid, though never text that policy 4 hid. The differential against 5e6ab61 found each one, and each was reverted to the skeptic's guidance:
+  - F2, placed before the scheme rule, took a token's userinfo before that rule could take the whole token. `http://。alice:hunter2@s3://~|` sent `http`. With a source's alias in its lookahead, it took a drive path's prefix instead, and `C:\Users\a\alice@acme-hr.example-#Layoff-List-Q3)` sent the fragment.
+  - Accepting a source's host that digits follow, as part of F1, sent `$HOME` and `fetch` before such a host.
+  - F3's rule for a bare single-label host ran before the drive-path rule, and `C:\Users\a\alice:hunter2@www.acme-hr.example-?token=abc` sent the query.
+  - F6, placed among the URL rules, sent the skeptic's `//?token=sk_live_abcdef#Layoff-List1..acme.example/doc[fd00::1]`, where 5e6ab61 gave `[file]/doc[fd00::1]`.
+  - A credential start widened to every letter left no start within the user name's 64 characters in a long token. The outputs of the 160,000-output sample that send the example password rose from 10 to 15, and policy 4's start bound put them back.
+- With a 256-character password, F2's rule raised the worst CPU constant: `:` repeated to 128,000 characters took 375 ms, against 204 ms at 5e6ab61 and 8 ms at policy 4. Bounding it to 64 brought it back (Evidence).
+- F1's first version also turned digits alone into `[file]` or `[url]`, against #79's pinned rule for counts and footnotes. It was narrowed to digits that more of the token follows.
+- BL-20261114-1432's counts were wrong whenever a re-scrub fired (decision 7). Its 160,000-output check never met one, and its "fired in none" held only for 5e6ab61. This version fires it in 2 of 1,200,000 local outputs: the two scopes of one input.
+- Two mutation runs that were stopped mid-mutant left the scrub file mutated. It was restored from the frozen copy and checked by hash before any further edit.
+- A cleanup of this session's scratchpad deleted the copies of `main`'s, 67e3374's and 4aeac37's scrubbers, and the input generator. They were rebuilt: `main`'s from git at 19d7826, and the generator from the differential script.
+- Reviewer B's corpus file, kept in another session's scratchpad, was deleted after this branch's differential at 87779c0 had read it, so 6cf7b05 and 7a746b7 were not run on it.
+  - 6cf7b05 changes only the counts.
+  - 7a746b7 only stops the last rule for a password over 64 characters.
+  - The text is checked against 87779c0 on all 1,200,000 local outputs.
+- CI has not run on this push yet.
+
+Limitations and non-claims:
+- The differentials' generators aim at these shapes, so their counts measure the generators, not real text.
+- The listed residues are not accepted by this entry. The owner accepts them or asks for rules, through the coordinating session's one question.
+- This push is validated against the branch's base, 19d7826, as the orchestrator asked. `main` has moved, and #105 merges `main` and re-stamps its entries at its scheduled merge.
+- Nothing calls the assist yet (10.b), so no packet changes.
+- No model, endpoint, Docker container or paid call ran. Nothing here is `Verified`.
+- research-assist-scrub.ts is under src/main/private-agent, so this merge changes the harness source-freeze digest. No owner loop or E-run may span it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The skeptic's pass over this delta.
+- Then the owner's one question on the residues. #105 stays a draft until it is answered.
+- At the scheduled merge, `main` is merged in and this branch's entries are re-stamped after its tail.
+
+References: BL-20261114-1432-scrub-policy-5-implemented; BL-20261114-1345-scrub-policy-5-design; BL-20261114-1430-correction-scrub-policy-5-restamp; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

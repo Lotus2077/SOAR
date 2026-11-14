@@ -38811,3 +38811,84 @@ References:
 - BL-20261114-1346-research-role-policy-design;
 - BL-20261108-1649-serving-card-reader-implemented;
 - BL-20261109-0334-research-request-shapes-design.
+
+### BL-20261114-1447-correction-research-role-policy-review -- 2026-11-14 -- Correction to BL-20261114-1405-research-role-policy-implemented and BL-20261114-1346-research-role-policy-design after the light review of #103: a below-floor card refused before any output, the length clamp's constants kept, P10's off cell closed, and the source freeze rotated
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261114-1405-research-role-policy-implemented and BL-20261114-1346-research-role-policy-design. The coordinator's light review of #103 at 0e4635b was clean: no blocker, no major and no privacy finding, with six minor findings.
+- This entry records findings 2, 3 and 4.
+- Findings 1 and 6 are tests and a comment, in the commit below.
+- Finding 5 is the coordinator's: its two records are in docs PR #106. This item cites them by that PR until #106 is on `main`, and by the ID it carries there at the re-stamp.
+- Neither entry is edited.
+
+Decisions:
+(1) **Finding 2: a below-floor card is refused before any output exists.**
+- **The gap in 1346 (5) and 1405.** They refuse a synthesis attempt whose length ceiling is below 100 words inside the pipeline. With a card, that refusal came after the driver had created the run directory, freeze.json, the database and `session_started`.
+- **The rule it broke.** BL-20261108-1459-serving-card-reader-design (7) says a card refusal leaves nothing behind. Here instead:
+  - the run ended incomplete with a task-class reason, which the registry refuses to treat as infrastructure;
+  - in a loop, it ended at a stage that cannot be resumed.
+- **The fix.** The ceiling depends only on the attempt's cap, its thinking and three protocol constants. So the driver now computes it for both synthesis attempts right after it loads the card, and throws `research_role_policy_invalid` before `mkdirSync`.
+  - This holds under the research pipeline, with a local synthesiser and a non-default policy. A split-arm synthesiser never reads the policy.
+  - One function, `researchSynthesisBelowFloor`, serves both the driver and the pipeline, and the pipeline keeps its own check.
+- **Which caps reach the refusal.** The reader admits caps from 128 tokens. Any synthesis cap of 1,148 tokens or less now stops before any output: floor((1,148 - 1,024) / 1.245) is 99 words.
+
+(2) **Finding 3: the questions 0927 (15) carried to this item's entry.** BL-20261113-0927-research-v5-design (15) kept two of 7b.1's questions for 7a.2's entry. 1346 should have recorded both.
+- **P10's synthesis/off cell is closed.** It did not measure a thinking-off request. P10-align now sends a real thinking-off synthesis request, with the length cap that fits its reply (BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented).
+- **The length clamp's three constants have no card route.** These are owner questions PIPE-2 and PIPE-14 in the train-1 decision list:
+  - 1.245 tokens per word;
+  - the 1,024-token reply overhead;
+  - the 1,200-word ceiling while thinking.
+
+  **The default in force is "keep all 3".** The ceiling stays 1,200 words until E0's P10 or a card value calibrates it, and no planned PR re-derives the constants (BL-20261109-0334-research-request-shapes-design, owner question 2 and its limitations).
+- **What 7a.2 derives from them.** Each attempt's length cap and the 100-word refusal, as 1346 (5) and (6) state. A card sets caps and thinking only, never the constants.
+
+(3) **Finding 4: the source freeze rotates.**
+- **Why.** 7a.2 edits files `localScreenSourceFreeze()` hashes: research-pipeline.ts, session.ts, research-seed.ts, serving-card-flags.ts, research-admission.ts and the driver.
+- **The effect.** The value `--runtime-sha256` must match changes at this merge.
+- **The rule.** No loop or E-run may span the merge. Recompute the runtime hash after it, as for every private-agent merge.
+
+(4) **Findings 1 and 6.**
+- **Tests now pin the three wiring points the review found untested:**
+  - the session's fixture records each request's `max_tokens` and thinking, and a card's extract cap (1,024 in place of 2,048) reaches the body;
+  - a seeded run whose source read under a non-default policy is refused without a card (`research_seed_protocol_mismatch`), with no output directory. The source run is built by a new tests/helpers/research-seed-source.ts;
+  - the driver's research option, now the exported `localScreenResearchOption`, hands the session the card's policy.
+- **A new driver test** refuses the below-floor card before any output.
+- **The stale comment** on `synthesisLengthCap` now says the P10 export uses it, under the default policy.
+
+Changes:
+- **Commit 7fa23d2:**
+  - src/main/private-agent/research-pipeline.ts: `researchSynthesisBelowFloor`, used by the pipeline's check, and the comment;
+  - scripts/private-agent-local-screen.ts: the refusal before `mkdirSync`, and `localScreenResearchOption`;
+  - tests/helpers/research-seed-source.ts (new);
+  - the session and driver-configuration tests.
+- This entry.
+
+The protocol hash is unchanged at 505c385a…: `researchSynthesisBelowFloor` is the same rule as before.
+
+Evidence: At 7fa23d2:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related suites.** The research, export, serving-card, identity-golden, planner-fixture and driver-configuration suites pass: 23 files, 550 tests.
+- **Mutants.** Four single edits, one per wiring point and one for the new refusal, each fail a test. In each, the line is deleted, or the option is built without the policy.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint.
+- The driver tests stop before the run starts, so the refusals are tested end to end only up to that point.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the coordinator's check of the fixes, with #103 still a draft;
+- after 7b.2 (#102) is on `main`: `main` merged in, 7b.2's presentation reservation using the larger synthesis length cap, the re-stamp, and #106 cited by its ID on `main`.
+
+References:
+- BL-20261114-1405-research-role-policy-implemented and BL-20261114-1346-research-role-policy-design (corrected);
+- BL-20261108-1459-serving-card-reader-design;
+- BL-20261113-0927-research-v5-design;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- BL-20261109-0334-research-request-shapes-design;
+- the light review of #103;
+- #106.

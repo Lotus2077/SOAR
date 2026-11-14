@@ -39056,3 +39056,92 @@ References:
 - BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
 - 7b.2's entries, on #102. They are cited by PR, because their IDs will be re-stamped;
 - docs/experiments/e0-card-2026-11-13.md.
+
+### BL-20261114-1703-research-structured-output-implemented -- 2026-11-14 -- Item 9 implemented: an adopted card's structured-output flags add `response_format` to the flagged local plan, extract and synthesis calls, and the reader consumes them; without a card every body, stage row and the default hash are unchanged
+
+Status: `Implemented`
+
+Scope or hypothesis: The implementation of BL-20261114-1650-research-structured-output-design (item 9). The branch is stacked on 7a.2 (#103, head bf8855d).
+
+Decisions: As designed, with no deviation. What was built:
+(1) **The model layer** (model.ts).
+- It adds `ModelResponseFormat`, `jsonSchemaResponseFormat` and the override `ModelCallOverrides.responseFormat`.
+- `requestBody` adds `response_format` to the owned vLLM body. Before any body exists, it refuses `private_model_response_format_unsupported` (another shape, or tools) and `private_model_response_format_invalid`.
+
+(2) **The pipeline** (research-pipeline.ts).
+- `RESEARCH_ROLE_SCHEMAS`, `RESEARCH_STRUCTURED_OUTPUT_APPLICATION` and `researchRolePolicyBinding`. `researchProtocolSha256` now takes its `rolePolicy` from that binding.
+- `call()` takes the format. `responseFormatFor(role, attempt)` picks it from the applied policy and the call's effective thinking mode.
+- `structuredOutputCalls` counts the settled calls that carried a format.
+
+(3) **The reader.** serving-card.ts digests the table's schemas, and serving-card-flags.ts sets `structuredOutput` to true.
+
+(4) **The role export** (scripts/export-role-schemas.ts) exports the table's schemas. The values are the same.
+
+(5) **docs/experiments/README.md**: the reader's note.
+
+Changes:
+- Commit e8b0a41:
+  - src/main/private-agent/model.ts, research-pipeline.ts, serving-card.ts and serving-card-flags.ts;
+  - scripts/export-role-schemas.ts and docs/experiments/README.md;
+  - tests/unit/private-agent-model-structured-output.test.ts (new);
+  - the pipeline, session, probe-helper and serving-card reader tests.
+- Commit 41bde14: docs/experiments/README.md's wording. A flagged call's body is the one it would send without the flag, which under a card may already carry the card's caps and thinking.
+- This entry.
+
+Evidence: At e8b0a41, on 7a.2's head bf8855d.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The default path is unchanged.**
+  - `researchProtocolSha256()` stays 505c385a…;
+  - the protocol pin and the identity golden test are unedited, and the golden test passes;
+  - a run without a card sends no `response_format` and records no new key.
+- **Related suites.** 32 files, 763 tests pass: the research suites, the model suites (including the new one), the role export, the serving-card reader and writer, the probe helpers, the identity golden test, the planner fixture, the Flash reply and admission suites, the review-result contract and the OpenAI-compatible provider.
+- **The driver and flag suites.** private-agent-local-role-config and the three reader suites: 4 files, 90 tests pass.
+- **What the tests show:**
+  - **The model.** The body with the override is the body without it plus `response_format` only. This holds for seven body-shaping settings, both thinking modes and both variants; non-strict sends no `strict` key. Ten refusals reach no broker call. The shape equals `reviewResultV1ResponseFormat()`'s for its own schema.
+  - **The pipeline**, under a card with caps, thinking and three flags:
+    - plan attempt 1 (off) sends strict `research_plan` and attempt 2 (on) sends none;
+    - every extract call (off) sends non-strict `research_extraction`;
+    - synthesis attempt 1 (off) sends none and attempt 2 (on) sends strict `research_synthesis`;
+    - index sends none;
+    - each body equals the same card's body without flags but for `response_format`;
+    - the rows count 1, 3 and 1.
+  - **Cloud roles and the effective mode.** A cloud planner and synthesiser send none. A reader whose own thinking is disabled is "off" for a policy thinking `model`.
+  - **The hash.** A card of caps and thinking binds exactly 7a.2's `{roles, application}`; a flag adds the rule; the variant changes the hash.
+  - **The session.** A card's extract flag reaches the request body, and the ledger's stage row counts it.
+  - **The probe's parity.** Python's `response_format(role, schema, strict)` equals the pipeline's format, byte for byte after canonicalisation, for three roles and two variants. `P10_SCHEMA_NAMES` equals the table's names, and the export's schemas are the table's objects.
+  - **The reader.** The writer's synthetic card adopted as written now resolves with its proposed flags. A flagged card with K 4 is still refused at `concurrency.localStreams`, and the partial-flags test describes the state after item 9.
+- **Mutants.** Thirteen single edits each fail a test:
+  - **The model layer:** the body without `response_format`; no refusal for another shape; `strict: false` for the non-strict variant.
+  - **The pipeline:**
+    - the mode ignoring the attempt, or the role model;
+    - extract sending none;
+    - no counter;
+    - the rule bound for every non-default card;
+    - a table name drifting from P10's;
+    - `call()` dropping the override.
+  - **The reader, flag and export:** the reader digesting the wrong schema; the flag left false; the export swapping two schemas.
+- **The full suite.** `pnpm exec vitest run` at e8b0a41: 185 files and 3,609 tests pass, 13 files and 86 tests are skipped, and none fails.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/feat/7a.2-role-policy` passes; that is the PR's base.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and no adopted card exists.
+- The design's limits stand, and item 9 refuses none of them:
+  - a flagged role's card cap that differs from the cap P10 measured;
+  - attempt 2's payloads;
+  - P10's small synthetic payloads;
+  - the Flash-Next token-admission helper receiving `response_format` (finding C7).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review;
+- CI green;
+- the merge after 7a.2 (#103) and before 8.2b, then `main` merged in and the entries re-stamped.
+
+References:
+- BL-20261114-1650-research-structured-output-design (implemented here);
+- BL-20261114-1346-research-role-policy-design, BL-20261114-1405-research-role-policy-implemented and BL-20261114-1447-correction-research-role-policy-review (7a.2, #103);
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented.

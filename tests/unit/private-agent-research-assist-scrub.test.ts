@@ -367,8 +367,26 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
       [scrubber, "see www.example.org-v2/input/corpus/alpha-field-notes.md now", "see [url] now"], [scrubber, "www.example.orgawww.example.org-output/report.mdalice:pw@", "[url]"],
       // L5's over-matching is policy 4's, kept by the union.
       [scrubber, "Set host=example.org and retry.", "Set [url] and retry."],
-      // Stated residues: userinfo in a spaceless script or with white space; a backslash-written URL's scheme; division slashes.
-      [scrubber, "alice:秘密@example.org/reports/annual-2025.html", "alice:秘密[url]"], [scrubber, "see alice:pa ss@example.org/reports/annual-2025.html now", "see alice:pa [url] now"],
+      // After #105's review: a whole URL or path form's run is read from before the digits glued after it (L1); a credential
+      // directly before a URL or path a rule replaced goes too, as `[url]` (it runs after the other URL rules); user names of
+      // any spaced script (L2); a name's `&` and `;` parameters (G4); and a rooted path's query.
+      [scrubber, "see example.org/reports/annual-2025.html1?token=sk_live_abcdef now", "see [url] now"], [scrubber, "see input/corpus/alpha-field-notes.md1?token=abc now", "see [file] now"],
+      [intranet, "see https://intranet.acme.example/doc2?employee=alice now", "see [url] now"], [github, "see github.com/acme/public-repo1?token=sk_live_abcdef now", "see [url] now"],
+      [none, "see alice:hunter2@https://acme.example/hr/x now", "see [url][url] now"], [none, "see alice:hunter2@//acme.example/hr/x now", "see [url] now"],
+      [none, "see alice:hunter2@/srv/hr/x now", "see [url][file] now"], [scrubber, "alice:hunter2@s3://cdn.other.test/x/annual-2025.html/x.bak.", "[url][url]."],
+      [none, "see josé:hunter2@acme.example/x now", "see [url] now"], [none, "see Алиса:hunter2@acme.example/x now", "see [url] now"], [none, "see alice(admin):hunter2@acme.example/x now", "see [url] now"],
+      [none, "see (alice:pw@acme.example) now", "see ([url]) now"], [none, "Meeting 10:30@room now", "Meeting 10:30@room now"],
+      [scrubber, "see viewer?file=alpha-field-notes.md&token=sk_live_abcdef now", "see viewer?file=[url] now"], [scrubber, "see alpha-field-notes.md;jsessionid=abc123 now", "see [url] now"],
+      [scrubber, "see report.md&token=sk_live_abcdef now", "see [url] now"],
+      [none, "see /x/q3.html?token=sk_live_abcdef now", "see [file] now"], [none, "see \\x\\q3.html#Layoff-List now", "see [file] now"], [none, "see \"/x/q3.html?token=abc\" now", "see \"[file]\" now"],
+      // Stated residues: userinfo in a spaceless script or with white space; a credential before a bare single-label host, or
+      // before `///` and a form two sources share; a source's host glued to digits; a dotted host after a `.` that no label
+      // character precedes (L6); a backslash-written URL's scheme; division slashes.
+      [scrubber, "alice:秘密@example.org/reports/annual-2025.html", "alice:秘密[url]"], [scrubber, "张三:hunter2@example.org/reports/annual-2025.html", "张三[url]"],
+      [scrubber, "see alice:pa ss@example.org/reports/annual-2025.html now", "see alice:pa [url] now"], [none, "ssh admin:Passw0rd@dbserver", "ssh admin:Passw0rd@dbserver"],
+      [pair, "see alice:hunter2@///other.test/x/example.org/report.html now", "see alice:hunter2@///[source] now"],
+      [scrubber, "see example.org1/hr/x?employee=alice now", "see example.org1/hr/x?employee=alice now"],
+      [none, "see ...acme.example/hr/x?employee=alice now", "see ...acme.example/hr/x?employee=alice now"],
       [scrubber, "https:\\\\other.test\\reports\\annual-2025.html", "https:\\S2"], [scrubber, "https:∕∕other.test∕reports∕annual-2025.html", "https:∕∕other.test∕reports∕S2"],
     ];
     for (const [shared, value, sent] of rows) for (const scope of ["text", "model"] as const) {
@@ -377,6 +395,10 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
       expect(shared.scrub(once, scope).text, `${scope} ${value}`).toBe(once);
       expect(shared.finding(once, scope), `${scope} ${value}`).toBeUndefined();
     }
+    // A stated residue (G4's wider class): a query after a file name that names no source goes out, whole in sent text and after
+    // its [file] in model text.
+    expect(none.scrub("see notes.md?token=sk_live_abcdef now", "text").text).toBe("see notes.md?token=sk_live_abcdef now");
+    expect(none.scrub("see notes.md?token=sk_live_abcdef now", "model").text).toBe("see [file]?token=sk_live_abcdef now");
     // The audit reads the provisional path's wider rules too, so it finds a text that only they replace.
     for (const value of ["see ///etc/passwd/x now", "see git@[fd00::1]:8080/repo now"]) for (const scope of ["text", "model"] as const) expect(none.finding(value, scope), value).toBe("url_or_path");
     // A model-scope name inside a run led by three slashes: its query goes; in sent text the path rule takes the run.
@@ -472,7 +494,7 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
   it("binds its rules into the policy the protocol block hashes", () => {
     expect(SCRUB_POLICY).toMatchObject({ version: 5, placeholders: { url: "[url]", file: "[file]", digest: "[digest]", source: "[source]" } });
     expect(SCRUB_POLICY.patterns.url.length).toBe(9);
-    expect(SCRUB_POLICY.patterns.provisional.url.length).toBe(9);
+    expect(SCRUB_POLICY.patterns.provisional.url.length).toBe(10);
     expect(SCRUB_POLICY.patterns.provisional.path.length).toBe(7);
     expect(SCRUB_POLICY.patterns.relative.run).toContain("\\1");
   });

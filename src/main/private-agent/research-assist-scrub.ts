@@ -116,14 +116,24 @@ const URL_PATTERNS: readonly RegExp[] = Object.freeze([
   new RegExp(`(?<![a-z0-9_./@-])localhost(?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
   new RegExp(`(?<![a-z0-9_./@:\\]-])\\[(?=[0-9a-f:.]{0,40}::|(?:[0-9a-f]{1,4}:){7})[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\](?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
 ]);
+/** A user name's characters on the provisional path: a letter, digit or mark outside the spaceless scripts, or one of `._~%!$&*+,;=-`, and brackets after its first (`alice(admin)`). */
+const USER_CHAR = `(?:(?![${SPACELESS}])[\\p{L}\\p{N}\\p{M}]|[._~%!$&*+,;=-])`, USER = `(?:${USER_CHAR}(?:${USER_CHAR}|[()]){0,63})`;
+/**
+ * Where a provisional credential starts: policy 4's bound, not after an ASCII letter or digit, `_`, `.`, `/` or `-`. A start after
+ * another script's letter stays allowed, so a credential glued into a long token is still found (`…ΑΠΟΛΟΓΙΣΜΟΣ…alice:pw@…`).
+ */
+const USER_START = `(?<![a-z0-9_./-])`;
 /**
  * The provisional path's URL rules (policy 5): policy 4's, widened, each only to hide more.
  * - A schemed URL takes userinfo through any character but white space, `/` and `@`, up to its last `@` (`https://alice:p"ss@…`).
  * - The protocol-relative rule starts after any character but a letter or digit of a spaced script, `/`, `\` or `@` (L7).
- * - The credential rule takes an empty or long user or password, a raw `@` in the password, any letter in host labels,
- *   `localhost`, a bracketed IPv6 address, a single label with a port or path, a Go DSN host (`tcp(host:3306)`), a query or
- *   fragment after a host with no path, and starts directly after `:` or `@` (L2).
+ * - The credential rule takes a user of any spaced script's letters, with brackets after its first (`josé`, `alice(admin)`), an
+ *   empty or long user or password, a raw `@` in the password, any letter in host labels, `localhost`, a bracketed IPv6
+ *   address, a single label with a port or path, a Go DSN host (`tcp(host:3306)`), a query or fragment after a host with no
+ *   path, and starts directly after `:` or `@` (L2).
  * - The `localhost` and IPv6 rules start after `@` (L6).
+ * - Last, a credential written directly before a URL or path that a rule has replaced goes too (`alice:pw@https://…` is
+ *   `[url][url]`): it runs after every other URL rule, so it never takes a token from one.
  */
 const URL_PATTERNS_5: readonly RegExp[] = Object.freeze([
   new RegExp(`(?<![a-z0-9+.-])[a-z][a-z0-9+.-]{0,31}:\\/\\/(?:[^\\s/@]{1,256}@)?${BODY}+`, "giu"),
@@ -131,10 +141,11 @@ const URL_PATTERNS_5: readonly RegExp[] = Object.freeze([
   new RegExp(`(?<!(?![${SPACELESS}])[\\p{L}\\p{N}]|[/\\\\@])\\/\\/(?=[a-z0-9]|${SL})${BODY}+`, "giu"),
   URL_PATTERNS[3]!,
   URL_PATTERNS[4]!,
-  new RegExp(`(?<![a-z0-9_./-])[a-z0-9._~%!$&*+,;=-]{0,64}:[^\\s/"'<>]{0,256}@(?:(?:[\\p{L}\\p{N}_-]+\\.)+[\\p{L}\\p{N}_-]+|localhost|\\[[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\]|[\\p{L}\\p{N}_-]+(?=:\\d|\\/)|[a-z]{2,10}\\([^\\s()"'<>]{1,256}\\))(?::\\d{1,5})?(?:[/?#]${BODY}*)?`, "giu"),
+  new RegExp(`${USER_START}${USER}?:[^\\s/"'<>]{0,256}@(?:(?:[\\p{L}\\p{N}_-]+\\.)+[\\p{L}\\p{N}_-]+|localhost|\\[[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\]|[\\p{L}\\p{N}_-]+(?=:\\d|\\/)|[a-z]{2,10}\\([^\\s()"'<>]{1,256}\\))(?::\\d{1,5})?(?:[/?#]${BODY}*)?`, "giu"),
   URL_PATTERNS[6]!,
   new RegExp(`(?<![a-z0-9_./-])localhost(?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
   new RegExp(`(?<![a-z0-9_./:\\]-])\\[(?=[0-9a-f:.]{0,40}::|(?:[0-9a-f]{1,4}:){7})[0-9a-f:.]{2,45}(?:%[a-z0-9]{1,16})?\\](?::\\d{1,5}(?:\\/${BODY}*)?|\\/${BODY}*)`, "giu"),
+  new RegExp(`${USER_START}${USER}?:[^\\s/"'<>]{0,256}@(?=:?\\[(?:url|file)\\])`, "giu"),
 ]);
 const SEGMENT = `[^\\s/\\\\"'<>${SPACELESS}]`, SEGMENT_Q = `(?:${SEGMENT}|'(?=${SEGMENT}))`;
 /** A path segment character: a segment character, or spaceless-script letters a connector touches. */
@@ -163,11 +174,14 @@ const PATH_PATTERNS: readonly RegExp[] = Object.freeze([
   // A rooted path with an extension, under either slash (`/merger-plan.docx`, `\Users\alice\plan.docx`).
   new RegExp(`${ROOTED}${GLUED_PREFIX}[/\\\\](?:${SEG}+[/\\\\]+)*${SEG}+${EXT}`, "gu"),
 ]);
-/** The provisional path's path rules (policy 5): policy 4's, with leading empty segments in both rooted-path rules (`///etc/…`). */
+/**
+ * The provisional path's path rules (policy 5): policy 4's, with leading empty segments in both rooted-path rules (`///etc/…`),
+ * and a rooted path with an extension takes the query, fragment or parameters after it (`/x/q3.html?token=…`).
+ */
 const PATH_PATTERNS_5: readonly RegExp[] = Object.freeze([
   ...PATH_PATTERNS.slice(0, 5),
   new RegExp(`${ROOTED}${GLUED_PREFIX}\\/+(?:${SEG}+\\/+){2,}${SEG}*`, "gu"),
-  new RegExp(`${ROOTED}${GLUED_PREFIX}[/\\\\]+(?:${SEG}+[/\\\\]+)*${SEG}+${EXT}`, "gu"),
+  new RegExp(`${ROOTED}${GLUED_PREFIX}[/\\\\]+(?:${SEG}+[/\\\\]+)*${SEG}+${EXT}(?:[?#&;]${BODY}*)?`, "gu"),
 ]);
 /**
  * A relative path's run: folder segments (empty ones allowed) and a last one, taken whole from the start of a run of path
@@ -517,7 +531,7 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
    * extension takes the decimal digits glued before it too (`1alpha.md`, a list's NFKC circled number), and every span takes
    * the digits glued after it, so an alias is never followed by a digit (`S1` then `1` would read as `S11`).
    */
-  const entrySpan = (text: string, at: number, raw: number, entry: Entry, provisional: boolean): { start: number; end: number } | undefined => {
+  const entrySpan = (text: string, at: number, raw: number, entry: Entry, provisional: boolean): { start: number; end: number; bare: number } | undefined => {
     let start = at, end: number | undefined;
     if (entry.kind === "name") {
       if (entry.dotted) {
@@ -533,7 +547,8 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
       // `[url]` (L4), and a bare hyphen stays after the alias.
       end = gluedAfter(text, raw) || (text[raw] === "-" && !provisional) || (text[raw] === "." && isWord(codePointAt(text, raw + 1))) ? undefined : text[raw] === "-" ? raw : pathEnd(text, raw);
     } else end = pathEnd(text, raw);
-    return end === undefined ? undefined : { start, end: digitsAfter(text, end) };
+    // `bare` is where the match ends before the decimal digits glued after it.
+    return end === undefined ? undefined : { start, end: digitsAfter(text, end), bare: end };
   };
   const SEGMENT_CHAR = new RegExp(`^(?:${SEGMENT}|${SL})$`, "u");
   /**
@@ -579,8 +594,8 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
     while (at > floor && USERINFO_CHAR.test(codePointBefore(text, at) ?? "")) at -= (codePointBefore(text, at) ?? "").length;
     return text.slice(at, start - 1).includes(":");
   };
-  /** A query or fragment with a body, or a slash and a path segment: what follows a name that names another place. */
-  const NAME_TAIL = new RegExp(`^(?:[?#]${BODY}|/${SEGMENT})`, "u");
+  /** A query, fragment or parameter (`&`, `;`) with a body, or a slash and a path segment: what follows a name that names another place. */
+  const NAME_TAIL = new RegExp(`^(?:[?#&;]${BODY}|/${SEGMENT})`, "u");
   /**
    * Where what is glued before a host-led match starts, back to `floor`: host labels and userinfo (`payroll.intranet.`,
    * `alice:pw@`, `evil-`), then a `//` and the scheme before it. `www` is set when that is a lone `www.`, which keeps the alias.
@@ -627,7 +642,7 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
     let at = 0, floor = 0, reach = 0;
     while (at + ASSIST_NAME_MIN_CHARS <= view.length) {
       const bucket = index.get(view.slice(at, at + ASSIST_NAME_MIN_CHARS));
-      let hit: { start: number; end: number; entry: Entry } | undefined;
+      let hit: { start: number; end: number; bare: number; entry: Entry } | undefined;
       if (bucket) {
         search: for (const length of bucket.lengths) {
           if (at + length > view.length) continue;
@@ -663,9 +678,13 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
         if (hit.entry.kind !== "host") { const folder = absorbPrefix(shown, from, floor); if (from === start) start = folder; from = folder; }
         // More of a segment glued after a whole path or URL form, or after the source's host through a hyphen, is another one: the
         // token's rest goes with it (L1, L4). A host-led name, and a name that a query, a fragment, or a slash and a segment
-        // follows, take their URL's or path's rest (G3, G4).
+        // follows, take their URL's or path's rest (G3, G4). The run is read from before the digits glued after a whole form, so
+        // what follows them goes too (`…/issues/12` then `3?token=…`); digits alone keep the alias (a count or a footnote: `alpha.md5`).
         if (fresh) {
-          if (hit.entry.kind !== "name") { const after = tokenRunEnd(shown, to); if (after > to) { to = after; if (!led) placeholder = hit.entry.kind === "path" ? ASSIST_PLACEHOLDERS.file : ASSIST_PLACEHOLDERS.url; } }
+          if (hit.entry.kind !== "name") {
+            const after = tokenRunEnd(shown, hit.bare);
+            if (after > end) { to = Math.max(to, after); if (!led) placeholder = hit.entry.kind === "path" ? ASSIST_PLACEHOLDERS.file : ASSIST_PLACEHOLDERS.url; }
+          }
           else if (led || NAME_TAIL.test(shown.slice(to, to + 2))) {
             if (!led && placeholder === hit.entry.replacement) placeholder = shown[to] === "/" ? ASSIST_PLACEHOLDERS.file : ASSIST_PLACEHOLDERS.url;
             URL_REST.lastIndex = to; to += trimToken(URL_REST.exec(shown)?.[0] ?? "").core.length;
@@ -926,7 +945,7 @@ export const SCRUB_POLICY = Object.freeze({
   matching: "rolling_hashes_by_first_4_and_length_leftmost_longest; names_absorb_up_to_4_extensions_the_longest_unglued_and_a_folder_prefix_before; hosts_urls_paths_absorb_a_path_after; shared_form_[source]",
   glued: "a_file_name_glued_to_more_name_by_-_or__or_._on_either_side_is_[file]; a_host_led_form_glued_after_labels_userinfo_or_a_word_with_its_//_and_scheme_is_[url]_and_a_host_led_name_takes_its_url's_rest; a_lone_www._keeps_the_alias; on_the_provisional_path_userinfo_goes_back_through_a_password's_characters_once_an_@_is_crossed_and_a_user:password@_before_any_source_match_makes_it_host_led; a_whole_path_or_url_form_with_more_of_its_segment_glued_after_it_and_a_host_with_a_hyphenated_word_take_the_token's_rest; a_name_a_query_fragment_or_slash_and_segment_follows_takes_them",
   union: "two_paths_over_one_normalized_input_each_tracking_the_input_span_of_every_unit_of_its_text; the_policy_4_path_replaces_as_version_4; the_sent_text_replaces_every_span_either_path_replaced; overlapping_spans_become_one_with_the_alias_both_gave_else_the_widest_placeholder_url_file_source_digest; scrubbed_again_while_the_audit_finds_something_at_most_twice; counts_are_those_of_the_sent_text",
-  provisional: "a_match_leaves_the_alias_or_S0_for_a_placeholder; a_provisional_mark_records_its_glue_lead_prefix_run_and_tail_spans_moves_with_the_text_and_onto_the_placeholder_of_a_rule_that_takes_it; after_the_last_pass_each_mark_becomes_its_placeholder_or_its_rule's_over_what_is_still_visible_of_its_spans_with_a_scheme_glued_before_a_url; its_own_url_and_path_rules_and_a_relative_path's_query_or_fragment_after_the_extension",
+  provisional: "a_match_leaves_the_alias_or_S0_for_a_placeholder; a_provisional_mark_records_its_glue_lead_prefix_run_and_tail_spans_moves_with_the_text_and_onto_the_placeholder_of_a_rule_that_takes_it; after_the_last_pass_each_mark_becomes_its_placeholder_or_its_rule's_over_what_is_still_visible_of_its_spans_with_a_scheme_glued_before_a_url; its_own_url_and_path_rules_and_a_relative_path's_query_or_fragment_after_the_extension; a_whole_url_or_path_form's_run_is_read_from_before_its_glued_digits_which_alone_keep_the_alias; a_name's_tail_takes_&_and_;_parameters; a_rooted_path_with_an_extension_takes_its_query_fragment_or_parameters; user_names_of_any_spaced_script_with_brackets_after_the_first; last_a_credential_directly_before_a_url_or_path_placeholder_is_[url]",
   spacelessInPaths: "spaceless_letters_inside_urls_paths_and_file_names_only_where_a_connector_touches_them",
   extensions: "2_to_16_letters_and_digits_with_a_letter_not_a_capitalized_word_not_a_decimal",
   relative: "whole_run_from_a_run_start_cut_after_the_longest_extension_whole_when_a_separator_follows_it",

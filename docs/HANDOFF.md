@@ -152,10 +152,13 @@ Follow the order in review §5.6. Each step is done when its condition holds.
    - No PR that changes `researchProtocolSha256()` may merge between the export and
      the assessment; 7b.2, 7a.2 and item 9 will change it.
 3. **E1**, the recoverability tests with no live model. Every E1 test and fix PR is
-   merged. Next is E1-G, the `Verified` entry that maps the gate clauses to tests.
-   Under #88's default, E1-G records the CI clauses `Verified` and holds the gate, with
-   no E2 to E6 live run, until the owner's Docker run of E1-L's sandbox suite is
-   recorded `Verified`. Done: its gate in review §5.6 passes.
+   merged. Progress, 2026-11-14: E1-G,
+   BL-20261114-1253-e1-recoverability-gate-ci-verified, records the four gate clauses
+   `Verified` in CI and maps each one to named tests. Under #88's default the gate
+   stays held, with no E2 to E6 live run and no harness loop, until the owner's Docker
+   run of E1-L's sandbox suite (tests/integration/private-agent-sandbox.test.ts; the
+   command and image are in that entry) is recorded `Verified`. Done: its gate in
+   review §5.6 passes.
 4. **E5** on the existing local routes in the owner's desktop build, with item 2's
    verdict capture. Not started. Ask the owner about the P11 interim (decision 9) and
    the box checklist (PLAN.md D5); both gate labelled work only.
@@ -203,7 +206,9 @@ Follow the order in review §5.6. Each step is done when its condition holds.
 
 ### 7. Known limits
 
-- Nothing merged since 2026-11-07 is `Verified`; the last `Verified` entry is
+- Of the work merged since 2026-11-07, only E1's gate clauses are `Verified`, and only
+  in CI (BL-20261114-1253-e1-recoverability-gate-ci-verified); E1's gate itself is
+  held. The last `Verified` entry before it, and the last Docker-verified one, is
   BL-20261107-1111-stop-bricking-tasks-docker-suite-verified. No live, Docker or paid
   run has happened since 2026-11-07, and the approved cloud labelling has not run.
 - The harness source-freeze digest moved with every code merge from #85 to #93 (#87

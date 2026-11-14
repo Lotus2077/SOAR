@@ -9,7 +9,7 @@ import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
 import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
 import { DEFAULT_SERVING_POLICY, ServingCardError, servingCardExpectation, servingCardFreeze } from "../../src/main/private-agent/serving-card";
-import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
+import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenResearchStreams, localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -80,6 +80,18 @@ describe("shared harness local role configuration", () => {
       const model = buildLocalScreenModelConfig(withPair, COORDINATOR_PROFILES[row.profile], row.salted);
       expect(digest(canonical(model))).toBe(row.sha256); expect(canonical(model)).not.toContain(root);
     }
+  });
+
+  it("8.2b: a card with K = 4 and its proven burst loads through the pair, the driver passes that K to the research loops, and freeze.json records it", () => {
+    const root = workspace(), card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
+    (card as { concurrency: { localStreams: number } }).concurrency.localStreams = 4;
+    const written = writeCard(root, card), paired = config(true); paired.vllm.servingCard = { path: written.path, sha256: written.sha256 };
+    const loaded = buildLocalScreenServingCard(paired)!;
+    expect(loaded.policy).toEqual({ ...DEFAULT_SERVING_POLICY, localStreams: 4 });
+    expect(localScreenResearchStreams(loaded)).toEqual({ localStreams: 4 });
+    expect(servingCardFreeze(loaded)).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 4 } });
+    // Without a card the driver passes no K: the loops run one call at a time, as before 8.2b.
+    expect(localScreenResearchStreams(undefined)).toEqual({});
   });
 
   it("L2: refuses a card before any directory, database or request exists, reading configuration only from its arguments (SC)", async () => {

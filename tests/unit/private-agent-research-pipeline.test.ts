@@ -1212,3 +1212,165 @@ describe("E1 recoverability: the reading stage's recoveries and pinned limits at
     expect(m.calls.some(c => c.stage === "synthesise")).toBe(false);
   });
 });
+
+describe("backlog item 8.2b: the index and extraction loops run K calls at a time for a zero-risk reader (BL-20261114-1645)", () => {
+  /** Seven small sources: three index batches ([0-2], [3-5], [6]) and seven extraction chunks, one per source. */
+  const seven = () => Array.from({ length: 7 }, (_, i) => ({ id: `input/s${i}.md`, path: `input/s${i}.md`, bytes: Buffer.from(`# Source ${i}\nThe synthetic survey counted ${10 + i} healthy trees in sector ${i}.\n`) }));
+  type Hold = number | Promise<void>;
+  /**
+   * The loopback reader of models(), on a broker that dispatches at zero risk (`zeroRisk` false: a priced or cloud reader), with each
+   * call held for `hold(stage, n)`: some milliseconds, or until a promise settles. A held call honours its signal as the broker does;
+   * an Error from the script is thrown when the hold ends. `n` counts every call of its stage, in launch order.
+   */
+  function fanned(script: Script, hold: (stage: Stage, n: number) => Hold, zeroRisk = true) {
+    const calls: { stage: Stage; n: number; body: string; signal: AbortSignal }[] = [], settledOrder: [Stage, number][] = [];
+    const live: Record<Stage, number> = { index: 0, plan: 0, extract: 0, synthesise: 0 }, peak = { ...live };
+    const request = vi.fn(async (input: { body: string; purpose: string; signal: AbortSignal }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string;
+      const stage: Stage = system.startsWith("You index") ? "index" : system.startsWith("You plan") ? "plan" : system.startsWith("You extract") ? "extract" : "synthesise";
+      assertResearchUserLayout(system, user);
+      const n = calls.filter(c => c.stage === stage).length; calls.push({ stage, n, body: input.body, signal: input.signal });
+      const output = script(stage, parseResearchUserContent(user), n, system), wait = hold(stage, n);
+      live[stage]++; peak[stage] = Math.max(peak[stage], live[stage]);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const stop = () => reject(new BrokerError("request_failed"));
+          if (input.signal.aborted) { stop(); return; }
+          input.signal.addEventListener("abort", stop, { once: true });
+          void (typeof wait === "number" ? new Promise<void>(done => setTimeout(done, wait)) : wait).then(() => { input.signal.removeEventListener("abort", stop); resolve(); });
+        });
+      } finally { live[stage]--; }
+      settledOrder.push([stage, n]);
+      if (output instanceof Error) throw output;
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: typeof output === "string" ? output : output.content }, finish_reason: typeof output === "string" || !output.truncated ? "stop" : "length" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const config = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
+    const broker = { request, zeroRiskDispatch: () => zeroRisk } as unknown as PrivateAgentBroker;
+    const make = () => new PrivateAgentModel(broker, config, "job", "reader");
+    return { models: { reader: make(), planner: make(), synthesiser: make() }, calls, settledOrder, request, peak };
+  }
+  /** One run on the seven sources: its outcome, stage rows, retained diagnostics and request bodies in launch order. */
+  async function observe(m: ReturnType<typeof fanned>, extra: Partial<Parameters<typeof runResearchPipeline>[0]> = {}) {
+    const events: ResearchStageCounts[] = [], retained: ResearchDiagnostic[] = [];
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: seven(), models: m.models, signal: new AbortController().signal, record: e => events.push(e),
+      diagnostics: { retain: entry => retained.push(entry) }, ...extra });
+    return { outcome, events, retained, bodies: m.calls.map(c => c.body), files: outcome.files.map(f => [f.path, f.bytes.toString("base64")]) };
+  }
+  /** Within each window of four, a later call finishes first: at K = 4 the replies settle out of order. */
+  const reversed = (stage: Stage, n: number) => stage === "index" || stage === "extract" ? 2 + 4 * (3 - (n % 4)) : 0;
+  const invented = (stage: Stage, input: any, n: number, system: string) => { const reply = JSON.parse(happy(stage, input, n, system)); reply.quotes[0].quote = "Invented evidence that never occurred in the supplied source."; return JSON.stringify(reply); };
+
+  it("gives byte-identical files, summary, stage rows, diagnostics and requests at K = 4 as at K = 1, replies settling out of order, through index and extraction repairs and a held chunk", async () => {
+    // Index batch 1 lists titles only; extraction chunks 0 and 5 reply invalid JSON, 2 is truncated, and 4 invents its only quote (held).
+    const script: Script = (stage, input, n, system) => {
+      if (stage === "index" && n === 1) return JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) });
+      if (stage === "extract" && (n === 0 || n === 5)) return "bad JSON";
+      if (stage === "extract" && n === 2) return { content: happy(stage, input, n, system), truncated: true };
+      if (stage === "extract" && n === 4) return invented(stage, input, n, system);
+      return happy(stage, input, n, system);
+    };
+    const one = fanned(script, reversed), four = fanned(script, reversed);
+    const serial = await observe(one), fannedOut = await observe(four, { localStreams: 4 });
+    expect(serial.outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(serial.events.find(e => e.stage === "index")).toMatchObject({ calls: 4, initialCalls: 3, repairCalls: 1 });
+    expect(serial.events.find(e => e.stage === "extract")).toMatchObject({ calls: 11, initialCalls: 7, repairCalls: 4 });
+    expect(serial.retained.length).toBeGreaterThan(0);
+    for (const key of ["files", "events", "retained", "bodies"] as const) expect(fannedOut[key]).toEqual(serial[key]);
+    expect(fannedOut.outcome.summary).toEqual(serial.outcome.summary); expect(fannedOut.outcome.reason).toBe(serial.outcome.reason);
+    // At most K in flight, and K reached: min(K, items) for the three batches and the seven chunks; plan and synthesis stay sequential.
+    expect(one.peak).toEqual({ index: 1, plan: 1, extract: 1, synthesise: 1 }); expect(four.peak).toEqual({ index: 3, plan: 1, extract: 4, synthesise: 1 });
+    // The replies did settle out of order at K = 4, and in order at K = 1.
+    const settled = (m: ReturnType<typeof fanned>) => m.settledOrder.filter(([stage]) => stage === "extract").map(([, n]) => n);
+    expect(settled(one)).toEqual([...settled(one)].sort((a, b) => a - b)); expect(settled(four)).not.toEqual([...settled(four)].sort((a, b) => a - b));
+  });
+
+  it("cuts each repair list to the slots left before its pool starts, so it runs the repairs the serial loop's per-call budget check ran", async () => {
+    // Every first reply fails: three index batches with one repair slot left, seven chunks with three.
+    const script: Script = (stage, input, n, system) => stage === "index" && n < 3 ? JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) })
+      : stage === "extract" && n < 7 ? "bad JSON" : happy(stage, input, n, system);
+    const budget = { ...RESEARCH_PIPELINE_BUDGET, indexCalls: 4, extractionCalls: 10 };
+    const one = fanned(script, reversed), four = fanned(script, reversed);
+    const serial = await observe(one, { budget }), fannedOut = await observe(four, { budget, localStreams: 4 });
+    expect(serial.outcome).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(serial.events.find(e => e.stage === "index")).toMatchObject({ calls: 4, repairCalls: 1 }); expect(serial.events.find(e => e.stage === "extract")).toMatchObject({ calls: 10, repairCalls: 3 });
+    for (const key of ["files", "events", "retained", "bodies"] as const) expect(fannedOut[key]).toEqual(serial[key]);
+    expect(four.peak).toMatchObject({ index: 3, extract: 4 });
+  });
+
+  it("on a denial stops launching, aborts and drains the siblings, applies every settled reply in order, and records the denial (ASSIST-1)", async () => {
+    // K = 4: chunk 3 settles first, then chunk 2 is denied while chunks 0 and 1 are still in flight.
+    const script: Script = (stage, input, n, system) => stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const hold = (stage: Stage, n: number) => stage !== "extract" ? 0 : n === 3 ? 1 : n === 2 ? 15 : 500;
+    const four = fanned(script, hold), result = await observe(four, { localStreams: 4 });
+    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    const extract = four.calls.filter(c => c.stage === "extract");
+    expect(extract.map(c => [c.n, c.signal.aborted])).toEqual([[0, true], [1, true], [2, false], [3, false]]);
+    // The aborted siblings answer cancelled after the pool's abort: sibling stops, never the stage's denial. Chunk 3's reply is applied in its turn.
+    expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 1, initialCalls: 1, pairsExtracted: 1, denied: "budget_denied" });
+    // The serial loop's row differs, as decision 2 records: chunks 0 and 1 applied, chunk 3 never launched.
+    const one = fanned(script, (stage, n) => hold(stage, n) === 500 ? 1 : hold(stage, n)), serial = await observe(one);
+    expect(serial.events.at(-1)).toMatchObject({ stage: "extract", calls: 2, denied: "budget_denied" }); expect(one.calls.filter(c => c.stage === "extract")).toHaveLength(3);
+  });
+
+  it("takes a lower-index call that failed for its own reason as the stage's denial, though a higher one's abort reached it first (#71's review F3)", async () => {
+    // Chunks 0 and 2 fail in one synchronous block, 2 first: its interrupt aborts 0 after 0's call() has read its signal, so 0 is marked afterAbort.
+    let release0!: () => void, release2!: () => void;
+    const gate0 = new Promise<void>(resolve => { release0 = resolve; }), gate2 = new Promise<void>(resolve => { release2 = resolve; });
+    const script: Script = (stage, input, n, system) => stage === "extract" && n === 0 ? new BrokerError("request_failed") : stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const four = fanned(script, (stage, n) => stage !== "extract" ? 0 : n === 0 ? gate0 : n === 2 ? gate2 : 500);
+    const running = observe(four, { localStreams: 4 });
+    while (four.calls.filter(c => c.stage === "extract").length < 4) await new Promise(resolve => setImmediate(resolve));
+    release2(); release0();
+    const result = await running;
+    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "request_failed" });
+  });
+
+  it("ends research_cancelled when the stage is cancelled with calls in flight, and launches nothing after", async () => {
+    const stage = new AbortController();
+    const script: Script = (name, input, n, system) => { if (name === "extract" && n === 3) stage.abort(); return happy(name, input, n, system); };
+    const four = fanned(script, () => 50), result = await observe(four, { localStreams: 4, signal: stage.signal });
+    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+    expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "cancelled" });
+    expect(four.calls.filter(c => c.stage === "extract")).toHaveLength(4);
+  });
+
+  it("ends research_cancelled when the stage is cancelled while no call is in flight, at K = 1 as at K = 4 (#71's review)", async () => {
+    // The diagnostics sink runs inside chunk 0's apply: a cancel there leaves the pool nothing in flight at K = 1, so it launches nothing more.
+    for (const streams of [undefined, 4]) {
+      const stage = new AbortController(), m = fanned((name, input, n, system) => name === "extract" && n === 0 ? "bad JSON" : happy(name, input, n, system), (name, n) => name === "extract" && n > 0 ? 50 : 1);
+      const events: ResearchStageCounts[] = [];
+      const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: seven(), models: m.models, signal: stage.signal, record: e => events.push(e),
+        diagnostics: { retain: () => stage.abort() }, ...(streams ? { localStreams: streams } : {}) });
+      expect(outcome).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+      expect(events.at(-1)).toMatchObject({ stage: "extract", calls: 1, invalidReplies: 1, denied: "cancelled" });
+      expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(streams ?? 1);
+    }
+  });
+
+  it("runs one call at a time for a reader that is not zero-risk, or without K, and treats a K out of range as 1", async () => {
+    const priced = fanned(happy, reversed, false); await observe(priced, { localStreams: 4 });
+    const unset = fanned(happy, reversed); await observe(unset);
+    for (const localStreams of [0, 9, 2.5]) { const odd = fanned(happy, reversed); expect((await observe(odd, { localStreams })).outcome.status).toBe("completed"); expect(odd.peak).toMatchObject({ index: 1, extract: 1 }); }
+    expect(priced.peak).toMatchObject({ index: 1, extract: 1 }); expect(unset.peak).toMatchObject({ index: 1, extract: 1 });
+    // K is no part of the protocol hash, the budget or the counts.
+    const k = fanned(happy, reversed), withK = await observe(k, { localStreams: 8 }), without = await observe(fanned(happy, reversed));
+    expect(withK.outcome.summary).toEqual(without.outcome.summary); expect(withK.files).toEqual(without.files); expect(k.peak.extract).toBe(7);
+  });
+
+  it("calls a model zero-risk only when every rate is zero, the long tier's too, and the broker dispatches it at zero risk", () => {
+    const zeroRiskDispatch = vi.fn((input: { maxFeeMicrousd: number }) => input.maxFeeMicrousd === 0);
+    const broker = { zeroRiskDispatch } as unknown as PrivateAgentBroker;
+    const base = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 1024, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
+    const zeroRisk = (config: object) => new PrivateAgentModel(broker, { ...base, ...config }, "job", "reader").zeroRisk();
+    expect(zeroRisk({})).toBe(true);
+    // A cache-write rate is at most four times its input rate, so with every input rate zero it is zero too.
+    expect(zeroRisk({ inputUsdPerMillion: 1 })).toBe(false); expect(zeroRisk({ outputUsdPerMillion: 1 })).toBe(false);
+    expect(zeroRisk({ inputUsdPerMillion: 1, cacheWriteUsdPerMillion: 2 })).toBe(false);
+    expect(zeroRisk({ longContext: { aboveTokens: 1000, inputUsdPerMillion: 0, outputUsdPerMillion: 0 } })).toBe(true);
+    expect(zeroRisk({ longContext: { aboveTokens: 1000, inputUsdPerMillion: 2, outputUsdPerMillion: 0 } })).toBe(false);
+    expect(zeroRisk({ longContext: { aboveTokens: 1000, inputUsdPerMillion: 0, outputUsdPerMillion: 2 } })).toBe(false);
+    expect(zeroRiskDispatch.mock.calls.map(([input]) => input)).toContainEqual({ destinationId: "owned", maxFeeMicrousd: 0, method: "POST" });
+  });
+});

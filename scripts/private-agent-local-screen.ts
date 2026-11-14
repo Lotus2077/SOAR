@@ -235,6 +235,10 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
 export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): LoadedServingCard | undefined {
   return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
 }
+/** 8.2b: the research loops' K, the pair's card's `localStreams`; without a card, none, so the loops run one call at a time. freeze.json records the same value. */
+export function localScreenResearchStreams(servingCard: LoadedServingCard | undefined): { localStreams?: number } {
+  return servingCard ? { localStreams: servingCard.policy.localStreams } : {};
+}
 /**
  * The CLI's one failure line. A serving-card refusal adds its fixed code and allowlisted key path; every other failure prints
  * the bytes it printed before SC.
@@ -494,7 +498,7 @@ configOptions?: LoadConfigOptions) {
         planner: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId), synthesiser: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId) }),
         ...(diagnostics ? { diagnostics } : {}),
         // 8.2b: the card's K reaches the research loops and the judge; freeze.json records it (servingCardFreeze).
-        ...(servingCard ? { localStreams: servingCard.policy.localStreams } : {}) } } : {}),
+        ...localScreenResearchStreams(servingCard) } } : {}),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;

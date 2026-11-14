@@ -224,6 +224,13 @@ describe("serving-card reader (SC)", () => {
     }
   });
 
+  it("8.2b: under the real flags, a card with K = 4 and its proven P11 burst loads, and its K reaches the policy and the freeze fragment", () => {
+    // The positive case for the removed R2 row: localStreams is consumed, so only the evidence gates refuse a K now.
+    const dir = workspace(), written = writeCard(dir, edited(card => { card.concurrency.localStreams = 4; })), loaded = loadServingCard(written, EXPECT);
+    expect(loaded.policy.localStreams).toBe(4);
+    expect(servingCardFreeze(loaded)).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 4 } });
+  });
+
   it("R7: the freeze fragment is empty without a card and holds the digest, version, date and entry, never the path, with one", () => {
     expect(servingCardFreeze(undefined)).toEqual({});
     const dir = workspace(), written = writeCard(dir, allDefault()), fragment = servingCardFreeze(loadServingCard(written, EXPECT));

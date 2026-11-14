@@ -1,5 +1,7 @@
+import { getEventListeners } from "node:events";
 import { describe, expect, it } from "vitest";
-import { ORDERED_POOL_MAX_LIMIT, runOrderedPool, type PoolOutcome } from "../../src/main/private-agent/ordered-pool";
+import { ORDERED_POOL_MAX_LIMIT, orderedPoolLimit, runOrderedPool, type PoolOutcome } from "../../src/main/private-agent/ordered-pool";
+import { MAX_LOCAL_STREAMS } from "../../src/main/private-agent/serving-card";
 
 /** A call the test settles by hand: `resolve`/`reject` it, read the signal it was launched with. */
 interface Deferred { index: number; signal: AbortSignal; done: boolean; resolve: (value: string) => void; reject: (error: unknown) => void }
@@ -16,6 +18,8 @@ function harness(count: number) {
 /** Lets every pending promise reaction run, so the pool reaches its next await. */
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 const denied = (outcome: PoolOutcome<string>) => outcome.status === "fulfilled" && outcome.value.startsWith("denied");
+/** The pipeline's rule (BL-20261114-1645 decision 2): a sibling stop is a `cancelled` reply applied with afterAbort, and nothing else. */
+const siblingStop = (outcome: PoolOutcome<string>, afterAbort: boolean) => afterAbort && outcome.status === "fulfilled" && outcome.value === "denied cancelled";
 
 describe("the ordered pool (backlog item 8)", () => {
   it("keeps at most K launched and not yet applied, and applies strictly in item order when calls finish in reverse", async () => {
@@ -61,8 +65,8 @@ describe("the ordered pool (backlog item 8)", () => {
     h.call(0).resolve("reply 0"); await tick();
     expect(await run).toEqual({ launched: 4, applied: 4, stopped: true, aborted: true });
     expect(seen.map(row => [row.index, row.afterAbort])).toEqual([[0, true], [1, true], [2, false], [3, false]]);
-    // The lowest-index genuine denial is the first denial applied without afterAbort: 2, never the aborted sibling 1.
-    expect(seen.find(row => denied(row.outcome) && !row.afterAbort)?.index).toBe(2);
+    // The stage's denial is the lowest-index denial that is not a sibling stop: 2, never the aborted sibling 1.
+    expect(seen.find(row => denied(row.outcome) && !siblingStop(row.outcome, row.afterAbort))?.index).toBe(2);
     // Item 0 settled after the abort but did settle: the caller still applies it, so the stage counts every settled row.
     expect(seen[0]!.outcome).toEqual({ status: "fulfilled", value: "reply 0" });
   });
@@ -76,6 +80,21 @@ describe("the ordered pool (backlog item 8)", () => {
     h.call(0).resolve("denied cancelled"); h.call(3).resolve("denied cancelled");
     await run;
     expect(seen).toEqual([[0, true], [1, false], [2, false], [3, true]]);
+  });
+
+  it("marks a call that failed for its own reason but settled after the abort, so only a cancelled reply with afterAbort is a sibling stop (#71's review F3)", async () => {
+    const h = harness(3), seen: [number, string, boolean][] = [];
+    const run = runOrderedPool({ items: h.items, limit: 3, signal: new AbortController().signal, launch: h.launch,
+      interrupt: outcome => denied(outcome) && !siblingStop(outcome, false) ? "abort" : undefined,
+      apply: (outcome, _item, index, context) => { seen.push([index, (outcome as { value: string }).value, context.afterAbort]); } });
+    await tick();
+    h.call(2).resolve("denied budget_denied"); await tick();
+    // Item 0's call failed for its own reason before the abort, but settles after the abort reached its signal.
+    h.call(0).resolve("denied request_failed"); h.call(1).resolve("denied cancelled");
+    expect(await run).toEqual({ launched: 3, applied: 3, stopped: false, aborted: true });
+    expect(seen).toEqual([[0, "denied request_failed", true], [1, "denied cancelled", true], [2, "denied budget_denied", false]]);
+    // Marked, yet genuine: the lowest-index denial that is not a sibling stop is item 0's, not item 2's.
+    expect(seen.find(([index, value, afterAbort]) => value.startsWith("denied") && !siblingStop({ status: "fulfilled", value }, afterAbort))?.[0]).toBe(0);
   });
 
   it("never marks the stage's own abort as a sibling stop, even when the first cancelled outcome triggers an abort", async () => {
@@ -95,11 +114,11 @@ describe("the ordered pool (backlog item 8)", () => {
 
   it("drains every in-flight call before rethrowing a throw from apply, interrupt or beforeLaunch", async () => {
     for (const where of ["apply", "interrupt", "beforeLaunch"] as const) {
-      const h = harness(4);
+      const h = harness(4), applied: number[] = [];
       const run = runOrderedPool({ items: h.items, limit: 3, signal: new AbortController().signal, launch: h.launch,
         beforeLaunch: (_item, index) => { if (where === "beforeLaunch" && index === 3) throw new Error(`${where}_bug`); return true; },
         interrupt: (_outcome, _item, index) => { if (where === "interrupt" && index === 0) throw new Error(`${where}_bug`); },
-        apply: (_outcome, _item, index) => { if (where === "apply" && index === 0) throw new Error(`${where}_bug`); } });
+        apply: (_outcome, _item, index) => { if (where === "apply" && index === 0) throw new Error(`${where}_bug`); applied.push(index); } });
       let state = "pending"; const observed = run.then(() => "resolved", (error: Error) => error.message).then(value => { state = value; return value; });
       await tick();
       h.call(0).resolve("reply 0"); await tick();
@@ -110,6 +129,9 @@ describe("the ordered pool (backlog item 8)", () => {
       for (const call of h.calls.filter(call => !call.done)) call.resolve("late");
       expect(await observed).toBe(`${where}_bug`);
       expect(h.calls.every(call => call.done)).toBe(true);
+      // #71's review F4: nothing is applied after a callback throws, though items 1 and 2 settle later. Item 0 was applied
+      // before beforeLaunch threw at item 3; an apply or interrupt throw at item 0 leaves nothing applied.
+      expect(applied).toEqual(where === "beforeLaunch" ? [0] : []);
     }
   });
 
@@ -153,20 +175,30 @@ describe("the ordered pool (backlog item 8)", () => {
     expect(order).toEqual(["0:fulfilled", "1:rejected", "2:fulfilled"]);
   });
 
-  it("refuses a K outside 1 to 8, returns at once with no items, and adds one listener per in-flight call at K = 8", async () => {
+  it("refuses a K outside 1 to 8 and returns at once with no items; its bound is the serving card's, and an absent or invalid K is 1", async () => {
     for (const limit of [0, 9, 1.5, Number.NaN]) await expect(runOrderedPool({ items: [1], limit, signal: new AbortController().signal, launch: async () => 1, apply: () => {} })).rejects.toThrow("ordered_pool_limit_invalid");
+    // #71's review F5: one bound for K, now that 8.2b consumes the card's localStreams.
+    expect(ORDERED_POOL_MAX_LIMIT).toBe(MAX_LOCAL_STREAMS);
     expect(ORDERED_POOL_MAX_LIMIT).toBe(8);
+    expect([undefined, 0, 9, 1.5, Number.NaN, -1, 1, 4, 8].map(orderedPoolLimit)).toEqual([1, 1, 1, 1, 1, 1, 1, 4, 8]);
     expect(await runOrderedPool({ items: [], limit: 3, signal: new AbortController().signal, launch: async () => 1, apply: () => {} })).toEqual({ launched: 0, applied: 0, stopped: false, aborted: false });
-    // Each call adds three listeners to its own signal, as the broker, token admission and a backoff would: no warning at K = 8.
-    const warnings: Error[] = [], onWarning = (warning: Error) => { warnings.push(warning); };
-    process.on("warning", onWarning);
-    try {
-      const h = harness(16);
-      const run = runOrderedPool({ items: h.items, limit: 8, signal: new AbortController().signal,
-        launch: (item, index, signal) => { for (let i = 0; i < 3; i++) signal.addEventListener("abort", () => {}); return h.launch(item, index, signal); }, apply: () => {} });
-      for (let i = 0; i < 16; i++) { await tick(); h.call(i).resolve(`v${i}`); }
-      await run; await tick();
-    } finally { process.off("warning", onWarning); }
-    expect(warnings.filter(warning => warning.name === "MaxListenersExceededWarning")).toEqual([]);
+  });
+
+  it("adds no listener to the stage's signal, and gives each launch its own signal holding only what its call adds, at K = 8 (#71's review F1)", async () => {
+    // Counted directly: no warning limit applies on Node 22.22.2, whose AbortSignals have no maximum (BL-20261110-0619).
+    const stage = new AbortController(), h = harness(16), own = 3;
+    const run = runOrderedPool({ items: h.items, limit: 8, signal: stage.signal,
+      launch: (item, index, signal) => { for (let i = 0; i < own; i++) signal.addEventListener("abort", () => {}); return h.launch(item, index, signal); }, apply: () => {} });
+    for (let i = 0; i < 16; i++) {
+      await tick();
+      expect(h.live()).toBe(Math.min(8, 16 - i));
+      expect(getEventListeners(stage.signal, "abort")).toHaveLength(0);
+      for (const call of h.calls) expect(getEventListeners(call.signal, "abort")).toHaveLength(own);
+      h.call(i).resolve(`v${i}`);
+    }
+    expect(await run).toEqual({ launched: 16, applied: 16, stopped: false, aborted: false });
+    expect(getEventListeners(stage.signal, "abort")).toHaveLength(0);
+    expect(new Set(h.calls.map(call => call.signal)).size).toBe(16);
+    expect(h.calls.some(call => call.signal === stage.signal)).toBe(false);
   });
 });

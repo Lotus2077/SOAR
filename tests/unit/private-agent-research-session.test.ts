@@ -30,9 +30,12 @@ function phase(): SessionPhase {
  * broken plan falls back, so tests break extraction); `onRequest` lets one pause mid-call. The options are one object, so a
  * caller written for the old `fixture(() => "not a plan")` shape no longer compiles instead of silently breaking every stage.
  */
-/** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply, or "hold" to never answer. */
-async function fixture(options: { reply?: (system: string) => string | undefined; recoverable?: boolean } = {}) {
-  const bodies: { system: string; user: string }[] = [];
+/**
+ * `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any
+ * reply, or "hold" to never answer. `delayMs` (8.2b) answers a stage's requests after a delay, and `flight` counts those in flight per stage.
+ */
+async function fixture(options: { reply?: (system: string) => string | undefined; recoverable?: boolean; delayMs?: (system: string) => number } = {}) {
+  const bodies: { system: string; user: string }[] = [], flight = new Map<string, { live: number; peak: number }>();
   const hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" | "hold"; onCloud?: (response: http.ServerResponse) => void } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
@@ -44,8 +47,15 @@ async function fixture(options: { reply?: (system: string) => string | undefined
       if (decision === "destroy") { request.socket.destroy(); return; }
       if (decision === "hold") return;
       const content = options.reply?.(system) ?? researchV4Reply(system, user);
-      response.setHeader("content-type", "application/json");
-      response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      const answer = () => {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      };
+      const wait = options.delayMs?.(system) ?? 0;
+      if (wait <= 0) { answer(); return; }
+      const stage = system.split(" ", 2)[1]!, row = flight.get(stage) ?? { live: 0, peak: 0 }; flight.set(stage, row);
+      row.live++; row.peak = Math.max(row.peak, row.live);
+      setTimeout(() => { row.live--; answer(); }, wait);
     });
   });
   await new Promise<void>((yes, no) => { server.once("error", no); server.listen(0, "127.0.0.1", yes); });
@@ -65,7 +75,7 @@ async function fixture(options: { reply?: (system: string) => string | undefined
     { id: "cloud", kind: "cloud_model", endpoint: `${endpoint}/cloud/v1/messages`, accountId: "fixture-cloud", credentialVersion: 0, privateDataAdmitted: false, syntheticOnly: true,
       grantFreeSynthetic: true, loopbackFixture: true, timeoutMs: 200, maxResponseBytes: 65536 }];
   const broker = new PrivateAgentBroker(store, destinations, { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) });
-  return { store, broker, root, bodies, hooks };
+  return { store, broker, root, bodies, hooks, flight };
 }
 type Run = { files: string[]; goal: string; checks: string[]; required: string[]; restricted: boolean; initialEvidence?: string };
 /** The research stage events of a job as [stage, calls, denied]: every call the stage stops records one, even before its row is committed. */
@@ -541,16 +551,19 @@ describe("E1 recoverability: a research stage stopped mid-call on the real broke
   }
   /**
    * Runs a session whose `nth` call at `stage` is held open and stopped by `mode`; returns what a test asserts on, and a resume. With
-   * `nth` 2 the phase has a second source, so the stop falls on the extraction stage's second call.
+   * `nth` 2 the phase has a second source, so the stop falls on the extraction stage's second call. With `streams` (8.2b's K, which the
+   * fixture's zero-fee local reader takes), the stage's earlier calls are held too, so all of them are in flight when the stop lands.
    */
-  async function stoppedAt(stage: (typeof stages)[number], mode: Mode, nth = 1) {
-    const f = await fixture(), runs: Run[] = [], jobId = `job-${mode.replace(" ", "-")}-${stage[0]}-${nth}`;
-    const phaseOf = (config: GeneralSessionOptions) => nth > 1 ? withSecondSource(config) : config, config = phaseOf(options(f, jobId, runs));
+  async function stoppedAt(stage: (typeof stages)[number], mode: Mode, nth = 1, streams?: number) {
+    const f = await fixture(), runs: Run[] = [], jobId = `job-${mode.replace(" ", "-")}-${stage[0]}-${nth}${streams ? `-k${streams}` : ""}`;
+    const withStreams = (config: GeneralSessionOptions) => streams ? { ...config, research: { ...config.research!, localStreams: streams } } : config;
+    const phaseOf = (config: GeneralSessionOptions) => withStreams(nth > 1 ? withSecondSource(config) : config), config = phaseOf(options(f, jobId, runs));
     if (mode === "session deadline") config.limits = { ...config.limits!, maxElapsedMs: 400 };
     const session = new GeneralAgentSession(config), external = new AbortController();
     let seen = 0;
     f.hooks.onRequest = system => {
-      if (!system.startsWith(stage[1]) || ++seen < nth) return undefined;
+      if (!system.startsWith(stage[1])) return undefined;
+      if (++seen < nth) return streams ? "hold" : undefined;
       if (mode === "cancel") session.cancel(); else if (mode === "external abort") external.abort(); else if (mode === "pause") session.pause();
       return "hold";
     };
@@ -581,6 +594,28 @@ describe("E1 recoverability: a research stage stopped mid-call on the real broke
       expect(runs).toHaveLength(0);
       expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
     }, 20_000);
+  // 8.2b (BL-20261114-1645 decision 6; #71's review): the cases above assume one dispatch in flight per job. Rerun with K = 2: a stage with
+  // one call in flight stops as before, and the extraction stage's two calls, both in flight, both resolve failed with code cancelled.
+  it.each(stages.flatMap(stage => (["cancel", "external abort", "session deadline", "pause"] as const).map(mode => [stage[0], mode, stage] as const)))(
+    "8.2b, K = 2, %s, %s: one call in flight stops as at K = 1, and a resume sends nothing again", async (name, mode, stage) => {
+      const { f, jobId, runs, result, rows, stageEvents, sent, resumed } = await stoppedAt(stage, mode, 1, 2);
+      expect(result).toMatchObject({ status: "incomplete", reason: outcomes[mode][0] }); expect(resumed).toMatchObject({ status: "incomplete", reason: outcomes[mode][1] });
+      expect(rows.some(row => row.status === "unknown" || row.status === "committed")).toBe(false);
+      expect(rows.at(-1)).toMatchObject({ purpose: purposes[name], status: "failed", failure: { phase: "transport", code: "cancelled" } });
+      expect(rows.slice(0, -1).every(row => row.status === "settled")).toBe(true);
+      expect(stageEvents.at(-1)).toMatchObject({ stage: name, denied: "cancelled" });
+      expect(runs).toHaveLength(0);
+      expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
+    }, 20_000);
+  it.each(["cancel", "external abort", "pause"] as const)("8.2b, K = 2, extract, %s with both chunks' calls in flight: both rows resolve failed with code cancelled, the stage records no call and denied cancelled, and a resume sends nothing again", async mode => {
+    const { f, jobId, runs, result, rows, stageEvents, sent, resumed } = await stoppedAt(stages[2], mode, 2, 2);
+    expect(result).toMatchObject({ status: "incomplete", reason: outcomes[mode][0] }); expect(resumed).toMatchObject({ status: "incomplete", reason: outcomes[mode][1] });
+    expect(rows.filter(row => row.purpose === purposes.extract).map(row => [row.status, row.failure?.code])).toEqual([["failed", "cancelled"], ["failed", "cancelled"]]);
+    expect(rows.some(row => row.status === "unknown" || row.status === "committed")).toBe(false);
+    expect(stageEvents.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "cancelled" });
+    expect(runs).toHaveLength(0);
+    expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
+  }, 20_000);
   it.each(["cancel", "external abort", "pause"] as const)("extract, %s on the second of two chunks: the first chunk's call stays settled, the stage records one call and denied cancelled, and a resume sends nothing again", async mode => {
     const { f, jobId, runs, result, rows, stageEvents, sent, resumed } = await stoppedAt(stages[2], mode, 2);
     expect(result).toMatchObject({ status: "incomplete", reason: outcomes[mode][0] }); expect(resumed).toMatchObject({ status: "incomplete", reason: outcomes[mode][1] });
@@ -711,5 +746,56 @@ describe("E1 recoverability: local work continues after a cloud assist stays UNK
       return () => f.store.commit({ ...packet, reservedFeeMicrousd: fee, scan: { status: "not_required_for_synthetic_local_test" } }, () => {}); };
     expect(reserving(501)).toThrow("private_agent_budget_denied");
     expect(reserving(500)()).toMatchObject({ status: "committed", reservedFeeMicrousd: 500 });
+  }, 20_000);
+});
+
+describe("backlog item 8.2b: the session's K reaches the reader's loops and the claims judge, and stays out of the session identity", () => {
+  /** The fixture's phase with `count` corpus sources in all: one extraction chunk each, and index batches of three. */
+  function withSources(config: GeneralSessionOptions, count: number): GeneralSessionOptions {
+    const extra = Array.from({ length: count - 1 }, (_, i) => ({ path: `input/corpus/s${i}.md`, bytes: Buffer.from(`# Sector ${i}\nStorage in sector ${i} grew by ${i + 2} GW in 2024.\n`) }));
+    const privatePhase = { ...config.privatePhase, files: [...config.privatePhase.files, ...extra] };
+    return { ...config, privatePhase, syntheticInputApproval: { ...config.syntheticInputApproval!, privatePhaseSha256: sessionPhaseIdentity(privatePhase) } };
+  }
+  it("runs index, extraction and judge calls K at a time on the zero-fee local destination, with the same events, receipts and verdicts as without K", async () => {
+    const f = await fixture({ delayMs: system => system.startsWith("You index") || system.startsWith("You extract") ? 40 : 0 });
+    // The judge's calls are held 30 ms each by a stub, so the calls in flight can be counted; every other call reaches the loopback model.
+    let live = 0, judgePeak = 0;
+    const original = PrivateAgentModel.prototype.complete;
+    vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async function (this: PrivateAgentModel, messages, tools, signal, overrides) {
+      if (overrides?.purpose !== "claims entailment judgement") return original.call(this, messages, tools, signal, overrides);
+      live++; judgePeak = Math.max(judgePeak, live); await new Promise(resolve => setTimeout(resolve, 30)); live--;
+      return { content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 };
+    });
+    const peaks: Record<string, number[]> = {};
+    const configure = (jobId: string, streams: number | undefined) => {
+      const config = withSources(options(f, jobId, []), 4), runner = config.trustedHostRunnerFactory!;
+      if (streams !== undefined) config.research = { ...config.research!, localStreams: streams };
+      // The writer records four verified claims for the entailment pass, as the real runner's finish-time check does.
+      config.trustedHostRunnerFactory = input => { const inner = runner(input); return { ...inner, run: (...args: Parameters<typeof inner.run>) => {
+        f.store.append(jobId, { type: "claims_verified", contextId: input.contextId, version: 1, claims: [1, 2, 3, 4].map(i => ({ id: `C${i}`, sentence: `s${i}`, quote: `q${i} long enough`, context: `c${i}` })) });
+        return inner.run(...args); } }; };
+      return config;
+    };
+    for (const [jobId, streams] of [["job-serial", undefined], ["job-k3", 3], ["job-priced-k3", 3]] as const) {
+      // A model that is not zero-risk (a priced or cloud one) runs one call at a time whatever K is: here every role reports so.
+      const priced = jobId === "job-priced-k3" ? vi.spyOn(PrivateAgentModel.prototype, "zeroRisk").mockReturnValue(false) : undefined;
+      expect(await new GeneralAgentSession(configure(jobId, streams)).run()).toMatchObject({ status: "submitted" });
+      priced?.mockRestore();
+      peaks[jobId] = [f.flight.get("index")!.peak, f.flight.get("extract")!.peak, judgePeak]; f.flight.clear(); judgePeak = 0;
+    }
+    // Four sources: index batches of three and one, four extraction chunks, four claims.
+    expect(peaks).toEqual({ "job-serial": [1, 1, 1], "job-k3": [2, 3, 3], "job-priced-k3": [1, 1, 1] });
+    // K is no part of the identity: the same identity, and a resume with another K is no contract drift.
+    const started = (jobId: string) => f.store.events(jobId).find(event => event.type === "session_started")!;
+    expect(started("job-k3").identity).toBe(started("job-serial").identity);
+    expect(await new GeneralAgentSession(configure("job-k3", 1)).run()).toMatchObject({ status: "submitted" });
+    // Beside the timing, nothing differs: stage events, receipts purpose for purpose, and the verdicts.
+    const without = (event: Record<string, unknown>) => { const { contextId: _context, ...rest } = event; return rest; };
+    const stages = (jobId: string) => f.store.events(jobId).filter(event => event.type === "research_stage").map(without);
+    expect(stages("job-k3")).toEqual(stages("job-serial"));
+    const rows = (jobId: string) => f.store.dispatches(jobId).map(row => [row.purpose, row.status, row.responseSha256]);
+    expect(rows("job-k3")).toEqual(rows("job-serial"));
+    const judged = (jobId: string) => f.store.events(jobId).filter(event => event.type === "claims_entailment").map(without);
+    expect(judged("job-k3")).toEqual(judged("job-serial")); expect(judged("job-k3")).toMatchObject([{ entailmentCalls: 4, truncated: false, counts: { supported: 4 } }]);
   }, 20_000);
 });

@@ -368,3 +368,111 @@ print(json.dumps({'alphabet':len(alphabet),'checked':len(strings),'mismatches':l
     expect(python).not.toContain(String.raw`[*_:\s]+$`);
   });
 });
+
+describe("backlog item 8.2b: the judge runs K claims at a time on the ordered pool and keeps the verdicts that arrive (ASSIST-2)", () => {
+  /** n claims, C1..Cn; the listed indexes carry no context window. Each context names its claim, so a call is known by its messages. */
+  const claimsOf = (n: number, omitted: number[] = []) => Array.from({ length: n }, (_, i) => ({ id: `C${i + 1}`, sentence: `s${i + 1}`, quote: `q${i + 1}`, context: omitted.includes(i) ? "" : `window-C${i + 1}` }));
+  const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+  const verdict = (name: string) => `{"verdict":"${name}"}`;
+  /** A judge whose calls the test settles by claim id; a call honours its signal as the broker's would, and the calls in flight are counted. */
+  function held() {
+    const calls = new Map<string, { signal: AbortSignal; answer: (content: string) => void; fail: (error: unknown) => void }>(), launched: string[] = [];
+    let live = 0, peak = 0;
+    const complete = (messages: { content?: unknown }[], _tools: [], signal: AbortSignal) => new Promise<{ content: string }>((resolve, reject) => {
+      const id = /window-(C\d+)/u.exec(String(messages[1]!.content))![1]!; launched.push(id);
+      live++; peak = Math.max(peak, live);
+      const end = () => { if (calls.get(id)) { calls.delete(id); live--; } };
+      calls.set(id, { signal, answer: content => { end(); resolve({ content }); }, fail: error => { end(); reject(error); } });
+      signal.addEventListener("abort", () => { calls.get(id)?.fail(new BrokerError("request_failed")); }, { once: true });
+    });
+    return { complete, calls, launched, live: () => live, peak: () => peak, answer: (id: string, content: string) => calls.get(id)!.answer(content), fail: (id: string) => calls.get(id)!.fail(new BrokerError("request_failed")) };
+  }
+  const far = () => 600_000;
+
+  it("keeps the verdicts in claim order when calls finish out of order, with at most K in flight", async () => {
+    const judge = held(), claims = claimsOf(6);
+    const pass = judgeClaims({ claims, limit: 3, complete: judge.complete, signal: new AbortController().signal, remainingMs: far });
+    for (let round = 0; round < 6 && judge.calls.size; round++) {
+      await tick();
+      for (const id of [...judge.calls.keys()].reverse()) { judge.answer(id, verdict(Number(id.slice(1)) % 2 ? "supported" : "partial")); await tick(); }
+    }
+    const outcome = await pass;
+    expect(outcome).toMatchObject({ entailmentCalls: 6, truncated: false, counts: { supported: 3, partial: 3, not_judged: 0 } });
+    expect(outcome.verdicts.map(row => [row.id, row.verdict])).toEqual(claims.map((claim, i) => [claim.id, i % 2 ? "partial" : "supported"]));
+    expect(judge.peak()).toBe(3); expect(judge.launched).toEqual(claims.map(claim => claim.id));
+  });
+
+  it("on a failed call stops launching at once, lets the siblings finish without an abort, and keeps their verdicts, even for a claim after the failing one", async () => {
+    const judge = held(), claims = claimsOf(7);
+    const pass = judgeClaims({ claims, limit: 4, complete: judge.complete, signal: new AbortController().signal, remainingMs: far });
+    await tick(); expect(judge.launched).toEqual(["C1", "C2", "C3", "C4"]);
+    judge.fail("C3"); await tick();
+    // C1's verdict frees a slot while C3, still behind C2, is not yet applied: nothing more launches all the same.
+    judge.answer("C1", verdict("supported")); await tick(); expect(judge.launched).toHaveLength(4);
+    // C4, launched after C3, is neither aborted nor dropped.
+    expect(judge.calls.get("C4")!.signal.aborted).toBe(false); judge.answer("C4", verdict("contradicted")); await tick(); judge.answer("C2", verdict("partial"));
+    const outcome = await pass;
+    expect(judge.launched).toEqual(["C1", "C2", "C3", "C4"]);
+    expect(outcome).toMatchObject({ entailmentCalls: 4, truncated: true, stopReason: "request_failed", counts: { supported: 1, partial: 1, contradicted: 1, not_judged: 4 } });
+    expect(outcome.verdicts).toEqual([{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "partial" }, { id: "C3", verdict: "not_judged", reason: "judge_request_failed" },
+      { id: "C4", verdict: "contradicted" }, ...["C5", "C6", "C7"].map(id => ({ id, verdict: "not_judged", reason: "pass_stopped" }))]);
+  });
+
+  it("checks a pause before each launch, once a slot is free: the claims in flight keep their verdicts and the first claim left takes paused", async () => {
+    const judge = held(), claims = claimsOf(5);
+    let paused = false;
+    const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: new AbortController().signal, remainingMs: far, stop: () => paused });
+    await tick(); paused = true;
+    judge.answer("C1", verdict("supported")); await tick(); judge.answer("C2", verdict("unsupported"));
+    const outcome = await pass;
+    expect(judge.launched).toEqual(["C1", "C2"]);
+    expect(outcome).toMatchObject({ entailmentCalls: 2, truncated: true, stopReason: "paused" });
+    expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["supported", "unsupported", "paused", "pass_stopped", "pass_stopped"]);
+  });
+
+  it("labels every call a cancel stopped in flight by the cancel, and the claims never launched pass_stopped", async () => {
+    const judge = held(), claims = claimsOf(4), cancel = new AbortController();
+    const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: cancel.signal, remainingMs: far });
+    await tick(); cancel.abort();
+    const outcome = await pass;
+    expect(outcome).toMatchObject({ entailmentCalls: 2, truncated: true, stopReason: "deadline_or_cancelled" });
+    expect(outcome.verdicts.map(row => row.reason)).toEqual(["deadline_or_cancelled", "deadline_or_cancelled", "pass_stopped", "pass_stopped"]);
+  });
+
+  it("gives the first claim left the stop's label when the pass is cancelled or paused between claims, as the serial pass did", async () => {
+    for (const paused of [false, true]) {
+      const claims = claimsOf(3), cancel = new AbortController();
+      let stop = false;
+      const outcome = await judgeClaims({ claims, limit: 1, signal: cancel.signal, remainingMs: far, stop: () => stop,
+        complete: async () => { stop = paused; cancel.abort(); return { content: verdict("supported") }; } });
+      expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: paused ? "paused" : "deadline_or_cancelled" });
+      expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["supported", paused ? "paused" : "deadline_or_cancelled", "pass_stopped"]);
+    }
+  });
+
+  it("answers a claim without context with no call and no pause check at any K, so it never stops the pass", async () => {
+    // It still takes its window slot until it is applied in turn: with C1 omitted, C2 and C3 are the two calls in flight.
+    for (const pause of [false, true]) {
+      const judge = held(), claims = claimsOf(5, [0, 3]);
+      let paused = false;
+      const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: new AbortController().signal, remainingMs: far, stop: () => paused });
+      await tick(); expect(judge.launched).toEqual(["C2", "C3"]);
+      paused = pause; judge.answer("C3", verdict("partial")); await tick(); judge.answer("C2", verdict("supported")); await tick();
+      // C4 has no context: answered after the pause without a check; C5 is the claim the pause stops at.
+      if (!pause) judge.answer("C5", verdict("unsupported"));
+      const outcome = await pass;
+      expect(judge.launched).toEqual(pause ? ["C2", "C3"] : ["C2", "C3", "C5"]);
+      expect(outcome).toMatchObject({ entailmentCalls: pause ? 2 : 3, truncated: pause });
+      expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["context_omitted", "supported", "partial", "context_omitted", pause ? "paused" : "unsupported"]);
+    }
+  });
+
+  it("judges one claim at a time when K is absent or out of range", async () => {
+    for (const limit of [undefined, 0, 9, 1.5, Number.NaN, -1]) {
+      const judge = held(), claims = claimsOf(3);
+      const pass = judgeClaims({ claims, ...(limit === undefined ? {} : { limit }), complete: judge.complete, signal: new AbortController().signal, remainingMs: far });
+      for (let i = 0; i < 3; i++) { await tick(); expect(judge.calls.size).toBe(1); judge.answer([...judge.calls.keys()][0]!, verdict("supported")); }
+      expect((await pass).entailmentCalls).toBe(3); expect(judge.peak()).toBe(1);
+    }
+  });
+});

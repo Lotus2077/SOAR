@@ -20,6 +20,8 @@
  */
 
 export const ORDERED_POOL_MAX_LIMIT = 8;
+/** K for a loop (8.2b): an integer from 1 to ORDERED_POOL_MAX_LIMIT as given; absent or out of range, 1, the serial loop. */
+export const orderedPoolLimit = (k: number | undefined): number => k !== undefined && Number.isSafeInteger(k) && k >= 1 && k <= ORDERED_POOL_MAX_LIMIT ? k : 1;
 export type PoolOutcome<R> = { status: "fulfilled"; value: R } | { status: "rejected"; error: unknown };
 /** What follows: keep launching, stop launching (in-flight items finish), or stop and abort the in-flight items. */
 export type PoolDecision = "continue" | "stop" | "abort";

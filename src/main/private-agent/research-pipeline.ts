@@ -6,7 +6,7 @@ import { z } from "zod";
 import { BrokerError } from "./broker";
 import { canonical, digest, exactText } from "./contracts";
 import { DEADLINE_BEFORE_REQUEST_STOP, ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
-import { runOrderedPool, type PoolOutcome } from "./ordered-pool";
+import { orderedPoolLimit, runOrderedPool, type PoolOutcome } from "./ordered-pool";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, RESEARCH_COVERAGE_POLICY, RESEARCH_PRESENTATION_POLICY, RESEARCH_SLOT_POLICY, RESEARCH_TOLERANCE_POLICY, type ResearchBudget } from "./research-contract";
 import type { ResearchAssistOutcome, ResearchAssists } from "./research-assist-contract";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "./dispatch-purposes";
@@ -112,7 +112,7 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
   assists?: ResearchAssists;
   /**
    * 8.2b: K, the serving card's `localStreams` (1 to MAX_LOCAL_STREAMS). The index and extraction loops run K calls at a time
-   * when the reader is zero-risk local, and one at a time otherwise. No part of the protocol hash, the budget or the counts; absent, 1.
+   * when the reader is zero-risk local, and one at a time otherwise. No part of the protocol hash, the budget or the counts; absent or out of range, 1.
    */
   localStreams?: number }
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
@@ -301,7 +301,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   if (inventory.sources.some(s => !s.readable)) return finish("incomplete", "research_source_unreadable");
   if (!researchMandatoryWorkFits({ batches: batches.length, chunks: inventory.chunks.length }, budget)) return finish("incomplete", "research_mandatory_budget_exceeded");
   // 8.2b: the reader's loops run K at a time only when the reader is zero-risk local; otherwise one at a time, as before.
-  const readerStreams = input.localStreams !== undefined && input.models.reader.zeroRisk() ? input.localStreams : 1;
+  const readerStreams = input.localStreams !== undefined && input.models.reader.zeroRisk() ? orderedPoolLimit(input.localStreams) : 1;
   const indexCounts: ResearchStageCounts = { stage: "index", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0, sourcesSkipped: 0, batchesSkipped: 0 };
   const assessments = new Map<string, IndexSourceAssessment>(), attempts = new Map<string, number>(), batchAssessments: IndexBatchAssessment[] = [], deficient: ResearchSource[][] = [];
   const indexLaunch = (batch: ResearchSource[], repair: boolean, signal: AbortSignal) => call(input.models.reader, INDEX_SYSTEM, () => canonical({ sources: batch.map(s => ({ id: s.id, bytes: s.bytes.length, previewTruncated: s.bytes.length > RESEARCH_INDEX_BATCH_BYTES, text: preview(s.bytes) })), repair }), OUTPUT_TOKENS.index, PURPOSES.index, THINKING.index, signal);

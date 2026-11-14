@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ArtifactCheck } from "./runner";
 import type { GeneralMessage } from "./model";
 import { canonical, digest, exactText } from "./contracts";
-import { ORDERED_POOL_MAX_LIMIT, runOrderedPool } from "./ordered-pool";
+import { orderedPoolLimit, runOrderedPool } from "./ordered-pool";
 
 /**
  * Research claims ledger (PR-J1). The model writes output/claims.json beside its
@@ -68,7 +68,7 @@ export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: 
   /** 8.2b: K, the claims judged at a time (1 to ORDERED_POOL_MAX_LIMIT); absent or out of range, 1. */
   limit?: number }): Promise<EntailmentOutcome> {
   type Judged = { kind: "omitted" } | { kind: "reply"; content: string } | { kind: "failed"; label: EntailmentStopReason };
-  const limit = input.limit !== undefined && Number.isSafeInteger(input.limit) && input.limit >= 1 && input.limit <= ORDERED_POOL_MAX_LIMIT ? input.limit : 1;
+  const limit = orderedPoolLimit(input.limit);
   const verdicts: EntailmentRecord[] = []; let calls = 0, stopReason: EntailmentStopReason | undefined, stoppedAt: number | undefined;
   const pool = await runOrderedPool<EntailmentClaim, Judged>({ items: input.claims, limit, signal: input.signal,
     // The pause and deadline checks, once a slot is free. A claim without context passes untested: it is answered without a

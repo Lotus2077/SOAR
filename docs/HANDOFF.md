@@ -157,8 +157,9 @@ Follow the order in review §5.6. Each step is done when its condition holds.
    `Verified` in CI and maps each one to named tests. Under #88's default the gate
    stays held, with no E2 to E6 live run and no harness loop, until the owner's Docker
    run of E1-L's sandbox suite (tests/integration/private-agent-sandbox.test.ts; the
-   command and image are in that entry) is recorded `Verified`. Done: its gate in
-   review §5.6 passes.
+   command and image are in that entry) is recorded `Verified`. Whether the hold also
+   covers E0's r3 run (step 2) is an open owner question in that entry. Done: its gate
+   in review §5.6 passes.
 4. **E5** on the existing local routes in the owner's desktop build, with item 2's
    verdict capture. Not started. Ask the owner about the P11 interim (decision 9) and
    the box checklist (PLAN.md D5); both gate labelled work only.

@@ -38546,3 +38546,62 @@ References:
 - BL-20261107-1111-stop-bricking-tasks-docker-suite-verified
 - docs/PROJECT_REVIEW_2026-11-05.md, section 5.6, row E1
 - docs/HANDOFF.md, "Start here" §5 step 3
+
+### BL-20261114-1333-correction-e1-recoverability-gate-review -- 2026-11-14 -- Correction to BL-20261114-1253-e1-recoverability-gate-ci-verified: nine tests outside E1's describes, not ten; the supporting rows are counted apart from the clauses; the gate's release depends on decision 3's defaults; three wordings
+
+Status: `Implemented`
+
+Scope or hypothesis: The light review of #97 at 22f3534 found six minor issues, and no blocker or major one.
+- Four of them concern sentences of BL-20261114-1253-e1-recoverability-gate-ci-verified. That entry is committed and is not edited, so this entry corrects those sentences.
+- The fifth issue is that docs/HANDOFF.md's §5 step 3 leaves out the r3 question; it is fixed there in this push.
+- The sixth is fixed in the pull request's description.
+- No count, verdict or status in the entry changes.
+
+Decisions:
+1. **Nine tests outside E1's describes, not ten.**
+   - Decision 1 of the entry says: "Ten more tests, outside E1's describe blocks, carry clauses 2 and 3." Its own lists hold nine: clause 2's extraction D14 case and clause 3's eight injected-row tests. Read "nine".
+   - The message of commit a622842 repeats "ten"; it stays as history.
+2. **The supporting rows are counted apart from the clause rows.**
+   - Three rows are counted on their own, even where one of their tests also meets a clause's test: E1-R, E1-L's host half, and arms S3, S5, S7 and E1-J2.
+   - For example, E1-R's eight zero-fee broker cases (tests/integration/private-agent-broker.test.ts:862-929) and its two flash-next cases each cut a zero-fee call through the real broker and store, then assert the rows exactly. That meets clause 1's test.
+   - E1-R's cancel-during-wait cases also meet clause 4's test.
+   - Counting such tests under the clauses as well would only add support. The 36, 36, 131 and 29 of decision 1 stay as counted, and no verdict changes.
+3. **The gate's release depends on decision 3's defaults.** The entry's Next gate says the owner's Docker run "releases the gate". It does so only while decision 3's defaults stand:
+   - if the owner answers "No" to E1-2, the gate also waits for 10.b's end-to-end proof of clause 3;
+   - if the owner widens E1-3's set, the gate also waits for those fixes.
+
+   Read: "Under the defaults in decision 3, that releases the gate."
+4. **Three wordings.**
+   - **The loop test's name.** The Evidence says the eight injected-row tests are "named in full", but decision 1 shortens the loop test's name. Its full name is "admits a sample whose assist row is %s (backlog item 10) and goes on to b, the critique and the repair, counting it apart", in its `unknown` case (tests/unit/phase4-loop.test.ts:209).
+   - **The 83bf38c listing.** The Evidence says the listing at 83bf38c "lists the same 102 tests in the same 12 files", and then that "The only difference is the two cases 7c later changed", which contradicts itself. Read: it lists 102 tests in the same 12 files; 100 are identical, and the other two are the cases 7c later rewrote.
+   - **Clause 1's criterion.** Clause 1's criterion says each test "fails or stops a zero-fee call". The writer's pause case does neither (tests/unit/private-agent-runner-budget.test.ts:1464): it pauses during the call, and the call settles. Read: "fails, stops or pauses during a zero-fee call".
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- docs/HANDOFF.md, "Start here" §5 step 3: the review's fifth issue. It now says that whether the hold also covers E0's r3 run (step 2) is an open owner question in that entry, and it states no default.
+- No file under src/ or tests/ changes.
+
+Evidence:
+- The review's citations, rechecked at 22f3534:
+  - the loop test's name at tests/unit/phase4-loop.test.ts:209;
+  - the writer's pause case at tests/unit/private-agent-runner-budget.test.ts:1464;
+  - the entry's sentences at the lines the review names.
+- At this push's head, `origin/main` is still 582f880:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0;
+  - `pnpm typecheck` and `pnpm validate:readiness` pass;
+  - `pnpm exec vitest run -t "E1 recoverability"` gives 12 files and 102 tests passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. Nothing new is verified by it, and the entry's status, counts and verdicts stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The owner's go-ahead for #97, which the coordinating session has requested, and CI green.
+- At integration, the re-stamp into the minute block the coordinating session assigns, with its Correction.
+
+References:
+- BL-20261114-1253-e1-recoverability-gate-ci-verified
+- BL-20261113-0848-correction-e1-train-1-reviews
+- The light review of #97 at 22f3534, which is review data and is not committed.

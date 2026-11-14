@@ -149,8 +149,32 @@ Follow the order in review §5.6. Each step is done when its condition holds.
      3. The probes, per issue #57: P1 alone first, checked by hand; then P1, P10, P11
         and the adapter probe in one invocation after `pnpm probe:export-schemas`;
         then `pnpm probe:assess`; then the card writer with the `--compare-*` flags.
-   - No PR that changes `researchProtocolSha256()` may merge between the export and
-     the assessment; 7b.2, 7a.2 and item 9 will change it.
+   - The card and #57 also require steps this list leaves out:
+     - the planner fixture's run, after the r3 pin;
+     - an extractor fixture, which has no script yet; an amendment to the card names
+       its command;
+     - the judge's harvest, pin and run;
+     - one registry row per run;
+     - a `Verified` entry with the serving card.
+
+     #57's resolution also records whether the judge reached its level.
+   - Open before E0, each the owner's to answer:
+     - the labeller's provider, model and key, which the card's amendment names (#91);
+     - which brief the planner fixture pins;
+     - the reply contract in `.env.local`; under `flash_next_v1`, every brokered call
+       needs the token-admission pair;
+     - whether the one probe invocation runs the four probes or P1 to P11;
+     - whether E1's held gate covers the r3 run (#97).
+   - No PR that changes the default value of `researchProtocolSha256()` may merge
+     between the export and the assessment.
+     - Of the pending items, only 7b.2 (#102) moves the default.
+     - 7a.2 and item 9 move the hash only through a non-default serving card, 7b.3
+       only when a card sets admission, and 10.b only when an assist is configured.
+       8.2b never moves it.
+     - If a default-hash change lands after E0, a structured-output card needs a full
+       re-probe: a new export, then P1, P10, P11 and the adapter probe in one
+       invocation, then the assessment and a new card. Re-running P10 alone is not
+       enough.
 3. **E1**, the recoverability tests with no live model. Every E1 test and fix PR is
    merged. Next is E1-G, the `Verified` entry that maps the gate clauses to tests.
    Under #88's default, E1-G records the CI clauses `Verified` and holds the gate, with
@@ -160,11 +184,17 @@ Follow the order in review §5.6. Each step is done when its condition holds.
    verdict capture. Not started. Ask the owner about the P11 interim (decision 9) and
    the box checklist (PLAN.md D5); both gate labelled work only.
 5. **E2 and E6** (cards #62 and #54), backlog items 6-11, and the start of item 12.
-   - Done: 6.1, 6.2, 6.3, 7a.1, 7b.1, 7c, 7d.A, 7d.B, 8.2a, 10.a, 11.1, 11.2, 11.3a
-     and 11.3b.
-   - Remaining, as the entries name them: 7a.2, 7b.2, 7b.3, 7d.C, 8.1, 8.2b, item 9,
-     10.b, 11.4, the part 5 launcher (11.5) and RA (the assist receipt fields). The
-     lane plan puts item 9 last in S-pipe's sequence, after 7b.2 and 7a.2.
+   - Done: 6.1, 6.2, 6.3, 7a.1, 7b.1, 7c, 7d.A, 7d.B, 7d.C (#99), 8.2a, 10.a, 11.1,
+     11.2, 11.3a and 11.3b.
+   - Remaining, as the entries name them: 7a.2, 7b.2, 7b.3, 8.1, 8.2b, item 9, 10.b,
+     11.4, the part 5 launcher (11.5) and RA (the assist receipt fields). The lane plan
+     puts item 9 last in S-pipe's sequence, after 7b.2 and 7a.2.
+   - Merge order, as the coordinating session decided on 2026-11-14 (not the owner):
+     - While 10.b waits on the scrubber gate of
+       BL-20261113-0925-correction-assist-core-rereview, 7a.2 and then item 9 may merge
+       before 10.b. 10.b merges `main` in afterwards.
+     - serving-card-flags.ts keeps the order 7a.2, 9, 8.2b, 7b.3.
+     - 7c's fallback column moves from RA into 11.4.
    - E2 and E6 have not run, and item 12 has not started.
 6. **E3** waits as before: items 6-11 done (10.b and item 11 among them), decisions 6
    and 11 made, and its card (#63) committed, naming the provider and D's call

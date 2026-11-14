@@ -38656,3 +38656,48 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: One light review, CI, and the owner's go to merge, since this is not a lane pull request.
 
 References: BL-20261114-1119-handoff-start-here; BL-20261114-1121-correction-handoff-start-here; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0920-assist-wrapper-design; BL-20261113-1003-e0-card-owner-answers; docs/experiments/e0-card-2026-11-13.md; issue #57; pull requests #91, #97, #99, #102, #103 and #104.
+
+### BL-20261114-1501-correction-handoff-hash-line-review -- 2026-11-14 -- Correction to BL-20261114-1441-correction-handoff-hash-line-e0-steps after its light review: a wrong line cite, the future items' hash statements rest on the plan, fuller evidence and attribution, and the open E0 questions it left out
+
+Status: `Implemented`
+
+Scope or hypothesis: The light review of pull request #106 at e29a201 found no blocker or major and six minor issues. BL-20261114-1441-correction-handoff-hash-line-e0-steps stays as written; this entry corrects its statements. The "Start here" fixes are made directly in docs/HANDOFF.md in this push.
+
+Decisions:
+- **The line cite.** The entry cites research-roles.ts:52-58 for `nonDefaultRoleParameters`. The predicate and its comment are at research-roles.ts:57-71 on `main`. #103's binding of the role policy into the hash is research-pipeline.ts:138-142 at its head bf8855d.
+- **The future items' hash statements rest on the plan, not on code.**
+  - Only 7b.2 and 7a.2 are checked against code, by their pin files: 7100b7a2… for 7b.2, and an unchanged 505c385a… for 7a.2.
+  - The statements on item 9, 7b.3, 10.b and 8.2b rest on the lane plan (plan.md §0 change 11, and §5's item 8 defaults) and on decision (13) of BL-20261113-0920-assist-wrapper-design. lane-S-pipe.md:789 still says item 9 changes the hash; plan.md's brief changes override it.
+  - For 7b.3, plan.md says "only when a card is set", not "only when a card sets admission".
+- **Evidence the entry left out.**
+  - The card writer's refusal of a card without P1 from the same run is at scripts/serving-card.py:544-547 (`card_identity`).
+  - plan.md §5 keeps K out of the hash (line 238).
+  - The superseded "re-run P10's synthesis cells" is plan.md line 196.
+- **The merge-order departure is wider than the entry says.**
+  - The lane plan merges 7a.2 after 10.b everywhere (plan.md line 116).
+  - The lane plan puts 10.b before 7a.2 on phase4-loop.ts too (line 134).
+  - The lane briefs' pipeline train puts 10.b before 7a.2 and item 9 on research-pipeline.ts (lane-S-pipe.md:88).
+  - The call to let 7a.2 and then item 9 go first covers all of these.
+  - The entry's "coordinating session" is the orchestrating session of "Start here".
+- **Attribution.** The owner's "Start all" was a chat instruction to the orchestrating session on 2026-11-14. This log does not otherwise record it.
+- **What "Start here" now also says**, in docs/HANDOFF.md §5:
+  - E0's done condition includes the judge's level in #57's resolution;
+  - the judge's harvest is a step of #91's protocol and comes before the labelling;
+  - registry-row.py has no mode for probe or fixture runs yet;
+  - the questions open before E0 add 7b.2's timing (before the export, with an amendment of the card's precondition hash, or after the assessment, with the full re-probe), the labeller's API host, key variable, tool and envelope line, and when the planner manifest is committed;
+  - "after E0" becomes "after the assessment";
+  - 7d.C is marked as merged after §1's snapshot.
+
+Changes: docs/HANDOFF.md "Start here" §5 steps 2 and 5. No code change.
+
+Evidence: The light review of #106 at e29a201 (2026-11-14, git-ignored review data) checked each cited source, and found that #106 merges cleanly with #97's HANDOFF edits. `pnpm --silent validate:build-log -- --base-ref origin/main` passes on this push; its exit status was checked directly.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. The statements about unwritten items stay plans until their pull requests pin them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI, then the owner's go to merge #106.
+
+References: BL-20261114-1441-correction-handoff-hash-line-e0-steps; BL-20261113-0920-assist-wrapper-design; docs/experiments/e0-card-2026-11-13.md; scripts/serving-card.py; pull requests #91, #97, #102, #103 and #106; issue #57.

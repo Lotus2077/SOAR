@@ -138,6 +138,10 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_parameter_unconsumed", "K", loadFrom(edited(card => { card.concurrency.localStreams = 4; })), "concurrency.localStreams"],
     ["serving_card_p10_settings_drift", "a run without the cache salt P10's bodies carried", loadFrom(edited(flag("extract", true, false)),
       { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, cacheSalt: false } }), "roles.extract.structuredOutput.thinkingOff"],
+    // #111's review: under the same Flash contract, the context alone differs.
+    ["serving_card_p10_settings_drift", "another context under the same Flash contract", loadFrom(edited(card => { flag("extract", true, false)(card);
+      card.evidence.p10.requestSettings = { ...SYNTHETIC_P10_REQUEST_SETTINGS, localReplyContract: "flash_next_v1", localContextTokens: 262_144 }; }),
+    { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, localReplyContract: "flash_next_v1", localContextTokens: 131_072 } }), "roles.extract.structuredOutput.thinkingOff"],
     ["serving_card_parameter_unconsumed", "admission", loadFrom(edited(card => { card.admission.basis = "serving_card"; })), "admission.basis"],
   ];
 

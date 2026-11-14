@@ -246,6 +246,9 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
     ["request settings with a path-like model", p => { p.P10.request_settings.model = "/home/x/m"; }, [], "at $.P10.request_settings does not have the shape", true],
     ["a reply contract without its context", p => { p.P10.request_settings.localReplyContract = "flash_next_v1"; }, [], "at $.P10.request_settings does not have the shape", true],
     ["another profile", p => { p.P10.request_settings.profile = "standard"; }, [], "at $.P10.request_settings does not have the shape", true],
+    ["a reply contract other than flash_next_v1", p => { Object.assign(p.P10.request_settings, { localReplyContract: "flash_next_v2", localContextTokens: 262144 }); }, [],
+      "at $.P10.request_settings does not have the shape", true],
+    ["a cache salt that is not a boolean", p => { p.P10.request_settings.cacheSalt = "true"; }, [], "at $.P10.request_settings does not have the shape", true],
     ["a lone surrogate in the served alias", p => { p.P1.models[0].id = "RM-01 \ud800"; }, [], "cannot be encoded as UTF-8", false],
     ["an engine version that looks like a path", p => { p.P1.version = "/opt/vllm-0.33"; }, [], "at $.P1.version; serve the model under --served-model-name", false],
   ])("W4: refuses %s with exit 2, printing and writing nothing", (_name, edit, extra, message, markdownAlone) => {

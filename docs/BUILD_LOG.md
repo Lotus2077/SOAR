@@ -38954,7 +38954,7 @@ Next gate: CI on #98, and its merge under the standing go-ahead while `main` is 
 
 References: BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1438-correction-experiment-launcher-review; the skeptic's re-check of #98.
 
-### BL-20261114-1343-registry-columns-design -- 2026-11-14 -- Decide plan 11.4: receipts record their destination kind, body and disclosed bytes, and registry rows gain reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
+### BL-20261114-1504-registry-columns-design -- 2026-11-14 -- Decide plan 11.4: receipts record their destination kind, body and disclosed bytes, and registry rows gain reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
 
 Status: `Proposed`
 
@@ -38964,7 +38964,7 @@ Scope or hypothesis: Plan 11.4 (backlog item 11; lane S-harn; issue #63). Two pe
 
 It also takes two pieces assigned since the lane plan was written:
 - the coordinator's decision of 2026-11-14 that 7(c)'s fallback-disclosure column moves into 11.4. It was planned for RA (BL-20261113-0920).
-- the launcher's stop-signal record, which 11.5's design entry (BL-20261114-1250, on pull request #98, decision 10) hands to 11.4.
+- the launcher's stop-signal record, which 11.5's design entry (BL-20261114-1344-experiment-launcher-design, on pull request #98, decision 10) hands to 11.4.
 
 Nothing here runs a model, an endpoint, Docker or a paid call.
 
@@ -39028,13 +39028,13 @@ Next gate: The implementation with deterministic tests and its `Implemented` ent
 - On a closed corpus served from a loopback snapshot, `domains` is 0, and E3 reads `urls` and `actions.sourcesRead`. Default: yes.
 - Is the reading stage's `sourcesIndexed` the closed-corpus "read" until item 12? Default: yes.
 
-References: BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261109-0422-registry-run-commit-design; BL-20261114-1250 (pull request #98); HARN-27; issue #63; .soar/next-milestones plan item 11.4.
+References: BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261109-0422-registry-run-commit-design; BL-20261114-1344-experiment-launcher-design (pull request #98); HARN-27; issue #63; .soar/next-milestones plan item 11.4.
 
-### BL-20261114-1403-correction-registry-columns-design-id -- 2026-11-14 -- Correction: plan 11.4's design entry carries ID BL-20261114-1343 in the merged ledger; it was authored at 13:31 UTC on 2026-11-14 as BL-20261114-1331
+### BL-20261114-1505-correction-registry-columns-design-id -- 2026-11-14 -- Correction: plan 11.4's design entry carries ID BL-20261114-1504 in the merged ledger; it was authored at 13:31 UTC on 2026-11-14 as BL-20261114-1331
 
 Status: `Implemented`
 
-Scope or hypothesis: Record why plan 11.4's design entry (BL-20261114-1343-registry-columns-design) does not carry its authoring minute. 7d.C (#99) merged into `main` while this branch was open, and `main`'s last ID became BL-20261114-1342-correction-host-flags-surfaces-review. The validator refuses an ID earlier than the entry before it. Under the owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries), at this branch's merge of `main` (9f63fc6) the entry takes the first free minute after `main`'s tail, and the six references that point to it are updated. Nothing else about the entry changed.
+Scope or hypothesis: Record why plan 11.4's design entry (BL-20261114-1504-registry-columns-design) does not carry its authoring minute. 7d.C (#99) merged into `main` while this branch was open, and `main`'s last ID became BL-20261114-1342-correction-host-flags-surfaces-review. The validator refuses an ID earlier than the entry before it. Under the owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries), at this branch's merge of `main` (9f63fc6) the entry takes the first free minute after `main`'s tail, and the six references that point to it are updated. Nothing else about the entry changed.
 
 Decisions:
 - The entry's body is byte-identical to what it was at 9abb76c. Only the heading's minute moved; the date stays 2026-11-14.
@@ -39055,13 +39055,13 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The review of this pull request, which checks the re-stamp and this correction.
 
-References: BL-20261114-1343-registry-columns-design; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+References: BL-20261114-1504-registry-columns-design; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
 
-### BL-20261114-1405-registry-columns-implemented -- 2026-11-14 -- Plan 11.4 implemented: receipts record their destination kind, body and disclosed bytes, and registry rows carry reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
+### BL-20261114-1506-registry-columns-implemented -- 2026-11-14 -- Plan 11.4 implemented: receipts record their destination kind, body and disclosed bytes, and registry rows carry reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
 
 Status: `Implemented`
 
-Scope or hypothesis: Implement BL-20261114-1343-registry-columns-design (plan 11.4; backlog item 11; issue #63) as decided there:
+Scope or hypothesis: Implement BL-20261114-1504-registry-columns-design (plan 11.4; backlog item 11; issue #63) as decided there:
 - the receipt disclosure fields, written at the broker's commit and checked in the store;
 - the registry columns on `--run-dir` and `--loop-dir` rows;
 - `--launcher-ledger`;
@@ -39131,13 +39131,13 @@ Next gate:
 - The coordinator's light review.
 - The merge under the standing go-ahead, with this branch's entries re-stamped after `main`'s tail.
 
-References: BL-20261114-1343-registry-columns-design; BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261114-1250 (pull request #98); HARN-27.
+References: BL-20261114-1504-registry-columns-design; BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261114-1344-experiment-launcher-design (pull request #98); HARN-27.
 
-### BL-20261114-1447-registry-columns-review-design -- 2026-11-14 -- Supersede parts of plan 11.4's decisions (2) and (3) after #104's light review: tool names from the runner's closed set, a loopback source counted without its port, null for a fee or a read count never recorded, and cloud calls in commit order on loop rows
+### BL-20261114-1507-registry-columns-review-design -- 2026-11-14 -- Supersede parts of plan 11.4's decisions (2) and (3) after #104's light review: tool names from the runner's closed set, a loopback source counted without its port, null for a fee or a read count never recorded, and cloud calls in commit order on loop rows
 
 Status: `Proposed`
 
-Scope or hypothesis: Supersede, without editing it, four column rules in decisions (2) and (3) of BL-20261114-1343-registry-columns-design. The light review of #104 found one major and five minor findings, and the coordinator checked the major independently. Four findings change what a column holds:
+Scope or hypothesis: Supersede, without editing it, four column rules in decisions (2) and (3) of BL-20261114-1504-registry-columns-design. The light review of #104 found one major and five minor findings, and the coordinator checked the major independently. Four findings change what a column holds:
 - **The major, privacy.** `actions.tools` was keyed by `tool_started.name`.
   - runner.ts records the name the model chose before it checks the tool (runner.ts:674), and the tool-call parsers accept any non-empty string.
   - The implementation's filter was a pattern (`^[a-z][a-z0-9 _-]{0,63}$`), not a closed set, so model-chosen text could reach a public row. In the review's probe, a tool named `email jane doe re acme merger 4417` did.
@@ -39160,7 +39160,7 @@ Decisions:
 - **(4) Order (supersedes the stage order in decision (3)).** A loop row's `cloudCalls` are in commit order (`committedAt`) across all its runs and the critique's ledger, as decision (2) and the README say for a run. A call without a commit time keeps the scan's order, after the others.
 - **(5) Purposes (unchanged).** `cloudCalls[].purpose` keeps the host-token pattern. Every purpose is a host constant (research-pipeline.ts's `PURPOSES`, the assist purposes, and model.ts's default), passed by the host code that makes the dispatch; a model's output never sets one. The review left a closed set for purposes optional.
 
-Changes: This entry only. The code (scripts/registry-row.py), its tests, docs/experiments/README.md and the correction of BL-20261114-1405-registry-columns-implemented follow in this pull request.
+Changes: This entry only. The code (scripts/registry-row.py), its tests, docs/experiments/README.md and the correction of BL-20261114-1506-registry-columns-implemented follow in this pull request.
 
 Evidence: The light review of #104, and the coordinator's own check of the major: the pattern at registry-row.py:511, and runner.ts:674. Also reading, at 7eb5499:
 - runner.ts:74-96 and observations.ts:47, the tool definitions, and `promptProtocol`, which offers them;
@@ -39176,20 +39176,20 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The code and the correction in this pull request, then the coordinator's re-check of the delta. No owner question is added.
 
-References: BL-20261114-1343-registry-columns-design; BL-20261114-1405-registry-columns-implemented; the light review of #104; HARN-27.
+References: BL-20261114-1504-registry-columns-design; BL-20261114-1506-registry-columns-implemented; the light review of #104; HARN-27.
 
-### BL-20261114-1455-correction-registry-columns-review -- 2026-11-14 -- Correction: plan 11.4 after its light review: a tool name reaches a row only from the runner's closed set, the superseding column rules are implemented, and the entries' two omissions are stated
+### BL-20261114-1508-correction-registry-columns-review -- 2026-11-14 -- Correction: plan 11.4 after its light review: a tool name reaches a row only from the runner's closed set, the superseding column rules are implemented, and the entries' two omissions are stated
 
 Status: `Implemented`
 
-Scope or hypothesis: Correct, without editing it, decision (c) of BL-20261114-1405-registry-columns-implemented, and implement BL-20261114-1447-registry-columns-review-design. Together they fix what the light review of #104 found: one major and five minor findings. The coordinator checked the major independently.
+Scope or hypothesis: Correct, without editing it, decision (c) of BL-20261114-1506-registry-columns-implemented, and implement BL-20261114-1507-registry-columns-review-design. Together they fix what the light review of #104 found: one major and five minor findings. The coordinator checked the major independently.
 - Decision (c) says a tool name, like a cloud call's purpose, is recorded only when it is a fixed host token. For tool names that is wrong (the major finding). The pattern admits any lowercase phrase of up to 64 characters, and a `tool_started` name is the model's choice, recorded before the runner checks it. So model-chosen text could reach a public row.
-- The other column rules the review found wrong are superseded in BL-20261114-1447-registry-columns-review-design.
+- The other column rules the review found wrong are superseded in BL-20261114-1507-registry-columns-review-design.
 
 Nothing here runs a model, an endpoint, Docker or a paid call.
 
 Decisions:
-- **(1) Tool names (finding 1, major).** Corrects decision (c) of BL-20261114-1405-registry-columns-implemented, and implements decision (1) of BL-20261114-1447-registry-columns-review-design.
+- **(1) Tool names (finding 1, major).** Corrects decision (c) of BL-20261114-1506-registry-columns-implemented, and implements decision (1) of BL-20261114-1507-registry-columns-review-design.
   - `actions.tools` keys a finished call by its name only when the name is in `RUNNER_TOOLS`, the runner's closed set of ten tool names. Any other name counts as `other`, as a call whose start was not recorded already did.
   - A cloud call's purpose and status keep decision (c)'s rules: a purpose is a host constant, never model text.
 - **(2) Loopback sources (finding 2).** Implements decision (2) of the same entry. `source_key` drops a loopback URL's port before the union.
@@ -39199,7 +39199,7 @@ Decisions:
 - **(6) The entries' omissions (finding 6).**
   - Besides a run's `dispatchesSha256`, the research producer binds each receipt's own `sha256`, a digest of the whole stored row (research-producer.ts:85), into the research packet. The review reports that a seeded run checks it again when it loads its seed.
     - A row written once the receipt fields merge has its digest over them too.
-    - The digest is computed and checked over the same stored row, so nothing breaks. Decision (1) of BL-20261114-1343-registry-columns-design should have named it.
+    - The digest is computed and checked over the same stored row, so nothing breaks. Decision (1) of BL-20261114-1504-registry-columns-design should have named it.
   - The column tests build their events and dispatch rows by hand. No test ties the field names the registry reads to the code that writes them: `tool_started`, `operationId`, `public_source_retained`, `research_stage`, `sourcesIndexed` and `fallback`. That is a limit of this evidence.
 
 Changes:
@@ -39207,7 +39207,7 @@ Changes:
 - tests/unit/registry-row-columns.test.ts: 5 tests, 1 of them new; the run, pre-11.4 and loop tests extended.
 - docs/experiments/README.md: the `cloudCalls`, `urls` and `actions` rows.
 
-The code is in commit ec1c39a. registry-row.py is outside the source freeze, so this commit moves neither the runtime hash nor the research protocol hash. The freeze still rotates at the merge, for store.ts and broker.ts, as BL-20261114-1405-registry-columns-implemented says.
+The code is in commit ec1c39a. registry-row.py is outside the source freeze, so this commit moves neither the runtime hash nor the research protocol hash. The freeze still rotates at the merge, for store.ts and broker.ts, as BL-20261114-1506-registry-columns-implemented says.
 
 Evidence:
 - **The column tests.** tests/unit/registry-row-columns.test.ts passes 5 of 5 at ec1c39a. They show:
@@ -39240,4 +39240,49 @@ Next gate:
 - `main` merged in after 8.1 (#101), if it lands first, with the checks run again.
 - The merge under the standing go-ahead, with this branch's entries re-stamped after `main`'s tail. Whichever of #98 and #104 merges second updates #104's reference to `BL-20261114-1250 (pull request #98)`.
 
-References: BL-20261114-1447-registry-columns-review-design; BL-20261114-1405-registry-columns-implemented; BL-20261114-1343-registry-columns-design; the light review of #104; HARN-27.
+References: BL-20261114-1507-registry-columns-review-design; BL-20261114-1506-registry-columns-implemented; BL-20261114-1504-registry-columns-design; the light review of #104; HARN-27.
+
+### BL-20261114-1521-correction-registry-columns-second-restamp -- 2026-11-14 -- Correction: plan 11.4's five entries are re-stamped after `main`'s new tail, and #98's design entry is cited by its ID on `main`; their original IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #98 (plan 11.5) merged into `main` before this branch, and `main`'s last ID is now BL-20261114-1503-correction-experiment-launcher-hangup. Five of this branch's entries carried earlier IDs. At this merge of `main` (merge commit d2106de) they move after the new tail, under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). The design entry had been re-stamped once before, after 7d.C's tail (BL-20261114-1342), by the first correction.
+
+Each entry, with its original ID and authoring time, all on 2026-11-14:
+- **The design entry.** Authored at 13:31 UTC as BL-20261114-1331, and re-stamped as BL-20261114-1343. It is now BL-20261114-1504-registry-columns-design.
+- **The first correction.** Authored at 14:03 UTC as BL-20261114-1403. It is now BL-20261114-1505-correction-registry-columns-design-id.
+- **The implemented entry.** Authored at 14:05 UTC as BL-20261114-1405. It is now BL-20261114-1506-registry-columns-implemented.
+- **The review's design entry.** Authored at 14:47 UTC as BL-20261114-1447. It is now BL-20261114-1507-registry-columns-review-design.
+- **The review's correction.** Authored at 14:55 UTC as BL-20261114-1455. It is now BL-20261114-1508-correction-registry-columns-review.
+
+Decisions:
+- **What changed.** Only the five headings' IDs change, in their minutes, together with the 35 references to those IDs: 24 in the five entries' titles and bodies, and 11 in comments and one README row. The comments are six in scripts/registry-row.py, and one each in src/main/private-agent/store.ts, src/main/private-agent/broker.ts, tests/integration/private-agent-broker.test.ts and tests/unit/registry-row-columns.test.ts.
+- **#98's design entry.** #98 re-stamped plan 11.5's design entry from BL-20261114-1250 to BL-20261114-1344-experiment-launcher-design (BL-20261114-1407-correction-experiment-launcher-ids), and it is now on `main`. So this branch's three citations of it move from the short ID to that ID: two in the design entry and one in the implemented entry.
+- **Kept as written, now only historically true.**
+  - The first correction's account of its minute, after 7d.C's tail, held when it was written.
+  - The review correction's next gate names this re-stamp and the reference update as still to do. Both are done here.
+  - #98's own correction says that `git grep BL-20261114-1250` finds only it. That held at its commit; the review correction's next gate and this entry now name the ID too.
+- **`main`'s log.** It is kept whole, as a byte prefix of this branch's.
+
+Changes:
+- docs/BUILD_LOG.md: the five headings, their references, the three citations and this entry.
+- The comments that cite the entries: scripts/registry-row.py, src/main/private-agent/store.ts, src/main/private-agent/broker.ts, tests/integration/private-agent-broker.test.ts and tests/unit/registry-row-columns.test.ts.
+- One row of docs/experiments/README.md.
+
+No behaviour changes.
+
+Evidence:
+- `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit: 617 entries, append-only against `main` at 3cecf7a. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- On this tree before this entry, on Node 22.22.2 and pnpm 10.12.4, the column, broker, golden identity, dispatch-purpose, registry row and launcher tests pass 212 of 212 in 12 files. `pnpm exec vitest run` ran 199 files and 3,710 tests: 3,624 passed, 86 were skipped and none failed.
+- `git grep` finds BL-20261114-1343, -1403, -1405, -1447 and -1455 only in this entry.
+- With the five new IDs mapped back to their previous ones, and the three citations back to BL-20261114-1250, the log before this entry is byte-identical to the merge commit's.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #104's earlier descriptions keep the IDs they had. If another branch's entries reach `main` first again, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #104, the coordinator's re-check of the delta, and the merge under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1407-correction-experiment-launcher-ids; BL-20261114-1344-experiment-launcher-design.

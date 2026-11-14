@@ -10,7 +10,7 @@ import { PROMPT_LAYOUT_VERSIONS, promptProtocol, type PromptProtocolOptions } fr
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 /**
- * Plan 11.4 (BL-20261114-1343-registry-columns-design): reserved and pinned USD, cloud calls, disclosure by packet, retained URLs and
+ * Plan 11.4 (BL-20261114-1504-registry-columns-design): reserved and pinned USD, cloud calls, disclosure by packet, retained URLs and
  * hostnames, actions, 7(c)'s fallback markers and the launcher's stop signal, on run directories as the driver leaves them.
  */
 const cleanups: (() => void)[] = [];

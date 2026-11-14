@@ -1020,7 +1020,7 @@ describe("E1 recoverability: a D4 retry wait cut short never leaves a superseded
   });
 });
 
-describe("receipt disclosure fields (plan 11.4, BL-20261114-1343)", () => {
+describe("receipt disclosure fields (plan 11.4, BL-20261114-1504)", () => {
   it("records the destination kind, the body bytes and HARN-27's disclosed bytes: a POST's body, a GET's URL, nothing to a local model or a loopback URL", () => {
     const body = '{"question":"synthetic é"}', remote = new URL("https://api.example.invalid/v1/messages"), page = new URL("https://www.example.invalid/a?b=c");
     expect(dispatchDisclosure("cloud_model", remote, "POST", body)).toEqual({ destinationKind: "cloud_model", bodyBytes: Buffer.byteLength(body), disclosedBytes: Buffer.byteLength(body) });

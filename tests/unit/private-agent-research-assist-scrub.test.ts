@@ -395,6 +395,9 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
       expect(shared.scrub(once, scope).text, `${scope} ${value}`).toBe(once);
       expect(shared.finding(once, scope), `${scope} ${value}`).toBeUndefined();
     }
+    // The re-scrub: the first union leaves a credential that the other path's span unglued (`alice:hunter2@([url][alice:…`); the
+    // audit finds it, the re-scrub takes it, and the placeholders the re-scrub covers leave the counts.
+    for (const scope of ["text", "model"] as const) expect(scrubber.scrub("alice:hunter2@(hunter2:example.org[alice:hunter2@https://www.example.org-", scope)).toEqual({ text: "[url][url]", counts: { sources: 0, files: 0, urls: 2, digests: 0 } });
     // A stated residue (G4's wider class): a query after a file name that names no source goes out, whole in sent text and after
     // its [file] in model text.
     expect(none.scrub("see notes.md?token=sk_live_abcdef now", "text").text).toBe("see notes.md?token=sk_live_abcdef now");

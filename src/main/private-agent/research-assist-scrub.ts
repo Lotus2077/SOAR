@@ -372,23 +372,50 @@ function replacedSpans(state: Tracked): { start: number; end: number; text: stri
 }
 /** The placeholders, widest first: where the two paths' spans overlap, the widest of theirs replaces them. */
 const WIDEST: readonly string[] = [ASSIST_PLACEHOLDERS.url, ASSIST_PLACEHOLDERS.file, ASSIST_PLACEHOLDERS.source, ASSIST_PLACEHOLDERS.digest];
+/** A placeholder or alias in a sent text, at `at`. */
+interface Emitted { at: number; text: string }
+/** One count per placeholder or alias a sent text holds: `[url]`, `[file]` and `[digest]` by kind, any other a source. */
+function countsOf(emitted: readonly Emitted[]): ScrubCounts {
+  const counts: ScrubCounts = { sources: 0, files: 0, urls: 0, digests: 0 };
+  for (const { text } of emitted) {
+    if (text === ASSIST_PLACEHOLDERS.url) counts.urls++; else if (text === ASSIST_PLACEHOLDERS.file) counts.files++; else if (text === ASSIST_PLACEHOLDERS.digest) counts.digests++; else counts.sources++;
+  }
+  return counts;
+}
+/** What a union sends: its text, each placeholder or alias in it, and each input span it replaced with the length of what replaced it. */
+interface Sent { text: string; emitted: Emitted[]; replaced: { start: number; end: number; length: number }[] }
 /**
  * The input with every span that either path replaced replaced. Overlapping spans become one: what both paths gave it when
- * that is the same (an alias), else the widest placeholder among theirs, else `[source]` (two aliases). It counts what it sends.
+ * that is the same (an alias), else the widest placeholder among theirs, else `[source]` (two aliases).
  */
-function union(input: string, a: Tracked, b: Tracked): { text: string; counts: ScrubCounts } {
+function union(input: string, a: Tracked, b: Tracked): Sent {
   const spans = [...replacedSpans(a), ...replacedSpans(b)].sort((x, y) => x.start - y.start || y.end - x.end);
-  const counts: ScrubCounts = { sources: 0, files: 0, urls: 0, digests: 0 };
+  const emitted: Emitted[] = [], replaced: Sent["replaced"] = [];
   let text = "", last = 0;
   for (let i = 0; i < spans.length;) {
     const { start } = spans[i]!, given = [spans[i]!.text];
     let { end } = spans[i]!, j = i + 1;
     for (; j < spans.length && spans[j]!.start < end; j++) { end = Math.max(end, spans[j]!.end); given.push(spans[j]!.text); }
     const chosen = given.every(value => value === given[0]) ? given[0]! : WIDEST.find(value => given.includes(value)) ?? ASSIST_PLACEHOLDERS.source;
-    if (chosen === ASSIST_PLACEHOLDERS.url) counts.urls++; else if (chosen === ASSIST_PLACEHOLDERS.file) counts.files++; else if (chosen === ASSIST_PLACEHOLDERS.digest) counts.digests++; else counts.sources++;
-    text += input.slice(last, start) + chosen; last = end; i = j;
+    text += input.slice(last, start);
+    emitted.push({ at: text.length, text: chosen }); replaced.push({ start, end, length: chosen.length });
+    text += chosen; last = end; i = j;
   }
-  return { text: text + input.slice(last), counts };
+  return { text: text + input.slice(last), emitted, replaced };
+}
+/**
+ * A re-scrub's union over an earlier sent text: a placeholder or alias of the earlier text that a re-scrub span covers is gone
+ * (that span's own placeholder stands for it); the rest move with the text. So the counts stay those of what is sent.
+ */
+function rescrubbed(earlier: Sent, next: Sent): Sent {
+  const kept: Emitted[] = [];
+  let shift = 0, k = 0;
+  for (const item of earlier.emitted) {
+    while (k < next.replaced.length && next.replaced[k]!.end <= item.at) { shift += next.replaced[k]!.length - (next.replaced[k]!.end - next.replaced[k]!.start); k++; }
+    if (k < next.replaced.length && next.replaced[k]!.start < item.at + item.text.length) continue;
+    kept.push({ at: item.at + shift, text: item.text });
+  }
+  return { text: next.text, emitted: [...kept, ...next.emitted].sort((x, y) => x.at - y.at), replaced: next.replaced };
 }
 
 // ---- Source forms ----
@@ -868,13 +895,12 @@ export function createScrubber(input: { sources: readonly ResearchSourceIdentity
     // A span one path replaced can unglue what the other left visible (`secretwww.example.org` before the `S` of an alias that
     // the other path's URL took): while the audit still finds something, the result is scrubbed again, at most twice.
     scrub(raw, scope) {
-      let input = textForm(raw), result = union(input, run(input, scope, false), run(input, scope, true));
+      const input = textForm(raw);
+      let result = union(input, run(input, scope, false), run(input, scope, true));
       for (let again = 0; again < 2 && finding(result.text, scope) !== undefined; again++) {
-        input = result.text;
-        const next = union(input, run(input, scope, false), run(input, scope, true)), { counts } = result;
-        result = { text: next.text, counts: { sources: counts.sources + next.counts.sources, files: counts.files + next.counts.files, urls: counts.urls + next.counts.urls, digests: counts.digests + next.counts.digests } };
+        result = rescrubbed(result, union(result.text, run(result.text, scope, false), run(result.text, scope, true)));
       }
-      return result;
+      return { text: result.text, counts: countsOf(result.emitted) };
     },
     finding,
   };
@@ -944,7 +970,7 @@ export const SCRUB_POLICY = Object.freeze({
   forms: "ids_paths_%2F_paths_url_variants(scheme,slash,decoded,unicode_host)_without_query_dotted_hosts_with_and_without_www_last_2_and_3_segments_file_names_query_and_fragment_file_names; model_text_also_distinctive_stems_single_label_hosts_opaque_segments_distinctive_query_and_fragment_names; host_appended_paths_and_file_names_[file]",
   matching: "rolling_hashes_by_first_4_and_length_leftmost_longest; names_absorb_up_to_4_extensions_the_longest_unglued_and_a_folder_prefix_before; hosts_urls_paths_absorb_a_path_after; shared_form_[source]",
   glued: "a_file_name_glued_to_more_name_by_-_or__or_._on_either_side_is_[file]; a_host_led_form_glued_after_labels_userinfo_or_a_word_with_its_//_and_scheme_is_[url]_and_a_host_led_name_takes_its_url's_rest; a_lone_www._keeps_the_alias; on_the_provisional_path_userinfo_goes_back_through_a_password's_characters_once_an_@_is_crossed_and_a_user:password@_before_any_source_match_makes_it_host_led; a_whole_path_or_url_form_with_more_of_its_segment_glued_after_it_and_a_host_with_a_hyphenated_word_take_the_token's_rest; a_name_a_query_fragment_or_slash_and_segment_follows_takes_them",
-  union: "two_paths_over_one_normalized_input_each_tracking_the_input_span_of_every_unit_of_its_text; the_policy_4_path_replaces_as_version_4; the_sent_text_replaces_every_span_either_path_replaced; overlapping_spans_become_one_with_the_alias_both_gave_else_the_widest_placeholder_url_file_source_digest; scrubbed_again_while_the_audit_finds_something_at_most_twice; counts_are_those_of_the_sent_text",
+  union: "two_paths_over_one_normalized_input_each_tracking_the_input_span_of_every_unit_of_its_text; the_policy_4_path_replaces_as_version_4; the_sent_text_replaces_every_span_either_path_replaced; overlapping_spans_become_one_with_the_alias_both_gave_else_the_widest_placeholder_url_file_source_digest; scrubbed_again_while_the_audit_finds_something_at_most_twice; counts_are_those_of_the_sent_text_a_re_scrub_dropping_the_placeholders_it_covers",
   provisional: "a_match_leaves_the_alias_or_S0_for_a_placeholder; a_provisional_mark_records_its_glue_lead_prefix_run_and_tail_spans_moves_with_the_text_and_onto_the_placeholder_of_a_rule_that_takes_it; after_the_last_pass_each_mark_becomes_its_placeholder_or_its_rule's_over_what_is_still_visible_of_its_spans_with_a_scheme_glued_before_a_url; its_own_url_and_path_rules_and_a_relative_path's_query_or_fragment_after_the_extension; a_whole_url_or_path_form's_run_is_read_from_before_its_glued_digits_which_alone_keep_the_alias; a_name's_tail_takes_&_and_;_parameters; a_rooted_path_with_an_extension_takes_its_query_fragment_or_parameters; user_names_of_any_spaced_script_with_brackets_after_the_first; last_a_credential_directly_before_a_url_or_path_placeholder_is_[url]",
   spacelessInPaths: "spaceless_letters_inside_urls_paths_and_file_names_only_where_a_connector_touches_them",
   extensions: "2_to_16_letters_and_digits_with_a_letter_not_a_capitalized_word_not_a_decimal",

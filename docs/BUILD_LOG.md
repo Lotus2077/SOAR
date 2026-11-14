@@ -40134,3 +40134,56 @@ Next gate:
 3. The merge under the standing go-ahead, with a re-stamp if another entry reaches `main` first.
 
 References: BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; BL-20261113-0856-claims-trailing-strip-linear-design.
+
+### BL-20261114-1808-claims-check-long-char-refs-implemented -- 2026-11-14 -- Implemented: the claims check reads a decimal character reference of any length as html.unescape would without Python's integer limit, tested under the container's Python 3.11
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements decisions (1), (3) and (6) of BL-20261114-1803-claims-check-long-char-refs-design as decided, on `fix/claims-check-long-char-refs` from `main` at a38a88e. Decisions (2), (4), (5) and (7) need no code. The hypothesis is the design's.
+
+Decisions: None beyond the design. It left one detail open: how the test of decision (6)(a) picks its interpreter. A probe at import tries `python3.11`, then `python3`, and takes the first that is Python 3.11 or later and has `sys.get_int_max_str_digits`.
+
+Changes:
+- src/main/private-agent/claims.ts:
+  - `CLAIMS_MARKUP_STRIP_PY` imports `html` and gains `LONG_DECIMAL` and `unescape`, with a line of its doc comment;
+  - `units`' DOCX and HTML lines call `unescape`.
+- tests/unit/private-agent-claims.test.ts:
+  - `pythonWithIntLimit` and an optional `python` for the `run` helper;
+  - the describe "the claims check reads a long decimal character reference as html.unescape would without Python's integer limit (BL-20261114-1803)", with four tests: the container's Python, the differential test, the fixed results and the source.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On the owner's Mac, where the system python3 is 3.9.5 and `python3.11` is 3.11.16, the container's version:
+- **The new describe** passed, 4 of 4. The test of decision (6)(a) ran under 3.11.16 and asserted its limit of 4,300. The differential test reported 57,449 strings, 4,224 refused by the stock `html.unescape` and zero mismatches, in about 0.7 s.
+- **Mutation runs on the shipped code**, with claims.ts restored after each:
+  - With `units`' former `html.unescape` calls back, the 3.11 test failed: the check exited 1. The source test failed too.
+  - With a threshold of 4,302 digits, the 3.11 test failed, and the differential test and the fixed results stopped on `ValueError`.
+  - Without the `0` fallback, or without the `;` in the split, the differential test and the fixed results failed.
+- **The check's text** differs from `main`'s only by the constant's new import, pattern and function, and by `units`' two calls.
+- **The two test files.** tests/unit/private-agent-claims.test.ts and tests/unit/private-agent-research-headings.test.ts gave 59 passed and 1 skipped. The skip is `main`'s pypdf test.
+- **The full suite** (`pnpm exec vitest run`) ran three times, at load averages of about 4 to 8.
+  - The second run passed with none failed: 199 files, and 3,741 tests with 3,655 passed and 86 skipped.
+  - The first run had one failure. Its output did not keep the test's name, and the failure did not recur.
+  - The third run, with the JSON reporter, had three failures, the load timeouts seen before on this machine:
+    - tests/unit/document-review.test.ts, on `spawnSync python3 ETIMEDOUT`;
+    - tests/unit/private-agent-host-flags.test.ts;
+    - tests/unit/private-agent-sandbox-capture.test.ts.
+
+    None of the three files runs the claims check's text. Run alone, they gave 61 passed and 1 skipped.
+- `pnpm typecheck` and `pnpm validate:readiness` passed. `pnpm --silent validate:build-log -- --base-ref origin/main` exited 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No live run took place.
+- Equality on every input rests on the design's argument. The tests cover their own inputs.
+- CI runs the 3.11 test under its python3, 3.12, unless `python3.11` is installed there.
+- As the design records, the check's new text gives claims-checked tasks a third `taskJobSha256` across the merge, and no harness loop may span it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The coordinating session's light review.
+2. CI green.
+3. The merge under the standing go-ahead, with a re-stamp if another entry reaches `main` first.
+
+References: BL-20261114-1803-claims-check-long-char-refs-design; BL-20261114-1711-claims-check-linear-strips-design.

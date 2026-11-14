@@ -39294,3 +39294,390 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #101's new head, then the orchestrator's merge under the owner's standing go-ahead.
 
 References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1507-correction-concurrent-local-admission-restamp; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1523-registry-columns-design -- 2026-11-14 -- Decide plan 11.4: receipts record their destination kind, body and disclosed bytes, and registry rows gain reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
+
+Status: `Proposed`
+
+Scope or hypothesis: Plan 11.4 (backlog item 11; lane S-harn; issue #63). Two persisted contracts change, so this entry precedes the code:
+- the dispatch receipt, the private ledger's row;
+- the registry row (docs/experiments/README.md).
+
+It also takes two pieces assigned since the lane plan was written:
+- the coordinator's decision of 2026-11-14 that 7(c)'s fallback-disclosure column moves into 11.4. It was planned for RA (BL-20261113-0920).
+- the launcher's stop-signal record, which 11.5's design entry (BL-20261114-1344-experiment-launcher-design, on pull request #98, decision 10) hands to 11.4.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Receipt fields.** `DispatchReceipt` gains three optional fields: `destinationKind` (`local_model`, `cloud_model` or `public_web`), `bodyBytes` and `disclosedBytes`.
+  - The broker writes all three at its one commit (broker.ts:511), on every row from this change on. Rows written before it lack them.
+  - `bodyBytes` is the request body's UTF-8 length, 0 for a GET.
+  - `disclosedBytes` follows HARN-27's default. It is 0 for a `local_model` destination or a loopback URL (127.0.0.1 or ::1, the broker's own loopback rule). Otherwise it is the body's bytes for a POST and the request URL's bytes for a GET.
+  - `store.commit` refuses a present field that is not a safe non-negative integer or a known kind.
+  - Unchanged: the preview, `packetSha256`, the packet text, `destinationSha256`, admission, the exposure formula (store.ts:276), retries and the zero-risk rules. So tests/unit/private-agent-identity-golden.test.ts stays as it is.
+  - The settle, close and supersede rewrites spread the stored row, so the fields survive them. A run's `dispatchesSha256` covers them, consistently within the run.
+- **(2) Registry columns on every row**, from the run's own records. Every value is a count, a USD amount, a fixed host enum or null; no URL, hostname, path or text reaches a row.
+  - `reservedUsd`: the sum of every row's `reservedFeeMicrousd` (each attempt's reservation), in USD.
+  - `pinnedUsd`: the reservations of rows still `committed` or `unknown`, as store.ts's exposure counts them. With `usd` it is the run's exposure, which 11.5's batch cap counts.
+  - `committedDispatches`: rows still `committed` at the run's end. They are already counted in `unknownDispatches`.
+  - `cloudCalls`: one object per cloud-model row, in commit order: `purpose`, `status`, `feeUsd`, `reservedUsd` and `bodyBytes` (null on an older row). A row is a cloud call when its `destinationKind` is `cloud_model`, or, on an older row without it, when its destination is `cloud_coordinator`.
+  - `disclosedBytes`: the sum of `disclosedBytes` over rows unique by `packetSha256`, so a retried packet counts once. Null when any row lacks the field.
+  - `urls`: the number of distinct retained public-source URLs (`public_source_retained` events).
+  - `domains`: the number of distinct lowercased hostnames among those URLs, with a leading `www.` dropped and loopback hosts excluded. It is approximate (HARN-27's default; no public-suffix list). Harness runs read approved snapshots from a loopback receiver whose routes name sources by id, not by origin, so their `domains` is 0. E3's card reads `urls` and `actions.sourcesRead` there.
+  - `retainedBytes`: the sum of those events' bytes.
+  - `actions`, with three parts:
+    - `tools`: `tool_finished` counts by tool name, joined to `tool_started` by `operationId`;
+    - `fetchReceipts`: the `public_source_retained` events;
+    - `sourcesRead`: the reading stage's `sourcesIndexed`, or null without a reading stage. This is "read" on a closed corpus (HARN-27), which item 12 revises.
+  - `queries`: null until item 12.
+  - `researchFallback`: `{plan, synthesis}` from the reading stage's `research_stage` events. `plan` is `host_plan` or `none`, and `synthesis` is `skeleton` or `none`. Null without a reading stage. This discloses 7(c)'s host fallbacks (BL-20261113-0927-research-v5-design).
+- **(3) Loop rows.** They read every run through part 3b's scan, moved and unfinished runs included, and through `stage_run` (BL-20261113-0836-infra-resume-design, decision (11)).
+  - Amounts and counts are summed over the runs, and `cloudCalls` are concatenated in stage order.
+  - `urls` and `domains` are counted over the union of the runs' URLs.
+  - `researchFallback` is taken from `stage_run("a")`, the run whose reading stage made the loop's packet.
+  - A run without a result contributes what its ledger holds.
+- **(4) The launcher's stop signal (HARN-12).** `--run-dir` accepts `--launcher-ledger PATH`.
+  - The row's run is found by its freeze's `jobId` among the ledger's `run_exited` records. Exactly one must match, or the row is refused.
+  - That record's `signalled` is passed to `run_end_evidence` as `stop_signalled`. A forwarded signal then classes `cancelled_or_deadline` as `operator_stop`.
+  - Without the flag, `stop_signalled` stays false (registry-row.py:127). The ledger is only read, and nothing from it but that flag reaches the row.
+- **(5) Order.** 8.1 changes the same `store.commit` statement, and 7d.C the same row assembly in registry-row.py. This branch merges `main` in as each lands: on store.ts and broker.ts after 8.1, and on registry-row.py after 7d.C, as the coordinator set on 2026-11-14. The lane plan's older registry order had 11.4 before 7d.C. There are no card parameters.
+
+Changes: This entry only. The code follows in this pull request: store.ts, broker.ts and scripts/registry-row.py. So do docs/experiments/README.md, the tests (tests/integration/private-agent-broker.test.ts and a new tests/unit/registry-row-columns.test.ts) and the `Implemented` entry.
+
+Evidence: Reading only, at 582f880:
+- broker.ts:25 and :290 (kinds and loopback), :369 (body bytes), :387-394 (the packet hash) and :511-528 (the commit);
+- store.ts:120-132, :250-296, :276 and :299-348;
+- registry-row.py: `counts_of` (:456-486), `run_end_evidence` (:279-301), `run_counts` (:1131-1154), the loop scan and `stage_run`;
+- public-sources.ts and runner.ts (`public_source_retained`, the tool events);
+- research-pipeline.ts:75-90, :264, :353 and :542;
+- the snapshot route's `sourceId`, an identifier (private-agent-local-screen.ts:52);
+- HARN-27, and the lane brief's PR 4.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Proposed only; nothing is implemented, tested or verified by this entry.
+- Rows written before the merge carry no receipt fields, so their `disclosedBytes` is null, and so is each of their cloud calls' `bodyBytes`.
+- `domains` counts hostnames, not registrable domains.
+- The columns are measures; none decides acceptance.
+- The served model on cloud `model_finished` events and a `servedModels` column wait until #86 puts BL-20261113-0730 on `main`, each with its own entry.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests and its `Implemented` entry; `main` merged in after 7d.C and after 8.1; then one light review. Owner questions, each with the default proposed here:
+- HARN-27: the brief's definitions, or registrable domains through a public-suffix list? Default: the brief's.
+- On a closed corpus served from a loopback snapshot, `domains` is 0, and E3 reads `urls` and `actions.sourcesRead`. Default: yes.
+- Is the reading stage's `sourcesIndexed` the closed-corpus "read" until item 12? Default: yes.
+
+References: BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261109-0422-registry-run-commit-design; BL-20261114-1344-experiment-launcher-design (pull request #98); HARN-27; issue #63; .soar/next-milestones plan item 11.4.
+
+### BL-20261114-1524-correction-registry-columns-design-id -- 2026-11-14 -- Correction: plan 11.4's design entry carries ID BL-20261114-1523 in the merged ledger; it was authored at 13:31 UTC on 2026-11-14 as BL-20261114-1331
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why plan 11.4's design entry (BL-20261114-1523-registry-columns-design) does not carry its authoring minute. 7d.C (#99) merged into `main` while this branch was open, and `main`'s last ID became BL-20261114-1342-correction-host-flags-surfaces-review. The validator refuses an ID earlier than the entry before it. Under the owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries), at this branch's merge of `main` (9f63fc6) the entry takes the first free minute after `main`'s tail, and the six references that point to it are updated. Nothing else about the entry changed.
+
+Decisions:
+- The entry's body is byte-identical to what it was at 9abb76c. Only the heading's minute moved; the date stays 2026-11-14.
+- The references are:
+  - the README's `reservedUsd` row;
+  - comments in scripts/registry-row.py, src/main/private-agent/broker.ts and src/main/private-agent/store.ts;
+  - the descriptions of the two test files.
+
+Changes: docs/BUILD_LOG.md (one heading, and this entry), and the six references above. No behaviour changes.
+
+Evidence: `git grep BL-20261114-1331` finds only this correction. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this commit, and `pnpm typecheck` passes.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. The message of the commit that added the entry (9abb76c) keeps its original ID. If another branch's entries reach `main` first, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of this pull request, which checks the re-stamp and this correction.
+
+References: BL-20261114-1523-registry-columns-design; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1525-registry-columns-implemented -- 2026-11-14 -- Plan 11.4 implemented: receipts record their destination kind, body and disclosed bytes, and registry rows carry reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-1523-registry-columns-design (plan 11.4; backlog item 11; issue #63) as decided there:
+- the receipt disclosure fields, written at the broker's commit and checked in the store;
+- the registry columns on `--run-dir` and `--loop-dir` rows;
+- `--launcher-ledger`;
+- the README rows.
+
+Implemented is not Verified: no run under this code exists yet. Nothing here ran a model, an endpoint, Docker or a paid call.
+
+Decisions: The design's decisions (1) to (5) and HARN-27's defaults are as recorded there. These implementation choices go beyond the design:
+- **(a) One disclosure function.** The rule is one exported function, `dispatchDisclosure` in broker.ts. The commit uses it, and the tests call it directly, because every broker test destination is a loopback fixture whose disclosure is 0 by rule.
+- **(b) Refusing a malformed field.** The store refuses one with `private_agent_receipt_invalid`, inside the commit's transaction, so nothing is written.
+- **(c) Host tokens.**
+  - A cloud call's purpose is recorded only when it is a fixed host token: lowercase letters, digits, spaces, `_` or `-`, up to 64 characters. Its status is recorded only when it is a known status. Anything else reads `other`.
+  - A tool name likewise. A finished call whose start was not recorded counts as `other`.
+- **(d) What counts as a number.** A number read from a row counts only when it is finite and non-negative. `disclosedBytes` and `bodyBytes` count only when they are non-negative integers. A malformed disclosure makes the row's `disclosedBytes` null rather than wrong.
+- **(e) Loop rows.** A loop row's parts include the critique directory's ledger when it has one. `researchFallback` comes from the run `stage_run` names.
+- **(f) `--launcher-ledger`'s refusals.** It refuses a ledger that is a symbolic link, unreadable or not JSON. It refuses a ledger without exactly one `run_exited` record for the run's job id. It also refuses the flag without `--run-dir`.
+- **(g) The docstring.** The registry's module docstring names the new columns and the flag.
+
+Changes:
+- src/main/private-agent/store.ts: the `DispatchReceipt` fields, `DISPATCH_DESTINATION_KINDS`, and the commit's check.
+- src/main/private-agent/broker.ts: `dispatchDisclosure`, and its use at the commit.
+- scripts/registry-row.py: `depth_parts`, `depth_columns` and `launcher_signalled`; the row and loop wiring; the flag; the docstring.
+- docs/experiments/README.md: seven table rows, and a launcher paragraph. The assist sentence and 7(c)'s fallback paragraph now name the columns.
+- tests/integration/private-agent-broker.test.ts: 3 tests.
+- tests/unit/registry-row-columns.test.ts: new, 4 tests.
+
+`localScreenSourceFreeze()` rotates, because store.ts and broker.ts are in it. `researchProtocolSha256()` does not move: it covers prompts, schemas and policies, and the full suite's protocol pin holds.
+
+Evidence:
+- **The column tests.** tests/unit/registry-row-columns.test.ts passes 4 of 4, under the machine's Python 3.9.5 and again under 3.9.6. On run directories as the driver leaves them, they show:
+  - every column on a run's row: a retried packet disclosed once; the pinned and committed rows; loopback and `www.` hosts; tools joined by operation; 7(c)'s plan marker;
+  - that no URL, hostname or port reaches the row;
+  - rows written before 11.4: a cloud call by its destination, a null disclosure, no reading stage;
+  - a loop row summed over its runs, a moved run included, with URLs over the union and the fallback from the reading stage's run;
+  - the launcher ledger's signal, and its five refusals.
+- **The broker tests.** The broker integration file and the golden identity test pass 103 of 103, including 3 new tests. They cover the disclosure rule on https and loopback URLs, the fields on committed and settled rows, hashes equal to the preview's, and the store's refusals.
+- **The existing tests.** The registry, classification and loop-resume tests pass 253 of 253.
+- **Mutants.** 10 single-edit mutants were each restored with `git checkout` from the committed implementation before the next, and each fails at least one test:
+  - disclosure counted per row;
+  - settled rows pinned;
+  - loopback hosts counted;
+  - `www.` kept;
+  - the launcher's signal ignored;
+  - no fallback on loops;
+  - pre-11.4 rows disclosed;
+  - the broker ignoring loopback;
+  - a GET disclosing its body;
+  - the store not checking counts.
+- **Checks.** At 9ab3bb7, after `main` (19d7826, with 7d.C) was merged in, on Node 22.22.2 and pnpm 10.12.4: `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm exec vitest run`, run alone, ran 198 files and 3,686 tests: 3,597 passed, 86 were skipped, and 3 timed out under the suite's load. Those were two in tests/unit/private-agent-sandbox-capture.test.ts and one in tests/unit/private-agent-host-flags.test.ts; both files pass alone (52 passed, 1 skipped). The registry, host-flags, classification, loop and broker tests pass 368 of 368 on the merged tree. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit.
+
+Failures or blockers:
+- The column test's first run expected a `reservedUsd` of 0.58, an arithmetic slip in the test. The script was right (0.42), and the test was corrected.
+- Under full-suite load, tests/unit/document-review-flags.test.ts timed out once on a `python3` spawn. It passes alone, 154 of 154.
+
+Limitations and non-claims:
+- Implemented, not Verified. No real cloud call, public fetch or run happened under this code. A real cloud request's disclosure is tested only through `dispatchDisclosure`.
+- Rows written before the merge carry no receipt fields: their `disclosedBytes` is null, and so is each cloud call's `bodyBytes`. `domains` is approximate.
+- The source freeze rotates: recompute `--runtime-sha256`, and let no loop or E-run span the merge.
+- This merges after 7d.C on registry-row.py and after 8.1 on store.ts and broker.ts. `main` is merged in as each lands, and that may change this code at their conflict points.
+- The served-model pieces wait for #86.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on this pull request.
+- `main` merged in after 7d.C and after 8.1, with the checks run again.
+- The coordinator's light review.
+- The merge under the standing go-ahead, with this branch's entries re-stamped after `main`'s tail.
+
+References: BL-20261114-1523-registry-columns-design; BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261114-1344-experiment-launcher-design (pull request #98); HARN-27.
+
+### BL-20261114-1526-registry-columns-review-design -- 2026-11-14 -- Supersede parts of plan 11.4's decisions (2) and (3) after #104's light review: tool names from the runner's closed set, a loopback source counted without its port, null for a fee or a read count never recorded, and cloud calls in commit order on loop rows
+
+Status: `Proposed`
+
+Scope or hypothesis: Supersede, without editing it, four column rules in decisions (2) and (3) of BL-20261114-1523-registry-columns-design. The light review of #104 found one major and five minor findings, and the coordinator checked the major independently. Four findings change what a column holds:
+- **The major, privacy.** `actions.tools` was keyed by `tool_started.name`.
+  - runner.ts records the name the model chose before it checks the tool (runner.ts:674), and the tool-call parsers accept any non-empty string.
+  - The implementation's filter was a pattern (`^[a-z][a-z0-9 _-]{0,63}$`), not a closed set, so model-chosen text could reach a public row. In the review's probe, a tool named `email jane doe re acme merger 4417` did.
+  - That contradicts decision (2)'s "no URL, hostname, path or text reaches a row".
+- **Loopback ports.** Each run's snapshot receiver listens on its own loopback port, and the retained URL keeps it. So a loop row's union counted one source read by two runs twice.
+- **Values never recorded.** A denied index stage records no `sourcesIndexed`, and a call that never settled has no fee, but both were written as 0.
+- **Order.** Decision (3) concatenates a loop's cloud calls in stage order, while decision (2) and the README say commit order. The code followed neither: it concatenated runs by directory name.
+
+The code, its tests, the README and a correction of the implementation entry's decision (c) follow in this pull request. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Tool names (supersedes `actions.tools` in decision (2)).**
+  - `actions.tools` counts finished tool calls by name only for names in the runner's closed set: `append_file`, `check_claims`, `execute`, `fetch_public`, `finish`, `read_observation`, `remember_plan`, `request_consultation`, `str_replace` and `write_file`. These are runner.ts's tools with every option on, and observations.ts's `read_observation`.
+  - Any other name, and a call whose start was not recorded, counts as `other`.
+  - registry-row.py mirrors the set, and a test checks the mirror against the runner's own definitions.
+- **(2) Loopback sources (supersedes `urls` in decisions (2) and (3)).** A retained URL whose host is a loopback address (127.0.0.1 or ::1) is counted without its port, so one source read by two runs of a loop counts once. Other URLs are counted as retained. `domains` is unchanged: it excludes loopback hosts.
+- **(3) Values never recorded (supersedes `cloudCalls[].feeUsd` and `actions.sourcesRead` in decision (2)).**
+  - `feeUsd` is the call's settled fee, and null on a call that did not settle: committed, unknown, failed or superseded. Only the store's settle records a fee.
+  - `sourcesRead` is the reading stage's recorded `sourcesIndexed`, and null when no reading stage recorded one, a denied index stage included. A loop row sums the counts its runs recorded, and is null when none did.
+- **(4) Order (supersedes the stage order in decision (3)).** A loop row's `cloudCalls` are in commit order (`committedAt`) across all its runs and the critique's ledger, as decision (2) and the README say for a run. A call without a commit time keeps the scan's order, after the others.
+- **(5) Purposes (unchanged).** `cloudCalls[].purpose` keeps the host-token pattern. Every purpose is a host constant (research-pipeline.ts's `PURPOSES`, the assist purposes, and model.ts's default), passed by the host code that makes the dispatch; a model's output never sets one. The review left a closed set for purposes optional.
+
+Changes: This entry only. The code (scripts/registry-row.py), its tests, docs/experiments/README.md and the correction of BL-20261114-1525-registry-columns-implemented follow in this pull request.
+
+Evidence: The light review of #104, and the coordinator's own check of the major: the pattern at registry-row.py:511, and runner.ts:674. Also reading, at 7eb5499:
+- runner.ts:74-96 and observations.ts:47, the tool definitions, and `promptProtocol`, which offers them;
+- store.ts:310-318, where only `settle` records `feeMicrousd`;
+- research-pipeline.ts:291, where the index stage records `sourcesIndexed`;
+- research-pipeline.ts:36, model.ts:439 and broker.ts:405, where a dispatch's purpose is the caller's host value.
+
+Failures or blockers: Decision (c) of the implementation entry used a pattern where decision (2) needed a closed set. The fix follows in this pull request.
+
+Limitations and non-claims: Proposed only; this entry implements nothing. The privacy finding is a major, not a blocker: per the review, the harness's destinations are synthetic only (private-agent-local-screen.ts:297 and :418), so the owner's private data was out of reach. No committed registry row holds these columns, since #104 is not merged.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The code and the correction in this pull request, then the coordinator's re-check of the delta. No owner question is added.
+
+References: BL-20261114-1523-registry-columns-design; BL-20261114-1525-registry-columns-implemented; the light review of #104; HARN-27.
+
+### BL-20261114-1527-correction-registry-columns-review -- 2026-11-14 -- Correction: plan 11.4 after its light review: a tool name reaches a row only from the runner's closed set, the superseding column rules are implemented, and the entries' two omissions are stated
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct, without editing it, decision (c) of BL-20261114-1525-registry-columns-implemented, and implement BL-20261114-1526-registry-columns-review-design. Together they fix what the light review of #104 found: one major and five minor findings. The coordinator checked the major independently.
+- Decision (c) says a tool name, like a cloud call's purpose, is recorded only when it is a fixed host token. For tool names that is wrong (the major finding). The pattern admits any lowercase phrase of up to 64 characters, and a `tool_started` name is the model's choice, recorded before the runner checks it. So model-chosen text could reach a public row.
+- The other column rules the review found wrong are superseded in BL-20261114-1526-registry-columns-review-design.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Tool names (finding 1, major).** Corrects decision (c) of BL-20261114-1525-registry-columns-implemented, and implements decision (1) of BL-20261114-1526-registry-columns-review-design.
+  - `actions.tools` keys a finished call by its name only when the name is in `RUNNER_TOOLS`, the runner's closed set of ten tool names. Any other name counts as `other`, as a call whose start was not recorded already did.
+  - A cloud call's purpose and status keep decision (c)'s rules: a purpose is a host constant, never model text.
+- **(2) Loopback sources (finding 2).** Implements decision (2) of the same entry. `source_key` drops a loopback URL's port before the union.
+- **(3) Values never recorded (finding 3).** Implements decision (3). `feeUsd` is null unless the row records a fee, and `sourcesRead` is null unless the reading stage records `sourcesIndexed`.
+- **(4) The duplicate (finding 4).** The first `is_count` definition, shadowed by the later identical one, is removed.
+- **(5) Order (finding 5).** Implements decision (4). A row's `cloudCalls` are sorted by `committedAt`, stably, with calls that lack it last.
+- **(6) The entries' omissions (finding 6).**
+  - Besides a run's `dispatchesSha256`, the research producer binds each receipt's own `sha256`, a digest of the whole stored row (research-producer.ts:85), into the research packet. The review reports that a seeded run checks it again when it loads its seed.
+    - A row written once the receipt fields merge has its digest over them too.
+    - The digest is computed and checked over the same stored row, so nothing breaks. Decision (1) of BL-20261114-1523-registry-columns-design should have named it.
+  - The column tests build their events and dispatch rows by hand. No test ties the field names the registry reads to the code that writes them: `tool_started`, `operationId`, `public_source_retained`, `research_stage`, `sourcesIndexed` and `fallback`. That is a limit of this evidence.
+
+Changes:
+- scripts/registry-row.py: `RUNNER_TOOLS` and `source_key`; the fee, read-count and order rules; one `is_count` removed.
+- tests/unit/registry-row-columns.test.ts: 5 tests, 1 of them new; the run, pre-11.4 and loop tests extended.
+- docs/experiments/README.md: the `cloudCalls`, `urls` and `actions` rows.
+
+The code is in commit ec1c39a. registry-row.py is outside the source freeze, so this commit moves neither the runtime hash nor the research protocol hash. The freeze still rotates at the merge, for store.ts and broker.ts, as BL-20261114-1525-registry-columns-implemented says.
+
+Evidence:
+- **The column tests.** tests/unit/registry-row-columns.test.ts passes 5 of 5 at ec1c39a. They show:
+  - the runner's tool names, taken from `promptProtocol` with every option on, equal to the script's `RUNNER_TOOLS` line;
+  - a made-up tool name, `email jane doe re acme merger 4417`, counted as `other`, with none of its words in the row;
+  - no fee on a superseded or an unknown call;
+  - a null `sourcesRead` for a reading stage that recorded no count;
+  - two loop runs reading the same two sources on loopback ports 50001 and 50002, over IPv4 and IPv6, counted as 2 URLs, with no address or port in the row;
+  - a loop's cloud calls in commit order, against the order of its run directories.
+- **Mutants.** Seven single-edit mutants of the fixes were each restored with `git checkout` from ec1c39a before the next.
+  - Six fail exactly one test: the old name pattern; a name missing from the mirror; the port kept; a fee of 0 on an unsettled call; a read count of 0 when none was recorded; the scan's order.
+  - The seventh, an IPv6 key without brackets, passes. It is equivalent: the key never leaves the process, and it still drops the port.
+- **The related tests.** The registry row, registry and dispatch-purpose tests pass 86 of 86, in 9 files, at ec1c39a.
+- **The full suite.** At ec1c39a, on Node 22.22.2 and pnpm 10.12.4, `pnpm exec vitest run` ran 198 files and 3,687 tests: 3,601 passed, 86 were skipped and none failed.
+- **The checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, and `pnpm typecheck` and `pnpm validate:readiness` pass.
+
+Failures or blockers: Decision (c) as first written let a model-chosen tool name through. The review's probe found it; no committed registry row holds the column.
+
+Limitations and non-claims:
+- Implemented, not Verified: no run under this code exists yet.
+- The column tests use hand-built events, as decision (6) says.
+- `cloudCalls[].purpose` keeps the host-token pattern rather than a closed set, which the review left optional.
+- A loop row's `sourcesRead` sums the counts its runs recorded, so a run whose reading stage recorded none adds nothing.
+- `main` is merged in after 8.1 lands, which may change this code at the conflict points.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on #104, and the coordinator's re-check of the delta.
+- `main` merged in after 8.1 (#101), if it lands first, with the checks run again.
+- The merge under the standing go-ahead, with this branch's entries re-stamped after `main`'s tail. Whichever of #98 and #104 merges second updates #104's reference to `BL-20261114-1250 (pull request #98)`.
+
+References: BL-20261114-1526-registry-columns-review-design; BL-20261114-1525-registry-columns-implemented; BL-20261114-1523-registry-columns-design; the light review of #104; HARN-27.
+
+### BL-20261114-1528-correction-registry-columns-second-restamp -- 2026-11-14 -- Correction: plan 11.4's five entries are re-stamped after `main`'s new tail, and #98's design entry is cited by its ID on `main`; their original IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #98 (plan 11.5) merged into `main` before this branch, and `main`'s last ID is now BL-20261114-1503-correction-experiment-launcher-hangup. Five of this branch's entries carried earlier IDs. At this merge of `main` (merge commit d2106de) they move after the new tail, under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). The design entry had been re-stamped once before, after 7d.C's tail (BL-20261114-1342), by the first correction.
+
+Each entry, with its original ID and authoring time, all on 2026-11-14:
+- **The design entry.** Authored at 13:31 UTC as BL-20261114-1331, and re-stamped as BL-20261114-1343. It is now BL-20261114-1523-registry-columns-design.
+- **The first correction.** Authored at 14:03 UTC as BL-20261114-1403. It is now BL-20261114-1524-correction-registry-columns-design-id.
+- **The implemented entry.** Authored at 14:05 UTC as BL-20261114-1405. It is now BL-20261114-1525-registry-columns-implemented.
+- **The review's design entry.** Authored at 14:47 UTC as BL-20261114-1447. It is now BL-20261114-1526-registry-columns-review-design.
+- **The review's correction.** Authored at 14:55 UTC as BL-20261114-1455. It is now BL-20261114-1527-correction-registry-columns-review.
+
+Decisions:
+- **What changed.** Only the five headings' IDs change, in their minutes, together with the 35 references to those IDs: 24 in the five entries' titles and bodies, and 11 in comments and one README row. The comments are six in scripts/registry-row.py, and one each in src/main/private-agent/store.ts, src/main/private-agent/broker.ts, tests/integration/private-agent-broker.test.ts and tests/unit/registry-row-columns.test.ts.
+- **#98's design entry.** #98 re-stamped plan 11.5's design entry from BL-20261114-1250 to BL-20261114-1344-experiment-launcher-design (BL-20261114-1407-correction-experiment-launcher-ids), and it is now on `main`. So this branch's three citations of it move from the short ID to that ID: two in the design entry and one in the implemented entry.
+- **Kept as written, now only historically true.**
+  - The first correction's account of its minute, after 7d.C's tail, held when it was written.
+  - The review correction's next gate names this re-stamp and the reference update as still to do. Both are done here.
+  - #98's own correction says that `git grep BL-20261114-1250` finds only it. That held at its commit; the review correction's next gate and this entry now name the ID too.
+- **`main`'s log.** It is kept whole, as a byte prefix of this branch's.
+
+Changes:
+- docs/BUILD_LOG.md: the five headings, their references, the three citations and this entry.
+- The comments that cite the entries: scripts/registry-row.py, src/main/private-agent/store.ts, src/main/private-agent/broker.ts, tests/integration/private-agent-broker.test.ts and tests/unit/registry-row-columns.test.ts.
+- One row of docs/experiments/README.md.
+
+No behaviour changes.
+
+Evidence:
+- `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit: 617 entries, append-only against `main` at 3cecf7a. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- On this tree before this entry, on Node 22.22.2 and pnpm 10.12.4, the column, broker, golden identity, dispatch-purpose, registry row and launcher tests pass 212 of 212 in 12 files. `pnpm exec vitest run` ran 199 files and 3,710 tests: 3,624 passed, 86 were skipped and none failed.
+- `git grep` finds BL-20261114-1343, -1403, -1405, -1447 and -1455 only in this entry.
+- With the five new IDs mapped back to their previous ones, and the three citations back to BL-20261114-1250, the log before this entry is byte-identical to the merge commit's.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #104's earlier descriptions keep the IDs they had. If another branch's entries reach `main` first again, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #104, the coordinator's re-check of the delta, and the merge under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1407-correction-experiment-launcher-ids; BL-20261114-1344-experiment-launcher-design.
+
+### BL-20261114-1556-correction-registry-columns-third-restamp -- 2026-11-14 -- Correction: plan 11.4's six entries are re-stamped a third time, after `main`'s new tail from #101, and 8.1's receipt-shape test now expects the disclosure fields; their earlier IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #101 (backlog item 8.1) merged into `main` before this branch. `main`'s last ID is now BL-20261114-1522-correction-concurrent-local-admission-second-restamp, and #101's entries hold 15:05 to 15:08 and 15:22. This branch's six entries carried 15:04 to 15:08 and 15:21. At this merge of `main` (merge commit 8893bd4) they move after the new tail, under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates).
+
+Each entry, with its earlier IDs and authoring time, all on 2026-11-14. The minutes 15:04 to 15:08 and 15:21 below are this branch's IDs, not #101's entries of the same minutes:
+- **The design entry.** Authored at 13:31 UTC as BL-20261114-1331, then re-stamped to BL-20261114-1343 and to 15:04. It is now BL-20261114-1523-registry-columns-design.
+- **The first correction.** Authored at 14:03 UTC as BL-20261114-1403, then re-stamped to 15:05. It is now BL-20261114-1524-correction-registry-columns-design-id.
+- **The implemented entry.** Authored at 14:05 UTC as BL-20261114-1405, then re-stamped to 15:06. It is now BL-20261114-1525-registry-columns-implemented.
+- **The review's design entry.** Authored at 14:47 UTC as BL-20261114-1447, then re-stamped to 15:07. It is now BL-20261114-1526-registry-columns-review-design.
+- **The review's correction.** Authored at 14:55 UTC as BL-20261114-1455, then re-stamped to 15:08. It is now BL-20261114-1527-correction-registry-columns-review.
+- **The second re-stamp correction.** Authored at 15:21 UTC as BL-20261114-1521. It is now BL-20261114-1528-correction-registry-columns-second-restamp.
+
+Decisions:
+- **Minutes written as times.** This entry writes the second re-stamp's minutes as times, not as short IDs. #101's entries now hold BL-20261114-1505 to -1508 on `main`, so a short form would read both ways, as #101's own second re-stamp noted for 15:04.
+- **What changed in the log.** Only the six headings' IDs change, in their minutes, together with the references to them.
+  - That is 30 references in the log, the headings included.
+  - It is 11 more in comments, one test name and one README row: six in scripts/registry-row.py, and one each in src/main/private-agent/store.ts, src/main/private-agent/broker.ts, tests/integration/private-agent-broker.test.ts, tests/unit/registry-row-columns.test.ts and docs/experiments/README.md.
+  - No citation of #101's entries changes.
+- **The merge.**
+  - store.ts and broker.ts merged without a textual conflict. 8.1's concurrent admission (`admitsBeside`, `CommitOptions.concurrency`) and this branch's receipt fields are both kept. The fields' check in `store.commit` still runs before the blocking-row check, on the store's one receipt insert.
+  - The broker's integration test file conflicted only where both branches appended a `describe` block. Both are kept, this branch's first.
+- **One semantic conflict, resolved in a test.** 8.1's test "admits several zero-fee local calls … each settles with a receipt of the serial shape" pins a settled receipt's exact keys. With this branch, every receipt also carries `destinationKind`, `bodyBytes` and `disclosedBytes`, so the expected list gains those three keys. The test's point, that liveness is never persisted, is unchanged.
+- **Kept as written, now only historically true.**
+  - The second re-stamp correction's account of `main`'s tail (BL-20261114-1503) held at its commit. So did its `git grep` claim; this entry now names the earlier IDs too.
+  - The first correction's account of its minute held when it was written.
+- **`main`'s log.** It is kept whole, as a byte prefix of this branch's.
+
+Changes:
+- docs/BUILD_LOG.md: the six headings, their references and this entry.
+- The citations in scripts/registry-row.py, src/main/private-agent/store.ts, src/main/private-agent/broker.ts, tests/integration/private-agent-broker.test.ts, tests/unit/registry-row-columns.test.ts and docs/experiments/README.md.
+- The expected key list in 8.1's receipt-shape test.
+
+No runtime behaviour changes beyond the merge itself.
+
+Evidence:
+- `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit: 623 entries, append-only against `main` at c6192a4. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- On this tree before this entry, on Node 22.22.2 and pnpm 10.12.4, 17 files pass 449 of 449: the broker, golden identity, flash-next, dispatch-purpose, registry row, run-classification, launcher and store tests.
+- `pnpm exec vitest run` ran 199 files and 3,723 tests: 3,636 passed and 86 were skipped. One failed: tests/unit/private-agent-host-flags.test.ts timed out at 5 s under the full suite's load, in a test this branch does not touch. That file passes alone, 39 of 39.
+- Before the expected key list gained the three fields, the receipt-shape test failed on exactly those three keys.
+- With the six new IDs mapped back to their previous ones, the log before this entry is byte-identical to the merge commit's.
+- `git grep BL-20261114-1521` finds only this entry. `git grep BL-20261114-1504` finds only #101's second re-stamp correction, which records its own review correction's earlier ID, and this sentence.
+
+Failures or blockers: The full suite's one host-flags timeout, above, is the load timeout seen before on this machine; it is not a failure of this change.
+
+Limitations and non-claims: A record correction, plus one test's expected keys. Nothing is implemented, verified or released by it. Commit messages and #104's earlier descriptions keep the IDs they had. If another branch's entries reach `main` first again, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #104, and its merge under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1522-correction-concurrent-local-admission-second-restamp; BL-20261114-1528-correction-registry-columns-second-restamp.

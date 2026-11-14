@@ -149,7 +149,15 @@ export interface DispatchReceipt {
   /** Fixed host diagnostics only. Absence on historical unknown rows is meaningful. */
   failure?: UnknownRequestDiagnostic;
   approval?: ExactApproval;
+  /**
+   * Plan 11.4 (BL-20261114-1523-registry-columns-design): the destination's kind, the request body's UTF-8 bytes (0 for a GET) and the
+   * bytes the request disclosed (HARN-27: none to a local model or a loopback URL, else a POST's body or a GET's URL). The broker writes
+   * all three on every row since; earlier rows lack them. Counts only, outside the packet and destination hashes.
+   */
+  destinationKind?: DispatchDestinationKind; bodyBytes?: number; disclosedBytes?: number;
 }
+export const DISPATCH_DESTINATION_KINDS = ["local_model", "cloud_model", "public_web"] as const;
+export type DispatchDestinationKind = (typeof DISPATCH_DESTINATION_KINDS)[number];
 
 const RunClaimSchema = z.object({ contextId: privateAgentId, ownerId: privateAgentId,
   pid: z.number().int().positive().safe(), endpoint: z.string().regex(/^unix:\/\/\/[^\x00-\x20\x7f]+$/u),
@@ -282,6 +290,9 @@ export class PrivateAgentStore {
           input.contextSha256 !== contextFingerprint(context) || !policy.destinations.includes(input.destinationId)) {
         throw new Error("private_agent_admission_changed");
       }
+      // Plan 11.4: a present disclosure field is a known kind or a safe byte count, so the registry can sum what it reads.
+      if ((input.destinationKind !== undefined && !(DISPATCH_DESTINATION_KINDS as readonly string[]).includes(input.destinationKind)) ||
+          [input.bodyBytes, input.disclosedBytes].some(value => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) throw new Error("private_agent_receipt_invalid");
       if (options.supersedes !== undefined) this.supersede(input, options.supersedes, approval, admission);
       validate(policy, context);
       const history = this.dispatches(policy.id);

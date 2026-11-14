@@ -38609,7 +38609,352 @@ Next gate: The coordinating session's check of this push, and CI. Then the merge
 
 References: BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261110-1509-host-flags-event-design.
 
-### BL-20261114-1343-concurrent-local-admission-design -- 2026-11-14 -- Backlog item 8 decided: the ledger admits live zero-risk local dispatches of one job, context and purpose together (8.1), and the index, extraction and judge loops run K at a time with K from the serving card (8.2b)
+### BL-20261114-1344-experiment-launcher-design -- 2026-11-14 -- Decide plan 11.5: a supervised launcher that runs a card's queue one run at a time, inside the card's windows, on an idle endpoint and under a batch cap
+
+Status: `Proposed`
+
+Scope or hypothesis: Plan 11.5 (backlog item 11; lane S-harn; issue #63) is a tracked, tested port of the H4 and H5 supervisor (BL-20261101-0036-planner-diagnostic-result, BL-20261101-0135-h5-held-closure-supervision). That supervisor was an ignored operator asset, and no copy of it is in the repository. The launcher runs an experiment card's batch of harness runs unattended: H4 loops through scripts/phase4-loop.ts and single runs through scripts/private-agent-local-screen.ts. It starts them one at a time, only inside the card's windows, only on an idle endpoint and only under the batch's fee cap. It records what it did as codes. This entry records the design and its defaults before the code. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) What it is.** `node --import tsx scripts/experiment-launcher.ts --queue QUEUE.json --state-directory DIR`, also run as `pnpm launcher`. It is not in `localScreenSourceFreeze()`, so it changes neither the runtime hash nor `researchProtocolSha256()`, and it may merge inside E0's window. It records its own sha256 and the commit in its ledger. It imports the repository's helpers: the run ledger reader, the commit helper and `loadConfig`. It changes no driver, loop, broker, store or registry code.
+- **(2) The queue.** The operator writes it from the card. The schema is strict: `version` 1, a `batch` identifier, `batchCapUsd`, `windows` as start and end instants in UTC, and `runs` in the card's interleaved order. Each run has an `id`, a `kind` (`loop` or `run`), `capUsd`, the script's `argv` and an optional `projectedSeconds`.
+  - `argv` must name the run's own directory exactly once: `--loop-directory` for a loop, `--output-directory` for a run.
+  - `capUsd` must cover the arguments' own cap. That is at least `--max-fee-usd` for a run, and three times it for a loop, whose a, b and repair may each spend it. Part 3b's resumes are zero fee.
+  - The ledger records the queue's sha256, so a batch can be checked against its card.
+- **(3) The six batch rules (HARN-26), proposed as defaults.**
+  - One run at a time, in the queue's order.
+  - New starts only inside a window, and only after 3 observations 20 s apart in which `vllm:num_requests_running` and `vllm:num_requests_waiting` are both 0. They are read at the `/metrics` route of the endpoint's origin, with the endpoint taken from `loadConfig`, as scripts/serving-probe.py reads them. An unreadable route or a missing metric means not idle (`idle_check_unavailable`), and nothing starts.
+  - An admitted run is never cut at the end of a window.
+  - The batch cap counts every run the batch made: settled fees plus pinned reservations, by store.ts's exposure formula, over every ledger in each run's directory, moved-aside runs included. For a loop, the settled part is never less than `loop.json`'s `totals.feeMicrousd`. That sum plus the next run's `capUsd` must stay within `batchCapUsd`, or the launcher stops with `batch_cap_reached`. A ledger it cannot read stops it too (`batch_cap_unreadable`). The cards set the caps (E3 USD 20.4, E4 USD 20.5); nothing is hard-coded.
+  - A dirty tree is refused: `localScreenGitState()` must return `dirty: false`, and a null answer refuses as well (#73's review).
+  - No automatic paid re-run. A single run is never started again. A loop is re-invoked only on the stops in (6), whose resumes part 3b makes zero fee.
+- **(4) Refusals before any start.** HEAD must be an ancestor of the local `origin/main` (HARN-16), and the operator fetches first. One launcher per state directory, held by part 3b's OS-released lock. A queue that fails the schema, and on macOS an inhibitor that does not start, refuse as well.
+- **(5) Supervision, from the H4 and H5 supervisor.**
+  - Each run is a child in its own process group. Its output goes to files in the state directory.
+  - On macOS, `caffeinate -i -w` holds off idle sleep for the launcher's life.
+  - SIGINT, SIGTERM and SIGHUP are forwarded to the child's group, and the ledger records `signal_forwarded`. After a bounded wait of 120 s the launcher sends SIGKILL to the group; a second signal sends it at once. It then waits up to 10 s for the reap, and records `reap_unconfirmed` if none comes.
+  - After an owner's signal, nothing new starts.
+  - A STOP file in the state directory also stops new starts, while an admitted run finishes.
+  - After each run the launcher takes 3 more observations and records whether the endpoint is quiescent. The next start's own idle check is what gates it.
+- **(6) Re-invoking a loop (HARN-22).** A loop is re-invoked when its `loop.json` ends with `loop_stage_infra`, `loop_interrupted`, `loop_stage_cleanup_required` or `loop_stage_ledger_unreadable`, with no stop and no final selection.
+  - The re-invocation happens in a later window, not the one the loop stopped in, after a fresh idle check, and at most 4 more times.
+  - It never happens on `loop_terminal` or `loop_locked` (read from the loop's failure line, since a locked invocation leaves `loop.json` as it was), on a terminal stop, or on any other code.
+  - When it stops re-invoking, the operator ends the loop with `--close`.
+- **(7) The ledger.** `DIR/launcher.jsonl` is append-only and holds codes and counts only:
+  - the launcher's sha256, the commit and the queue's sha256;
+  - the queue's run ids, attempts, exit codes and signals;
+  - the loop's failure code and the run's `jobId`;
+  - the idle checks' results and the batch's spend in micro-USD.
+
+  It never holds a path, the endpoint's address, a key, an error message or a child's output. The state directory belongs under the git-ignored `.soar/` and is never committed.
+- **(8) Restart.** A restarted launcher replays its ledger, and finished runs are not started again. If an admission has no exit and the recorded pid is alive, the launcher refuses (`previous_run_running`). If the pid is gone, it records `run_lost` and treats the run as having exited with no code.
+- **(9) The optional last-start check** (a card parameter). When a run gives `projectedSeconds`, it starts only if that much time remains in the window. Without it there is no feasibility check, which is the H5 supervisor's rule.
+- **(10) The stop-signal record reaches the registry in plan 11.4.** Today registry-row.py's `--run-dir` path always passes `stop_signalled` False (registry-row.py:127). From 11.4, the registry reads the ledger's `signal_forwarded` and `run_exited` records, joined by `jobId`. A single run's `cancelled_or_deadline` then counts as `operator_stop` only when the launcher recorded a forwarded signal (HARN-12). The launcher itself changes no registry code.
+
+Changes: This entry only. The launcher (scripts/experiment-launcher.ts), its tests (tests/unit/experiment-launcher.test.ts), docs/experiments/LAUNCHER.md, a `launcher` script in package.json and the `Implemented` entry follow in this pull request.
+
+Evidence: Reading only, at 582f880:
+- the lane brief's PR 5 and HARN-26 (.soar/next-milestones), and the H4 and H5 entries above;
+- store.ts:276, the exposure formula;
+- registry-row.py:127;
+- `localScreenGitState()` in scripts/private-agent-local-screen.ts;
+- the loop's exit codes and failure line (scripts/phase4-loop.ts:142-145 and 786-803);
+- serving-probe.py's `metric()`;
+- `loadConfig` in src/main/config.ts.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Proposed only; nothing is implemented, tested or verified by this entry. The tests will drive the launcher through fakes for the spawn, the metrics, the clock and git. No real child, endpoint, Docker container or paid call runs, and the first E3 batch under the launcher is what verifies it. The queue is the operator's transcription of a card; no card for E3 or E4 exists yet.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests and its `Implemented` entry, in this pull request; then one light review. Owner questions, each with the default proposed here:
+- HARN-26: do you confirm the six batch rules? Default: yes, as listed.
+- The 120 s wait before SIGKILL on an owner's stop, and the cap of 4 re-invocations per loop. Default: these values.
+
+References: BL-20261101-0036-planner-diagnostic-result; BL-20261101-0135-h5-held-closure-supervision; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261109-0422-registry-run-commit-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; issue #63; .soar/next-milestones plan item 11.5.
+
+### BL-20261114-1345-experiment-launcher-implemented -- 2026-11-14 -- Plan 11.5 implemented: the supervised experiment launcher, tested on fakes for the clock, the children, the metrics and git
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-1344-experiment-launcher-design (plan 11.5; backlog item 11; issue #63) as decided there:
+- scripts/experiment-launcher.ts, with `pnpm launcher`;
+- its deterministic tests;
+- docs/experiments/LAUNCHER.md.
+
+Implemented is not Verified: no batch has run under the launcher, and the first E3 batch is what verifies it. Nothing here ran a model, an endpoint, Docker or a paid call.
+
+Decisions: These are as the design proposed:
+- the design's decisions (1) to (10);
+- the six batch rules (HARN-26);
+- the refusals;
+- the supervision bounds of 120 s and 10 s;
+- the four resumable loop stops, and the cap of 4 re-invocations.
+
+These implementation choices go beyond the design:
+- **(a) The window a lost loop stopped in.** For a loop lost with the launcher, its "later window" is computed from the window it was admitted in, not from the time of the restart. A restart inside that window waits for a later one; a restart in a later window resumes it. A first version used the restart time, and the restart test caught it.
+- **(b) Which loop record counts.** A loop's outcome is read from `loop.json` only when the invocation wrote a new record: its `finishedAt` differs from the value the launcher recorded at the admission (`priorFinishedAt` in `run_admitted`). Otherwise the outcome comes from the loop's failure line. So a locked or refused invocation never re-invokes on an older record's resumable stop. A loop killed or signalled before it saved resumes like an interrupted one, unless its failure line is `loop_locked` or `loop_terminal`.
+- **(c) A re-invoked loop's cap.** For a loop invoked again, the next run's cap is what is left of its own cap after its spend so far.
+- **(d) Idle results.** Consecutive identical idle-check results are recorded once; each post-run quiescence check is recorded.
+- **(e) A leading `--`.** One leading `--` on the command line is dropped, since `pnpm launcher -- ...` passes it on.
+- **(f) The production child.**
+  - Each run is `node --import tsx <script> <argv>` from the repository root, detached into its own process group, with its output appended to `runs/<id>.<attempt>.out` and `.err` in the state directory.
+  - Forwarded signals and SIGKILL go to the group.
+  - The inhibitor is `caffeinate -i -w <the launcher's pid>` on macOS. Elsewhere there is none, recorded as `none`.
+  - `/metrics` is read with a 10 s timeout, and a redirect counts as unreadable.
+- **(g) The lock file.** The launcher reuses part 3b's `acquireLoopLock` on its state directory, so the lock file there is named `loop.lock`.
+
+Changes:
+- scripts/experiment-launcher.ts (new);
+- tests/unit/experiment-launcher.test.ts (new, 15 tests);
+- docs/experiments/LAUNCHER.md (new);
+- docs/experiments/README.md: a pointer, and the launcher's state directory among the ignored records;
+- package.json: the `launcher` script.
+
+No source-freeze file, protocol, driver, loop, broker, store or registry file changes, so neither the runtime hash nor `researchProtocolSha256()` moves.
+
+Evidence:
+- **The launcher's tests.** tests/unit/experiment-launcher.test.ts passes 15 of 15. On fakes, they show:
+  - the strict queue parse, the command line, and the metrics parse;
+  - the exposure formula over real ledgers: settled, superseded, failed, unknown and committed rows; moved-aside and void directories; `loop.json`'s total; refusal of unreadable rows, a freeze without a ledger, a symbolic link, and a torn `loop.json`;
+  - every refusal;
+  - order and windows, including a run that outlasts its window uncut;
+  - the three idle observations and their spacing, a busy and an unreadable endpoint, and the windows running out;
+  - the batch cap from a real ledger, and an unreadable ledger;
+  - a single run never started again, with its `jobId` recorded;
+  - the STOP file;
+  - forwarding, SIGKILL after 120 s or at once on a second signal, and `reap_unconfirmed`;
+  - a loop re-invoked in a later window, and never on `loop_locked` (also under a signal), on a terminal stop or on a fresh non-resumable failure; the re-invocation cap;
+  - a restart: finished runs skipped, a live pid refused, a lost loop resumed;
+  - a ledger that holds no path, argument or child output.
+- **Mutants.** 14 single-edit mutants of scripts/experiment-launcher.ts were run, each restored from a saved clean copy before the next:
+  - no window check;
+  - one idle observation;
+  - no pinned reservations;
+  - no batch cap;
+  - no forwarding;
+  - SIGKILL at once;
+  - `loop_locked` resumable;
+  - any fresh failure resumable;
+  - single runs re-run;
+  - same-window resumes;
+  - arguments in the ledger;
+  - the STOP file ignored;
+  - a dirty tree allowed;
+  - no re-invocation cap.
+
+  Each fails at least one test. Two survived the first version of the tests: `loop_locked` under a signal, and a fresh non-resumable failure. The tests gained a case for each.
+- **Checks.** At 2400cc4, on Node 22.22.2 and pnpm 10.12.4, `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm exec vitest run`, run alone, ran 196 files and 3,683 tests: 3,597 passed, 86 were skipped and none failed. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit.
+
+Failures or blockers:
+- **The first mutant run was invalid.** The launcher file was still untracked, so `git checkout` could not restore it between mutants; macOS has no `timeout` command, so no test ran. The 14 edits stacked. The file was restored by reversing each edit exactly, with every match asserted, and re-verified at 15 of 15 with a clean typecheck. The mutants were then run again from a saved copy. Nothing from the invalid run was committed.
+- **The first version's restart rule for a lost loop was wrong.** Decision (a) records the fix.
+
+Limitations and non-claims:
+- Implemented, not Verified. The tests run on fakes only. No real child process, process-group signal, `caffeinate`, `/metrics` route, Docker container or paid call was exercised. The production dependencies (`spawn` into a group, `process.kill` on it, `fetch`, `caffeinate`, git) are not covered by the tests.
+- The registry does not read the ledger yet: plan 11.4 wires `signal_forwarded` and `run_exited` into `registry-row.py --run-dir`.
+- Nothing checks the queue against a card, and no E3 or E4 card exists yet.
+- Without `projectedSeconds` there is no feasibility check at a window's end.
+- The owner questions stay open with their defaults: HARN-26, the 120 s wait and the re-invocation cap.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on this pull request; the coordinator's light review; and its merge under the standing go-ahead, with the entries re-stamped after `main`'s tail if it has moved. Then plan 11.4 in this lane, after S-desk's 7d.C on registry-row.py and S-assist's 8.1 on store.ts and broker.ts. The first E3 batch under the launcher verifies it.
+
+References: BL-20261114-1344-experiment-launcher-design; BL-20261113-0836-infra-resume-design; BL-20261101-0135-h5-held-closure-supervision; BL-20261101-0036-planner-diagnostic-result; BL-20261113-0937-owner-decision-restamp-unmerged-entries.
+
+### BL-20261114-1407-correction-experiment-launcher-ids -- 2026-11-14 -- Correction: plan 11.5's two entries carry IDs BL-20261114-1344 and BL-20261114-1345 in the merged ledger; they were authored at 12:50 and 13:07 UTC on 2026-11-14 as BL-20261114-1250 and BL-20261114-1307
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why plan 11.5's entries, BL-20261114-1344-experiment-launcher-design and BL-20261114-1345-experiment-launcher-implemented, do not carry their authoring minutes. 7d.C (#99) merged into `main` while #98 was in review, and `main`'s last ID became BL-20261114-1342-correction-host-flags-surfaces-review. The owner's re-stamp rule applies (BL-20261113-0937-owner-decision-restamp-unmerged-entries): at this branch's merge of `main` (0ac52e3), the two entries take minutes after `main`'s tail, and the references that point to them are updated. They take 13:44 and 13:45 rather than 13:43, which plan 11.4's open pull request (#104) uses for its own re-stamped design entry, so no two open entries share a minute. Nothing else about the entries changed.
+
+Decisions:
+- The bodies are byte-identical to what #98 carried at c946a16, except the implementation entry's two references to the design entry, in its Scope and its References.
+- The other references are the header comment of scripts/experiment-launcher.ts, the test file's description and docs/experiments/LAUNCHER.md.
+- Plan 11.4's design entry (on #104) cites the design entry by its original short ID, BL-20261114-1250. Under BL-20261113-0938-correction-restamp-rule-dates it keeps that ID, and this correction maps it.
+
+Changes: docs/BUILD_LOG.md (two headings, the implementation entry's two references, and this entry); scripts/experiment-launcher.ts, tests/unit/experiment-launcher.test.ts and docs/experiments/LAUNCHER.md (one reference each). No behaviour changes.
+
+Evidence: `git grep BL-20261114-1250` and `git grep BL-20261114-1307` find only this correction. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this commit, `pnpm typecheck` and `pnpm validate:readiness` pass, and the launcher's tests pass 15 of 15.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #98's earlier descriptions keep the original IDs. If another branch's entries reach `main` first, these entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of #98, which checks the re-stamp and this correction; then its merge.
+
+References: BL-20261114-1344-experiment-launcher-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1431-experiment-launcher-signals-design -- 2026-11-14 -- Supersede decisions (2) and (5) of plan 11.5's design: a second signal escalates only seconds after the first, a hangup stops the run through SIGTERM on the same gated path, and a loop's cap covers its arguments' cap once
+
+Status: `Proposed`
+
+Scope or hypothesis: Supersede, without editing it, decision (5) of BL-20261114-1344-experiment-launcher-design, and the cap rule in its decision (2). The light review of #98 found the problems, and its skeptic check confirmed all three majors. The skeptic used the launcher's real main block, real detached spawn and `process.kill` on the group, real `caffeinate` and the real lock, with a stand-in driver wired like the real ones.
+- Under `pnpm launcher` one Ctrl-C reaches the launcher twice, about 1 ms apart. pnpm forwards it, and the terminal's group signal also lands. Decision (5)'s "a second signal sends SIGKILL at once" then kills the run at once.
+- Neither driver handles SIGHUP. A run sent SIGHUP dies in 1 to 3 ms with no record and no cleanup, and nohup does not help.
+- A real hangup through a shell delivers SIGHUP twice, about 3 ms apart: zsh sends it to its job, and the kernel to the foreground group.
+- `caffeinate`, in the launcher's group, died on every group signal.
+- Decision (2)'s reason for a loop's three-times cap is wrong: only sample a can spend.
+
+The code, its tests, LAUNCHER.md and a correction of the implementation entry follow in this pull request. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) A second signal (supersedes decision (5)'s escalation).**
+  - The first SIGINT, SIGTERM or SIGHUP is forwarded to the run's process group and stops new starts.
+  - A second signal escalates to SIGKILL only when it arrives at least 5 s (`SIGNAL_REPEAT_MS`) after the first. A nearer one is the same signal delivered twice and is recorded as `signal_repeated`.
+  - The 120 s wait before SIGKILL and the 10 s reap bound are unchanged.
+- **(2) A hangup (supersedes decision (5)'s forwarding).**
+  - On SIGHUP, the launcher sends the run's group SIGTERM, the graceful stop both drivers handle, through the same gated path. It records SIGHUP as the cause, so a hangup stops the batch gracefully.
+  - `caffeinate` is spawned detached, so a group signal does not end it; its `-w` still ends it with the launcher.
+  - LAUNCHER.md recommends tmux or screen, and says that nohup does not help: the launcher's own SIGHUP listener overrides nohup's ignore.
+- **(3) A loop's cap (supersedes the cap rule in decision (2)).**
+  - Only a loop's sample a can spend. A cloud loop is a research loop: its b and repair are seeded writers without the cloud arm, its critique is local, and part 3b's resumes are zero fee.
+  - So a loop's `capUsd` must cover its arguments' cap once, as a run's does.
+  - Each run's argv is checked at queue time by its own script's parser: `parseLoopArguments` for a loop, the driver's `parseLocalArtifactScreenArguments` for a run, which requires `--execute-synthetic-local`. So a run the script would refuse is refused before the batch starts.
+
+Changes: This entry only. The code (scripts/experiment-launcher.ts), its tests, LAUNCHER.md and the correction of BL-20261114-1345-experiment-launcher-implemented follow in this pull request.
+
+Evidence: The light review of #98 and its skeptic section, which hold the probes and their measurements: pnpm 10.12.4's forwarding; a pseudo-terminal Ctrl-C; an interactive zsh foreground job; the hangup's double delivery; the stand-in driver's SIGHUP death; `caffeinate` dying in the launcher's group.
+
+Failures or blockers: None in this entry. Decision (5) as first recorded would have sent SIGKILL on one Ctrl-C under pnpm, and on any hangup.
+
+Limitations and non-claims: Proposed only; this entry implements nothing. The gate is a time window, so two separate owner signals less than 5 s apart count as one: the second is recorded, and an immediate kill needs a second signal 5 s or more after the first.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The code and the correction in this pull request, then the coordinator's re-check of the delta and the skeptic's check of the three majors. Owner questions, each with the default proposed here:
+- On SIGHUP: send the run SIGTERM through the gated path, as above, or treat SIGHUP like the STOP file, outside the escalation path, so the run in progress continues unsupervised and nothing new starts? Default: SIGTERM.
+- The 5 s window for a repeated signal. Default: 5 s.
+
+References: BL-20261114-1344-experiment-launcher-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261101-0135-h5-held-closure-supervision; the light review of #98 and its skeptic check.
+
+### BL-20261114-1438-correction-experiment-launcher-review -- 2026-11-14 -- Correction: plan 11.5 after its light review: a loop killed or lost before it finishes its record is invoked again on any invocation, the superseding signal and cap decisions are implemented, and the review's eight minor findings are fixed
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct, without editing it, decision (b) of BL-20261114-1345-experiment-launcher-implemented, and implement BL-20261114-1431-experiment-launcher-signals-design. Together they fix what the light review of #98 found: three major and eight minor findings. The review's skeptic check confirmed all three majors.
+- Decision (b) of the implementation entry says a loop killed or lost before it saved resumes like an interrupted one. That held only on a loop's first invocation (finding 3, major). On a later invocation, the record the loop left with `finishedAt: null` differed from the earlier invocation's finish time. The launcher took it for the new invocation's finished record and ended the loop instead of invoking it again.
+- The two majors on signals (findings 1 and 2) are decided in BL-20261114-1431-experiment-launcher-signals-design, which supersedes decision (5) of BL-20261114-1344-experiment-launcher-design. So is the loop's cap (finding 6), which supersedes the cap rule in that entry's decision (2).
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) A repeated signal (finding 1, major).** Implements decision (1) of BL-20261114-1431-experiment-launcher-signals-design. `SIGNAL_REPEAT_MS` is 5 s. A second signal within it of the first is recorded as `signal_repeated`, with the run and attempt when a run is in progress. Only a later one escalates to SIGKILL. LAUNCHER.md gives the direct `node --import tsx` command first, and `pnpm launcher` stays.
+- **(2) A hangup (finding 2, major).** Implements decision (2) of the same entry. A hangup reaches the run's group as SIGTERM, recorded with `received: "SIGHUP"`, and its second delivery is recorded as `signal_repeated`. `caffeinate` is spawned detached. LAUNCHER.md recommends tmux or screen, and says that nohup does not help.
+- **(3) Which loop record counts (finding 3, major).** Corrects decision (b) of BL-20261114-1345-experiment-launcher-implemented.
+  - A loop record is the invocation's own only once its `finishedAt` is set and differs from the value at the admission. The loop saves `finishedAt: null` when it starts and before each stage, and sets it in its `finally`, which SIGKILL, a hangup or a power loss skips.
+  - A loop that was signalled, ended by a signal, or lost with the launcher before it finished its record is invoked again on any invocation, not only its first, within the cap of 4 re-invocations. A loop ended by a signal the launcher did not send counts too.
+  - A locked or terminal loop is still never invoked again.
+- **(4) The checks before each admission (finding 4).** The tree, the commit and the commit's place on `main` are checked again before each admission. The launcher stops with `tree_dirty`, `commit_changed`, `commit_unknown`, `main_unknown` or `head_not_on_main` rather than start the run.
+- **(5) The decided values (finding 5).** The tests pin 3 observations, 20 s, 60 s, 120 s, 10 s, 4 re-invocations and 5 s as literals, not through the module's constants.
+- **(6) The queue's arguments (findings 6 and 7).** Implements decision (3) of BL-20261114-1431-experiment-launcher-signals-design.
+  - A loop's argv goes through `parseLoopArguments`, and a run's through the driver's `parseLocalArtifactScreenArguments`. A run the script would refuse, including one without `--execute-synthetic-local`, is refused when the queue is read.
+  - A loop's cap covers its arguments' cap once, as a run's does.
+- **(7) The job id (finding 8).** A single run's `run_finished` and `run_lost` carry its `jobId`, so plan 11.4's join can credit a signal to a run that was lost or never reaped.
+- **(8) The ledger write (finding 9).** The run is signalled before the ledger is written. A failed write never escapes the signal handler: the launcher stops once the run has exited, with `ledger_unwritable`.
+- **(9) The finish time (finding 10).** A loop record's `finishedAt` is kept only as an ISO instant, so nothing else from the record reaches the ledger.
+- **(10) The documentation (finding 11).** LAUNCHER.md now matches the code: the idle result `unavailable`, the full refusal list with `ledger_unreadable` and the checks before each admission, the stderr failure line, the loop rule above, the signal rules, and removing the STOP file before starting again.
+
+Changes:
+- scripts/experiment-launcher.ts.
+- tests/unit/experiment-launcher.test.ts: 21 tests, 6 of them new.
+- docs/experiments/LAUNCHER.md: rewritten.
+
+The code is in commits f9a29aa and 3c659a7. No source-freeze or registry file changes, so neither the runtime hash nor the research protocol hash moves.
+
+Evidence:
+- **The launcher tests.** tests/unit/experiment-launcher.test.ts passes 21 of 21 at 3c659a7. The 6 new tests cover:
+  - the pinned values;
+  - one Ctrl-C delivered twice in the same tick: SIGINT, the repeat recorded, and SIGKILL only 120 s later;
+  - one hangup delivered twice in the same tick: one SIGTERM recorded with `received: "SIGHUP"`, the repeat recorded, and no SIGKILL;
+  - a loop's second invocation killed by SIGKILL, and one lost with the launcher, each leaving its record with `finishedAt: null`. Each is invoked a third time;
+  - the checks before an admission: a dirty tree, a moved HEAD, an unknown commit, a commit no longer on `main`, and a `main` check git cannot answer each stop the launcher before the second run;
+  - the job id on a run's finish and on its loss, and a loop record's non-instant `finishedAt` kept out of the ledger;
+  - a ledger turned unwritable mid-signal: the run is still signalled, and the launcher stops with `ledger_unwritable` after the run exits.
+- **Mutants.** Twelve single-edit mutants of the fixes each fail exactly one test. Each was restored with `git checkout` from the commit before the next. The mutants:
+  - no repeat window;
+  - SIGHUP sent as SIGHUP;
+  - the old freshness rule;
+  - a loop ended by a signal not invoked again;
+  - no checks before an admission;
+  - no `main` check before an admission;
+  - the throwing ledger writer in the signal handler;
+  - no `ledger_unwritable` stop;
+  - no job id on a run's finish;
+  - none on a lost run;
+  - an unsanitised finish time;
+  - the old three-times loop cap.
+- **The full suite.** At f9a29aa, on Node 22.22.2 and pnpm 10.12.4, `pnpm exec vitest run` ran 198 files and 3,700 tests: 3,614 passed, 86 were skipped and none failed. 3c659a7 changes only the launcher test file.
+- **The checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, and `pnpm typecheck` and `pnpm validate:readiness` pass.
+
+Failures or blockers: The first run of the new loop test failed: its first half had advanced the fake clock past the second half's window. The test resets the clock between the halves; the launcher was not at fault.
+
+Limitations and non-claims:
+- Still Implemented, not Verified. The tests run on fakes: no real terminal, pnpm, signal delivery, `caffeinate` or child process was used here.
+- The double deliveries are the review's and its skeptic's measurements, not ones made here: 1 to 2 ms apart under pnpm, and about 3 ms apart on a hangup.
+- The 5 s window and the handling of SIGHUP are the defaults of BL-20261114-1431-experiment-launcher-signals-design, whose owner questions may change them. Two separate signals less than 5 s apart count as one.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on #98, and the coordinator's re-check of the delta.
+- The merge under the standing go-ahead, with this branch's entries re-stamped if `main`'s tail has moved.
+- Then 11.4 (#104) wires the launcher's records into the registry.
+
+References: BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1345-experiment-launcher-implemented; BL-20261114-1344-experiment-launcher-design; BL-20261114-1407-correction-experiment-launcher-ids; the light review of #98 and its skeptic check.
+
+### BL-20261114-1503-correction-experiment-launcher-hangup -- 2026-11-14 -- Correction: plan 11.5 after the skeptic's re-check: a hangup never escalates to SIGKILL, and a dead terminal no longer turns the launcher's exit code into a refusal's
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct, without editing them, decision (1) of BL-20261114-1431-experiment-launcher-signals-design and the launcher's main block, which BL-20261114-1438-correction-experiment-launcher-review left as it was. The skeptic re-checked #98 at bcb83b4: all three majors are fixed, with no regression. It found two new minor findings:
+- **A hangup after a Ctrl-C.** A hangup 5 s or more after a Ctrl-C still escalated to SIGKILL. In its cases P and Q, a Ctrl-C followed by closing the terminal 6 s later, while the run was still stopping, gave `kill_sent` and SIGKILL.
+- **The exit code after a hangup.** The launcher exited with 1, a refusal's code, instead of 2. Its final stdout write hit EIO on the dead terminal and became an uncaught exception. The ledger, the lock and `caffeinate` were already released.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) A hangup never escalates.** Corrects decision (1) of BL-20261114-1431-experiment-launcher-signals-design.
+  - A SIGHUP after the first signal is recorded as `signal_repeated` at any distance from it, so closing the terminal while a run stops gracefully is not a second press.
+  - Only a SIGINT or SIGTERM 5 s or more after the first signal escalates to SIGKILL.
+  - A first SIGHUP is still forwarded as SIGTERM.
+- **(2) The final line.** `writeFinalLine` ignores EIO and EPIPE when the launcher writes its last line to stdout, or its failure line to stderr.
+  - The exit code is set before the write: 0 when done, 2 when stopped, and 1 on a refusal or a failure.
+  - Any other write error still ends the launcher with an uncaught exception, as before.
+
+Changes:
+- scripts/experiment-launcher.ts: the signal gate, `writeFinalLine` and the main block.
+- tests/unit/experiment-launcher.test.ts: 23 tests, 2 of them new.
+- docs/experiments/LAUNCHER.md: the exit code and the Stopping section.
+
+The code is in commit aabd258.
+
+Evidence:
+- tests/unit/experiment-launcher.test.ts passes 23 of 23 at aabd258. The 2 new tests show:
+  - a Ctrl-C, then a double hangup 6 s later while the run ignores the Ctrl-C: SIGKILL only 120 s after the Ctrl-C, and both hangups recorded as `signal_repeated`;
+  - EIO and EPIPE ignored on the final line, whether the write throws them or the stream emits them, and another error code still thrown.
+- Two single-edit mutants, each restored with `git checkout`, each fail exactly one test: a SIGHUP that escalates like any other signal, and the final write without the guard.
+- At aabd258, on Node 22.22.2 and pnpm 10.12.4, `pnpm typecheck` passes. `pnpm exec vitest run` ran 198 files and 3,702 tests: 3,616 passed, 86 were skipped and none failed.
+- At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, and `pnpm validate:readiness` passes.
+
+Failures or blockers: None in this change.
+
+Limitations and non-claims:
+- Implemented, not Verified. The tests run on fakes.
+- The main block is not unit-tested: only `writeFinalLine` is. Its behaviour on a real dead terminal was the skeptic's probe, not one made here.
+- Since a hangup no longer escalates, a run that ignores its SIGTERM after a hangup is killed only at the 120 s bound.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #98, and its merge under the standing go-ahead while `main` is still at 19d7826; otherwise this branch's entries are re-stamped after `main`'s tail.
+
+References: BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1438-correction-experiment-launcher-review; the skeptic's re-check of #98.
+
+### BL-20261114-1505-concurrent-local-admission-design -- 2026-11-14 -- Backlog item 8 decided: the ledger admits live zero-risk local dispatches of one job, context and purpose together (8.1), and the index, extraction and judge loops run K at a time with K from the serving card (8.2b)
 
 Status: `Proposed`
 
@@ -38747,11 +39092,11 @@ Next gate: 8.1's code and tests on this branch, with its `Implemented` entry; th
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 4 row D12, section 5.2 ("Local fan-out"; rows S2, S4 and S10) and section 5.7 item 8; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; docs/PLAN.md section 4.
 
-### BL-20261114-1344-concurrent-local-admission-implemented -- 2026-11-14 -- Backlog item 8, part 1 (8.1), implemented: the ledger admits live zero-risk local dispatches of one job, context and purpose together through the broker's live set; nothing calls it concurrently yet
+### BL-20261114-1506-concurrent-local-admission-implemented -- 2026-11-14 -- Backlog item 8, part 1 (8.1), implemented: the ledger admits live zero-risk local dispatches of one job, context and purpose together through the broker's live set; nothing calls it concurrently yet
 
 Status: `Implemented`
 
-Scope or hypothesis: Implements decisions (1) to (5) of BL-20261114-1343-concurrent-local-admission-design, as decided, with deterministic tests on loopback fixtures. Branch `feat/8.1-concurrent-local-admission`, from `main` at 582f880; the code and tests are commit b93bc93. Hypothesis:
+Scope or hypothesis: Implements decisions (1) to (5) of BL-20261114-1505-concurrent-local-admission-design, as decided, with deterministic tests on loopback fixtures. Branch `feat/8.1-concurrent-local-admission`, from `main` at 582f880; the code and tests are commit b93bc93. Hypothesis:
 - a zero-fee `local_model` request commits beside this broker's live rows of the same job, context and purpose;
 - every other request, and every row that a crash or another process left `committed`, keeps today's refusal;
 - receipts keep their shape;
@@ -38819,9 +39164,9 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: One review, CI green and a merge. At merge, this branch's two entries are re-stamped after `main`'s tail (BL-20261113-0937-owner-decision-restamp-unmerged-entries). S-harn's 11.4 then edits store.ts and broker.ts after this merge, and 8.2b builds the loops on it.
 
-References: BL-20261114-1343-concurrent-local-admission-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 8.
+References: BL-20261114-1505-concurrent-local-admission-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 8.
 
-### BL-20261114-1429-correction-concurrent-local-admission-restamp -- 2026-11-14 -- Correction: pull request #101's two entries are re-stamped after `main`'s tail at its merge of `main`, and the implemented entry's code commit is 48fd3cb, not b93bc93
+### BL-20261114-1507-correction-concurrent-local-admission-restamp -- 2026-11-14 -- Correction: pull request #101's two entries are re-stamped after `main`'s tail at its merge of `main`, and the implemented entry's code commit is 48fd3cb, not b93bc93
 
 Status: `Implemented`
 
@@ -38830,8 +39175,8 @@ Scope or hypothesis: Pull request #101 (backlog item 8.1) brings in `main` at 19
 - So both entries are re-stamped after the tail in that merge, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
 
 Each entry, with its original ID and authoring time:
-- **The design entry.** Authored at 13:08 UTC on 2026-11-14 as BL-20261114-1308, committed as a3f1db2. It is now BL-20261114-1343-concurrent-local-admission-design.
-- **The implemented entry.** Authored at 13:28 UTC on 2026-11-14 as BL-20261114-1328, committed as 0d3a5a3. It is now BL-20261114-1344-concurrent-local-admission-implemented.
+- **The design entry.** Authored at 13:08 UTC on 2026-11-14 as BL-20261114-1308, committed as a3f1db2. It is now BL-20261114-1505-concurrent-local-admission-design.
+- **The implemented entry.** Authored at 13:28 UTC on 2026-11-14 as BL-20261114-1328, committed as 0d3a5a3. It is now BL-20261114-1506-concurrent-local-admission-implemented.
 
 Decisions:
 - **Choice of minutes.** 13:43 and 13:44 follow `main`'s tail at 13:42. This lane's other branch, `feat/10a-scrub-policy-5`, re-stamps its design entry to 13:45 after the same tail. If another pull request reaches `main` first with later IDs, #101 re-stamps again at its next merge of `main`, under the same rule.
@@ -38860,13 +39205,13 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The light review of #101 at its new head, which checks this re-stamp and this correction, then CI and the merge.
 
-References: BL-20261114-1343-concurrent-local-admission-design; BL-20261114-1344-concurrent-local-admission-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
 
-### BL-20261114-1504-correction-concurrent-local-admission-review -- 2026-11-14 -- Correction to BL-20261114-1343-concurrent-local-admission-design after the light review of #101: keeping `request_failed` also changes a run's infra/task class at K > 1, and a call cancelled in its D4 backoff resolves with its own transport code
+### BL-20261114-1508-correction-concurrent-local-admission-review -- 2026-11-14 -- Correction to BL-20261114-1505-concurrent-local-admission-design after the light review of #101: keeping `request_failed` also changes a run's infra/task class at K > 1, and a call cancelled in its D4 backoff resolves with its own transport code
 
 Status: `Implemented`
 
-Scope or hypothesis: The orchestrator's light review of #101 at 29af996 is clean, with three minor findings. Two of them correct statements of BL-20261114-1343-concurrent-local-admission-design, which stays as written. The third is in the pull request's description only. Nothing in code changes.
+Scope or hypothesis: The orchestrator's light review of #101 at 29af996 is clean, with three minor findings. Two of them correct statements of BL-20261114-1505-concurrent-local-admission-design, which stays as written. The third is in the pull request's description only. Nothing in code changes.
 
 Decisions:
 - **Decision (4): the run's class differs too.** The design entry says 8.2b's loops "end the same way under either code", and that only the stage's recorded `denied` differs. The run's infra/task class differs as well.
@@ -38880,7 +39225,7 @@ Decisions:
   - A call waiting in its D4 backoff when the cancel lands leaves the wait and falls through at broker.ts:628-636.
   - It resolves `failed` with its own transport code, for example `upstream_closed`, not `cancelled`.
   - It still denies `request_failed`, so the caller's outcome is unchanged. Only the row's recorded failure code differs.
-- **The pull request's description.** It said the broker test file gains 13 tests. That file gains 12; the 13th is in tests/integration/private-agent-flash-next.test.ts, as BL-20261114-1344-concurrent-local-admission-implemented says. The description is corrected.
+- **The pull request's description.** It said the broker test file gains 13 tests. That file gains 12; the 13th is in tests/integration/private-agent-flash-next.test.ts, as BL-20261114-1506-concurrent-local-admission-implemented says. The description is corrected.
 
 Changes:
 - docs/BUILD_LOG.md: this entry.
@@ -38905,4 +39250,4 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: CI on #101's new head, then the orchestrator's merge under the owner's standing go-ahead.
 
-References: BL-20261114-1343-concurrent-local-admission-design; BL-20261114-1344-concurrent-local-admission-implemented; BL-20261114-1429-correction-concurrent-local-admission-restamp; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented.
+References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1507-correction-concurrent-local-admission-restamp; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented.

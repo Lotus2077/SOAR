@@ -38397,3 +38397,79 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
+
+### BL-20261114-1331-registry-columns-design -- 2026-11-14 -- Decide plan 11.4: receipts record their destination kind, body and disclosed bytes, and registry rows gain reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
+
+Status: `Proposed`
+
+Scope or hypothesis: Plan 11.4 (backlog item 11; lane S-harn; issue #63). Two persisted contracts change, so this entry precedes the code:
+- the dispatch receipt, the private ledger's row;
+- the registry row (docs/experiments/README.md).
+
+It also takes two pieces assigned since the lane plan was written:
+- the coordinator's decision of 2026-11-14 that 7(c)'s fallback-disclosure column moves into 11.4. It was planned for RA (BL-20261113-0920).
+- the launcher's stop-signal record, which 11.5's design entry (BL-20261114-1250, on pull request #98, decision 10) hands to 11.4.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Receipt fields.** `DispatchReceipt` gains three optional fields: `destinationKind` (`local_model`, `cloud_model` or `public_web`), `bodyBytes` and `disclosedBytes`.
+  - The broker writes all three at its one commit (broker.ts:511), on every row from this change on. Rows written before it lack them.
+  - `bodyBytes` is the request body's UTF-8 length, 0 for a GET.
+  - `disclosedBytes` follows HARN-27's default. It is 0 for a `local_model` destination or a loopback URL (127.0.0.1 or ::1, the broker's own loopback rule). Otherwise it is the body's bytes for a POST and the request URL's bytes for a GET.
+  - `store.commit` refuses a present field that is not a safe non-negative integer or a known kind.
+  - Unchanged: the preview, `packetSha256`, the packet text, `destinationSha256`, admission, the exposure formula (store.ts:276), retries and the zero-risk rules. So tests/unit/private-agent-identity-golden.test.ts stays as it is.
+  - The settle, close and supersede rewrites spread the stored row, so the fields survive them. A run's `dispatchesSha256` covers them, consistently within the run.
+- **(2) Registry columns on every row**, from the run's own records. Every value is a count, a USD amount, a fixed host enum or null; no URL, hostname, path or text reaches a row.
+  - `reservedUsd`: the sum of every row's `reservedFeeMicrousd` (each attempt's reservation), in USD.
+  - `pinnedUsd`: the reservations of rows still `committed` or `unknown`, as store.ts's exposure counts them. With `usd` it is the run's exposure, which 11.5's batch cap counts.
+  - `committedDispatches`: rows still `committed` at the run's end. They are already counted in `unknownDispatches`.
+  - `cloudCalls`: one object per cloud-model row, in commit order: `purpose`, `status`, `feeUsd`, `reservedUsd` and `bodyBytes` (null on an older row). A row is a cloud call when its `destinationKind` is `cloud_model`, or, on an older row without it, when its destination is `cloud_coordinator`.
+  - `disclosedBytes`: the sum of `disclosedBytes` over rows unique by `packetSha256`, so a retried packet counts once. Null when any row lacks the field.
+  - `urls`: the number of distinct retained public-source URLs (`public_source_retained` events).
+  - `domains`: the number of distinct lowercased hostnames among those URLs, with a leading `www.` dropped and loopback hosts excluded. It is approximate (HARN-27's default; no public-suffix list). Harness runs read approved snapshots from a loopback receiver whose routes name sources by id, not by origin, so their `domains` is 0. E3's card reads `urls` and `actions.sourcesRead` there.
+  - `retainedBytes`: the sum of those events' bytes.
+  - `actions`, with three parts:
+    - `tools`: `tool_finished` counts by tool name, joined to `tool_started` by `operationId`;
+    - `fetchReceipts`: the `public_source_retained` events;
+    - `sourcesRead`: the reading stage's `sourcesIndexed`, or null without a reading stage. This is "read" on a closed corpus (HARN-27), which item 12 revises.
+  - `queries`: null until item 12.
+  - `researchFallback`: `{plan, synthesis}` from the reading stage's `research_stage` events. `plan` is `host_plan` or `none`, and `synthesis` is `skeleton` or `none`. Null without a reading stage. This discloses 7(c)'s host fallbacks (BL-20261113-0927-research-v5-design).
+- **(3) Loop rows.** They read every run through part 3b's scan, moved and unfinished runs included, and through `stage_run` (BL-20261113-0836-infra-resume-design, decision (11)).
+  - Amounts and counts are summed over the runs, and `cloudCalls` are concatenated in stage order.
+  - `urls` and `domains` are counted over the union of the runs' URLs.
+  - `researchFallback` is taken from `stage_run("a")`, the run whose reading stage made the loop's packet.
+  - A run without a result contributes what its ledger holds.
+- **(4) The launcher's stop signal (HARN-12).** `--run-dir` accepts `--launcher-ledger PATH`.
+  - The row's run is found by its freeze's `jobId` among the ledger's `run_exited` records. Exactly one must match, or the row is refused.
+  - That record's `signalled` is passed to `run_end_evidence` as `stop_signalled`. A forwarded signal then classes `cancelled_or_deadline` as `operator_stop`.
+  - Without the flag, `stop_signalled` stays false (registry-row.py:127). The ledger is only read, and nothing from it but that flag reaches the row.
+- **(5) Order.** 8.1 changes the same `store.commit` statement, and 7d.C the same row assembly in registry-row.py. This branch merges `main` in as each lands: on store.ts and broker.ts after 8.1, and on registry-row.py after 7d.C, as the coordinator set on 2026-11-14. The lane plan's older registry order had 11.4 before 7d.C. There are no card parameters.
+
+Changes: This entry only. The code follows in this pull request: store.ts, broker.ts and scripts/registry-row.py. So do docs/experiments/README.md, the tests (tests/integration/private-agent-broker.test.ts and a new tests/unit/registry-row-columns.test.ts) and the `Implemented` entry.
+
+Evidence: Reading only, at 582f880:
+- broker.ts:25 and :290 (kinds and loopback), :369 (body bytes), :387-394 (the packet hash) and :511-528 (the commit);
+- store.ts:120-132, :250-296, :276 and :299-348;
+- registry-row.py: `counts_of` (:456-486), `run_end_evidence` (:279-301), `run_counts` (:1131-1154), the loop scan and `stage_run`;
+- public-sources.ts and runner.ts (`public_source_retained`, the tool events);
+- research-pipeline.ts:75-90, :264, :353 and :542;
+- the snapshot route's `sourceId`, an identifier (private-agent-local-screen.ts:52);
+- HARN-27, and the lane brief's PR 4.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Proposed only; nothing is implemented, tested or verified by this entry.
+- Rows written before the merge carry no receipt fields, so their `disclosedBytes` is null, and so is each of their cloud calls' `bodyBytes`.
+- `domains` counts hostnames, not registrable domains.
+- The columns are measures; none decides acceptance.
+- The served model on cloud `model_finished` events and a `servedModels` column wait until #86 puts BL-20261113-0730 on `main`, each with its own entry.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests and its `Implemented` entry; `main` merged in after 7d.C and after 8.1; then one light review. Owner questions, each with the default proposed here:
+- HARN-27: the brief's definitions, or registrable domains through a public-suffix list? Default: the brief's.
+- On a closed corpus served from a loopback snapshot, `domains` is 0, and E3 reads `urls` and `actions.sourcesRead`. Default: yes.
+- Is the reading stage's `sourcesIndexed` the closed-corpus "read" until item 12? Default: yes.
+
+References: BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; BL-20261109-0422-registry-run-commit-design; BL-20261114-1250 (pull request #98); HARN-27; issue #63; .soar/next-milestones plan item 11.4.

@@ -38,6 +38,10 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
 
 Exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes is accepted. `--verdict-by` is `owner`,
 `agent_diagnostic` or `none`; `owner` requires --owner-minutes and --interventions (the receipt supplies them).
+
+Plan 11.4: --run-dir and --loop-dir rows add reservedUsd, pinnedUsd, committedDispatches, cloudCalls, disclosedBytes, urls,
+domains, retainedBytes, actions, queries and researchFallback (docs/experiments/README.md). With --run-dir,
+--launcher-ledger STATE/launcher.jsonl reads whether the experiment launcher forwarded a signal to the run.
 """
 
 from __future__ import annotations
@@ -53,6 +57,7 @@ import pathlib
 import re
 import shutil
 import sqlite3
+import urllib.parse
 import subprocess
 import sys
 import tempfile
@@ -85,6 +90,7 @@ def main() -> int:
     parser.add_argument("--arm", default=None, help="required unless --supersedes or --verdict-file supplies it")
     parser.add_argument("--outcome", default=None, help="accepted, rejected, incomplete or infra_invalid; from the receipt with --verdict-file")
     parser.add_argument("--run-dir", default=None)
+    parser.add_argument("--launcher-ledger", default=None, help="with --run-dir: the launcher.jsonl whose run_exited record says whether a signal was forwarded")
     parser.add_argument("--loop-dir", default=None, help="H4: a select-and-repair loop directory (loop.json) instead of one run")
     parser.add_argument("--verdict-file", default=None, help="a desktop verdict receipt (JSON) instead of a run directory")
     parser.add_argument("--supersedes", default=None, metavar="ROW_ID", help="copy the registry row with this id and change only its verdict fields")
@@ -98,6 +104,8 @@ def main() -> int:
     sources = [name for name, value in (("--run-dir", args.run_dir), ("--loop-dir", args.loop_dir), ("--verdict-file", args.verdict_file), ("--supersedes", args.supersedes)) if value is not None]
     if len(sources) != 1:
         sys.exit("give exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes")
+    if args.launcher_ledger is not None and args.run_dir is None:
+        sys.exit("--launcher-ledger goes with --run-dir only")
     required = [] if args.verdict_file is not None else ["--outcome"]
     if args.supersedes is None:
         required += ["--batch", "--task", "--family", "--exposure"] + ([] if args.verdict_file is not None else ["--arm"])
@@ -123,8 +131,9 @@ def main() -> int:
         row = loop_row(args)
     elif args.run_dir is not None:
         single = run_counts(args.run_dir)
-        row = {**single["row"], **{key: single[key] for key in SUMMED}, "wallSeconds": single["wallSeconds"]}
-        row["runClass"] = classify_run_end(run_end_evidence(args.run_dir, False))
+        row = {**single["row"], **{key: single[key] for key in SUMMED}, "wallSeconds": single["wallSeconds"], **single["depth"]}
+        signalled = launcher_signalled(args.launcher_ledger, args.run_dir) if args.launcher_ledger is not None else False
+        row["runClass"] = classify_run_end(run_end_evidence(args.run_dir, signalled))
         check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
     elif args.verdict_file is not None:
         row = receipt_row(args)
@@ -492,6 +501,119 @@ def safe_integer(value):
         return None
     value = int(value)
     return value if abs(value) <= 2 ** 53 - 1 else None
+
+
+# Plan 11.4 (BL-20261114-1331-registry-columns-design): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
+# and 7(c)'s fallback markers. Every value is a count, a USD amount, a fixed host enum or null: a retained source's URL is read only
+# to count it and its hostname, and never leaves this process.
+LOOPBACK_HOSTS = ("127.0.0.1", "::1")
+DISPATCH_STATUSES = ("committed", "settled", "unknown", "superseded", "failed")
+HOST_TOKEN = re.compile(r"^[a-z][a-z0-9 _-]{0,63}$")
+
+
+def is_count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def depth_parts(events: list, dispatches: list) -> dict:
+    """One run's parts of plan 11.4's columns, from its events and dispatch rows; `depth_columns` turns one run's, or a loop's runs',
+    parts into the row's values. A cloud call is a row of destination kind cloud_model, or on a row written before plan 11.4, one
+    whose destination is cloud_coordinator. Disclosure is kept by packet, so a retried packet counts once."""
+    events = [event for event in events if isinstance(event, dict)]
+    rows = [item for item in dispatches if isinstance(item, dict)]
+    cloud, packets, complete = [], {}, True
+    for item in rows:
+        if not is_count(item.get("disclosedBytes")):
+            complete = False
+        elif isinstance(item.get("packetSha256"), str):
+            packets.setdefault(item["packetSha256"], item["disclosedBytes"])
+        kind = item.get("destinationKind")
+        if kind == "cloud_model" or (kind is None and item.get("destinationId") == "cloud_coordinator"):
+            purpose, status = item.get("purpose"), item.get("status")
+            cloud.append({"purpose": purpose if isinstance(purpose, str) and HOST_TOKEN.fullmatch(purpose) else "other",
+                          "status": status if status in DISPATCH_STATUSES else "other",
+                          "feeUsd": count(item.get("feeMicrousd")) / 1_000_000, "reservedUsd": count(item.get("reservedFeeMicrousd")) / 1_000_000,
+                          "bodyBytes": item["bodyBytes"] if is_count(item.get("bodyBytes")) else None})
+    named = {event.get("operationId"): event.get("name") for event in events if event.get("type") == "tool_started" and isinstance(event.get("operationId"), str)}
+    tools = {}
+    for event in events:
+        if event.get("type") == "tool_finished":
+            name = named.get(event.get("operationId"))
+            name = name if isinstance(name, str) and HOST_TOKEN.fullmatch(name) else "other"
+            tools[name] = tools.get(name, 0) + 1
+    retained = [event for event in events if event.get("type") == "public_source_retained"]
+    stages = [event for event in events if event.get("type") == "research_stage"]
+
+    def last(stage: str):
+        return next((event for event in reversed(stages) if event.get("stage") == stage), None)
+    index, plan, synthesis = last("index"), last("plan"), last("synthesise")
+    return {
+        "reserved": sum(count(item.get("reservedFeeMicrousd")) for item in rows),
+        # store.ts's exposure: a row still committed or unknown pins its reservation.
+        "pinned": sum(count(item.get("reservedFeeMicrousd")) for item in rows if item.get("status") in ("committed", "unknown")),
+        "committed": sum(1 for item in rows if item.get("status") == "committed"),
+        "cloud": cloud, "packets": packets, "complete": complete,
+        "urls": {event["url"] for event in retained if isinstance(event.get("url"), str)},
+        "retainedBytes": sum(count(event.get("bytes")) for event in retained),
+        "tools": tools, "fetchReceipts": len(retained),
+        # "Read" on a closed corpus (HARN-27): the sources the reading stage indexed; item 12 revises it.
+        "sourcesRead": count(index.get("sourcesIndexed")) if index is not None else None,
+        "fallback": {"plan": "host_plan" if (plan or {}).get("fallback") == "host_plan" else "none",
+                     "synthesis": "skeleton" if (synthesis or {}).get("fallback") == "skeleton" else "none"} if stages else None,
+    }
+
+
+def depth_columns(parts: list, fallback) -> dict:
+    """Plan 11.4's columns from one or several runs' parts: amounts and counts summed, cloud calls in order, URLs and hostnames
+    counted over the union; `domains` drops a leading www. and loopback hosts, and is approximate (hostnames, not registrable domains)."""
+    packets, urls, tools = {}, set(), {}
+    for part in parts:
+        for packet, disclosed in part["packets"].items():
+            packets.setdefault(packet, disclosed)
+        urls |= part["urls"]
+        for name, value in part["tools"].items():
+            tools[name] = tools.get(name, 0) + value
+    hosts = set()
+    for url in urls:
+        try:
+            host = urllib.parse.urlsplit(url).hostname
+        except ValueError:
+            host = None
+        if host and host not in LOOPBACK_HOSTS:
+            hosts.add(host[4:] if host.startswith("www.") else host)
+    reads = [part["sourcesRead"] for part in parts if part["sourcesRead"] is not None]
+    return {
+        "reservedUsd": sum(part["reserved"] for part in parts) / 1_000_000,
+        "pinnedUsd": sum(part["pinned"] for part in parts) / 1_000_000,
+        "committedDispatches": sum(part["committed"] for part in parts),
+        "cloudCalls": [call for part in parts for call in part["cloud"]],
+        "disclosedBytes": sum(packets.values()) if all(part["complete"] for part in parts) else None,
+        "urls": len(urls), "domains": len(hosts),
+        "retainedBytes": sum(part["retainedBytes"] for part in parts),
+        "actions": {"tools": dict(sorted(tools.items())), "fetchReceipts": sum(part["fetchReceipts"] for part in parts),
+                    "sourcesRead": sum(reads) if reads else None},
+        "queries": None,
+        "researchFallback": fallback,
+    }
+
+
+def launcher_signalled(path: str, run_dir: str) -> bool:
+    """Plan 11.4, decision (4) (HARN-12): whether the launcher forwarded a signal to this run, from the one run_exited record its
+    ledger holds for the run's job id. The ledger is only read, and nothing from it but that flag reaches the row."""
+    job = (read_freeze(run_dir) or {}).get("jobId")
+    if not isinstance(job, str) or not JOB_ID.fullmatch(job):
+        sys.exit("the run has no job id to find in the launcher ledger")
+    if os.path.islink(path) or not os.path.isfile(path):
+        sys.exit("the launcher ledger cannot be read")
+    try:
+        with open(path, "rb") as handle:
+            events = [json.loads(line) for line in handle.read().decode("utf-8").split("\n") if line]
+    except (OSError, UnicodeDecodeError, ValueError):
+        sys.exit("the launcher ledger cannot be read")
+    exits = [event for event in events if isinstance(event, dict) and event.get("event") == "run_exited" and event.get("jobId") == job]
+    if len(exits) != 1:
+        sys.exit("the launcher ledger holds no single exit for this run")
+    return exits[0].get("signalled") is True
 
 
 def run_ledger(run_dir: str) -> dict:
@@ -895,7 +1017,8 @@ def run_totals(run_dir: str) -> dict:
     # A result that cannot be read is a run that did not finish: its ledger's rows are its spend (part 3b).
     result = read_object(run_dir, "result.json")
     dispatches = [item for item in (result.get("dispatches") if isinstance(result.get("dispatches"), list) else []) if isinstance(item, dict)] if result is not None else ledger_dispatches
-    return {"counts": counts_of(events, dispatches), "started": parse_time((freeze or {}).get("startedAt")), "ended": parse_time(result.get("finishedAt")) if result is not None else None}
+    return {"counts": counts_of(events, dispatches), "depth": depth_parts(events, dispatches), "started": parse_time((freeze or {}).get("startedAt")),
+            "ended": parse_time(result.get("finishedAt")) if result is not None else None}
 
 
 def critique_totals(critique_dir: str):
@@ -1028,9 +1151,11 @@ def loop_row(args) -> dict:
     resumes, voids = loop_moves(loop) if version == 2 else ([], [])
     runs = loop_runs(loop_dir, loop, entries, resumes, voids)
     summed = {key: 0 for key in SUMMED}
+    parts = []
     started, ended = parse_time(loop.get("startedAt")), parse_time(loop.get("finishedAt"))
     for entry in runs:
         totals = run_totals(entry["path"])
+        parts.append(totals["depth"])
         for key in SUMMED:
             summed[key] += totals["counts"][key]
         started = min([value for value in (started, totals["started"]) if value is not None], default=None)
@@ -1042,6 +1167,8 @@ def loop_row(args) -> dict:
             for key in SUMMED:
                 summed[key] += counts[key]
             critiqued = critiqued or (answered and entry["name"] == "critique")
+            events, dispatches, _ = ledger_rows(entry["path"])
+            parts.append(depth_parts(events, dispatches))
     stages = loop.get("stages") if isinstance(loop.get("stages"), list) else []
 
     def marked(stage) -> bool:
@@ -1067,6 +1194,9 @@ def loop_row(args) -> dict:
         extra["loop"]["resumes"] = [{"stage": entry["stage"], "cause": entry["cause"], "as": entry["as"]} for entry in resumes]
         extra["loop"]["closed"] = loop_closed(loop)
     extra["activeSeconds"] = active_seconds(loop_dir, loop)
+    # Plan 11.4: every run the scan found, the critique's ledger included; the fallback markers of the run whose reading stage made the packet.
+    reader = stage_run(loop_dir, loop)
+    extra.update(depth_columns(parts, depth_parts(ledger_rows(reader)[0], [])["fallback"] if os.path.isdir(reader) else None))
     cloud = read_freeze(stage_run(loop_dir, loop)) or {} if loop.get("arm") == "cloud" else None
     if final:
         selected_dir = os.path.join(loop_dir, final["candidate"])
@@ -1136,8 +1266,9 @@ def run_counts(run_dir: str) -> dict:
     started = datetime.datetime.fromisoformat(freeze["startedAt"].replace("Z", "+00:00"))
     ended = datetime.datetime.fromisoformat(result["finishedAt"].replace("Z", "+00:00"))
     dispatches = result.get("dispatches", [])
+    parts = depth_parts(events, dispatches if isinstance(dispatches, list) else [])
     return {
-        "started": started, "ended": ended,
+        "started": started, "ended": ended, "depth": depth_columns([parts], parts["fallback"]),
         "row": {
             "date": started.date().isoformat(), "taskJobSha256": freeze["taskBinding"]["jobSha256"],
             "profile": freeze.get("profile", "standard"), "maxOutputTokens": freeze["modelConfig"]["maxOutputTokens"],

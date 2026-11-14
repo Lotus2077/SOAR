@@ -246,6 +246,16 @@ function isLoopback(host: string): boolean {
   return host === "127.0.0.1" || host === "::1" || host === "[::1]";
 }
 
+/**
+ * Plan 11.4 (BL-20261114-1331-registry-columns-design): what a dispatch row records about its request, beside its identity: the
+ * destination's kind, the body's UTF-8 bytes (0 for a GET), and the bytes it disclosed by HARN-27's default: none to a local model
+ * or a loopback URL, else a POST's body or a GET's URL.
+ */
+export function dispatchDisclosure(kind: BrokerDestination["kind"], url: URL, method: BrokerRequest["method"], body: string | undefined) {
+  const bodyBytes = Buffer.byteLength(body ?? "");
+  return { destinationKind: kind, bodyBytes, disclosedBytes: kind === "local_model" || isLoopback(url.hostname) ? 0 : method === "POST" ? bodyBytes : Buffer.byteLength(url.href) };
+}
+
 /** Reject non-global addresses, including mapped IPv4, before public transports. */
 const nonPublicV4 = new BlockList();
 for (const [network, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
@@ -479,6 +489,8 @@ export class PrivateAgentBroker {
       }
     }
     const { text: _text, ...identity } = packet.preview;
+    // Plan 11.4: written beside the identity, never into it, so the packet and destination hashes are unchanged.
+    const disclosure = dispatchDisclosure(packet.destination.kind, packet.url, frozen.method, frozen.body);
     // A zero-risk packet can be re-sent without cost or side effect: a zero-fee local request or a public GET without a grant.
     const zeroRisk = this.zeroRiskDispatch({ destinationId: packet.destination.id, maxFeeMicrousd: frozen.maxFeeMicrousd, method: frozen.method,
       grantId: frozen.grantId, approval: packet.preview.approval });
@@ -508,7 +520,7 @@ export class PrivateAgentBroker {
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
       let receipt: DispatchReceipt;
       try {
-        receipt = this.store.commit({ ...identity, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt,
+        receipt = this.store.commit({ ...identity, ...disclosure, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt,
           ...(localTokenAdmissionEvidence ? { localTokenAdmission: localTokenAdmissionEvidence } : {}) },
           (policy, context) => {
             this.eligible(policy, context, packet.destination, frozen.grantId);

@@ -39681,3 +39681,102 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #104, and its merge under the standing go-ahead.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1522-correction-concurrent-local-admission-second-restamp; BL-20261114-1528-correction-registry-columns-second-restamp.
+
+### BL-20261114-1645-local-fanout-design -- 2026-11-14 -- Backlog item 8, part 2b (8.2b) decided: the index, extraction and judge loops run K zero-risk local calls at a time on the ordered pool, applied in item order, with K from the serving card's localStreams
+
+Status: `Proposed`
+
+Scope or hypothesis: Item 8's design, BL-20261114-1505-concurrent-local-admission-design, decided 8.2b in its decisions (6) to (9), and 8.1 is on `main` (c6192a4). This entry adopts those decisions for 8.2b, re-anchored to `main` at bc6c61b. It also decides the two things left to 8.2b:
+- the run class at K > 1 that BL-20261114-1508-correction-concurrent-local-admission-review recorded as open;
+- the obligations that #71's review and BL-20261110-0619-correction-ordered-pool-entry left to this PR.
+
+Hypothesis:
+- with K = 1 every loop is today's, byte for byte;
+- with K > 1 a stage's counts, files, packet bytes and diagnostics entries equal K = 1's for the same replies, whatever order the replies arrive in;
+- the exception is a stage that a denial ends (decision 2).
+
+Decisions:
+1. **The loops (1505 decision 6).** research-pipeline.ts runs four loops on `runOrderedPool` with limit K: the index pass and its repairs (:288-289), and the extraction pass and its repairs (:451-455).
+   - Each call splits into a launch and an apply. The launch is the request alone. The apply is everything that touches shared state:
+     - the counts and usage;
+     - `batchAssessments`, `deficient`, `assessments` and `attempts`;
+     - the evidence ids and quotes, and `conflicts`;
+     - chunk status and attempts, and `held`;
+     - the sink's ordinals (`retain`'s ordinal is `counts.calls`).
+
+     Applies run in item order, so this state equals the serial loop's. No launch reads state that an apply of the same pool writes: a repair's request reads the status that the initial pass, already drained, left.
+   - A repair list is computed once after its initial pass has drained, as today. It is cut to the slots left, the budget minus the calls applied, before its pool starts. The serial loop checks the budget before each repair, and its count rises only as replies settle, so it runs the same repairs.
+   - `call()` (:234-242) takes the launch's own signal for its early check, its request and its catch label, as #71's review asks.
+   - Plan and synthesis stay sequential.
+2. **A denial (1505 decision 7; ASSIST-1's default, abort and drain).**
+   - A genuine denial stops launching and aborts the in-flight siblings as it settles, at interrupt time. Any denied reply is genuine except a sibling stop: a `cancelled` reply applied with `afterAbort`, the rule of BL-20261110-0619.
+   - The stage's `denied` is the lowest-index genuine denial applied.
+   - The pool drains and applies every settled reply in item order, so `calls` counts the stage's settled replies.
+   - A pool that stopped with the stage's signal aborted and no denial applied ends `cancelled`, as #71's review asks.
+   - The cost, as 1505 recorded: a denied stage's `calls`, usage and `failed` rows differ from the serial loop's.
+3. **The judge (1505 decision 8; ASSIST-2's default, keep the verdicts).** claims.ts's `judgeClaims` (:59-93) takes a `limit`.
+   - A failed call stops launching. This uses the pool's `stop`, not `abort`, so the siblings finish and their verdicts are kept.
+   - Claims not launched take the stop label: the first one with context takes the reason of a pause or deadline that stopped the pass, and the rest `pass_stopped`.
+   - The pause and deadline checks run in `beforeLaunch`.
+   - A claim without context is answered in `launch`, without a call and without those checks, as today it is answered before them.
+   - A failed call is labelled in `launch` when it fails, because the pass signal may change before its apply.
+   - Verdicts stay in claim order, and `entailmentCalls` counts launched calls.
+4. **K (1505 decision 9).**
+   - `PrivateAgentModel.zeroRisk()` is factored out of `deadlineRefuses` (model.ts:345-351), which keeps its result. A model is zero-risk when every configured rate is zero, the long tier included, and its destination is a `local_model`.
+   - A loop runs K at a time only when its model is zero-risk; otherwise K is 1. The index and extraction loops use the reader; the judge uses its own model.
+   - K is a new optional session option, `research.localStreams`, beside `research.diagnostics`. Like that sink, it is no part of the session identity.
+   - The session passes K to the pipeline (session.ts:409) and to the judge (:235). The headless driver (scripts/private-agent-local-screen.ts:493) passes the card's `policy.localStreams`. The desktop passes none, and stays at K = 1 until item 13.
+   - `SERVING_CARD_CONSUMED.localStreams` flips to true (serving-card-flags.ts:16-17), with a test that a card's K reaches the loops.
+   - K is never in `researchProtocolSha256()`, `ResearchBudget`, `ResearchStageCounts`, summary.json, `freeze.pipeline` or the session identity.
+   - `servingCardFreeze()` (serving-card.ts:289-291) adds `localStreams` to freeze.json's `servingCard` record when a card is given, as ASSIST-M2's default says. Without a card, freeze.json is unchanged. The registry column waits for item 11.
+5. **The run class at K > 1: kept as infrastructure.** A run whose request allowance runs out at K > 1, because a sibling took the last request during a D4 backoff, is classed `research_request_failed`. On the same events, the serial loop would be denied `budget_denied` at a later item, a task class. Reasons:
+   - It can happen only through D4 retries. session.ts:289 refuses a session whose request pool is smaller than the stage budgets plus the writer's calls.
+   - Classing it as task would need one of two things:
+     - a broker code for a retry refused that way, which item 8's decision (4) declined;
+     - or the classifier reading the allowance, which would change the persisted classification contract in run-classification.ts and registry-row.py, written in two languages.
+   - The retry that the sibling's request cut short was caused by a transport failure, which the infrastructure class names.
+
+   It is recorded as a limitation. A later change may reclass it, with its own entry.
+6. **#71's obligations, from BL-20261110-0619:**
+   - The vacuous MaxListeners test (tests/unit/ordered-pool.test.ts:170) is replaced by direct listener counts, using `events.getEventListeners`: none on the stage's signal, and only the call's own on each launch signal.
+   - A test pins that nothing more is applied after a callback throws.
+   - A parity test checks that `ORDERED_POOL_MAX_LIMIT` (ordered-pool.ts:22) equals `MAX_LOCAL_STREAMS` (serving-card.ts:25).
+   - The listener comment in ordered-pool.ts (:54-55) is reworded, since no warning limit applies to these signals on Node 22.22.2.
+   - E1-T3's stop cases (#75), which assume one dispatch in flight per job, are rerun with K > 1, as #71's review asks.
+7. **Merge order and status.**
+   - serving-card-flags.ts and model.ts merge in the order 7a.2, then item 9, then 8.2b. So this pull request stays a draft until item 9 has merged, and then merges `main` in.
+   - Under ASSIST-S4, K > 1 stays `Implemented`, never `Verified`, until the owner's zero-fee run with an E0 card that sets K > 1.
+
+Changes: None in code with this entry. Planned:
+- src/main/private-agent/: research-pipeline.ts, claims.ts, session.ts, model.ts, serving-card-flags.ts, serving-card.ts and ordered-pool.ts (its comment);
+- scripts/private-agent-local-screen.ts;
+- their tests, and the tests of decision 6;
+- docs/BUILD_LOG.md: this entry, then the `Implemented` entry.
+
+Evidence: The code was read at bc6c61b for every anchor above:
+- research-pipeline.ts: `call()` :234-242, the index loop :274-289, the extraction loop :373-455;
+- claims.ts:59-93;
+- model.ts:345-351;
+- session.ts: the research options :62-68, the request pool check :289, the pipeline call :409-410, the judge :235;
+- serving-card-flags.ts:16-17, and serving-card.ts:25 and :287-291;
+- scripts/private-agent-local-screen.ts: the card :393, the freeze :482, the research options :493;
+- ordered-pool.ts:22 and :54-55;
+- tests/unit/ordered-pool.test.ts:170.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- 1505's limitations stand. Byte-identical packets can be shown only on fixture replies. A live server may answer differently under concurrent load, and concurrent calls can miss the shared prefix cache. A K beyond the server's capacity turns queue time into request timeouts.
+- A denied stage's counts differ from the serial loop's (decision 2).
+- The run class of decision 5 differs from the serial path's.
+- Every merge of this PR changes the harness source-freeze digest, because its files are under src/main/private-agent. No owner loop or E-run may span it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The code and tests on this branch, with the `Implemented` entry.
+- One light review.
+- A draft until item 9 merges; then CI, and a merge in the order of decision 7.
+
+References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented.

@@ -38820,3 +38820,44 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: One review, CI green and a merge. At merge, this branch's two entries are re-stamped after `main`'s tail (BL-20261113-0937-owner-decision-restamp-unmerged-entries). S-harn's 11.4 then edits store.ts and broker.ts after this merge, and 8.2b builds the loops on it.
 
 References: BL-20261114-1343-concurrent-local-admission-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 8.
+
+### BL-20261114-1429-correction-concurrent-local-admission-restamp -- 2026-11-14 -- Correction: pull request #101's two entries are re-stamped after `main`'s tail at its merge of `main`, and the implemented entry's code commit is 48fd3cb, not b93bc93
+
+Status: `Implemented`
+
+Scope or hypothesis: Pull request #101 (backlog item 8.1) brings in `main` at 19d7826 with merge commit 0e2c1bb.
+- `main`'s last ID is now BL-20261114-1342-correction-host-flags-surfaces-review, which comes after both of #101's entries. The validator refuses an ID that moves backward.
+- So both entries are re-stamped after the tail in that merge, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+
+Each entry, with its original ID and authoring time:
+- **The design entry.** Authored at 13:08 UTC on 2026-11-14 as BL-20261114-1308, committed as a3f1db2. It is now BL-20261114-1343-concurrent-local-admission-design.
+- **The implemented entry.** Authored at 13:28 UTC on 2026-11-14 as BL-20261114-1328, committed as 0d3a5a3. It is now BL-20261114-1344-concurrent-local-admission-implemented.
+
+Decisions:
+- **Choice of minutes.** 13:43 and 13:44 follow `main`'s tail at 13:42. This lane's other branch, `feat/10a-scrub-policy-5`, re-stamps its design entry to 13:45 after the same tail. If another pull request reaches `main` first with later IDs, #101 re-stamps again at its next merge of `main`, under the same rule.
+- **Only the IDs changed:** the two headings' IDs, and the implemented entry's two references to the design entry. Mapped back, both bodies are byte-identical to 0d3a5a3's. No comment or test cites either ID.
+- **A merge, not a rebase.** The push fast-forwards from 0d3a5a3, so every commit SHA the entries and the pull request cite stays in #101's history.
+- **The implemented entry's code commit.** It names b93bc93 three times: "the code and tests are commit b93bc93", and twice "At b93bc93" in its checks. b93bc93 is not in #101's history.
+  - Before the first push, the three commits were rebuilt on 582f880 with their messages and author dates, to reword one sentence of the design entry that named a git-ignored path. The code commit became 48fd3cb.
+  - `git diff b93bc93 48fd3cb` changes only that sentence in docs/BUILD_LOG.md. So every check recorded "At b93bc93" holds for 48fd3cb's tree, and the code and tests are commit 48fd3cb.
+  - The implemented entry keeps its text, as AGENTS.md asks; this entry corrects it.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, the two references, and this entry.
+- No behaviour changes.
+
+Evidence:
+- At 0e2c1bb, `pnpm --silent validate:build-log -- --base-ref origin/main` (19d7826) exits 0: 607 entries, append-only against `main`.
+- With their IDs mapped back, both entries equal 0d3a5a3's byte for byte.
+- `git grep` finds neither original ID with its slug in the tree.
+- `git diff --stat b93bc93 48fd3cb` reports one file, docs/BUILD_LOG.md, with one line changed. b93bc93 survives in a local backup branch, outside the pull request.
+
+Failures or blockers: The implemented entry was written before the rebuild and was not updated after it, so it named a commit that is not in the pull request. This entry corrects that.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages and #101's earlier description keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The light review of #101 at its new head, which checks this re-stamp and this correction, then CI and the merge.
+
+References: BL-20261114-1343-concurrent-local-admission-design; BL-20261114-1344-concurrent-local-admission-implemented; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

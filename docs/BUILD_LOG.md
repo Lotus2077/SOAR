@@ -38440,3 +38440,45 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation with its test and its `Implemented` entry. Then the checks, the light review, CI, and a merge under the owner's standing go-ahead, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
 
 References: BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1319-revoke-reopens-budget-stop-implemented -- 2026-11-14 -- Backlog item 6 follow-up implemented: a Revoke re-opens a task that its approved consultation's budget stop ended, and the stop's text names that cure
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-1314-revoke-reopens-budget-stop-design, with deterministic tests, on branch `fix/6.4-revoke-reopens-budget-stop` from `main` at 582f880 (plan ID 6.4, lane S-desk). The design commit is 469e606, and the implementation commit is 9eda46c.
+
+Decisions: Implemented as decided.
+- **The reset.** In `decideConsultation`, a Revoke on a record whose stored reason is `consultation_budget_unavailable` counts as a cure. The reset to `paused` / `consultation_ready` applies to a paused record, a resumable stored reason, or that cure.
+- **The text.** The reason's fixed text is the one the design names.
+- **Only a Revoke.** A Decline or a second approval cannot reach the reset for this stop. The runner stops this way only while the consultation is approved. At that point a Decline is refused with `consultation_decision_closed`, and an approval with `consultation_stale_decision`, before the reset. So a mutant that lets any decision cure the stop is equivalent; the test pins the Decline's refusal.
+- **Review.** Under the owner's lighter-review rule, one light review of the pull request by the coordinating session.
+
+Changes:
+- src/main/general-tasks/controller.ts: the cure in `decideConsultation`'s reset, and the reason's fixed text.
+- tests/unit/general-task-consultation-controller.test.ts (1 test). After an approval, the run stops with this reason: the task offers no Resume, shows the new text, refuses Resume and refuses a Decline. A Revoke re-opens it with Resume offered, and the resumed run continues locally to submission with no dispatch.
+- tests/unit/general-task-controller.test.ts: the table of terminal reasons expects the new text for this reason. It still checks that the stop stays terminal and refuses Resume after reopening.
+
+Evidence: At commit 9eda46c:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: general-task-consultation-controller 24 of 24 (23 before), general-task-controller 157 of 157, and general-task-run-reasons 5 of 5, unchanged.
+- The full `pnpm exec vitest run`: 195 files, 182 passed and 13 skipped (the environment-gated suites, as before); 3,669 tests, 3,583 passed and 86 skipped, none failed.
+- Mutation checks, each applied alone in a scratch copy against the consultation suite. Three are killed:
+  - no cure;
+  - any terminal reason cured by a Revoke;
+  - no fixed text.
+
+  The fourth, any decision curing the stop, is equivalent, as above.
+- No file in the private-agent source freeze's list changes, and no research pipeline file changes. `researchProtocolSha256` and the freeze are as at `main`.
+
+Failures or blockers: None. A first run of the controller suite failed one row: the table of terminal reasons pinned the old generic text for this reason. That row now expects the new text, which this change sets on purpose.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- The fixture produces the stop directly. The runner's own budget test for it (runner.ts) is unchanged and not re-run here beyond the full suite.
+- The owner question of BL-20261114-1314 stands with its default.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Push, a pull request against `main`, the coordinating session's light review, and CI. Then a merge under the owner's standing go-ahead, after 7d.C (#99) on controller.ts, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261114-1314-revoke-reopens-budget-stop-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

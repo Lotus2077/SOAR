@@ -698,6 +698,11 @@ export class GeneralTaskController {
         const privateContextId = events.find(event => event.type === "session_started")?.privateContextId;
         if (typeof privateContextId === "string" && storageIntegrityFailed(events, privateContextId, checkpoints, this.root)) next.reason = "task_integrity_failed";
       }
+      // Backlog item 6 follow-up (6.4, BL-20261114-1314): a Revoke clicked while the stopping run was still ending is recorded, but cannot reset
+      // the record of an active run; the run's budget stop is cured here when it ends, as decideConsultation cures it after the run.
+      if (next.status === "incomplete" && next.reason === "consultation_budget_unavailable" && readConsultation(this.runtime, id)?.status === "revoked") {
+        next.status = "paused"; next.reason = "consultation_ready";
+      }
       this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";

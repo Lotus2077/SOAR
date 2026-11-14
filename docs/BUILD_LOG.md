@@ -38535,3 +38535,77 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: 8.1's code and tests on this branch, with its `Implemented` entry; then review, CI green and a merge, before S-harn's 11.4 edits store.ts and broker.ts. Then 8.2b after 8.1, in the merge order on its shared files.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 4 row D12, section 5.2 ("Local fan-out"; rows S2, S4 and S10) and section 5.7 item 8; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; docs/PLAN.md section 4.
+
+### BL-20261114-1328-concurrent-local-admission-implemented -- 2026-11-14 -- Backlog item 8, part 1 (8.1), implemented: the ledger admits live zero-risk local dispatches of one job, context and purpose together through the broker's live set; nothing calls it concurrently yet
+
+Status: `Implemented`
+
+Scope or hypothesis: Implements decisions (1) to (5) of BL-20261114-1308-concurrent-local-admission-design, as decided, with deterministic tests on loopback fixtures. Branch `feat/8.1-concurrent-local-admission`, from `main` at 582f880; the code and tests are commit b93bc93. Hypothesis:
+- a zero-fee `local_model` request commits beside this broker's live rows of the same job, context and purpose;
+- every other request, and every row that a crash or another process left `committed`, keeps today's refusal;
+- receipts keep their shape;
+- the D4 retry's supersede stays atomic beside siblings.
+
+Decisions: None new beyond the design entry. Fixed in code:
+- The rule is one store function, `admitsBeside` (store.ts:114-125). `commit` calls it at the blocking check (store.ts:293-294), where it refused every insert while any row blocked. As built:
+  - it answers false when `concurrency` is absent, the reserved fee is not 0, a `grantId` or an `approval` is present, or the purpose is an assist purpose;
+  - otherwise it answers true only if every blocking row has status `committed`, an id in `concurrency.live`, `reservedFeeMicrousd` 0, and the input's `jobId`, `contextId` and `purpose`;
+  - when it answers false, `commit` throws `private_agent_unresolved_dispatch`, as before.
+- The option is `CommitOptions.concurrency`, of type `ConcurrentAdmission { live: ReadonlySet<string> }` (store.ts:105-113).
+- The broker certifies `zeroRisk && destination.kind === "local_model"` (broker.ts:493-495). `zeroRiskDispatch` already excludes a grant and an approval and requires a zero fee on a local model, so the broker writes no separate grant or approval clause; the store checks both itself.
+- The live set is a per-job map of receipt ids (broker.ts:328-333):
+  - each attempt takes the job's set, or a new one, just before its commit (broker.ts:519-521), and passes it only when certified (broker.ts:540);
+  - after a successful commit it adds its id and stores the set, with no `await` between (broker.ts:559-560); a refused commit adds nothing;
+  - its `finally` removes the id and drops an empty set (broker.ts:641-643).
+- The D4 `admissible` comment (broker.ts:609-612) now says that a certified row stays live through its wait, and that a sibling may take the last request meanwhile.
+
+Changes:
+- src/main/private-agent/store.ts and src/main/private-agent/broker.ts, as above.
+- tests/integration/private-agent-broker.test.ts: a new describe, "concurrent zero-risk local admission (backlog item 8, part 1)", with 12 tests. Its fixture is one job with two public contexts, served by one loopback server through four destinations: a local model, a cloud model, a public page, and a local model that takes only the owner's exact approved packet. The server holds each request until the test answers it.
+- tests/integration/private-agent-flash-next.test.ts: the fixture records request bodies and gains `holdUntil` (no answer before that many requests have arrived) and `arrived(n)`; one new test. Every existing test in the file is unchanged and passes.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- The 13 new tests prove, on loopback fixtures with nothing live:
+  1. Three zero-fee local calls of one job, context and purpose are in flight together (the server answers none until all three have arrived) and settle. Their receipts carry exactly the keys of a serial settled receipt.
+  2. A zero-fee local call of another purpose, or of another context, is refused beside a live row with no row and no bytes, and is admitted once nothing is committed.
+  3. Beside a live local row, these are all refused `unresolved_dispatch` with no row and no bytes: a zero-fee cloud call, a priced cloud call, a priced local call, a zero-fee public GET, a cloud assist, a granted zero-fee local call and an approved zero-fee local call. Both grants stay usable after. An assist purpose on a local model is refused `assist_destination_invalid`.
+  4. A local call is refused beside a committed zero-fee cloud row, and beside a committed public GET, of the same purpose and context. A second public GET is refused beside the first (item 12).
+  5. A second broker on the reopened database reads the same rows. While two rows are committed it refuses a local call, a cloud call and a public GET, while the first broker still admits a third call. After they settle, the second broker is admitted.
+  6. `cancelJob` with three calls in flight: all three rows `failed` (`cancelled`), all three calls `request_failed`, then `job_cancelled`.
+  7. A D4 retry beside a live sibling: the rows are [a `superseded` (`upstream_closed`, attempt 1), b `settled`, a `settled`], and every superseded row has its successor.
+  8. A sibling that commits during a's backoff (its commit-time check sees a's first attempt `committed`) and takes the last of two requests: a's successor is refused, a denies `request_failed`, and the rows are [a `failed` (`upstream_closed`, attempt 1), b `settled`]. No lone superseded row is left.
+  9. A row whose resolution failed (a store error injected once into `resolveFailure`) stays `committed`, leaves the live set, and blocks the next call with `unresolved_dispatch`.
+  10. Store level: a direct commit with the argument is admitted beside a live row only when every condition holds. It is refused, with no row, for a fee, another context, another purpose, a blocking row that the given live set does not hold, a grant and an approval. The grant stays whole. Without the argument it is refused as before.
+  11. Store level: refused beside a live row that is `unknown`, beside a live priced row, and for an assist beside a live zero-fee assist row of its own context and purpose.
+  12. Store level: a successor that supersedes an attempt no longer in the live set is admitted beside a live sibling, with the earlier attempt `superseded`. With the allowance spent it is refused `private_agent_budget_denied`, and both writes roll back.
+  13. Under flash_next_v1, two admitted requests whose admissions finish in reverse order commit in that order: the later-launched commits first and the other commits beside its live row. Each row carries the exact-token proof of its own body.
+- The same 13 tests against `main`'s store.ts and broker.ts (copied in for the run, then restored byte for byte): 9 failed and 4 passed. The 4 that pass (tests 2, 3, 4 and 9) pin that the change widens no refusal.
+- Mutation check: 14 single-change mutants, each applied, run against the two new describes and then restored before the next. 12 were caught:
+  - the fee clause (by test 10), the grant clause (test 10), the assist clause (test 11), `committed` (test 11), live (tests 4, 5, 9 and 10), zero reservation (test 11), same context (tests 2 and 10), same purpose (tests 2 and 10), and the broker's `local_model` clause (tests 3 and 4);
+  - three broker mutants beyond the listed conditions: an id never leaves the live set (test 9); an id never joins it (tests 1, 5, 6, 7, 8 and 13); every request certified (tests 3 and 4).
+  - Two survived, and also passed all 179 tests of the broker, flash-next, Anthropic broker and identity-golden files: the approval clause and the same-job clause. Both are equivalent mutants. `commit` refuses an approval without a grant (store.ts:276-277), so the grant clause already refuses every approved row; and `commit` reads the rows of the input's job only (store.ts:287), so a row of another job is never a blocking row.
+  - The assist mutant is caught by the refusal code only. Without the clause, the assist rule (store.ts:295) still refuses the row, with `private_agent_assist_after_unknown` instead of today's `private_agent_unresolved_dispatch`.
+- Checks, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` (582f880): exit 0, 604 entries, append-only.
+  - `pnpm typecheck`: exit 0.
+  - `pnpm validate:readiness`: exit 0.
+  - At b93bc93, the changed files and tests/unit/private-agent-identity-golden.test.ts: 3 files, 143 passed. tests/integration/private-agent-broker-anthropic.test.ts: 36 passed.
+  - At b93bc93, `pnpm exec vitest run`: 195 files, 181 passed, 1 failed and 13 skipped; 3,681 tests, 3,594 passed, 1 failed and 86 skipped. The failure is a 5 s timeout under load (load average 16.7) in tests/integration/hybrid-simulation-change-review.test.ts, which imports nothing from src/main/private-agent. Run alone, it passed 15 of 15.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- Nothing calls concurrency. No production caller issues two calls of one job, context and purpose at once, so no run, receipt, event or packet changes. More than one call in flight happens only in these tests until 8.2b.
+- The tests drive the broker and the store directly on loopback fixtures. "Another process" is a second database connection in the same process, and a crash is read off that second broker's view, not reproduced by killing a process.
+- The rollback claims rest on better-sqlite3's transaction semantics and the store-level refusal tests; no fault is injected after the insert.
+- The job and approval clauses are implied by `commit` itself. They stay in `admitsBeside` as written rules, and their mutants survive as equivalent.
+- A retry refused because a sibling took the last request ends `request_failed`, not an allowance code, as decision (4) of the design entry decides; test 8 pins it.
+- No model, endpoint, Docker container or paid call ran. Nothing here is `Verified`.
+- store.ts and broker.ts are in the headless driver's source freeze, so this merge changes the runtime digest. No owner loop or E-run may span it, and `--runtime-sha256` is recomputed after it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: One review, CI green and a merge. At merge, this branch's two entries are re-stamped after `main`'s tail (BL-20261113-0937-owner-decision-restamp-unmerged-entries). S-harn's 11.4 then edits store.ts and broker.ts after this merge, and 8.2b builds the loops on it.
+
+References: BL-20261114-1308-concurrent-local-admission-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0436-retry-wait-atomic-supersede-implemented; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 8.

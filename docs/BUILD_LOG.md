@@ -40040,3 +40040,97 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on the new head, then #109's merge under the standing go-ahead.
 
 References: BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; the light review of #109 at c10a2c9, which is review data and is not committed.
+
+### BL-20261114-1803-claims-check-long-char-refs-design -- 2026-11-14 -- Decided: the claims check reads a decimal character reference of any length as html.unescape would without Python's integer limit, so one of more than 4,300 digits no longer fails the whole check on the container's Python; the check's text, and the hash of claims-checked tasks, change once more
+
+Status: `Proposed`
+
+Scope or hypothesis: Lane S-e1's follow-up to decision (10) of BL-20261114-1711-claims-check-linear-strips-design (#109, merged as a38a88e). The coordinating session approved it on 2026-11-14, as its own small pull request after #109, from `main`.
+- The branch is `fix/claims-check-long-char-refs`, from `main` at a38a88e, after #109's merge.
+- **The defect.** In `units`, `html.unescape` decodes the character references in an HTML source's or report's text and in each DOCX paragraph. For a decimal reference it calls `int()` on the digits.
+  - From Python 3.11, `int()` refuses more than 4,300 decimal digits, which is Python's integer string limit (`sys.get_int_max_str_digits()`), and raises `ValueError`. The check runs under `-I`, which ignores `PYTHONINTMAXSTRDIGITS`, so the limit is always the default.
+  - The exception leaves `units`, and the check's outer handler turns it into `ledger_invalid`. The whole check fails, whatever its claims say.
+  - One cited HTML or DOCX source holding `&#` and 4,301 digits is enough, and so is such a report. A retained public source can hold one: 4,303 bytes fit well inside its 64 KiB.
+- **Measured.** BL-20261114-1711's evidence ran `main`'s check text at bc6c61b on an HTML source holding such a reference, with a valid ledger and report. It passed on 3.9.5, and failed with `ledger_invalid` on 3.11.16 (the container's version) and 3.12.13.
+  - On 3.9.5, which predates the limit, the conversion succeeds. It takes time that grows with the square of the digit count: 200,000 digits took 0.33 s.
+
+Hypothesis: reading such a reference as `html.unescape` would without the limit removes the failure. It changes no result on 3.9.5. On 3.11 and later, it changes only results that were `ledger_invalid` because of it.
+
+Decisions:
+(1) **The rule.** A helper, `unescape(text)`, returns what `html.unescape(text)` returns with Python's integer string limit lifted, on every input, in linear time.
+   - It splits the text at each decimal reference of eight or more digits, `&#([0-9]{8,});?`. That covers all the reference's digits, then an optional `;`, which is the extent `html.unescape`'s own pattern gives it.
+   - Such a reference has the value of its digits without leading zeros.
+     - When seven digits or fewer remain, `html.unescape` decodes `&#`, those digits and `;`.
+     - Otherwise the value is at least 10,000,000. That is above 0x10FFFF, which `html.unescape` reads as U+FFFD, and the helper gets it from `html.unescape` on `&#99999999;`.
+   - Every other stretch of text goes to `html.unescape` as it is.
+
+   Why it returns the same:
+   - `html.unescape` makes one left-to-right pass of `&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[^\t\n\f <&#;]{1,32};?)`. It decodes each match on its own and never reads its output again.
+   - No match contains `&` after its first character. So no match reaches into a split reference, and the pass resumes right after each one, where the next stretch starts.
+   - Its value alone decides a numeric reference's result. Leading zeros and a final `;` do not change the value.
+   - Hexadecimal references keep `html.unescape`'s own path, since Python's limit does not apply to base 16.
+
+   Any length from one digit up gives the same result. Eight keeps `int()` off long digit strings on every version, and it lets the tests compare the rule's own path with `html.unescape` on any Python.
+(2) **Not kept as written.** BL-20261114-1711 first proposed keeping such a reference as written. That would differ from two things:
+   - what `html.unescape` returns where it can convert the digits, as on 3.9.5;
+   - the HTML standard, which reads a value above 0x10FFFF as U+FFFD.
+
+   With leading zeros, a long reference can also name an ordinary character: `&#`, 5,000 zeros and `65` reads as `A`. The rule in (1) gives one result on every Python version.
+(3) **Where.** The helper and its pattern, `LONG_DECIMAL`, join `CLAIMS_MARKUP_STRIP_PY` (#109), whose import line gains `html`. `units`' DOCX and HTML lines call `unescape` in place of `html.unescape`.
+(4) **Which results change.** A check result moves only where Python 3.11 or later raised before. On Python 3.9, which already decoded every such reference to the same value, no result moves.
+   - **On Python 3.11 and later**, the container's included: a check no longer fails with `ledger_invalid` because a cited HTML or DOCX source, or the report, holds a decimal reference of more than 4,300 digits. Its claims are checked. The reference reads as U+FFFD, or as the character its value names after leading zeros.
+   - **On Python 3.9.5**, such a reference now decodes in linear time.
+   - **Every other input** is unchanged on every version.
+(5) **Which tasks' hashes move.** The check's text changes, so the hash split covers every claims-checked task, whether or not its inputs hold such a reference. As E1-J2's decision (3) and BL-20261114-1711's decision (8) found, rechecked at a38a88e:
+   - Every phase that carries the claims check hashes its Python (`sessionPhaseIdentity`, session.ts). These are every desktop public-research task, and the local screen's runs with `--claims-ledger true`, research runs included.
+   - The same public-research task therefore gets a third `taskJobSha256`, after E1-J2's and #109's. Its attestation identity, the session's and the runner's start identities, freeze.json's phase hashes and a loop's `writeIdentity` move with it.
+   - Every unfinished desktop task is already refused after any main-process build (`general_task_configuration_changed`). The local screen's reviewed-source freeze moves, and no harness loop may span the merge.
+
+   Nothing else is refused, and no other check's text changes.
+(6) **The tests**, in tests/unit/private-agent-claims.test.ts under their own describe:
+   - (a) **The container's Python.** The real check runs under `python3.11` when it is on the PATH and is 3.11 or later, else under `python3` if that is, and the test is skipped otherwise.
+     - An HTML source and a DOCX source, each holding a 4,301-digit reference, must pass.
+     - The test first asserts that the interpreter's limit is 4,300.
+     - On the owner's Mac it runs on 3.11.16, the container's version. On CI's ubuntu runner it runs on the system python3, 3.12.
+   - (b) **A differential test**, inside Python, on 57,449 strings: every sequence of up to five of `& # 0 1 9 ; x a`, plus 20,000 seeded documents.
+     - The documents mix decimal references of 1 to 8,602 digits, with and without leading zeros and `;`, with named, hexadecimal and malformed references.
+     - `unescape` runs under the limit, and `html.unescape` with the limit lifted (`sys.set_int_max_str_digits(0)`, where it exists).
+     - Where the limit exists, the test also counts the strings that the stock `html.unescape` refuses: 4,224.
+   - (c) **Fixed results**, read from TypeScript. They include a reference whose output must not be read again: `&#` with zeros and 38, then `lt;`, reads `&lt;`.
+   - (d) **The source.** `units` calls `unescape`, and `html.unescape` appears only inside it.
+(7) **Audited, unchanged.**
+   - `json.loads` of the model's ledger (at most 256 KiB) raises on 3.11 and later for an integer of more than 4,300 digits, and the check then fails with `ledger_invalid`. A valid ledger holds no number but its version, so that outcome stands.
+   - The check's parameters and the retained-source list are host data.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/claims.ts: `LONG_DECIMAL` and `unescape` in `CLAIMS_MARKUP_STRIP_PY`, its import line, and `units`' two calls.
+- tests/unit/private-agent-claims.test.ts: decision (6)'s tests. The `run` helper takes an optional interpreter.
+- docs/BUILD_LOG.md.
+
+Evidence: On the owner's Mac, with scratch scripts that are not committed:
+- **A prototype of decision (1)** gave zero mismatches against `html.unescape` with the limit lifted, on 3.9.5, 3.11.16 and 3.12.13:
+  - on 57,449 strings with references of up to 11,000 digits, of which the stock `html.unescape` refused 5,726 under the limit on 3.11.16 and 3.12.13;
+  - on the 57,449 strings of decision (6)(b), with 4,224 refused.
+- **Prototype mutants**, through decision (6)(b)'s comparison:
+  - On 3.11.16, a threshold of 4,302 digits raised `ValueError`. Dropping the `;` from the split gave 3,490 mismatches, and dropping the `0` fallback 1,144.
+  - On 3.9.5, dropping the `0` fallback gave 1,144 mismatches, and leaving the other stretches undecoded 17,538.
+  - Four mutants change no output, and they passed: a threshold of 9 or of 4,301 digits, a test of eight digits instead of seven, and `&#1114112;` in place of `&#99999999;`.
+- **The ledger.** `json.loads` of a ledger holding a 5,000-digit integer parsed on 3.9.5, and raised `ValueError` on 3.11.16 and 3.12.13.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only.
+- Equality on every input rests on decision (1)'s argument. The comparisons cover only their own inputs.
+- The rule reuses `html.unescape`'s pattern and tables by calling it, as found in Python 3.9 to 3.12. A later Python that changed `html.unescape` would change the check's output with it, as it already would.
+- Decision (6)(a)'s test runs under 3.11.16 only where `python3.11` is installed. CI runs it under 3.12.
+- Nothing measures how often sources hold such references.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The implementation and its `Implemented` entry.
+2. The coordinating session's light review, and CI green.
+3. The merge under the standing go-ahead, with a re-stamp if another entry reaches `main` first.
+
+References: BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; BL-20261113-0856-claims-trailing-strip-linear-design.

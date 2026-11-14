@@ -39681,3 +39681,40 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #104, and its merge under the standing go-ahead.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1522-correction-concurrent-local-admission-second-restamp; BL-20261114-1528-correction-registry-columns-second-restamp.
+
+### BL-20261114-1656-registry-row-git-racy-checkout -- 2026-11-14 -- Harden a flaky registry git test: a same-size edit that `git checkout --` left in place within git's racy second made the driver rightly report `dirty: true`
+
+Status: `Implemented`
+
+Scope or hypothesis: tests/unit/registry-row-git.test.ts:178 failed once in CI, with `dirty: true` where the test expects a clean tree. The failure was on #91's first attempt of run 43599953204, at 2026-11-14T13:30 UTC, and the rerun passed. The coordinator asked for the test to be hardened in a small pull request. Neither the driver (`localScreenGitState` in scripts/private-agent-local-screen.ts) nor the registry changes, so no Proposed entry precedes this one. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **The cause.** The test sets skip-worktree on src/a.ts and rewrites the file at the same size. It then clears the flag and restores the file with `git checkout -- src/a.ts`.
+  - Git skips checking out a file whose stat matches its index entry.
+  - Suppose the edit lands in the same second as the entry's recorded stat, and the index has since been rewritten in a later second without the entry being checked again. Git's racy-clean check then passes the edit as clean, and the checkout leaves it in place.
+  - The driver then hashes the file, finds the edit and reports `dirty: true`. That report is correct; the test's restore step was the unreliable part.
+- **The fix.** After the same-size edit, the test moves the file's mtime 60 s forward. Git's stat check then sees the change, and the checkout always restores the file. The other proposal, `git update-index --refresh` before the check, would not help: a refresh trusts the same matching stat.
+- **The driver is unchanged.** Its content and blob checks are what caught the unrestored file.
+
+Changes: tests/unit/registry-row-git.test.ts: one statement, its comment and the `utimesSync` import, in commit 78ea59f.
+
+Evidence:
+- **The failure.** CI run 43599953204, attempt 1, on #91's head 413aec2: `registry-row-git.test.ts:178:64` expected `dirty: false` and received `dirty: true`. Attempt 2 passed.
+- **The cause, reproduced in plain git.** A shell loop ran the test's sequence: commit, skip-worktree, same-size edit, status, no-skip-worktree, checkout. It used git 2.50.1 (Apple Git-155) on macOS.
+  - Unchanged, 4 of 400 and then 13 of 600 checkouts left the edit in place.
+  - With `git update-index -q --refresh` before the checkout, 10 of 800 still did.
+  - With the mtime moved forward after the edit, 0 of 1,000 did.
+- **The test.** On Node 22.22.2 and pnpm 10.12.4, tests/unit/registry-row-git.test.ts passes 13 of 13 at 78ea59f, and the hardened test passed 50 of 50 repeated runs.
+- **The checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, and `pnpm typecheck` and `pnpm validate:readiness` pass.
+
+Failures or blockers: The CI failure above. It was the test's failure, not the driver's.
+
+Limitations and non-claims:
+- The reproduction ran on macOS with Apple's git, not on CI's Linux runner, whose git and file system may differ in timestamp granularity. The CI failure has the same shape.
+- 50 passing runs do not rule out other flakes in the file.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on this pull request, and its merge under the standing go-ahead.
+
+References: BL-20261109-0422-registry-run-commit-design; #91's CI run 43599953204.

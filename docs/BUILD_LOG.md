@@ -38608,3 +38608,106 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The coordinating session's check of this push, and CI. Then the merge in its integration, re-stamped into the minute block it assigns. Nothing is re-stamped before then.
 
 References: BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261110-1509-host-flags-event-design.
+
+### BL-20261114-1346-research-role-policy-design -- 2026-11-14 -- Item 7a.2 decided: per-role output caps and per-attempt thinking from an adopted serving card, on local roles only; the default protocol hash, bodies and identities stay byte-identical, and only a non-default card binds the role policy
+
+Status: `Proposed`
+
+Scope or hypothesis: Item 7a.2 of the lane plan, backlog item 7(a) part 2, finding D6. The serving-card reader (BL-20261108-1459-serving-card-reader-design, implemented in BL-20261108-1649-serving-card-reader-implemented) resolves an adopted card into a role policy:
+- per role (index, plan, extract, synthesis), an output cap and a thinking mode for attempt 1 and attempt 2;
+- per schema role, a structured-output flag.
+
+The reader refuses any non-default value with `serving_card_parameter_unconsumed`, because no code reads the policy yet: the headless driver loads the card and records it in freeze.json, and nothing else uses it.
+
+The hypothesis: if the pipeline sends each local role's attempt the policy's cap and thinking, and refuses a policy it cannot send exactly, then an adopted card's caps and thinking reach the requests they were measured for. Without a card, nothing changes.
+
+Decisions:
+(1) **The input.** `ResearchPipelineInput` and the session's research option gain an optional `roles` (a `ResearchRolePolicy`). Absent means `DEFAULT_RESEARCH_ROLE_POLICY`, which is today's `OUTPUT_TOKENS` and `THINKING` on both attempts. The headless driver passes the adopted card's `policy.roles` when the env pair selects a card. The desktop passes none.
+
+(2) **The default hash stays the same.** `researchProtocolSha256(budget, roles)` binds the policy, and the rule in (4), under `rolePolicy` only when `nonDefaultRoleParameters(roles)` is not empty. That is the predicate in research-roles.ts that the reader's fail-closed step already uses.
+- **Without a card, or with a card whose values are all default,** the hash input is byte-identical. The default value stays 505c385a… on `main`, or 7100b7a2… once 7b.2 merges.
+- **Also byte-identical without a card:** every request body, the session identity, the freeze's pipeline block and every seed.
+- **Only a non-default card binds the role policy.** The handoff's line (§5, step 2) that 7a.2 changes the hash is wrong; the coordinator's docs Correction covers it.
+
+(3) **Attempts.** Attempt 1 is a role's initial call: each index batch, the first plan attempt, each chunk's first extraction, and the first synthesis attempt. Attempt 2 is its repair or second call. The assist slots never read the policy. The lane plan gives per-attempt caps and thinking to 7a.2 for local stage attempts only, never for assists.
+
+(4) **Local roles only.** The policy applies to a role whose model is the owned local shape at zero fee: `api` absent or `vllm`, and both rates 0.
+- A cloud planner or synthesiser, the split arm, keeps today's values. For example, a disabled thinking mode would throw on the Anthropic shape (`private_model_thinking_unsupported`).
+- The reader, used for index and extract, is local in every driver configuration.
+
+(5) **Refusals before any request.** Each ends the stage `research_role_policy_invalid`, with no request and no stage row:
+- the policy fails `ResearchRolePolicySchema`;
+- **under a non-default policy**, a cap of an applied role exceeds its role model's `maxOutputTokens`. It is refused, not clamped: the model layer would cut it silently;
+- **under a non-default policy**, the synthesis length ceiling of either attempt is below the 100-word floor. That ceiling is `researchSynthesisLengthCap`'s `ceilingWords` for that attempt's cap and thinking. This is the obligation BL-20261109-0334-research-request-shapes-design ("Inputs and 7a.2's part") left to 7a.2, with the per-attempt record in (6).
+
+  Under the default policy neither check runs, so no run without a card can be refused.
+
+(6) **The length cap per attempt.** Each synthesis attempt's payload carries the length cap for its own cap and thinking.
+- The synthesis stage row keeps `lengthCapWords`, for attempt 1, and adds `secondAttemptLengthCapWords` only when attempt 2's cap differs. So a run without a card records the same row.
+- When 7b.2 is on `main`, this item's merge of `main` makes 7b.2's presentation reservation use the larger of the two caps.
+
+(7) **The session.** Its identity binds `researchProtocolSha256(budget, roles)`. A resume under another non-default card ends `session_contract_drift`. Without a card, the identity is unchanged.
+
+(8) **Seeds and the freeze.**
+- **The freeze.** The pipeline block in freeze.json carries `roles` only under a non-default policy, and its `protocolSha256` is computed with them.
+- **The loader** (research-seed.ts) recomputes the source's protocol from its recorded policy. It refuses a seeded run whose own policy differs from the source's (`research_seed_protocol_mismatch`), because the policy is part of the protocol.
+- **Discovery** (`researchTransferStatus`, the loop's `transferStatus`) checks a source against its own record. The loop reads no card, so a card changed in the middle of a loop is refused when the seeded sample starts, not at discovery.
+- **A deviation from the lane brief,** which handed the loop's policy to discovery. That would make the loop read the card, which it does not do today.
+
+(9) **The flags.** `SERVING_CARD_CONSUMED` sets `maxOutputTokens` and `thinking` to true, so an adopted card with non-default caps or thinking is accepted from this merge on.
+- **Still false:** `structuredOutput` (item 9), `localStreams` (item 8) and `admission` (7b.3).
+- **The reader's other checks stand:** a cap in [128, the heavy profile's 16,384]; adoption; the served model and, under `flash_next_v1`, its context.
+
+(10) **Merge order.**
+- **research-pipeline.ts:** after 7b.2, with at most these two PRs open on the file.
+- **serving-card-flags.ts:** 7a.2, then item 9, then 8.2b, then 7b.3.
+- **session.ts:** the coordinator's order of 2026-11-14 lets 7a.2 and then item 9 merge before 10.b while 10.b is gated on the scrubber limits; 10.b then merges `main` in.
+- **Item 9** stacks on this.
+
+(11) **Tests, offline only.**
+- **Under a card:**
+  - each role's request carries its attempt's `max_tokens` and thinking, for example plan attempt 1 with thinking off and attempt 2 with medium reasoning;
+  - each synthesis attempt carries its own length cap.
+- **Without a card:** every body, the session identity, the freeze's pipeline block and the hash are byte-identical.
+- **Cloud roles** keep today's values.
+- **Refusals:** an over-limit cap and a below-floor synthesis ceiling are refused with zero requests.
+- **Drift:** a resume under another card drifts, and a seed under another policy is refused.
+- **The reader** accepts a card with non-default caps and thinking, and still refuses structured output.
+
+Changes: Planned:
+- src/main/private-agent/research-pipeline.ts and research-roles.ts;
+- session.ts and research-seed.ts;
+- serving-card-flags.ts, and the comment on the floor in research-admission.ts;
+- scripts/private-agent-local-screen.ts;
+- docs/experiments/README.md, the reader's note;
+- the pipeline, session, seed, driver and serving-card reader tests.
+
+Evidence: Read at `main` 582f880:
+- research-roles.ts: `nonDefaultRoleParameters` and `DEFAULT_RESEARCH_ROLE_POLICY`;
+- serving-card.ts: `resolveServingCard` and its fail-closed step, and serving-card-flags.ts;
+- model.ts: `requestBody`'s narrowing overrides, and the Anthropic thinking refusal;
+- research-pipeline.ts: `call()` and its call sites;
+- session.ts: the identity's research block;
+- research-seed.ts: the protocol check;
+- scripts/private-agent-local-screen.ts: the card's load, its freeze fragment and the research models;
+- scripts/phase4-loop.ts: `transferStatus`.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims:
+- This is `Proposed`. Nothing is implemented, and nothing runs against an endpoint.
+- No adopted card exists yet. E0 writes the first one, so until then only the no-card path runs.
+- The policy covers caps and thinking. Structured output stays item 9's.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the implementation, with its offline tests and an `Implemented` entry;
+- one light review;
+- CI green;
+- the merge after 7b.2 (#102).
+
+References:
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261109-0334-research-request-shapes-design and BL-20261109-0442-research-request-shapes-implemented;
+- 7b.2's design entry, on #102. It is cited by PR, because its ID may be re-stamped when it merges.

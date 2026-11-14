@@ -21,7 +21,7 @@ key or reply text. Its decision is always {status: proposed, entry: null}. It pr
 attempts, K 1 and admission none, and structured output for a role and thinking mode only from a P10 cell that was assessed
 under the protocol the export sent, ran the requested variant, has no unassessed reply, at least 20 calls and at least 95%
 valid, and only when P10 recorded the request settings the export built its bodies under, which the card copies so the reader
-can compare them with a run's (BL-20261114-1734-serving-card-request-settings-design). An existing file is refused, and nothing is printed or left behind on any refusal. One card is one probe run: run
+can compare them with a run's (BL-20261114-1758-serving-card-request-settings-design). An existing file is refused, and nothing is printed or left behind on any refusal. One card is one probe run: run
 P1, P10, P11 and the adapter probe in one serving-probe.py invocation, after `pnpm probe:export-schemas` and before
 `pnpm probe:assess`. Adoption is a reviewed commit that sets decision to {status: adopted, entry: <the BL entry that records
 E0's result>}; the reader (src/main/private-agent/serving-card.ts) reads only adopted cards, selected by the pair

@@ -55,7 +55,7 @@ const P10CellSchema = z.object({ variant: StructuredOutputVariantSchema, maxToke
 const AcceptanceSchema = z.object({ strict: z.boolean(), nonStrict: z.boolean() }).strict();
 /**
  * The settings the role export built P10's bodies under (P10-align: its `requestSettings`, which the probe records), so the reader can
- * refuse a structured-output flag for a run whose flagged bodies P10 never measured (BL-20261114-1734-serving-card-request-settings-design).
+ * refuse a structured-output flag for a run whose flagged bodies P10 never measured (BL-20261114-1758-serving-card-request-settings-design).
  */
 const P10RequestSettingsSchema = z.object({ model: identityText(256), streaming: z.boolean(), localReplyContract: z.literal("flash_next_v1").nullable(),
   localContextTokens: positive.nullable(), profile: z.literal("heavy"), cacheSalt: z.boolean() }).strict()
@@ -152,7 +152,7 @@ export const DEFAULT_SERVING_POLICY: Readonly<ServingPolicy> = deepFreeze({ role
   admission: { basis: "none" as const } });
 
 /**
- * The settings that shape a research role's request body (BL-20261114-1734-serving-card-request-settings-design): the served model,
+ * The settings that shape a research role's request body (BL-20261114-1758-serving-card-request-settings-design): the served model,
  * SOAR_STREAMING, the Flash reply contract and, only under it, its context, the heavy profile (the only profile research runs under) and
  * the cache salt. The role export records its bodies' settings with this function (cache salt on), and the reader compares a run's.
  */
@@ -242,7 +242,7 @@ export function nonDefaultParameters(policy: ServingPolicy): { parameter: Servin
 /**
  * Steps 4-10 of the reader against SERVING_CARD_CONSUMED: adopted, the served alias and (under flash_next_v1) the context,
  * every cap within [128, the heavy profile's limit], the evidence for each flagged structured-output mode (taken under the run's request
- * settings since BL-20261114-1734-serving-card-request-settings-design), the burst for K > 1, then fail closed. Pure; there is no override argument.
+ * settings since BL-20261114-1758-serving-card-request-settings-design), the burst for K > 1, then fail closed. Pure; there is no override argument.
  */
 export function resolveServingCard(card: ServingCardV1, expectation: ServingCardExpectation): ServingPolicy {
   if (card.decision.status !== "adopted" || card.decision.entry === null) refuse("serving_card_not_adopted", "decision");

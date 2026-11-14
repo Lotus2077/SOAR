@@ -102,7 +102,7 @@ describe("shared harness local role configuration", () => {
       await expect(runLocalArtifactScreen(options, { environment: environment(card), cwd })).rejects.toMatchObject({ code, parameter, message: code });
       expect(existsSync(options.outputDirectory)).toBe(false);
     }
-    // BL-20261114-1734-serving-card-request-settings-design: the run's --cache-salt reaches the reader. The writer's card, adopted as written, was
+    // BL-20261114-1758-serving-card-request-settings-design: the run's --cache-salt reaches the reader. The writer's card, adopted as written, was
     // measured with the salt and streaming on: with both it stops at today's fail-closed step, and without the salt at the settings check. A run
     // that omits the option is salted, as the driver's default is (#111's review).
     const flagged = writeCard(root, adopt(proposedServingCard()), "flagged.json"), streamed = { ...environment(flagged), SOAR_STREAMING: "true" };
@@ -119,7 +119,7 @@ describe("shared harness local role configuration", () => {
     expect(card.identity.contextTokens).toBe(262_144);
     const written = writeCard(root, card), descriptor = { path: written.path, sha256: written.sha256 };
     const flash = (contextTokens: number) => { const value = config(true); Object.assign(value.vllm, { localReplyContract: "flash_next_v1", localContextTokens: contextTokens, servingCard: descriptor }); return value; };
-    // BL-20261114-1734-serving-card-request-settings-design: the run's request settings join the expectation, the context only under the contract.
+    // BL-20261114-1758-serving-card-request-settings-design: the run's request settings join the expectation, the context only under the contract.
     expect(servingCardExpectation(flash(131_072), true)).toEqual({ model: "qwen3.8-flash-next", contextTokens: 131_072, requestSettings: { model: "qwen3.8-flash-next",
       streaming: true, localReplyContract: "flash_next_v1", localContextTokens: 131_072, profile: "heavy", cacheSalt: true } });
     let refused: unknown;

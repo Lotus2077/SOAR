@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLAIMS_SECTION_RULE_PY, claimsLedgerCheck } from "../../src/main/private-agent/claims";
+import { CLAIMS_REPORT_STRIP_PY, CLAIMS_SECTION_RULE_PY, claimsLedgerCheck } from "../../src/main/private-agent/claims";
 import { RESEARCH_TOLERANCE_POLICY } from "../../src/main/private-agent/research-contract";
 import { normalizeResearchHeadings } from "../../src/main/private-agent/research-pipeline";
 
@@ -13,17 +13,17 @@ const EXACT = "Finding [E1].\n\n## Conflicting evidence\nNone was extracted.\n\n
 const present = (text: string) => ["Conflicting evidence", "Unanswered questions"].map(title => new RegExp(`^## ${title}\\s*$`, "mu").test(text));
 /**
  * claims.ts's own rule, run under python3 -I on files: each case is written as UTF-8 and read back with the call claims.ts
- * uses (Path.read_text, universal newlines), then fenced code and HTML comments are removed and section_present, run from the
- * exported CLAIMS_SECTION_RULE_PY itself (E1-J2), runs per line.
+ * uses (Path.read_text, universal newlines), then fenced code and HTML comments are removed by the exported CLAIMS_REPORT_STRIP_PY
+ * (decision 6 of E1-J2), and section_present, run from the exported CLAIMS_SECTION_RULE_PY itself (E1-J2), runs per line.
  */
 function claimsPresent(cases: string[]): boolean[][] {
   const directory = mkdtempSync(join(tmpdir(), "soar-claims-rule-"));
   try {
     const paths = cases.map((text, i) => { const path = join(directory, `case-${i}.md`); writeFileSync(path, text, "utf8"); return path; });
-    const script = ["import json, re, sys", "from pathlib import Path", CLAIMS_SECTION_RULE_PY,
+    const script = ["import json, re, sys", "from pathlib import Path", CLAIMS_SECTION_RULE_PY, CLAIMS_REPORT_STRIP_PY,
       "def present(path):",
       "    report = Path(path).read_text(encoding='utf-8', errors='replace')",
-      "    body = re.sub(r'(?s)<!--.*?-->', '', re.sub(r'(?ms)^[ \\t]*```.*?^[ \\t]*```[ \\t]*$', '', report))",
+      "    body = strip_comments(strip_fences(report))",
       "    return [section_present(body.split('\\n'), title) for title in ('Conflicting evidence', 'Unanswered questions')]",
       "print(json.dumps([present(path) for path in json.load(sys.stdin)]))"].join("\n");
     return JSON.parse(execFileSync("python3", ["-I", "-c", script], { input: JSON.stringify(paths), encoding: "utf8", env: { PATH: process.env.PATH ?? "" } }));
@@ -101,9 +101,12 @@ describe("7a.1: section headings normalised by claims.ts's rule (finding D5)", (
   });
   it("still mirrors claims.ts's rule as written there", () => {
     const claims = readFileSync(resolve(ROOT, "src/main/private-agent/claims.ts"), "utf8");
-    // The heading rule itself is the exported constant the check interpolates, and claimsPresent runs it (E1-J2).
-    expect(claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "a", path: "a" }] }).python).toContain(CLAIMS_SECTION_RULE_PY);
-    expect(claims).toContain("body=re.sub(r'(?s)<!--.*?-->','',re.sub(r'(?ms)^[ \\\\t]*\\`\\`\\`.*?^[ \\\\t]*\\`\\`\\`[ \\\\t]*$','',report)); lines=body.split('\\\\n')");
+    // The heading rule (E1-J2) and the fence and comment strips (decision 6 of E1-J2) are exported constants the check interpolates,
+    // and claimsPresent runs them.
+    const python = claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "a", path: "a" }] }).python;
+    expect(python).toContain(CLAIMS_SECTION_RULE_PY);
+    expect(python).toContain(CLAIMS_REPORT_STRIP_PY);
+    expect(claims).toContain("body=strip_comments(strip_fences(report)); lines=body.split('\\\\n')");
     expect(claims).toContain("report_file.read_text(encoding='utf-8',errors='replace')");
   });
   it("normalises a 128 KiB adversarial argument in linear time", () => {

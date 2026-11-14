@@ -54,7 +54,7 @@ describe("serving-card reader once every consumer has merged (flags mocked true)
     expect(load(capped([128, 16_384])).policy.roles.index.maxOutputTokens).toEqual([128, 16_384]);
     expect(code(capped([127, 1536]))).toBe("serving_card_cap_out_of_range");
     expect(code(capped([1536, 16_385]))).toBe("serving_card_cap_out_of_range");
-    // The evidence gates still refuse what the flags would admit, P10's request settings included (BL-20261114-1734-serving-card-request-settings-design).
+    // The evidence gates still refuse what the flags would admit, P10's request settings included (BL-20261114-1758-serving-card-request-settings-design).
     expect(code(flagged({ total: 20, valid: 20 }), { ...SYNTHETIC_P10_REQUEST_SETTINGS, streaming: false })).toBe("serving_card_p10_settings_drift");
     expect(code(card(value => { value.concurrency.localStreams = 4; value.evidence.p11.kStreams["4"].errors = 1; }))).toBe("serving_card_streams_unproven");
   });

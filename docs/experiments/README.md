@@ -25,7 +25,7 @@ This folder holds the committed, sanitized record of live trials (see
     verdict keeps its older wording (no 20-call minimum, no protocol check); the
     JSON is authoritative.
   - **P10's request settings**
-    (BL-20261114-1734-serving-card-request-settings-design). The card copies the
+    (BL-20261114-1758-serving-card-request-settings-design). The card copies the
     settings the role export built P10's bodies under (`evidence.p10.requestSettings`:
     the model, `SOAR_STREAMING`, the Flash reply contract and its context, the heavy
     profile and the cache salt). The reader refuses a structured-output flag

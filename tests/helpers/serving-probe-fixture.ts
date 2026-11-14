@@ -27,7 +27,7 @@ function p10Cell(role: string, thinking: string, maxTokens: number, valid: numbe
 
 /**
  * The settings the role export built P10's bodies under, as P10-align records them (`request_settings`): the served alias, streaming
- * on, the legacy reply contract, the heavy profile and the cache salt (BL-20261114-1734-serving-card-request-settings-design).
+ * on, the legacy reply contract, the heavy profile and the cache salt (BL-20261114-1758-serving-card-request-settings-design).
  */
 export const SYNTHETIC_P10_REQUEST_SETTINGS: Readonly<ServingCardRequestSettings> = Object.freeze({ model: "RM-01 VLM", streaming: true, localReplyContract: null,
   localContextTokens: null, profile: "heavy", cacheSalt: true });

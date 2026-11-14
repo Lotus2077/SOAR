@@ -18,7 +18,7 @@ import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture
 
 const PROBE_SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-probe.py");
 const ALIAS = "RM-01 VLM";
-/** The run's settings equal the ones the synthetic P10 recorded (BL-20261114-1734-serving-card-request-settings-design). */
+/** The run's settings equal the ones the synthetic P10 recorded (BL-20261114-1758-serving-card-request-settings-design). */
 const EXPECT: ServingCardExpectation = { model: ALIAS, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } };
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
@@ -156,7 +156,7 @@ describe("serving-card reader (SC)", () => {
     if (parameter !== undefined) expect(error.parameter).toBe(parameter);
   });
 
-  it("R2 since BL-20261114-1734-serving-card-request-settings-design: a structured-output flag needs P10's request settings to be the run's; a card without flags does not", () => {
+  it("R2 since BL-20261114-1758-serving-card-request-settings-design: a structured-output flag needs P10's request settings to be the run's; a card without flags does not", () => {
     // Under the run's settings, the writer's card reaches today's fail-closed step: structured output is not consumed on this branch.
     const writer = adopt(proposed());
     expect(writer.evidence.p10!.requestSettings).toEqual(SYNTHETIC_P10_REQUEST_SETTINGS);

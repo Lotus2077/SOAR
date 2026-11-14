@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_RETAINED_ENV, CLAIMS_SECTION_RULE_PY, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_MARKUP_STRIP_PY, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_REPORT_STRIP_PY, CLAIMS_RETAINED_ENV, CLAIMS_SECTION_RULE_PY, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
 import { BrokerError } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
-import { buildBinarySource, hasIsolatedPypdf } from "../helpers/claims-fixtures";
+import { buildBinarySource, buildDocxFromXml, hasIsolatedPypdf } from "../helpers/claims-fixtures";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const done of cleanup.splice(0).reverse()) done(); });
@@ -366,5 +366,153 @@ print(json.dumps({'alphabet':len(alphabet),'checked':len(strings),'mismatches':l
     // Defined once each, so no later definition shadows the rule.
     expect(["def strip_trailing(", "def section_present("].map(name => python.split(name).length - 1)).toEqual([1, 1]);
     expect(python).not.toContain(String.raw`[*_:\s]+$`);
+  });
+});
+
+describe("the claims check's text rules: the same results in linear time (decision 6 of E1-J2)", () => {
+  const claims = ledger([
+    { id: "C1", sentence: "The reactor produced 42 units in May 2026.", sourceId: "input/notes.txt", quote: "produced 42 units in May 2026" },
+    { id: "C2", sentence: "Output fell by 12 percent after the outage.", sourceId: "https://example.test/page", quote: "Output fell by 12 percent after the outage." }]);
+  const workspace = (changed: Record<string, string | Buffer>) => ({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report, [CLAIMS_LEDGER_PATH]: claims, ...changed });
+  const beforeHeadings = (text: string) => report.replace("## Conflicting evidence", `${text}\n\n## Conflicting evidence`);
+  const passes = { exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true }, { id: "C2", found: true }],
+    report: { citations: { missing: [], unknown: [] }, sections: { "Conflicting evidence": true, "Unanswered questions": true } } } };
+  // Each input takes the former pattern several minutes or more, by the rates measured on Python 3.11.16 (BL-20261114-1711); the linear
+  // helper takes well under a second. A mutation run with the former pattern back is stopped at the bound.
+  it("checks a report holding 200,000 lines that open a fence and never close one within a 20 s bound", () => {
+    expect(run(workspace({ "output/report.md": beforeHeadings("```x\n".repeat(200_000)) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks a report holding 250,000 comment openers and no closer within a 20 s bound", () => {
+    expect(run(workspace({ "output/report.md": beforeHeadings("<!--".repeat(250_000)) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks an HTML source holding 125,000 script openers and no closer within a 20 s bound", () => {
+    expect(run(workspace({ "sources/page.bin": page + "<script>".repeat(125_000) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks an HTML source holding 600,000 script openers that share one far '>' within a 20 s bound", () => {
+    // #109's light review: each opener searched for its own '>', and here every search ran to the last character (BL-20261114-1711's
+    // decision (3) left that search out). The first '>' at or after an opener is now found once and kept while it lies ahead.
+    expect(run(workspace({ "sources/page.bin": page + "<script".repeat(600_000) + ">" }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks an HTML source ending in 1,000,000 '<' with no '>' after them within a 20 s bound", () => {
+    expect(run(workspace({ "sources/page.bin": page + "<".repeat(1_000_000) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks a DOCX source whose paragraph holds 100,000 run breaks that open run properties and never close them within a 20 s bound", () => {
+    const xml = `<w:document><w:body><w:p><w:r><w:t>The reactor produced 42 units in May 2026.</w:t></w:r></w:p><w:p><w:r><w:t>x${"</w:t></w:r><w:r><w:rPr>".repeat(100_000)}</w:t></w:r></w:p></w:body></w:document>`;
+    const files = { "input/notes.txt": notes, "sources/doc.bin": buildDocxFromXml(xml), "output/report.md": report.replace(" Output fell by 12 percent after the outage [C2].", ""),
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "s", sourceId: "doc", quote: "produced 42 units in May 2026" }]) };
+    expect(run(files, { sources: [{ id: "doc", path: "sources/doc.bin" }], timeoutMs: 20_000 })).toMatchObject({ exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true, locator: "paragraph 1" }] } });
+  }, 30_000);
+  it("reads a PDF's page labels once, not once per page: 1,000 pages build 1,000 labels, and a read that raises leaves every page its number", () => {
+    // A stand-in pypdf, so this runs without pypdf: each read of page_labels builds every page's label, as pypdf's does. The former loop read it
+    // once per page, 1,000 reads and 1,000,000 builds here.
+    const standIn = (raises: boolean) => ["import atexit, sys, types", "reads=[0,0]",
+      "class Page:", " def extract_text(self): return 'The reactor produced 42 units in May 2026.'",
+      "class PdfReader:", " def __init__(self, stream): self.pages=[Page() for _ in range(1000)]",
+      " @property", " def page_labels(self):", "  reads[0]+=1; reads[1]+=len(self.pages)",
+      raises ? "  raise ValueError('labels')" : "  return ['p%d' % (i+1) for i in range(len(self.pages))]",
+      "module=types.ModuleType('pypdf'); module.PdfReader=PdfReader; sys.modules['pypdf']=module",
+      "atexit.register(lambda: sys.stderr.write('label reads %d, builds %d' % tuple(reads)))"].join("\n");
+    for (const raises of [false, true]) {
+      const root = mkdtempSync(join(tmpdir(), "soar-claims-pdf-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+      mkdirSync(join(root, "input")); mkdirSync(join(root, "output")); writeFileSync(join(root, "input/source.pdf"), "%PDF-1.4 stand-in");
+      writeFileSync(join(root, "output/report.md"), "Claim [C1].\n\n## Conflicting evidence\n\nnone\n\n## Unanswered questions\n\nnone\n");
+      writeFileSync(join(root, CLAIMS_LEDGER_PATH), ledger([{ id: "C1", sentence: "Claim.", sourceId: "doc", quote: "produced 42 units in May 2026" }]));
+      const check = claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "doc", path: "input/source.pdf" }], root });
+      const ran = spawnSync("python3", ["-I", "-c", `${standIn(raises)}\n${check.python}`], { encoding: "utf8" });
+      expect([raises, ran.stderr]).toEqual([raises, "label reads 1, builds 1000"]);
+      expect(JSON.parse(ran.stdout)).toMatchObject({ passed: true, claims: [{ id: "C1", found: true, locator: raises ? "page 1" : "page p1" }] });
+    }
+  });
+  /** Compares the helper named in argv with the pattern it replaced, and prints a summary only. The backtick is chr(96), as String.raw cannot hold one. */
+  const DIFFERENTIAL_PY = String.raw`import itertools, json, random, re, sys
+${CLAIMS_REPORT_STRIP_PY}
+${CLAIMS_MARKUP_STRIP_PY}
+B=chr(96); S,I,DI=chr(0x17f),chr(0x131),chr(0x130)
+WS=[' ','\t','\n','\x0b','\x1c',chr(0x85),chr(0xa0),chr(0x2028),chr(0x3000)]
+FORMER={
+ 'strip_fences': lambda s: re.sub(r'(?ms)^[ \t]*'+B*3+r'.*?^[ \t]*'+B*3+r'[ \t]*$','',s),
+ 'strip_comments': lambda s: re.sub(r'(?s)<!--.*?-->','',s),
+ 'strip_tags': lambda s: re.sub(r'<[^>]+>',' ',s),
+ 'strip_scripts': lambda s: re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>',' ',s),
+ 'join_runs': lambda s: re.sub(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>(?:\s*<w:rPr>.*?</w:rPr>)?\s*<w:t\b[^>]*>','',s,flags=re.S),
+}
+TOKENS={
+ 'strip_fences': [B*3,B,' ','\t','\n','x','\r',B*4],
+ 'strip_comments': ['<!--','-->','<','!','-','>','x','\n'],
+ 'strip_tags': ['<','>','x','\n',' ','<>'],
+ 'strip_scripts': ['<script','<STYLE','<'+S+'cr'+DI+'pt','</script>','</SCR'+I+'PT>','</'+S+'cript>','</style>','</sTyLe>','</scrip>','>','<','</','x','\n',' s'],
+ 'join_runs': ['</w:t>','</w:r>','<w:r>','<w:r ','<w:rPr>','</w:rPr>','<w:t>','<w:t ','<w:rx>','<w:r1>','<w:tab/>','>','x',' ','\n',chr(0x3000),'<w:r','<w:t'],
+}
+DEPTH={'strip_fences':6,'strip_comments':6,'strip_tags':7,'strip_scripts':4,'join_runs':4}
+def ws(rng): return ''.join(rng.choice(WS+['x']) for _ in range(rng.choice((0,0,0,1,2))))
+def fence_doc(rng):
+ kinds=[B*3,'  '+B*3+' \t','\t'+B*3+'py',B*4,' '+B*3+' x','x '+B*3,'',' ','x',B*3+'\r',B*2,B*3+chr(0xa0)]
+ return '\n'.join(rng.choice(kinds) for _ in range(rng.randrange(1,40)))
+def script_doc(rng):
+ names=['script','SCRIPT','style','StYlE',S+'cript','scr'+I+'pt','scr'+DI+'pt','scrip','styles']
+ parts=[]
+ for _ in range(rng.randrange(1,12)):
+  r=rng.random(); n=rng.choice(names)
+  if r<0.35: parts.append('<'+n+rng.choice(['','>',' a="1">',' a=\n>','\n',' <x>']))
+  elif r<0.7: parts.append('</'+n+rng.choice(['>','> ',' >','']))
+  else: parts.append(rng.choice(['x','<','>','</','\n','<b>','</b>',' ']))
+ return ''.join(parts)
+def run_doc(rng):
+ parts=[]
+ for _ in range(rng.randrange(1,10)):
+  seg=['</w:t>',ws(rng),'</w:r>',ws(rng),rng.choice(['<w:r>','<w:r w:rsid="1">','<w:rx>','<w:r','<w:r/>']),
+   rng.choice(['',ws(rng)+'<w:rPr>'+rng.choice(['<w:b/>','','</w:rPr>x','<w:i/></w:rPr>'+ws(rng)+'<w:t>'])+rng.choice(['</w:rPr>','','</w:rPr></w:rPr>'])]),
+   ws(rng),rng.choice(['<w:t>','<w:t xml:space="preserve">','<w:tab/>','<w:t','<w:tx>','']),rng.choice(['run text','','<','>'])]
+  if rng.random()<0.3: del seg[rng.randrange(len(seg))]
+  if rng.random()<0.2: k=rng.randrange(len(seg)); seg.insert(k,seg[rng.randrange(len(seg))])
+  parts+=seg
+ return ''.join(parts)
+DOCS={'strip_fences':fence_doc,'strip_scripts':script_doc,'join_runs':run_doc}
+name=sys.argv[1]; toks=TOKENS[name]; rng=random.Random(20261115)
+strings=[''.join(p) for n in range(DEPTH[name]+1) for p in itertools.product(toks,repeat=n)]
+strings+=[''.join(rng.choice(toks) for _ in range(rng.randrange(6,301))) for _ in range(3000)]
+strings+=[''.join(rng.choice(toks+WS) for _ in range(rng.randrange(6,301))) for _ in range(3000)]
+if name in DOCS: strings+=[DOCS[name](rng) for _ in range(40000)]
+helper=globals()[name]; former=[FORMER[name](s) for s in strings]
+bad=[s for s,f in zip(strings,former) if helper(s)!=f]
+print(json.dumps({'checked':len(strings),'changed':sum(f!=s for s,f in zip(strings,former)),'mismatches':len(bad),'first':bad[:3]}))`;
+  it.each([["strip_fences", 345_593], ["strip_comments", 305_593], ["strip_tags", 341_923], ["strip_scripts", 100_241], ["join_runs", 157_151]] as const)(
+    "%s returns what the pattern it replaced returns, on every token sequence up to a length and on seeded random documents", (helper, checked) => {
+      // Token sets cover each pattern's edges: Unicode whitespace, word boundaries, CR, case folding (U+017F, U+0131, U+0130) and unclosed openers.
+      const summary = JSON.parse(execFileSync("python3", ["-I", "-c", DIFFERENTIAL_PY, helper], { encoding: "utf8" })) as { checked: number; changed: number; mismatches: number; first: string[] };
+      expect(summary).toMatchObject({ checked, mismatches: 0, first: [] });
+      // Each input set also exercises the former pattern: it changed over 10,000 of the strings.
+      expect(summary.changed).toBeGreaterThan(10_000);
+    }, 60_000);
+  it("gives fixed results read from TypeScript, so an escaping slip that broke both sides alike would still show", () => {
+    const F = "```", S = String.fromCharCode(0x17f);
+    const cases = {
+      strip_fences: [`a\n${F}py\nb\n${F}\nc`, `${F}\nx`, `  ${F}  \nx\n\t${F}\t\ny`, "x\n" + F + "`\ny\n" + F + "\nz", `${F}\r\nx\n${F}\r\n`, `${F}\n${F}\n${F}`],
+      strip_comments: ["a<!-- x -->b", "a<!-->b-->c", "a<!--b", "<!--a--><!--b-->c", "<!---->x"],
+      strip_tags: ["a<b>c", "a<>b", "a<b", "<<a>>", "x>y<z", "<a\nb>c"],
+      strip_scripts: ["a<script>x</script>b", "a<SCRIPT type=x>x</script >b</ScRiPt>c", "<style>a</script>b</style>c", "<script>a", `<${S}cript>a</script>b</${S}cript>c`, "<script x=\">\">a</script>b"],
+      join_runs: ["<w:t>a</w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>b</w:t>", "</w:t></w:r><w:r><w:t>", "</w:t> </w:r>\n<w:r w:x=\"1\"><w:rPr></w:rPr> <w:t xml:space=\"preserve\">",
+        "</w:t></w:r><w:rx><w:t>", "</w:t></w:r><w:r><w:rPr></w:rPr></w:rPr><w:t>", "</w:t></w:r><w:r><w:rPr><w:t>", "</w:t></w:r><w:r> <w:rPr></w:rPr><w:t>"] };
+    const script = `import json, sys\n${CLAIMS_REPORT_STRIP_PY}\n${CLAIMS_MARKUP_STRIP_PY}\ncases=json.load(sys.stdin)\n` +
+      "print(json.dumps({name:[globals()[name](text) for text in texts] for name,texts in cases.items()}))";
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", script], { input: JSON.stringify(cases), encoding: "utf8" }))).toEqual({
+      strip_fences: ["a\n\nc", `${F}\nx`, "\ny", "x\n\nz", `${F}\r\nx\n${F}\r\n`, `\n${F}`],
+      strip_comments: ["ab", "ac", "a<!--b", "c", "x"],
+      strip_tags: ["a c", "a<>b", "a<b", " >", "x>y<z", " c"],
+      strip_scripts: ["a b", "a c", " c", "<script>a", " c", " b"],
+      join_runs: ["<w:t>ab</w:t>", "", "", "</w:t></w:r><w:rx><w:t>", "", "</w:t></w:r><w:r><w:rPr><w:t>", ""] });
+    // Single backslashes reach Python where the patterns need them.
+    for (const piece of [String.raw`</\1>`, String.raw`r'\s*<w:rPr>'`, String.raw`<w:r\b[^>]*>`]) expect(CLAIMS_MARKUP_STRIP_PY).toContain(piece);
+    expect(CLAIMS_REPORT_STRIP_PY).toContain(String.raw`text.split('\n')`);
+  });
+  it("runs both rules in the check, and neither the former patterns on text nor a label read per page", () => {
+    const python = claimsLedgerCheck({ reportPath: "output/report.md", sources }).python;
+    expect(python).toContain(CLAIMS_REPORT_STRIP_PY);
+    expect(python).toContain(CLAIMS_MARKUP_STRIP_PY);
+    expect(python).toContain("body=strip_comments(strip_fences(report))");
+    // Defined once each, so no later definition shadows a rule.
+    expect(["def strip_fences(", "def strip_comments(", "def strip_scripts(", "def strip_tags(", "def join_runs("].map(name => python.split(name).length - 1)).toEqual([1, 1, 1, 1, 1]);
+    for (const former of [String.raw`.*?^[ \t]*`, String.raw`re.sub(r'(?s)<!--`, String.raw`re.sub(r'(?is)<(script|style)`, String.raw`re.sub(r'<[^>]+>'`,
+      String.raw`(?:\s*<w:rPr>.*?</w:rPr>)?`, "page_labels[index]"]) expect(python).not.toContain(former);
   });
 });

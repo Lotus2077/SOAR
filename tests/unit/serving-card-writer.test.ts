@@ -174,7 +174,7 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
     expect(p10).toMatchObject({ callsPerCell: 20, strictRequested: true, protocolSha256: h("c"), schemaSha256: { plan: h("1"), extract: h("2"), synthesis: h("3") },
       assessed: { protocolSha256: h("c"), schemasProtocolMatch: true }, acceptance: { plan: both, extract: both, synthesis: both } });
     expect(Object.keys(p10.cells)).toEqual(["plan/on", "plan/off", "extract/on", "extract/off", "synthesis/on", "synthesis/off"]);
-    // BL-20261114-1734-serving-card-request-settings-design: the settings P10's bodies were built under, copied in the reader's order.
+    // BL-20261114-1758-serving-card-request-settings-design: the settings P10's bodies were built under, copied in the reader's order.
     expect(p10.requestSettings).toEqual(SYNTHETIC_P10_REQUEST_SETTINGS);
     expect(Object.keys(p10.requestSettings)).toEqual(["model", "streaming", "localReplyContract", "localContextTokens", "profile", "cacheSalt"]);
     expect(p10.cells["plan/off"]).toEqual({ variant: "strict", maxTokens: 8192, total: 20, valid: 17, truncated: 0, invalidJson: 0, schemaInvalid: 2, bindingInvalid: 1,
@@ -213,7 +213,7 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
     expect(structured(JSON.parse(run.policy!.toString("utf8")))).toEqual(expected);
   });
 
-  it("W3 since BL-20261114-1734-serving-card-request-settings-design: copies a Flash record, and without one writes null and proposes no structured output", () => {
+  it("W3 since BL-20261114-1758-serving-card-request-settings-design: copies a Flash record, and without one writes null and proposes no structured output", () => {
     const flash = syntheticProbe(); Object.assign(flash.P10.request_settings, { localReplyContract: "flash_next_v1", localContextTokens: 262144 });
     expect(JSON.parse(runCardWriter(flash).policy!.toString("utf8")).evidence.p10.requestSettings).toEqual({ ...SYNTHETIC_P10_REQUEST_SETTINGS,
       localReplyContract: "flash_next_v1", localContextTokens: 262144 });

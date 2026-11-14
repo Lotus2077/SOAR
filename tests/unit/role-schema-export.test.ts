@@ -101,7 +101,7 @@ describe("role schema export for probe P10", () => {
       }
       expect(data.requestSettings).toEqual({ model: settings.vllm.model, streaming: settings.streamingEnabled, localReplyContract: settings.vllm.localReplyContract ?? null,
         localContextTokens: settings.vllm.localContextTokens ?? null, profile: "heavy", cacheSalt: true });
-      // BL-20261114-1734-serving-card-request-settings-design: the record is the reader's own function of the settings, so a run's comparison cannot drift from it.
+      // BL-20261114-1758-serving-card-request-settings-design: the record is the reader's own function of the settings, so a run's comparison cannot drift from it.
       expect(data.requestSettings).toEqual(servingCardRequestSettings(settings, true));
     }
     // The synthesis off cell carries the cap a thinking-off synthesis role gets; the on cell keeps the 1,200-word ceiling, and nothing else differs.

@@ -24,6 +24,18 @@ This folder holds the committed, sanitized record of live trials (see
     calls), today's caps and thinking, K 1 and admission `none`. The Markdown's P10
     verdict keeps its older wording (no 20-call minimum, no protocol check); the
     JSON is authoritative.
+  - **P10's request settings**
+    (BL-20261114-1758-serving-card-request-settings-design). The card copies the
+    settings the role export built P10's bodies under (`evidence.p10.requestSettings`:
+    the model, `SOAR_STREAMING`, the Flash reply contract and its context, the heavy
+    profile and the cache salt). The reader refuses a structured-output flag
+    (`serving_card_p10_settings_drift`) unless they equal the run's, `--cache-salt`
+    included, and a card that records none binds no flag; the writer then proposes
+    none. A card without flags is not compared. A flagged card binds only salted
+    runs (`--cache-salt` true, the default), because the export always salts: run
+    the unsalted arm with an all-default card or without the pair. After changing
+    the model, the reply contract or its context, or `SOAR_STREAMING`, re-export,
+    re-run P1, P10, P11 and the adapter together, and adopt a new card.
   - **Adoption** is a reviewed commit that sets `decision` to `{status: adopted,
     entry: <the BL entry that records E0's result>}`. It is made only once that
     entry's ID is final on `main`, since IDs are re-stamped at merge. The owner then
@@ -48,8 +60,15 @@ This folder holds the committed, sanitized record of live trials (see
     the pipeline sends until backlog item 9. It also shows nothing about real
     corpus sizes or repair requests, since the payloads are synthetic and small.
     Re-export after changing those settings: the probe refuses an export for
-    another model. The K bursts use a one-sentence prompt and show decode
-    concurrency only.
+    another model, and the reader refuses a flag measured under other settings.
+    What stays unbound is how a body is built from those settings: the model
+    layer's construction of it, the heavy profile's values in
+    `COORDINATOR_PROFILES.heavy` (its sampling, thinking and output cap) and
+    `buildLocalScreenModelConfig`. A change to any of them changes P10's bodies
+    without moving any recorded value, so a PR that makes one must state that it
+    invalidates earlier cards' structured-output evidence. The recorded `profile`
+    is the constant `heavy` on both sides, the only profile research runs under.
+    The K bursts use a one-sentence prompt and show decode concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
     entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
     no run directory. The driver's and the loop's failure lines, and the loop's

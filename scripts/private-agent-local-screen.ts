@@ -230,10 +230,12 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
 }
 /**
  * SC: the adopted serving card the operator's env pair selects, read and checked before any run directory, database or
- * request exists; undefined without the pair. A refusal throws ServingCardError. Nothing consumes its policy yet.
+ * request exists; undefined without the pair. A refusal throws ServingCardError. Nothing consumes its policy yet. The run's
+ * request settings, `--cache-salt` included, are part of the expectation: a structured-output flag needs P10's to equal them
+ * (BL-20261114-1758-serving-card-request-settings-design).
  */
-export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): LoadedServingCard | undefined {
-  return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
+export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm" | "streamingEnabled">, cacheSalt = true): LoadedServingCard | undefined {
+  return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config, cacheSalt)) : undefined;
 }
 /**
  * The CLI's one failure line. A serving-card refusal adds its fixed code and allowlisted key path; every other failure prints
@@ -390,7 +392,7 @@ configOptions?: LoadConfigOptions) {
   const config = loadConfig(configOptions);
   if (config.providerMode !== "local" || config.vllm.costPolicy !== "local_zero_cost") throw new Error("local_screen_provider_not_admitted");
   // SC: a refused card stops the run before the output directory, the database or any request exists, so a loop stays resumable.
-  const servingCard = buildLocalScreenServingCard(config);
+  const servingCard = buildLocalScreenServingCard(config, input.cacheSalt !== false);
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
   if (input.retainDiagnostics) assertRunDirectoryIgnored(directory);

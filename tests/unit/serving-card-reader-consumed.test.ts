@@ -12,6 +12,7 @@ vi.mock("../../src/main/private-agent/serving-card-flags", async importOriginal 
 
 import { SERVING_CARD_CONSUMED, ServingCardError, loadServingCard, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
+import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
@@ -19,12 +20,12 @@ let writerCard: ServingCardV1 | undefined;
 function card(edit: (card: any) => void): ServingCardV1 {
   const value = adopt(structuredClone(writerCard ??= proposedServingCard()), ADOPTING_ENTRY, { defaults: true }); edit(value); return value;
 }
-function load(value: ServingCardV1) {
+function load(value: ServingCardV1, requestSettings = SYNTHETIC_P10_REQUEST_SETTINGS) {
   const root = mkdtempSync(join(tmpdir(), "soar-card-consumed-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-  return loadServingCard(writeCard(root, value), { model: "RM-01 VLM" });
+  return loadServingCard(writeCard(root, value), { model: "RM-01 VLM", requestSettings: { ...requestSettings } });
 }
-function code(value: ServingCardV1): string | undefined {
-  try { load(value); return undefined; } catch (error) { if (error instanceof ServingCardError) return error.code; throw error; }
+function code(value: ServingCardV1, requestSettings = SYNTHETIC_P10_REQUEST_SETTINGS): string | undefined {
+  try { load(value, requestSettings); return undefined; } catch (error) { if (error instanceof ServingCardError) return error.code; throw error; }
 }
 
 describe("serving-card reader once every consumer has merged (flags mocked true)", () => {
@@ -53,7 +54,8 @@ describe("serving-card reader once every consumer has merged (flags mocked true)
     expect(load(capped([128, 16_384])).policy.roles.index.maxOutputTokens).toEqual([128, 16_384]);
     expect(code(capped([127, 1536]))).toBe("serving_card_cap_out_of_range");
     expect(code(capped([1536, 16_385]))).toBe("serving_card_cap_out_of_range");
-    // The evidence gates still refuse what the flags would admit.
+    // The evidence gates still refuse what the flags would admit, P10's request settings included (BL-20261114-1758-serving-card-request-settings-design).
+    expect(code(flagged({ total: 20, valid: 20 }), { ...SYNTHETIC_P10_REQUEST_SETTINGS, streaming: false })).toBe("serving_card_p10_settings_drift");
     expect(code(card(value => { value.concurrency.localStreams = 4; value.evidence.p11.kStreams["4"].errors = 1; }))).toBe("serving_card_streams_unproven");
   });
 });

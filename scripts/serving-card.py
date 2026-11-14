@@ -20,7 +20,8 @@ research code may read, the concurrency K, the admission basis and the evidence 
 key or reply text. Its decision is always {status: proposed, entry: null}. It proposes today's caps and thinking on both
 attempts, K 1 and admission none, and structured output for a role and thinking mode only from a P10 cell that was assessed
 under the protocol the export sent, ran the requested variant, has no unassessed reply, at least 20 calls and at least 95%
-valid. An existing file is refused, and nothing is printed or left behind on any refusal. One card is one probe run: run
+valid, and only when P10 recorded the request settings the export built its bodies under, which the card copies so the reader
+can compare them with a run's (BL-20261114-1758-serving-card-request-settings-design). An existing file is refused, and nothing is printed or left behind on any refusal. One card is one probe run: run
 P1, P10, P11 and the adapter probe in one serving-probe.py invocation, after `pnpm probe:export-schemas` and before
 `pnpm probe:assess`. Adoption is a reviewed commit that sets decision to {status: adopted, entry: <the BL entry that records
 E0's result>}; the reader (src/main/private-agent/serving-card.ts) reads only adopted cards, selected by the pair
@@ -50,6 +51,8 @@ CARD_VERSION = 1
 CARD_ROLES = ("index", "plan", "extract", "synthesis")
 SCHEMA_ROLES = ("plan", "extract", "synthesis")
 P10_CELL_KEYS = tuple(f"{role}/{mode}" for role in SCHEMA_ROLES for mode in ("on", "off"))
+# The role export's requestSettings, which P10 records as request_settings (P10-align), in the card's order.
+P10_SETTINGS_KEYS = ("model", "streaming", "localReplyContract", "localContextTokens", "profile", "cacheSalt")
 # Probe class name and card field, in the card's order; the counts must sum to the cell's total.
 P10_CLASS_FIELDS = (("valid", "valid"), ("truncated", "truncated"), ("invalid_json", "invalidJson"), ("schema_invalid", "schemaInvalid"),
                     ("binding_invalid", "bindingInvalid"), ("request_rejected", "requestRejected"), ("unassessed", "unassessed"))
@@ -613,6 +616,20 @@ def p10_cell_evidence(cell: Any, path: str = "$.P10.cells") -> Dict[str, Any]:
     return evidence
 
 
+def p10_request_settings(value: Any) -> Optional[Dict[str, Any]]:
+    """The settings the role export built P10's bodies under, as the reader's P10RequestSettingsSchema holds them; None when the
+    probe recorded none (a probe before P10-align, whose cells measured the probe's own bodies). A malformed record is refused."""
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or sorted(value) != sorted(P10_SETTINGS_KEYS) or not identity_text(value["model"], 256)
+            or not isinstance(value["streaming"], bool) or value["localReplyContract"] not in (None, "flash_next_v1")
+            or not (value["localContextTokens"] is None or is_positive(value["localContextTokens"]))
+            or (value["localReplyContract"] is None) != (value["localContextTokens"] is None)
+            or value["profile"] != "heavy" or not isinstance(value["cacheSalt"], bool)):
+        raise malformed("$.P10.request_settings")
+    return {key: value[key] for key in P10_SETTINGS_KEYS}
+
+
 def p10_cell_meets_rule(cell: Dict[str, Any], assessed: Optional[Dict[str, Any]], requested_variant: str) -> bool:
     """The 95% rule as the reader applies it: assessed under the protocol the export sent, the requested variant, no
     unassessed reply, at least P10_MIN_CALLS calls and at least P10_RULE_PERCENT valid."""
@@ -657,7 +674,8 @@ def p10_evidence(probe: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         raise malformed("$.P10.cells")
     cells = {key: p10_cell_evidence(cells_in[key], f"$.P10.cells.{key}") for key in P10_CELL_KEYS if key in cells_in}
     return {"callsPerCell": p10["calls_per_cell"], "strictRequested": p10["strict_requested"], "protocolSha256": protocol,
-            "schemaSha256": {role: digests[role] for role in SCHEMA_ROLES}, "assessed": assessed, "acceptance": acceptance, "cells": cells}
+            "schemaSha256": {role: digests[role] for role in SCHEMA_ROLES}, "assessed": assessed, "acceptance": acceptance, "cells": cells,
+            "requestSettings": p10_request_settings(p10.get("request_settings"))}
 
 
 def beyond_bounds() -> Refusal:
@@ -765,8 +783,9 @@ def adapter_evidence(probe: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def proposed_structured_output(role: str, p10: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Proposed only on the requested variant: a cell that fell back to the other variant never qualifies."""
-    if p10 is None:
+    """Proposed only on the requested variant: a cell that fell back to the other variant never qualifies. Not proposed without
+    recorded request settings, since the reader then refuses every flag."""
+    if p10 is None or p10.get("requestSettings") is None:
         return None
     requested = "strict" if p10["strictRequested"] else "non_strict"
     meets = {mode: f"{role}/{mode}" in p10["cells"] and p10_cell_meets_rule(p10["cells"][f"{role}/{mode}"], p10["assessed"], requested) for mode in ("off", "on")}

@@ -14,6 +14,7 @@ import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research
 import { EXTRACT_SYSTEM, ExtractReplySchema, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, runResearchPipeline, synthesisLengthCap } from "../../src/main/private-agent/research-pipeline";
 import { P10_JOB_ID, P10_ROLES, P10_THINKING_MODES, buildRoleSchemaExport, syntheticRoleCorpus, type RequestSettings } from "../../scripts/export-role-schemas";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
+import { servingCardRequestSettings } from "../../src/main/private-agent/serving-card";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
 
@@ -100,6 +101,8 @@ describe("role schema export for probe P10", () => {
       }
       expect(data.requestSettings).toEqual({ model: settings.vllm.model, streaming: settings.streamingEnabled, localReplyContract: settings.vllm.localReplyContract ?? null,
         localContextTokens: settings.vllm.localContextTokens ?? null, profile: "heavy", cacheSalt: true });
+      // BL-20261114-1758-serving-card-request-settings-design: the record is the reader's own function of the settings, so a run's comparison cannot drift from it.
+      expect(data.requestSettings).toEqual(servingCardRequestSettings(settings, true));
     }
     // The synthesis off cell carries the cap a thinking-off synthesis role gets; the on cell keeps the 1,200-word ceiling, and nothing else differs.
     const data = buildRoleSchemaExport(), user = (mode: "on" | "off") => JSON.parse((data.requests.synthesis[mode].body.messages as { content: string }[])[1]!.content);

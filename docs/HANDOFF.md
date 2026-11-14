@@ -30,7 +30,7 @@ approves pushing reviewed work to public `main`).
 
 | Merged (UTC) | Pull requests | What |
 | --- | --- | --- |
-| 2026-11-08 | #37, #38, #40, #41, #42, #43 | Step 1: backlog items 1-5 and item 10's assist-purpose exception |
+| 2026-11-08 | #37, #38, #40, #41, #42, #43, #44 | Step 1: backlog items 1-5 and item 10's assist-purpose exception; #44 points the handoff at `main` after #39 |
 | 2026-11-09 | #65 | SC, the serving-card reader |
 | 2026-11-13 | #85, merge train 1 (9d10b9a) | #66 E1-T1, #67 11.1, #68 E1-R, #69 7b.1, #70 E1-J, #71 8.2a, #72 6.1, #73 11.2, #74 E1-L, #76 7a.1, #77 6.2, #78 11.3a, #81 7d.A and #83 (BL-20261110-1506-merge-train-1-integration) |
 | 2026-11-13 | #92, #82, #89 | 7d.B; 6.3; 11.3b |
@@ -195,9 +195,11 @@ Follow the order in review §5.6. Each step is done when its condition holds.
     or major finding, and privacy findings always checked.
   - Merging (2026-11-13): merge a lane PR with a merge commit once its review is clean
     and CI is green.
-  - Never force-push (2026-11-13): bring `main` into a branch with a merge.
-  - Integration (2026-11-13): when several branches are ready, the lanes re-stamp
-    into reserved, ascending minute blocks and one integration PR lands them.
+- Practice that worked on 2026-11-13, not an owner decision:
+  - The owner's permission settings refuse a force-push, so bring `main` into a branch
+    with a merge, never a rebase that needs one.
+  - When several branches are ready, the lanes re-stamp into reserved, ascending
+    minute blocks and one integration PR lands them with one CI run.
 
 ### 7. Known limits
 

@@ -38370,3 +38370,30 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: One light review, CI green and the merge into `main`. The next handoff note updates this section after E0 or E1-G lands.
 
 References: docs/HANDOFF.md "Start here"; BL-20261110-1506-merge-train-1-integration; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261113-1023-p10-align-implemented; BL-20261113-0848-correction-e1-train-1-reviews; BL-20261113-0836-infra-resume-design; BL-20261110-1509-host-flags-event-design; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; pull requests #37 to #95 as the section lists them; issues #46, #47 and #57.
+
+### BL-20261114-1121-correction-handoff-start-here -- 2026-11-14 -- Correction to BL-20261114-1119-handoff-start-here: step 1 also merged #44, and two of the four process choices are not the owner's
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct two statements of BL-20261114-1119-handoff-start-here, which stays as written, and the handoff text they describe. The orchestrator found both while checking the new "Start here" section before its first push.
+
+Decisions:
+- Step 1's merges on 2026-11-08 include #44 ("the handoff starts from `main` after #39"), which the earlier handoff listed and the new table omitted. The table now lists it.
+- Section 6 named four process choices as the owner's. Two are: lighter reviews (2026-11-10), and merging a lane PR with a merge commit once its review is clean and CI is green (2026-11-13). The other two are practice the orchestrator adopted on 2026-11-13:
+  - merging `main` into a branch instead of force-pushing, because the owner's permission settings refused a force-push;
+  - re-stamping into reserved minute blocks and landing them in one integration PR.
+- Section 6 now says so.
+
+Changes: docs/HANDOFF.md (the step 1 row; section 6's process-choice bullets).
+
+Evidence: `gh pr view 44` reports it merged on 2026-11-08 at 08:52 UTC.
+
+Failures or blockers: The orchestrator's brief to the drafting agent listed all four choices as the owner's; the brief caused the second error.
+
+Limitations and non-claims: A record correction only. Nothing ran.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: This branch's merge into `main`.
+
+References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".

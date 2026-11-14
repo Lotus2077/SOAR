@@ -38398,6 +38398,217 @@ Next gate: This branch's merge into `main`.
 
 References: BL-20261114-1119-handoff-start-here; docs/HANDOFF.md "Start here".
 
+### BL-20261114-1246-host-flags-surfaces-design -- 2026-11-14 -- Backlog item 7(d), part C decided: the desktop shows the `host_flags` event in its timeline and its reported issues, and the registry row carries it as `hostFlags`
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for the third and last part of backlog item 7(d) (plan ID 7d.C, lane S-desk). 7d.B (BL-20261110-1509-host-flags-event-design and BL-20261110-1516-host-flags-event-implemented, pull request #92) records one `host_flags` event v1 per private context after submission. Nothing reads it yet: the desktop's timeline shows it as "Task state updated.", and the registry row ignores it. This part surfaces it where 7d.B left it to: the controller's timeline summary, its reported issues and the registry row, with the two READMEs.
+
+It decides nothing. A flag never changes a task's status, a check, Resume, H4 selection, acceptance or a registry outcome.
+
+It changes neither `researchProtocolSha256` nor the private-agent source freeze. It edits src/main/general-tasks/controller.ts, scripts/registry-row.py and the two READMEs, and it reads src/main/private-agent/host-flags.ts by import without editing it. Like every desktop change, it changes the desktop's build identity, so a task begun before it cannot resume after it.
+
+Decisions:
+
+(1) **The timeline.** A `host_flags` event reads "Host flags recorded for the owner's attention; they decide nothing." instead of "Task state updated."
+
+(2) **Reported issues.** A submitted task's reported issues gain lines from its private context's `host_flags` event. They are built only from the event's counts, rule ids, line numbers, positions and edit ids, never from report, model or document text.
+- **Reading.** The event is read through 7d.B's `HostFlagsEventSchema`. An event that does not parse gives one line saying that the host flags could not be read.
+- **Not recorded.** A submitted research task (one with public sources, whose phase requires the claims ledger) without an event gives "The host flags of this submission were not recorded." Silence would read as "no flags", which BL-20261110-1516 (a) rules out. A task without public sources requires neither check, so no event is expected and no line is given. A research task submitted before 7d.B gives the not-recorded line.
+- **The report scan.** When report sentences assert absence: "N report sentences assert that the sources lack something (absence rules v1), M of them without a claim citation: lines a, b and c." The lines are those of the kept `absence` hits; when the list was cut at 40, the line says so. A `bounded` hit, about the run's own extraction, is not an issue. Cited absence claims are listed too, because a citation of a quote cannot establish absence.
+- **Reports the host did not fully scan.** A report it did not scan gets a line saying why: a Word or PDF report, or a missing one. A scan cut at its cap gets a line saying that only the first part was read.
+- **The argument.** A research packet's argument gets the same line, with evidence ids in place of claim citations.
+- **Misses.** These get a line each when nonzero: questions without evidence, unresolved questions, failed public fetches and fetch-limit refusals. The single-unit brief disclosure (D11) gets a line when `briefSingleUnit` is 1. Brief units, no-evidence outcomes, extraction retries and dropped quotes go to the registry only.
+- **The document review.** A flags file that is missing, too large or invalid gets a line saying so. Otherwise each rule with flags gets one line:
+  - the numeric flags' table, row and paragraph;
+  - the flagged edits' ids and codes;
+  - the contradicting clauses' paragraph pairs.
+
+  Each line also says how many of its flags no edit addresses. A failed rule or step gets a line naming it.
+- **Failed sections.** The event's `errors` give one line naming the parts the host could not compute.
+- **Order and reach.** The lines follow the event's order: report, argument, misses, review, then failed sections. Before backlog item 13 the desktop runs no research stage and no document review, so today only these lines can appear: the report's, the fetch misses', the failed sections' and the not-recorded line. The others are tested on synthetic events.
+
+(3) **The registry row.** A new column, `hostFlags`, on every row registry-row.py writes.
+- **What it holds.** The run's `host_flags` event without its positions:
+  - `version`, `rules` and `counts`;
+  - when present, `misses` and `errors`;
+  - the report's and the argument's scan state: `format`, `scanned`, `reason`, `textCut` and `truncated`;
+  - the review's state: `valid`, `reason`, `errors` and `read`.
+
+  It holds no hit lines, flag positions or edit ids. Those belong to the event and the desktop's issues.
+- **Why more than `{version, counts, misses}`.** The rule sets, the failed sections and the scan and review states are what stop an absent count from reading as zero.
+- **`null` means "not recorded".** It covers a run with no event: a run that did not submit, a phase with neither check, a run from before 7d.B, or a lost append. It also covers a run without a result, as for `entailment`. A desktop verdict receipt rows `null`: version 1 of the receipt carries no host flags, and version 2 waits for backlog item 13.
+- **Which run.** `--run-dir` reads the run's ledger. `--loop-dir` reads the run the row's other fields come from, as `entailment` does through `run_counts` and `freeze_fields`: the selected run, or the run of the stage a loop stopped at. A stop without a run gives `null`. This meets BL-20261113-0836-infra-resume-design's rule (11) that a new column has a value for a run without a result. `stage_run` names sample `a`'s cloud stage for the cloud fields, which is not the row's run.
+- **Unreadable events.** An event the registry cannot read (another version, a count that is not a non-negative integer, an unknown section code) refuses the row, as a ledger row that is not JSON does.
+- **Superseding rows.** `--supersedes` copies the column with the row. Rows written before this change have no `hostFlags`.
+
+(4) **The READMEs.** README.md's general-task row says that reported issues include the host flags. docs/experiments/README.md's registry table gains a `hostFlags` row.
+
+Changes: Planned in this pull request:
+- src/main/general-tasks/controller.ts: the summary; `hostFlagIssues`, called from `reportedIssues`.
+- scripts/registry-row.py: `host_flags(events)`, and the column in `run_counts`, `freeze_fields`, a stopped loop's fields and receipt rows.
+- README.md and docs/experiments/README.md.
+- Tests:
+  - the controller: the summary; issues from synthetic events for every part; the not-recorded and unreadable lines; no line for a task without public sources;
+  - the registry: a run, a selected loop run, a stopped loop, a receipt row, a run without an event, an unreadable event, and a superseding copy.
+
+Consequences:
+- Merge order: registry-row.py takes 7d.C, then S-harn's 11.4. controller.ts takes 7d.C, then the Revoke follow-up for `consultation_budget_unavailable` (its own pull request).
+- The desktop's build identity changes.
+- Unchanged: `researchProtocolSha256`, the private-agent source freeze, the session identity, every check, and the event's contract.
+
+Evidence: None yet; this entry decides. Under the owner's lighter-review rule, the pull request gets one light review.
+
+Failures or blockers: None in recording. No owner decision gates this part. These defaults stand, from the orchestrator's dispatch of 2026-11-14:
+- the verdict receipt's version 2 waits for item 13, so receipt rows carry `null`;
+- "misses" means the run's own misses;
+- D11 keeps its segmentation;
+- the review agent and the critic see the flags file, and blind bundles do not.
+
+Limitations and non-claims:
+- `Proposed` only: nothing is implemented or verified by this entry.
+- The issue lines are fixed host wording around host numbers. They are not tested on owners, and the absence rules' recall is still not measured (BL-20261110-1516).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests and its `Implemented` entry. Then `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck`, `pnpm validate:readiness` and the changed tests, the light review, CI, and a merge under the owner's standing go-ahead, re-stamping after `main`'s tail if it has moved (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261113-0816-correction-host-flags-event-ids-and-replay; BL-20261109-0354-document-review-flags-design; BL-20261113-0836-infra-resume-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1311-host-flags-surfaces-implemented -- 2026-11-14 -- Backlog item 7(d), part C implemented: the timeline names the `host_flags` event, a submission's reported issues list it from its numbers and ids, and every registry row carries `hostFlags`
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-1246-host-flags-surfaces-design, with deterministic tests, on branch `feat/7d.C-host-flags-surfaces` from `main` at 582f880 (plan ID 7d.C, lane S-desk). The design commit is 4edc2fc and the implementation commit 69702a8.
+
+Decisions: Implemented as decided, with these precisions:
+- **Exported for tests.** `hostFlagIssues(events, expected)` is exported from src/main/general-tasks/controller.ts for its tests. `reportedIssues` calls it last, with `expected` true for a task with public sources.
+- **The wording.** Some lines as built:
+  - "3 sentences of the report assert that the sources lack something (absence rules v1), 2 without a claim citation: lines 3, 9 and 20.";
+  - "The report is a Word file, so the host did not scan it for absence claims.";
+  - "1 public source fetch failed.";
+  - "The host flags of this submission were not recorded.";
+  - "41 pairs of clauses are contradictory, 3 left unaddressed by the edits: paragraphs 7 and 8, and 40 more."
+- **Counts beyond the kept hits.** The event keeps at most 40 hits of each scan. When those 40 hold no absence hit, the report line gives its counts without line numbers. When the list was cut, the line says the lines are "among the first 40 hits". The review lines take their totals from the counts and name how many more the event did not list.
+- **Refused events.** The registry refuses a row whose event has any of these:
+  - a version that is not the integer 1;
+  - a rule other than `absence` or `review`, or a rule value other than 1;
+  - a count or a miss that is not a non-negative integer;
+  - an empty or unknown `errors` list;
+  - a scan without a boolean `scanned`, or a review without a boolean `valid`.
+- **The test fixture.** The controller test fixture takes the report's text, so an end-to-end test drives 7d.B's own pass through the real session.
+- **Review.** Under the owner's lighter-review rule, one light review of the pull request by the coordinating session.
+
+Changes:
+- src/main/general-tasks/controller.ts: the `host_flags` timeline summary; `hostFlagIssues`, called from `reportedIssues`.
+- scripts/registry-row.py: `host_flags(events, run_dir)`, and the `hostFlags` column in `run_counts`, `freeze_fields`, a stopped loop's fields and receipt rows. The docstring's list of copied fields names it.
+- README.md: the general-task row. docs/experiments/README.md: the `hostFlags` row, and `hostFlags` among the fields `--supersedes` copies.
+- tests/unit/general-task-host-flags.test.ts (new, 6 tests): every part of the event on synthetic events. They cover:
+  - the not-recorded line, the unreadable-event line, and no line for an event with nothing to report;
+  - report lines with cited, uncited and bounded hits, cut lists and cut text;
+  - unscanned Word, PDF and missing reports, and the argument;
+  - each miss and the single-unit brief;
+  - each review state and failed rule or step;
+  - failed sections, last.
+- tests/unit/general-task-controller.test.ts: one end-to-end test. A research task's report with one uncited absence claim makes 7d.B's pass record its event through the real session; the timeline names it and the reported issues list "line 2". A research task whose append fails gives the not-recorded line. A plain task gives no event and no line.
+- tests/unit/registry-row-host-flags.test.ts (new, 3 tests):
+  - a run's research and review events without their positions;
+  - an invalid review file, and `null` without an event;
+  - eleven kinds of unreadable event refused;
+  - a loop's selected run, a stopped stage with a result, `null` for a stage without one, and a stop without a run.
+- tests/unit/registry-row-verdict.test.ts: the receipt row's `hostFlags` is `null`.
+
+Evidence: At commit 69702a8:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: general-task-host-flags 6 of 6; general-task-controller 158 of 158; registry-row-host-flags 3 of 3; registry-row-verdict 4 of 4. The other registry suites pass unchanged: loop 3 of 3, resume 23 of 23, infra 5 of 5, zero-fee 25 of 25 and git 13 of 13.
+- The full `pnpm exec vitest run`: 197 files, 184 passed and 13 skipped (the environment-gated suites, as before); 3,678 tests, 3,592 passed and 86 skipped, none failed.
+- `researchProtocolSha256(RESEARCH_PIPELINE_BUDGET)` (505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92) and `localScreenSourceFreeze()` (32ad12463dc54e4038039d7abafd2d490a3cefd95dba119fb77671c0a1dc1f0e) are identical at the head and at `main` 582f880. No file in the freeze's list changes.
+- Mutation checks: 14 single mutants, each applied alone in a scratch copy and run against the changed tests, are all killed:
+  - no not-recorded line, or one for every task, or one that ignores the public sources;
+  - bounded hits listed;
+  - the uncited count replaced by the total;
+  - no cut-text line, or no failed-section line;
+  - no timeline summary;
+  - the registry keeping hit lines, skipping the version check, reading a stopped stage without a result, dropping the misses, or leaving the column off run or receipt rows.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- Before backlog item 13 the desktop runs no research stage and no document review. So the desktop can show only the report's, the fetch misses', the failed sections' and the not-recorded lines today. The other lines are tested on synthetic events only.
+- The wording is fixed host text around host numbers. It has not been tried on owners.
+- The renderer shows reported issues as before, as plain list items. No interface changes.
+- Rows already in docs/experiments/registry.jsonl carry no `hostFlags` and are not rewritten.
+- The registry reads a run's latest `host_flags` event. A run has one private context, so it has at most one.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- Push, open a pull request against `main`, and get the coordinating session's light review. CI must be green before the merge, which the owner's standing go-ahead covers.
+- At the merge, re-stamp after `main`'s tail if it has moved (BL-20261113-0937, BL-20261113-0938).
+- Then the Revoke follow-up for `consultation_budget_unavailable`, as its own pull request with its own `Proposed` entry.
+
+References: BL-20261114-1246-host-flags-surfaces-design; BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261113-0836-infra-resume-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261114-1342-correction-host-flags-surfaces-review -- 2026-11-14 -- Correction to BL-20261114-1246-host-flags-surfaces-design and BL-20261114-1311-host-flags-surfaces-implemented: the light review of #99, six minor findings fixed in one push
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session's light review of pull request #99 at 2646486 found no blocker and no major finding, and six minor findings. Commit 5eb84fa fixes all six. The two entries stay as written; this entry corrects them where the review found them short.
+
+Decisions:
+- **(1) The registry's closed sets.** BL-20261114-1246 (3) says an event the registry cannot read refuses the row. But at 2646486 the column copied these verbatim: the scan fields (`format`, `reason`, `textCut`, `truncated`), the review's `reason`, `errors` and `read`, and any count or miss key. So its promise of numbers and ids rested on the only writer, 7d.B's strict `HostFlagsEventSchema`. The review's probe passed a sentence and a `/Users/...` path through `report.format`. Now every kept value must lie in the schema's closed sets:
+  - the count and miss names;
+  - the five formats;
+  - the scan reasons `missing` and `format_not_scanned`;
+  - booleans for `textCut` and `truncated`;
+  - the review reasons `missing`, `too_large` and `invalid`;
+  - review error parts among `step`, `numeric`, `edits` and `clauses`, each an identifier-shaped class name;
+  - the seven read caps: six booleans, and `paragraphsClipped` as a non-negative integer.
+
+  Anything else refuses the row.
+- **(2) The report line.** At 2646486 the line repeated a line number holding two absence sentences ("lines 2 and 2"). Its list also read as the uncited claims only, though it held the cited ones too. Each line is now named once, and the line is reworded: "3 sentences of the report, at lines 3, 9 and 20, assert that the sources lack something (absence rules v1); 2 of them cite no claim." This supersedes the wording BL-20261114-1311 quotes.
+- **(3) A failed review step.** It read "so nothing was flagged", which reads as no flags. It now reads "so its flags were not computed".
+- **(4) The docs.**
+  - README.md's general-task row lists the kinds of line as examples, including the unscanned report, the cut scan, refused fetches, uncomputed parts and an unreadable event.
+  - docs/experiments/README.md's `hostFlags` row now says two things: a value outside the closed sets refuses the row, and rows written before this change, with their `--supersedes` copies, have no `hostFlags` key at all.
+- **(5) The ledger.**
+  - BL-20261114-1246 planned a registry test for "a superseding copy". It was missing at 2646486, though BL-20261114-1311 says "Implemented as decided". It is added now.
+  - The lines also carry the flags file's error class names, for example "(IndexError)". These are host-derived identifiers. BL-20261114-1246 (2)'s list of what the lines carry, and the comment on `hostFlagIssues`, omitted them; the comment now names them.
+
+Changes:
+- scripts/registry-row.py: the closed sets in `host_flags`.
+- src/main/general-tasks/controller.ts: the report line's wording and deduplicated lines, the failed step's wording, and the comment.
+- README.md and docs/experiments/README.md.
+- Tests:
+  - general-task-host-flags: the new wording, and two claims on one line;
+  - general-task-controller: the end-to-end line's new wording;
+  - registry-row-host-flags:
+    - a review fixture with a numeric flag, whose column is checked whole;
+    - table, row and paragraph absent from the whole row, checked on every event;
+    - twelve closed-set refusals;
+    - the superseding copy, and an older row's copy without the key.
+
+Evidence: At commit 5eb84fa:
+- After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: general-task-host-flags 6 of 6, general-task-controller 158 of 158, registry-row-host-flags 4 of 4 and registry-row-verdict 4 of 4.
+- The full `pnpm exec vitest run`: 197 files, 184 passed and 13 skipped (as before); 3,679 tests, 3,593 passed and 86 skipped, none failed.
+- Ten single mutants of the fixes, each applied alone in a scratch copy, are all killed:
+  - no deduplication;
+  - the old step wording;
+  - each of the seven closed sets opened;
+  - the review's lists kept in the column.
+
+Failures or blockers: None.
+
+Limitations and non-claims: As in BL-20261114-1311. The closed sets mirror 7d.B's schema by hand: a later change to that schema must change registry-row.py with it, or its rows are refused.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The coordinating session's check of this push, and CI. Then the merge in its integration, re-stamped into the minute block it assigns. Nothing is re-stamped before then.
+
+References: BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261110-1509-host-flags-event-design.
+
 ### BL-20261114-1331-registry-columns-design -- 2026-11-14 -- Decide plan 11.4: receipts record their destination kind, body and disclosed bytes, and registry rows gain reserved and pinned USD, cloud calls, disclosure, retrieval and action counts, 7(c)'s fallback markers and the launcher's stop signal
 
 Status: `Proposed`

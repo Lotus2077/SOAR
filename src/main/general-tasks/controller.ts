@@ -36,6 +36,7 @@ import { isAssistDispatch } from "../private-agent/dispatch-purposes";
 import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from "../liveness";
 import { caughtRunReason, isResumableRunReason, storedRunReason } from "./run-reasons";
 import { storageIntegrityFailed } from "./storage-integrity";
+import { HostFlagsEventSchema } from "../private-agent/host-flags";
 
 /** Cap on one assembled local model reply. */
 const LOCAL_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -103,6 +104,7 @@ const summaries: Record<string, string> = {
   claims_entailment: "Claim support judged by the local model and recorded as evidence.",
   host_heartbeat: "A host heartbeat fired late: the machine slept or the app was starved. The gap on each clock is recorded.",
   consultation_response: "Consultant response saved as untrusted advice.",
+  host_flags: "Host flags recorded for the owner's attention; they decide nothing.",
 };
 /** Bounded, exact-text projections of model-authored text for the owner surface; never instructions, never trusted. */
 const AGENT_TEXT_MAX_CHARS = 4000, ACTION_DETAIL_MAX_CHARS = 160;
@@ -143,8 +145,76 @@ function projectAgentText(events: Record<string, unknown>[], contextId: string |
   const finishSummary = finishCall ? boundedText(argumentsOf(finishCall).summary, AGENT_TEXT_MAX_CHARS) : undefined;
   return { ...(plan ? { plan } : {}), ...(finishSummary ? { finishSummary } : {}) };
 }
+const HOST_FLAG_SECTIONS = Object.freeze({ report_failed: "the report scan", argument_failed: "the argument scan", misses_failed: "the misses",
+  review_failed: "the review summary" } as const);
+const HOST_FLAG_REVIEW_RULES = Object.freeze({ numeric: "table check", edits: "edit check", clauses: "clause check" } as const);
+/**
+ * Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the issue lines of a submission's `host_flags` event (7d.B), built
+ * only from its counts, rule ids, lines, positions, edit ids and the flags file's error class names, never from report, model or document text. A research task (public sources, so a
+ * claims-ledger phase) without an event says its flags were not recorded, since silence would read as "no flags". The flags decide nothing.
+ */
+export function hostFlagIssues(events: readonly Record<string, unknown>[], expected: boolean): string[] {
+  const recorded = events.filter(event => event.type === "host_flags");
+  if (!recorded.length) return expected ? ["The host flags of this submission were not recorded."] : [];
+  const parsed = HostFlagsEventSchema.safeParse(recorded[recorded.length - 1]);
+  if (!parsed.success) return ["The host flags of this submission could not be read."];
+  const flags = parsed.data, counts = flags.counts, issues: string[] = [];
+  const many = (n: number, one: string, more: string) => `${n} ${n === 1 ? one : more}`;
+  const listed = (items: readonly string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  // The first positions the event kept (at most 40 per list), and how many more the counts hold.
+  const more = (shown: number, total: number) => total > shown ? `, and ${total - shown} more` : "";
+  for (const [name, label, noun, article] of [["report", "the report", "claim", "a claim"], ["argument", "the research packet's argument", "evidence id", "an evidence id"]] as const) {
+    const scan = flags[name];
+    if (!scan) continue;
+    if (!scan.scanned) {
+      const subject = name === "report" ? "The report" : "The research packet's argument";
+      issues.push(scan.reason === "missing" ? `The host found no ${name === "report" ? "report" : "research packet argument"} to scan for absence claims.` :
+        `${subject} is a ${scan.format === "pdf" ? "PDF" : "Word"} file, so the host did not scan it for absence claims.`);
+      continue;
+    }
+    const total = counts[`${name}Absence`] ?? 0, uncited = counts[`${name}AbsenceUncited`] ?? 0;
+    // The lines of every kept absence hit, cited or not, each once: two claims on one line name it once.
+    const lines = [...new Set(scan.hits.filter(hit => hit.class === "absence").map(hit => hit.line))].map(String);
+    const at = lines.length ? `, at ${lines.length === 1 ? "line" : "lines"} ${listed(lines)}${scan.truncated ? " among the first 40 hits" : ""},` : "";
+    const cites = total === 1 ? (uncited ? `it cites no ${noun}` : `it cites ${article}`) : uncited === 0 ? `each cites ${article}` :
+      uncited === total ? `none cites ${article}` : `${uncited} of them ${uncited === 1 ? "cites" : "cite"} no ${noun}`;
+    if (total) issues.push(`${many(total, "sentence", "sentences")} of ${label}${at} ${total === 1 ? "asserts" : "assert"} that the sources lack something (absence rules v1); ${cites}.`);
+    if (scan.textCut) issues.push(`Only the first part of ${label} was scanned for absence claims.`);
+  }
+  const misses = flags.misses ?? {};
+  if (misses.questionsWithoutEvidence) issues.push(`${many(misses.questionsWithoutEvidence, "research question has", "research questions have")} no retained evidence.`);
+  if (misses.unresolvedQuestions) issues.push(`${many(misses.unresolvedQuestions, "research question was", "research questions were")} left unresolved by the synthesis.`);
+  if (misses.fetchFailures) issues.push(`${many(misses.fetchFailures, "public source fetch", "public source fetches")} failed.`);
+  if (misses.fetchLimitRefusals) issues.push(`${many(misses.fetchLimitRefusals, "public source fetch was", "public source fetches were")} refused at the fetch limit.`);
+  if (counts.briefSingleUnit === 1) issues.push("The brief has a single unit, so the research plan's coverage check was vacuous.");
+  const review = flags.review;
+  if (review && !review.valid) issues.push(`The document review's flags file was ${review.reason === "missing" ? "missing" : review.reason === "too_large" ? "too large to read" :
+    "invalid"}, so its flags were not read.`);
+  if (review?.valid) {
+    if (review.errors?.step) issues.push(`The document review's flag step failed (${review.errors.step}), so its flags were not computed.`);
+    for (const rule of ["numeric", "edits", "clauses"] as const) if (review.errors?.[rule]) issues.push(`The document review's ${HOST_FLAG_REVIEW_RULES[rule]} failed (${review.errors[rule]}).`);
+    const numeric = review.numeric ?? [], edits = review.edits ?? [], clauses = review.clauses ?? [];
+    if (numeric.length) {
+      const total = Math.max(numeric.length, (counts.numericSource ?? 0) + (counts.numericIntroduced ?? 0));
+      issues.push(`${total === 1 ? "1 figure in the prose disagrees with its table row" : `${total} figures in the prose disagree with their table rows`}, ` +
+        `${counts.numericUnaddressed ?? 0} left unaddressed by the edits: ${numeric.map(flag => `table ${flag.table} row ${flag.row} (paragraph ${flag.paragraph})`).join("; ")}${more(numeric.length, total)}.`);
+    }
+    if (edits.length) {
+      const total = Math.max(edits.length, counts.inversionEdits ?? 0);
+      issues.push(`${total === 1 ? "1 edit turns its clause around" : `${total} edits turn their clauses around`}: ` +
+        `${edits.map(flag => `${flag.id} (${flag.codes.map(code => code.replace(/_/gu, " ")).join(", ")})`).join(", ")}${more(edits.length, total)}.`);
+    }
+    if (clauses.length) {
+      const total = Math.max(clauses.length, (counts.inversionSource ?? 0) + (counts.inversionIntroduced ?? 0));
+      issues.push(`${many(total, "pair of clauses is", "pairs of clauses are")} contradictory, ${counts.inversionUnaddressed ?? 0} left unaddressed by the edits: ` +
+        `${clauses.map(flag => `paragraphs ${flag.paragraphs[0]} and ${flag.paragraphs[1]}`).join("; ")}${more(clauses.length, total)}.`);
+    }
+  }
+  if (flags.errors?.length) issues.push(`The host could not compute part of its flags: ${listed(flags.errors.map(code => HOST_FLAG_SECTIONS[code]))}.`);
+  return issues;
+}
 /** Host-derived qualifications of a submission; the agent's own words never add or remove one. */
-function reportedIssues(events: Record<string, unknown>[], contextId: string | undefined, entailment: GeneralTaskEntailment | undefined): string[] {
+function reportedIssues(events: Record<string, unknown>[], contextId: string | undefined, entailment: GeneralTaskEntailment | undefined, hostFlagsExpected: boolean): string[] {
   const own = events.filter(event => !contextId || event.contextId === contextId), issues: string[] = [];
   const failedFinishes = own.filter(event => event.type === "tool_finished" && typeof event.output === "string" && (event.output as string).includes('"complete":false')).length;
   if (failedFinishes) issues.push(`${failedFinishes} finish attempt${failedFinishes === 1 ? "" : "s"} failed the host checks before the final one passed.`);
@@ -157,6 +227,7 @@ function reportedIssues(events: Record<string, unknown>[], contextId: string | u
     if (partial) issues.push(`${partial} judged claim${partial === 1 ? " is" : "s are"} only partly supported.`);
     if (not_judged && entailment.truncated) issues.push(`${not_judged} claim${not_judged === 1 ? " was" : "s were"} not judged (the pass stopped early).`);
   }
+  issues.push(...hostFlagIssues(own, hostFlagsExpected));
   return issues;
 }
 
@@ -570,7 +641,7 @@ export class GeneralTaskController {
       independentAcceptance: "not_evaluated", canResume,
       ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
-      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment) } : {}),
+      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :

@@ -39718,3 +39718,113 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on this pull request, and its merge under the standing go-ahead.
 
 References: BL-20261109-0422-registry-run-commit-design; #91's CI run 43599953204.
+
+### BL-20261114-1734-serving-card-request-settings-design -- 2026-11-14 -- SC settings binding decided: a serving card records the request settings P10's bodies were built under, and the reader refuses a structured-output flag when the run's settings differ; the card format gains an optional field, with no version bump
+
+Status: `Proposed`
+
+Scope or hypothesis: A follow-up to SC, the serving-card reader (BL-20261108-1459-serving-card-reader-design, implemented in BL-20261108-1649-serving-card-reader-implemented).
+- **Where it comes from.** It is finding 2 of the light review of #108 (item 9, structured output). #108's Correction records the gap; it is cited here by PR because #108 is not on `main`. The coordinator assigned this follow-up, to land before E0's card is adopted.
+- **The gap.**
+  - Since P10-align (BL-20261113-1011-p10-align-design), probe P10 sends the role export's bodies. It records the settings the export built them under (`request_settings`: the model, streaming, the Flash reply contract and its context, the profile and the cache salt) and a body digest per cell.
+  - The card writer drops both. The reader checks only the served model and, under `flash_next_v1`, the context.
+  - So a card measured under one set of settings resolves for a run under another. Item 9's flagged calls would then send bodies no P10 cell measured.
+
+The hypothesis: if the card carries the settings and the reader refuses a structured-output flag unless the run's settings equal them, then a flag resolves only for runs whose flagged bodies are built as the ones P10 measured.
+
+Decisions:
+(1) **What is bound: the settings, not the body digests.**
+- **The record.** The writer copies P10's `request_settings` into `evidence.p10.requestSettings`: `{model, streaming, localReplyContract, localContextTokens, profile, cacheSalt}`, the export's own record.
+- **Why not the digests.** The reader could compare a per-cell `request_body_sha256` only by rebuilding the export's synthetic bodies, which live in scripts/, inside src/. The settings are what a run can name: its configuration and the driver's `--cache-salt`. The protocol hash and the schema digests already bind the prompts and the schemas.
+- **What stays unbound** is the model layer's own construction of the owned vLLM body. A change to it changes P10's bodies without changing any of these, so such a PR must state that it invalidates earlier cards' structured-output evidence, as SC already requires of a protocol-hash change.
+
+(2) **The card format: an optional field, no version bump.**
+- **The field.** `P10EvidenceSchema` gains `requestSettings`, optional and nullable. When present, it is an object of exactly these keys:
+  - `model`: plain text that does not look like a path, at most 256 characters, as the served alias;
+  - `streaming`: a boolean;
+  - `localReplyContract`: `"flash_next_v1"` or null;
+  - `localContextTokens`: a positive integer, or null;
+  - `profile`: `"heavy"`;
+  - `cacheSalt`: a boolean.
+
+  It is null when the probe recorded none.
+- **Why no bump.**
+  - Every version-1 card still parses, and nothing in it changes meaning but its structured-output flags.
+  - No merged code consumes a flag yet: the consumer is item 9 (#108), unmerged. Under (4), an older card's flags are refused.
+  - A bump would refuse every older card outright, all-default ones included, for no safety gain.
+  - No adopted card exists yet.
+- **Forward compatibility.** A reader without this change refuses a card that carries the field as `serving_card_invalid`, because the schema is strict. The writer and the reader change together, here.
+- **Privacy.** The field holds no address, path or key. The model is the served alias the identity already holds; the rest are booleans, an enum and an integer.
+
+(3) **The writer** (scripts/serving-card.py):
+- it copies and checks the record, refusing a malformed one at `$.P10.request_settings` before any file exists;
+- it writes null when the probe has none. That is a probe from before P10-align, whose cells measured the probe's own bodies;
+- it proposes structured output only when the record is present, because the reader refuses a flag without one. SC-4's default stands: it proposes by the 95% rule, now from evidence the reader can bind;
+- the Markdown card does not change.
+
+(4) **The reader** (src/main/private-agent/serving-card.ts).
+- **The check.** For each flagged mode, right after the protocol check, it refuses `serving_card_p10_settings_drift` at the flag's key path unless `evidence.p10.requestSettings` is present and canonically equal to the run's settings.
+- **The run's settings** come from one function, `servingCardRequestSettings(config, cacheSalt)`. It returns the served model, `SOAR_STREAMING`, the Flash reply contract and, only under it, the context, the heavy profile and the run's cache salt. Research runs only under the heavy profile.
+- **The export shares the function.** The role export (scripts/export-role-schemas.ts) builds its `requestSettings` record with it, cache salt true, so the record and the comparison cannot drift apart. The export's bytes are unchanged.
+- **The expectation.** `ServingCardExpectation` gains a required `requestSettings`. `servingCardExpectation(config, cacheSalt)` builds it, and the driver passes the run's `--cache-salt`.
+- **Only flagged structured output is checked.** P10's evidence backs nothing else, so a card without flags resolves under any settings, as today.
+- **Every run is checked, whatever its pipeline**, as the served-model check is. So a run under other settings with a flagged card pinned is refused even when it would send no flagged call; the unsalted arm of the isolation probe is an example. That keeps the rule a property of the card and the environment, fail-closed.
+
+(5) **Order against #103 and #108.**
+- This branch starts from `main` and is independent of #102, #103 and #108, so it may merge before E0's export.
+- **On `main` today.** A flagged card is refused as unconsumed after the evidence checks. With this change, a flagged card under other settings is refused earlier, as `serving_card_p10_settings_drift`.
+- **The shared file.** #108 edits the same mode loop and code list in serving-card.ts. Whichever merges second merges `main` in and keeps both checks in the loop.
+- **The README.** #108's sentence on the settings gap in docs/experiments/README.md is then replaced by this change's text.
+
+(6) **What does not change.**
+- No protocol hash, request body, session identity or freeze changes, and nothing changes without a card.
+- **The source freeze rotates.** serving-card.ts and the driver are hashed by `localScreenSourceFreeze()`, so no loop or E-run may span the merge.
+
+(7) **Tests, offline only.**
+- **The writer:**
+  - it copies the record;
+  - it writes null and proposes no flag without one;
+  - it refuses a malformed record.
+- **The reader:**
+  - the writer's card, adopted as written, reaches today's fail-closed step under the run's settings;
+  - it is refused as `serving_card_p10_settings_drift` under each changed setting (model, streaming, the reply contract with its context, the cache salt) and without the record;
+  - a card without flags resolves under other settings;
+  - R2's table gains the new code.
+- **The export:** its record equals `servingCardRequestSettings(settings, true)` for plain, streamed and Flash settings.
+- **The driver:** the expectation carries the run's cache salt.
+
+Changes: Planned:
+- scripts/serving-card.py and src/main/private-agent/serving-card.ts;
+- scripts/export-role-schemas.ts and scripts/private-agent-local-screen.ts;
+- docs/experiments/README.md;
+- tests/helpers/serving-probe-fixture.ts, whose synthetic P10 record gains the `request_settings` P10-align writes;
+- the writer, reader, export and driver-configuration tests.
+
+Evidence: Read at `main` 6c5e931:
+- scripts/serving-probe.py's P10 record (`request_settings`, the per-cell `request_body_sha256`);
+- scripts/serving-card.py's `p10_evidence` and `proposed_structured_output`;
+- serving-card.ts's `P10EvidenceSchema`, `servingCardExpectation` and `resolveServingCard`;
+- scripts/export-role-schemas.ts's `requestSettingsOf` and its `requestSettings` record;
+- the driver's `buildLocalScreenServingCard` and `--cache-salt`;
+- the light review of #108, finding 2.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims:
+- This is `Proposed`. Nothing is implemented, and nothing runs against an endpoint. No adopted card exists.
+- **The model layer's body construction stays unbound** ((1)).
+- **The token-admission helper is not bound.** It does not shape the body.
+- **The payloads stay synthetic.** P10's are small and synthetic; this binds how a body is built, not what a run's payload holds.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the implementation, with its offline tests and an `Implemented` entry;
+- one light review;
+- CI green;
+- the merge, before E0's card is adopted.
+
+References:
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- #108 and its light review, finding 2.

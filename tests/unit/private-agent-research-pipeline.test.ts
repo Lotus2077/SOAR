@@ -1314,17 +1314,21 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
   });
 
   it("takes a lower-index call that failed for its own reason as the stage's denial, though a higher one's abort reached it first (#71's review F3)", async () => {
-    // Chunks 0 and 2 fail in one synchronous block, 2 first: its interrupt aborts 0 after 0's call() has read its signal, so 0 is marked afterAbort.
-    let release0!: () => void, release2!: () => void;
-    const gate0 = new Promise<void>(resolve => { release0 = resolve; }), gate2 = new Promise<void>(resolve => { release2 = resolve; });
-    const script: Script = (stage, input, n, system) => stage === "extract" && n === 0 ? new BrokerError("request_failed") : stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
-    const four = fanned(script, (stage, n) => stage !== "extract" ? 0 : n === 0 ? gate0 : n === 2 ? gate2 : 500);
-    const running = observe(four, { localStreams: 4 });
-    while (four.calls.filter(c => c.stage === "extract").length < 4) await new Promise(resolve => setImmediate(resolve));
-    release2(); release0();
-    const result = await running;
-    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
-    expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "request_failed" });
+    // Chunks 0 and 2 fail, 2 first. In one synchronous block, the pool reads both labels before 2's interrupt aborts: neither is marked. One
+    // microtask later, 0's call() reads its signal before that abort and the pool reads 0's label after it: 0 is applied with afterAbort,
+    // and is still no sibling stop, since it failed for its own reason. Either way the stage's denial is chunk 0's.
+    for (const later of [false, true]) {
+      let release0!: () => void, release2!: () => void;
+      const gate0 = new Promise<void>(resolve => { release0 = resolve; }), gate2 = new Promise<void>(resolve => { release2 = resolve; });
+      const script: Script = (stage, input, n, system) => stage === "extract" && n === 0 ? new BrokerError("request_failed") : stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+      const four = fanned(script, (stage, n) => stage !== "extract" ? 0 : n === 0 ? gate0 : n === 2 ? gate2 : 500);
+      const running = observe(four, { localStreams: 4 });
+      while (four.calls.filter(c => c.stage === "extract").length < 4) await new Promise(resolve => setImmediate(resolve));
+      release2(); if (later) queueMicrotask(release0); else release0();
+      const result = await running;
+      expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+      expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "request_failed" });
+    }
   });
 
   it("ends research_cancelled when the stage is cancelled with calls in flight, and launches nothing after", async () => {

@@ -430,6 +430,19 @@ describe("backlog item 8.2b: the judge runs K claims at a time on the ordered po
     expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["supported", "unsupported", "paused", "pass_stopped", "pass_stopped"]);
   });
 
+  it("labels the claim a deadline stopped at with the deadline, though a pause arrives while the calls in flight finish", async () => {
+    const judge = held(), claims = claimsOf(3);
+    let paused = false, remaining = 600_000;
+    const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: new AbortController().signal, remainingMs: () => remaining, stop: () => paused });
+    await tick(); remaining = 0;
+    judge.answer("C1", verdict("supported")); await tick();
+    // C3 was refused at its slot by the deadline; the pause comes later, while C2 is still in flight.
+    paused = true; judge.answer("C2", verdict("supported"));
+    const outcome = await pass;
+    expect(outcome).toMatchObject({ entailmentCalls: 2, truncated: true, stopReason: "deadline_or_cancelled" });
+    expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["supported", "supported", "deadline_or_cancelled"]);
+  });
+
   it("labels every call a cancel stopped in flight by the cancel, and the claims never launched pass_stopped", async () => {
     const judge = held(), claims = claimsOf(4), cancel = new AbortController();
     const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: cancel.signal, remainingMs: far });

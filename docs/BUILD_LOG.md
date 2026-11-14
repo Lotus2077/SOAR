@@ -39978,3 +39978,65 @@ Next gate:
 4. The coordinating session's call on the design's `html.unescape` follow-up.
 
 References: BL-20261114-1711-claims-check-linear-strips-design; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261113-0857-claims-trailing-strip-linear-implemented.
+
+### BL-20261114-1757-correction-claims-check-linear-strips-review -- 2026-11-14 -- Correction to BL-20261114-1711-claims-check-linear-strips-design and BL-20261114-1724-claims-check-linear-strips-implemented: strip_scripts searched for '>' once per opener, so openers sharing one far '>' stayed quadratic, and it now keeps the '>' it found; pypdf's own label cost leaves the PDF loop quadratic for one label range per page; one crafted shape runs about ten times slower than main
+
+Status: `Implemented`
+
+Scope or hypothesis: The light review of #109 at c10a2c9 found one major issue and two minor ones. It found the outputs identical to the former patterns everywhere.
+- The two entries are committed and are not edited, so this entry corrects them.
+- This push carries the major issue's fix and a test that reproduces it.
+
+Decisions:
+1. **`strip_scripts` searched for `>` once per opener (major).** The design's decision (3) says that each opener "then takes one binary search". Its argument left out a second step: each opener also searched for the first `>` after its name.
+   - With many openers sharing one far `>` and no accepted closing tag, each such search ran to that `>`, so the time grew with the square of the input.
+   - The review timed the helper alone on `'<script'` repeated and then one `>`, under 3.11.16: 0.37, 1.36, 5.32 and 20.8 s at 0.44, 0.88, 1.75 and 3.5 MB.
+   - Through the real check, that shape reaches the 90 s limit at about 7 MB, well inside the 64 MiB file limit. That is about 25 times faster than the former pattern, but not linear.
+   - The fix is the review's. `gt` starts at -1, and an opener searches only when the `>` found last lies before the end of its name: `if gt<m.end(): gt=text.find('>',m.end())`.
+   - A kept `gt` is still the first `>` at or after the opener's name end. Openers come in order, each name ending at or after the previous one's, and no `>` lies between the earlier search's start and `gt`.
+   - Each new search starts past the last `>` found, so together the searches read the text once.
+   - The Implemented entry's title and hypothesis claimed linear time for all six patterns; for this helper that held only from this fix on. Its time bound C (decision (9)(a)) missed the shape, because it puts a `>` right after every opener.
+2. **The PDF loop keeps pypdf's own cost (minor).** For a label tree with one range per page, pypdf 6.17's `get_label_from_nums` scans `/Nums` for each label. So even one read of `page_labels` takes time that grows with the square of the page count.
+   - The review measured #109's `units` at 0.89, 2.78 and 9.55 s for 2,000, 4,000 and 8,000 such pages.
+   - It measured `main`'s at 15.3 s for 500 pages and 119.5 s for 1,000. So `main`'s loop was cubic for such trees, not quadratic as decision (6) said.
+   - Read decision (6) as: reading the labels once per page multiplied the cost of one read by the page count. One read costs what pypdf takes: linear for a tree with few ranges, and quadratic for one range per page.
+   - No code changes.
+3. **One crafted shape is slower than `main` (minor).** The shape is one opener for each name class, followed by many `</`.
+   - An 8 MiB HTML source took 0.62 s on `main` and 6.05 s with #109, on 3.11.16 (the review).
+   - The helper builds each class's list of accepted closing positions by testing every `</`.
+   - The time is linear and stays under the limit.
+
+Changes:
+- src/main/private-agent/claims.ts: `strip_scripts` keeps the `>` it found while that `>` lies ahead. `gt=-1` comes before the loop, and the search becomes `if gt<m.end(): gt=text.find('>',m.end())`.
+- tests/unit/private-agent-claims.test.ts: a sixth time bound in #109's describe, "checks an HTML source holding 600,000 script openers that share one far '>' within a 20 s bound". Its input is `page + "<script".repeat(600_000) + ">"` (4.2 MB).
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On the owner's Mac:
+- **Reproduced first.** At c10a2c9 the new test was stopped at its 20 s bound (20.0 s).
+- **With the fix**, it passed in 0.78 s. The two test files gave 55 passed and 1 skipped.
+- **The helper alone, on 3.11.16**, on `'<script'` repeated and then one `>`:
+  - before the fix, using the prototype as it was at c10a2c9: 0.38, 1.39 and 5.41 s at 0.44, 0.88 and 1.75 MB;
+  - after it: 0.03, 0.06, 0.11 and 0.22 s at 0.44, 0.88, 1.75 and 3.5 MB.
+  - Openers with mixed names and one far `>` took 0.06 to 0.46 s, and openers each followed by `>` took 0.03 to 0.23 s.
+- **The review's crafted shape**, built here as one opener per class and then `</` repeated, took 0.38, 0.77, 1.51 and 3.04 s at those four sizes on 3.11.16. That is linear.
+- **Identical results.**
+  - The fixed prototype equals the shipped Python block for block. It gave zero mismatches against the former pattern on 849,616 strings, on 3.9.5, 3.11.16 and 3.12.13.
+  - The review's own differential found zero mismatches on about 14 million strings across the five helpers, on the same three versions.
+- **The PDF loop**, with one label range per page and pypdf 6.17.0 on 3.9.5, took 0.45, 1.13 and 3.40 s for 1,000, 2,000 and 4,000 pages, with the same outputs as before.
+- **The full suite** (`pnpm exec vitest run`), at a load average of about 5 to 12, passed with none failed:
+  - 199 files: 186 passed and 13 skipped;
+  - 3,737 tests: 3,651 passed and 86 skipped.
+- `pnpm typecheck` and `pnpm validate:readiness` passed. `pnpm --silent validate:build-log -- --base-ref origin/main` exited 0.
+
+Failures or blockers: The design's decision (3) and the Implemented entry's claim of linear time were wrong for `strip_scripts` at c10a2c9, as decision 1 records. This push fixes it.
+
+Limitations and non-claims:
+- A correction and one fix. Nothing is verified or released by it.
+- The PDF loop's remaining cost is pypdf's own. Nothing here bounds it for a tree with many ranges.
+- The other limitations of both entries stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on the new head, then #109's merge under the standing go-ahead.
+
+References: BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; the light review of #109 at c10a2c9, which is review data and is not committed.

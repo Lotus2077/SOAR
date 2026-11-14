@@ -47,7 +47,8 @@ This folder holds the committed, sanitized record of live trials (see
   - **Structured output is read since item 9**
     (BL-20261114-1650-research-structured-output-design). A local plan, extract or
     synthesis call whose effective thinking mode the card flags sends the body it
-    sends without a card, with only `response_format` added, as P10 measured it:
+    would send without the flag, with only `response_format` added, as P10
+    measured it:
     the role's schema under P10's name, and `strict: true` for the strict variant.
     Thinking counts as off when the attempt or the role model disables it. Index,
     a cloud role and the assists never send it. A flag changes the research

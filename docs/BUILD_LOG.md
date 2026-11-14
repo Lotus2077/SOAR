@@ -39718,3 +39718,175 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on this pull request, and its merge under the standing go-ahead.
 
 References: BL-20261109-0422-registry-run-commit-design; #91's CI run 43599953204.
+
+### BL-20261114-1711-claims-check-linear-strips-design -- 2026-11-14 -- Decided: the claims check's six other super-linear patterns become linear with the same results (decision 6 of E1-J2); the new check text adds no refusal but changes the hash of claims-checked tasks once more
+
+Status: `Proposed`
+
+Scope or hypothesis: Lane S-e1's follow-up to decision 6 of BL-20261113-0856-claims-trailing-strip-linear-design (E1-J2, #80, merged in train 2b at 83bf38c). The coordinating session gave it on 2026-11-14.
+- That decision left the check's other quadratic patterns for one follow-up pull request. docs/HANDOFF.md lists the owner question with that default under "Later owner questions", and this is that pull request.
+- The branch is `fix/claims-check-linear-strips`, from `main` at bc6c61b.
+- **Not an E1 card item.** E1's gate reads the "E1 recoverability" tests at the commit that merges the last E1 pull request, and E1-G (#97) records that set. The tests here carry their own describe name, so E1's set, #97's counts and E1's gate do not change.
+
+The audit read every regular expression and loop of `claimsLedgerCheck`'s Python at bc6c61b. It timed each candidate with scratch scripts, which are not committed, on Python 3.9.5 (the owner's Mac), 3.11.16 (the container's, runtime/private-agent/Dockerfile) and 3.12.13.
+
+Six patterns take time that grows with the square of the input on all three versions: doubling the input quadrupled the time.
+
+| | Pattern, and where it runs | Hostile input | One call on 3.11.16 |
+|---|---|---|---|
+| A | The fence strip, ``(?ms)^[ \t]*```.*?^[ \t]*```[ \t]*$``, on the report | 20,000 lines of three backticks and `x` (100 KB) | 12.0 s |
+| B | The comment strip, `(?s)<!--.*?-->`, on the report | 20,000 `<!--` (80 KB) | 5.0 s |
+| C | The script and style strip, `(?is)<(script\|style)[^>]*>.*?</\1>`, in `units` for HTML | 20,000 `<script>` (160 KB) | 9.5 s |
+| D | The tag strip, `<[^>]+>`, in `units` for HTML and for each DOCX paragraph | 20,000 `<` (20 KB) | 0.14 s |
+| E | The DOCX run join, `</w:t>\s*</w:r>\s*<w:r\b[^>]*>(?:\s*<w:rPr>.*?</w:rPr>)?\s*<w:t\b[^>]*>`, in `units` | 20,000 run breaks that each open `<w:rPr>` and never close it (480 KB of document XML) | 32.9 s |
+| F | `reader.page_labels[index]`, read once per page in `units` for PDF | 2,000 pages with a /PageLabels tree (314 KB) | 7.8 s (3.9.5 with pypdf 6.17.0) |
+
+Extrapolated on 3.11.16, one call reaches the finish-time check's 90 s limit (runner.ts) at about:
+- 275 KB for A, 340 KB for B, 490 KB for C and 500 KB for D;
+- 790 KB of document XML for E;
+- 7,000 labelled pages for F, by its 3.9.5 rate.
+
+Where each pattern can be reached:
+- A and B run on the report the model writes. The check reads it up to its 64 MiB file limit.
+- C and D run on every HTML source, and on a report that ends in `.html` or `.htm` or starts with `<`. D also runs on every DOCX paragraph.
+- E runs on DOCX sources and reports, and F on PDF ones.
+- A retained public source is capped at 64 KiB (`PUBLIC_SOURCE_MAX_BYTES`, public-sources.ts). That keeps C and D under about 1.6 s per HTML source. But a 64 KiB DOCX is a zip whose document XML can be hundreds of times larger, and PDF object streams compress page objects. A declared file source has only the 64 MiB limit.
+- No run on record is known to have failed this way.
+
+Hypothesis: linear helpers that return the same strings on every input remove these six defects and change no check result.
+
+Decisions:
+(1) **The fence strip**, `strip_fences(text)`. It splits the text at `\n` and walks the lines:
+   - A line opens a fence when, after any leading spaces and tabs, it starts with three backticks. It pairs with the first later line that is exactly three backticks between optional spaces and tabs.
+   - The pair and every line between them become one empty line, and the walk resumes after the closing line.
+   - An opening line with no later closing line ends the walk, and the rest of the text is kept as it was.
+
+   Why it returns what the former `re.sub` returned:
+   - Under `(?m)`, `^` holds at the start and after each `\n`, and `$` at the end and before each `\n`. No other character ends a line for either. So the former pattern could start only at a line start, and its closing part could match only a whole later line.
+   - Each `[ \t]*` is followed by a backtick or by `$`, and it can match neither, so giving characters back never helps. Whether a line opens or closes a fence is a property of that line alone.
+   - The lazy `.*?` took the first closing line after the opening line. The match ended before that line's `\n`, so the lines from the opening one to the closing one became one empty line.
+   - An opening line with no later closing line failed, and so did every later opening line, whose candidates are a subset.
+
+   This is the pairing that 7a.1 already mirrors in TypeScript (`normalizeResearchHeadings`, research-pipeline.ts). It is linear because the walk visits each line once, and the search for a missing closing line runs to the end once and stops.
+(2) **The comment strip**, `strip_comments(text)`. It finds `<!--`, then the first `-->` that starts at least four characters later. It removes that span and resumes after it, and it stops at an opener with no such `-->`.
+   - The lazy `.*?` took exactly that span. An opener with no later `-->` failed, and so did every later one.
+   - Each search resumes where the previous one stopped.
+(3) **The script and style strip**, `strip_scripts(text)`.
+   - It finds each opener with the former pattern's own first part, `(?is)<(script|style)`.
+   - The opening tag ends at the first `>` after the name, as `[^>]*>` required. With no such `>`, neither this opener nor any later one can match, so the scan stops.
+   - The block ends at the first closing tag after the opening tag that the former pattern's backreference accepts for that name. The removed span becomes one space, as before.
+
+   Which closing tags a name accepts is decided by the former pattern itself, run only on short strings: `<`, the name and `>`, followed by the candidate. The candidate is the `</`, as many characters as the name has, and one more. Under `(?i)` the backreference compares letter by letter, so U+017F (long s), U+0131 (dotless i) and U+0130 (capital I with dot) keep the results the former pattern gave them.
+
+   For linear time, the positions of `</` are listed once.
+   - Names that accept each other accept the same closing tags, so they share one list of accepted positions, built once with the same test.
+   - On all three versions, the 240 names that the opener can capture fall into six such classes.
+   - Each opener then takes one binary search.
+(4) **The tag strip**, `strip_tags(text)`. At each `<` it finds the first later `>`:
+   - if that `>` is the next character, nothing is removed there, and the scan moves to the next `<`;
+   - otherwise the span becomes one space, and the scan resumes after it;
+   - a `<` with no later `>` ends the scan.
+
+   The former `[^>]+` could stop only at the first `>`, and it needed at least one character before it. A `<` with no later `>` failed, and so did every later one.
+(5) **The DOCX run join**, `join_runs(chunk)`. The former pattern's three fixed parts stay regular expressions, each matched at a known position, with `re.S` as before:
+   - the head, `</w:t>\s*</w:r>\s*<w:r\b[^>]*>`;
+   - the optional group's opening, `\s*<w:rPr>`;
+   - the tail, `\s*<w:t\b[^>]*>`.
+
+   The lazy `.*?</w:rPr>` becomes a list, built once, of each `</w:rPr>` after which the tail matches, with that tail's end. At each `</w:t>`, the head must match. If the group's opening follows, the first listed `</w:rPr>` at or after it ends the match at its tail's end. Otherwise the tail must match right after the head.
+
+   Why it returns the same:
+   - In the head and the tail, every `\s*` and `[^>]*` is followed by a character it cannot match (`<` or `>`), so giving characters back never helps.
+   - The former pattern tried the optional group first, with its lazy part in the order of the `</w:rPr>` positions, and then the pattern without the group. The join does the same.
+
+   It is linear because the head, opening and tail matches read separate stretches of the text, and each `</w:t>` takes one binary search. The one overlap is a `</w:t>` that ends exactly at a head's `>`, which is read at most twice.
+(6) **PDF page labels.** pypdf's `page_labels` builds every page's label on each read. Reading it once per page therefore took time that grows with the square of the page count.
+   - The loop now reads it once, at the first page, which is where the former loop first read it. It indexes that list for every page.
+   - A read that raises leaves every page with its number, as when every read raised.
+
+   This returns the same while `page_labels` gives the same list, or raises, on every read during the loop. It reads only document objects, which pypdf parses and caches by reference.
+
+   One difference is visible. pypdf logs a warning for each label it cannot build, so a document whose label tree logs warnings now prints them once per page, rather than once per page for every page.
+   - The finish-time check keeps only the exit code and stdout (runner.ts).
+   - The `check_claims` tool returns the first 2,048 characters of stderr to the model, so the model can see fewer repeated warning lines there.
+(7) **Two constants.** Each is written with `String.raw` and interpolated into the check. The tests run them rather than a typed copy, as with `CLAIMS_SECTION_RULE_PY` (E1-J2).
+   - `CLAIMS_REPORT_STRIP_PY` holds (1) and (2). The check's body line becomes `body=strip_comments(strip_fences(report))`.
+   - `CLAIMS_MARKUP_STRIP_PY` holds (3), (4) and (5). The HTML and DOCX lines of `units` call them in the former order.
+
+   (6) is a change to `units` itself. Inside `String.raw` the backtick is written `chr(96)`, since that template cannot hold one.
+(8) **What the new text changes.** As E1-J2's decision (3) found, rechecked at bc6c61b:
+   - the phase identity hashes each check's Python (`sessionPhaseIdentity`, session.ts);
+   - the same public-research task gets a different `taskJobSha256` before and after the merge, a second split after E1-J2's;
+   - every unfinished desktop task is already refused after any main-process build (`general_task_configuration_changed`);
+   - the local screen's reviewed-source freeze moves;
+   - no harness loop may span the merge.
+
+   Nothing else is refused. 7a.1's `RESEARCH_TOLERANCE_POLICY.synthesisHeadings` (research-contract.ts) describes the fence and comment rules. Those rules do not change, and neither do the policy or its TypeScript mirror.
+(9) **The tests**, in tests/unit/private-agent-claims.test.ts under their own describe:
+   - (a) **A time bound for each of A to E**, through the real check under the machine's python3. Each input is about 1 to 2.5 MB of hostile text in an otherwise valid workspace, and the check must pass within 20 s. By the measured rates, each input takes the former check at least about six minutes on 3.11.16; the new one takes well under a second.
+   - (b) **A step count for F**, which needs no pypdf. A stand-in `pypdf` module, placed in `sys.modules` before the check runs, counts label builds. 1,000 pages must cost 1,000 builds, where the former loop cost 1,000,000.
+   - (c) **A differential test for each helper**, inside Python. It compares the helper with the former pattern on every sequence of up to four to eight tokens, depending on the helper, from a token set that covers its edge cases, and on seeded random documents. It prints only a summary.
+   - (d) **Fixed results**, read from TypeScript. They catch an escaping slip that would break both sides alike.
+   - (e) **The source.** The check contains both constants, defines each function once, and no longer contains the former patterns.
+
+   7a.1's headings test (tests/unit/private-agent-research-headings.test.ts) pins the former body line and runs a typed copy of it. As E1-J2's decision (5) did, its guard asserts the new constant instead, and `claimsPresent` runs it.
+(10) **Reported, not changed:**
+   - **`html.unescape` and long numbers.** In `units`, `html.unescape` turns a decimal character reference into a number. On 3.11.16 and 3.12.13, more than 4,300 digits raise `ValueError`, which is Python's integer string limit. So an HTML source, or a DOCX paragraph, holding `&#` and 4,301 digits makes the whole check fail with `ledger_invalid`. On 3.9.5 the conversion is quadratic instead. Fixing it changes a check result, so it is proposed as its own follow-up (Next gate).
+   - **NFKC normalization** (`norm`) is quadratic on a long run of combining marks in descending class order on 3.9.5 and 3.12.13: 80,000 marks took 3.4 s. On the container's 3.11.16 it is linear: 4,000,000 marks took 0.12 s, with results equal on all three versions. Production is unaffected, so nothing changes here.
+   - **Per-claim normalization.** `locate` normalizes the cited source's units again for every claim, up to 40 times. That is linear, with a factor of up to 40.
+   - **Outside the check's code:** pypdf's own parsing and text extraction, and the memory a DOCX zip can expand to.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/claims.ts: the two constants and their use, and `units`' single label read.
+- tests/unit/private-agent-claims.test.ts: the tests of decision (9).
+- tests/unit/private-agent-research-headings.test.ts: decision (9)'s update.
+- docs/BUILD_LOG.md.
+
+Evidence: On the owner's Mac, with scratch scripts that are not committed:
+- **The timings above.** On all three versions, doubling each input from 5,000 to 10,000 to 20,000 units quadrupled each time. For example, A took 0.75 s, 3.00 s and 12.01 s on 3.11.16.
+- **A prototype of decisions (1) to (5)** gave zero mismatches against the former patterns on 3.9.5, 3.11.16 and 3.12.13. The inputs, with the number the former pattern changed:
+
+  | Helper | Strings compared | Changed by the former pattern |
+  |---|---|---|
+  | `strip_fences` | 335,593 | 30,801 |
+  | `strip_comments` | 305,593 | 58,330 |
+  | `strip_tags` | 2,021,539 | 930,752 |
+  | `strip_scripts` | 849,616 | 56,722 |
+  | `join_runs` | 147,151 | 18,995 |
+
+- **Twenty-two mutants of that prototype** were run through the same comparison.
+  - The 16 that change behavior each failed it, with 1,061 to 1,359,119 mismatches.
+  - The other 6 cannot change any output, and they passed:
+    - three start a search at earlier positions that cannot hold what they seek;
+    - one groups names by a finer key;
+    - one uses `bisect_right` on keys that never tie;
+    - one keeps scanning openers that can no longer match, instead of stopping.
+- **Linear time.** On hostile inputs of 0.5, 1, 2 and 4 MB, the prototype's time doubled with the input.
+  - At 4 MB it took 0.09 s to 0.30 s on 3.11.16, and 0.13 s to 0.51 s on 3.9.5. That covers A, C and one adversarial variant of C, and E and two adversarial variants of E.
+  - B, D and C's input without `>` took under 0.01 s.
+- **Decision (6).** pypdf 6.17.0 is installed for 3.9.5 outside `-I`. With it, the former and new loops gave equal `units` output on ten label trees: none; roman, then prefixed decimal; an empty prefix; a non-dictionary; an unknown style; a bad start key; a tree whose comparison raises; `/Kids`; `/Kids` without `/Limits`; and a roman start at 3999.
+  - On four pages, the warning lines fell from 16 to 4, or from 32 to 8 for one tree.
+  - On 2,000 labelled pages, the former loop took 7.76 s and the new one 0.59 s.
+- **The six classes.** On all three versions, the 240 names that `(?is)<(script|style)` can capture form six classes under the backreference. Acceptance is symmetric within each class. The names are built from every code point that matches each letter: the ASCII letters, plus U+0130 and U+0131 for `i`, and U+017F for `s`.
+- **`html.unescape`.** `&#` with 4,301 digits raised `ValueError` on 3.11.16 and 3.12.13; 4,300 digits did not. On 3.9.5, 200,000 digits took 0.33 s.
+  - `main`'s check text, run under each version on an HTML source holding such a reference and a valid ledger and report, passed on 3.9.5.
+  - On 3.11.16 and 3.12.13 it failed with `ledger_invalid`.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. The prototype is not the shipped code, and the implementation entry will record the shipped constants' own runs.
+- The timings come from the owner's Mac, and the thresholds are extrapolations.
+- Equality on every input rests on the arguments in decisions (1) to (6). The differential runs cover only their own inputs.
+- Decision (6)'s equality assumes that pypdf's `page_labels` gives the same result on every read during the loop. The container's pypdf is 6.18.0 (runtime/private-agent/requirements.txt), which was not run.
+- Nothing measures how often real reports or sources contain such inputs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The implementation and its `Implemented` entry.
+2. The coordinating session's light review, and CI green.
+3. The merge go-ahead, and a re-stamp if another entry reaches `main` first.
+4. The coordinating session's call on decision (10)'s `html.unescape` follow-up. Proposed: keep a character reference whose number cannot be converted as written, in its own pull request.
+
+References: BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261113-0857-claims-trailing-strip-linear-implemented; BL-20261109-0447-research-tolerance-design; E1-G (#97), not yet on `main`.

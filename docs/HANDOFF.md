@@ -135,9 +135,11 @@ tests/helpers/research-protocol-pin.ts.
 Follow the order in review §5.6. Each step is done when its condition holds.
 
 1. **Backlog items 1-5 and item 10's assist-purpose exception.** Done on 2026-11-08.
-2. **E0** from the owner's Mac, at zero fee, per its card. Done: a serving card that
-   records the alias, engine version and context, never the address, with every stage
-   bound re-derived from it or, for the delta check, matched to 2026-11-04.
+2. **E0** from the owner's Mac, at zero fee, per its card. Done when both hold:
+   - a serving card records the alias, engine version and context, never the address,
+     with every stage bound re-derived from it or, for the delta check, matched to
+     2026-11-04;
+   - #57's resolution records whether the judge reached its level.
    - Done: the card (#87) and P10-align (#95).
    - The owner's remaining steps, in order:
      1. Produce the current-format r3 research index with one zero-fee local research
@@ -149,22 +151,68 @@ Follow the order in review §5.6. Each step is done when its condition holds.
      3. The probes, per issue #57: P1 alone first, checked by hand; then P1, P10, P11
         and the adapter probe in one invocation after `pnpm probe:export-schemas`;
         then `pnpm probe:assess`; then the card writer with the `--compare-*` flags.
-   - No PR that changes `researchProtocolSha256()` may merge between the export and
-     the assessment; 7b.2, 7a.2 and item 9 will change it.
+   - The card and #57 also require steps this list leaves out:
+     - the planner fixture's run, after the r3 pin;
+     - an extractor fixture, which has no script yet; an amendment to the card must
+       name its command first;
+     - the judge's harvest, a step of #91's protocol that comes before the labelling,
+       then its pin and run;
+     - one registry row per run; registry-row.py has no mode for probe or fixture runs
+       yet;
+     - a `Verified` entry with the serving card.
+   - Open before E0, each the owner's to answer:
+     - when 7b.2 (#102) merges:
+       - before the export, and then the card's precondition hash is amended;
+       - or after the assessment, and then a structured-output card needs the full
+         re-probe below;
+     - for the labeller: the provider, the model, the public API host, the key's
+       variable name (never its value), the tool and the envelope line, all of which an
+       amendment to the card must name (#91);
+     - which brief the planner fixture pins, and whether its pinned manifest is
+       committed before the planner run or with the results;
+     - the reply contract in `.env.local`; under `flash_next_v1`, every brokered call
+       needs the token-admission pair;
+     - whether the one probe invocation runs the four probes or P1 to P11;
+     - whether E1's held gate covers the r3 run (#97).
+   - No PR that changes the default value of `researchProtocolSha256()` may merge
+     between the export and the assessment.
+     - Of the pending items, only 7b.2 (#102) moves the default. Its pin moves the
+       hash to 7100b7a2…, and 7a.2's (#103) leaves 505c385a… unchanged.
+     - The rest is by the lane plan (plan.md §0 change 11) and the designs, not yet by
+       code:
+       - item 9 is to move the hash only through a non-default serving card, as 7a.2
+         does;
+       - 7b.3 only when a card is set;
+       - 10.b only when an assist is configured;
+       - 8.2b never.
+     - If a default-hash change lands after the assessment, a structured-output card needs a full
+       re-probe: a new export, then P1, P10, P11 and the adapter probe in one
+       invocation, then the assessment and a new card. Re-running P10 alone is not
+       enough.
 3. **E1**, the recoverability tests with no live model. Every E1 test and fix PR is
-   merged. Next is E1-G, the `Verified` entry that maps the gate clauses to tests.
-   Under #88's default, E1-G records the CI clauses `Verified` and holds the gate, with
-   no E2 to E6 live run, until the owner's Docker run of E1-L's sandbox suite is
-   recorded `Verified`. Done: its gate in review §5.6 passes.
+   merged. Progress, 2026-11-14: E1-G,
+   BL-20261114-2306-e1-recoverability-gate-ci-verified, records the four gate clauses
+   `Verified` in CI and maps each one to named tests. Under #88's default the gate
+   stays held, with no E2 to E6 live run and no harness loop, until the owner's Docker
+   run of E1-L's sandbox suite (tests/integration/private-agent-sandbox.test.ts; the
+   command and image are in that entry) is recorded `Verified`. Whether the hold also
+   covers E0's r3 run (step 2) is an open owner question in that entry. Done: its gate
+   in review §5.6 passes.
 4. **E5** on the existing local routes in the owner's desktop build, with item 2's
    verdict capture. Not started. Ask the owner about the P11 interim (decision 9) and
    the box checklist (PLAN.md D5); both gate labelled work only.
 5. **E2 and E6** (cards #62 and #54), backlog items 6-11, and the start of item 12.
-   - Done: 6.1, 6.2, 6.3, 7a.1, 7b.1, 7c, 7d.A, 7d.B, 8.2a, 10.a, 11.1, 11.2, 11.3a
-     and 11.3b.
-   - Remaining, as the entries name them: 7a.2, 7b.2, 7b.3, 7d.C, 8.1, 8.2b, item 9,
-     10.b, 11.4, the part 5 launcher (11.5) and RA (the assist receipt fields). The
-     lane plan puts item 9 last in S-pipe's sequence, after 7b.2 and 7a.2.
+   - Done: 6.1, 6.2, 6.3, 7a.1, 7b.1, 7c, 7d.A, 7d.B, 7d.C (#99, merged after §1's
+     snapshot), 8.2a, 10.a, 11.1, 11.2, 11.3a and 11.3b.
+   - Remaining, as the entries name them: 7a.2, 7b.2, 7b.3, 8.1, 8.2b, item 9, 10.b,
+     11.4, the part 5 launcher (11.5) and RA (the assist receipt fields). The lane plan
+     puts item 9 last in S-pipe's sequence, after 7b.2 and 7a.2.
+   - Merge order, as the orchestrating session decided on 2026-11-14 (not the owner):
+     - While 10.b waits on the scrubber gate of
+       BL-20261113-0925-correction-assist-core-rereview, 7a.2 and then item 9 may merge
+       before 10.b. 10.b merges `main` in afterwards.
+     - serving-card-flags.ts keeps the order 7a.2, 9, 8.2b, 7b.3.
+     - 7c's fallback column moves from RA into 11.4.
    - E2 and E6 have not run, and item 12 has not started.
 6. **E3** waits as before: items 6-11 done (10.b and item 11 among them), decisions 6
    and 11 made, and its card (#63) committed, naming the provider and D's call
@@ -203,7 +251,9 @@ Follow the order in review §5.6. Each step is done when its condition holds.
 
 ### 7. Known limits
 
-- Nothing merged since 2026-11-07 is `Verified`; the last `Verified` entry is
+- Of the work merged since 2026-11-07, only E1's gate clauses are `Verified`, and only
+  in CI (BL-20261114-2306-e1-recoverability-gate-ci-verified); E1's gate itself is
+  held. The last `Verified` entry before it, and the last Docker-verified one, is
   BL-20261107-1111-stop-bricking-tasks-docker-suite-verified. No live, Docker or paid
   run has happened since 2026-11-07, and the approved cloud labelling has not run.
 - The harness source-freeze digest moved with every code merge from #85 to #93 (#87

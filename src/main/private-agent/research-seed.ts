@@ -8,6 +8,7 @@ import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSh
 import { RESEARCH_FILES } from "./research-contract";
 import { validateReadyResearchPacket } from "./research-coverage";
 import { ResearchInputSchema, ResearchProducerSchema, validateResearchProducer } from "./research-producer";
+import { DEFAULT_RESEARCH_ROLE_POLICY, ResearchRolePolicySchema, type ResearchRolePolicy } from "./research-roles";
 import type { SessionFile } from "./session";
 
 /**
@@ -27,10 +28,14 @@ export const ResearchSeedSchema = z.object({
   producer: ResearchProducerSchema,
 }).strict();
 export type ResearchSeed = z.infer<typeof ResearchSeedSchema>;
-/** The source run's pipeline block, carried into the seeded run's freeze so a registry row still names the pipeline and its planner. */
+/**
+ * The source run's pipeline block, carried into the seeded run's freeze so a registry row still names the pipeline and its planner.
+ * 7a.2 (BL-20261114-1346-research-role-policy-design): `roles` is the role policy a non-default serving card set, present only then;
+ * the block's protocolSha256 is computed with it.
+ */
 export const PipelineFreezeSchema = z.object({ name: z.literal("research"), version: z.number().int().positive(), protocolSha256: sha256Schema,
   budget: z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict(),
-  planner: z.enum(["cloud", "local"]), writer: z.literal("local") }).strict();
+  planner: z.enum(["cloud", "local"]), writer: z.literal("local"), roles: ResearchRolePolicySchema.optional() }).strict();
 export type PipelineFreeze = z.infer<typeof PipelineFreezeSchema>;
 
 function insidePath(path: string, base: string): string {
@@ -61,7 +66,9 @@ export function loadResearchSeed(runDirectory: string, expected: { jobSha256: st
   const parsedPipeline = PipelineFreezeSchema.safeParse(freeze.pipeline);
   if (!parsedPipeline.success) throw new Error("research_seed_no_pipeline");
   const pipeline = parsedPipeline.data;
-  if (pipeline.version !== RESEARCH_PIPELINE_VERSION || pipeline.protocolSha256 !== researchProtocolSha256(pipeline.budget) || canonical(pipeline.budget) !== canonical(RESEARCH_PIPELINE_BUDGET)) throw new Error("research_seed_protocol_mismatch");
+  // 7a.2: the source's protocol is recomputed under the role policy it recorded; the seeding driver compares that policy with its own.
+  if (pipeline.version !== RESEARCH_PIPELINE_VERSION || pipeline.protocolSha256 !== researchProtocolSha256(pipeline.budget, pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY) ||
+    canonical(pipeline.budget) !== canonical(RESEARCH_PIPELINE_BUDGET)) throw new Error("research_seed_protocol_mismatch");
   const jobId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u).parse(freeze.jobId);
   const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });
   let events: Record<string, unknown>[], receipts: unknown[];
@@ -142,6 +149,14 @@ export function researchTransferStatus(runDirectory: string): { snapshotSha256: 
 export function researchTransferSnapshot(runDirectory: string): string | null { return researchTransferStatus(runDirectory).snapshotSha256; }
 /** Whether a run's ledger holds a research transfer the loop can seed from (the stage completed). */
 export function researchTransferPresent(runDirectory: string): boolean { return researchTransferSnapshot(runDirectory) !== null; }
+
+/**
+ * 7a.2 (BL-20261114-1346-research-role-policy-design): a seeded run writes from a packet read under a role policy, which is part of the
+ * protocol, so the seeding run's own policy (the default without a card) must equal the one its source recorded (the default when absent).
+ */
+export function assertSeedRolePolicy(pipeline: Pick<PipelineFreeze, "roles">, roles: ResearchRolePolicy | undefined): void {
+  if (canonical(pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY) !== canonical(roles ?? DEFAULT_RESEARCH_ROLE_POLICY)) throw new Error("research_seed_protocol_mismatch");
+}
 
 /** A seeded run's freeze carries the source's pipeline block and names the seed, so rows keep the pipeline columns and the lineage is one hop. */
 export function seededPipelineFreeze(pipeline: PipelineFreeze, seed: ResearchSeed): PipelineFreeze & { seededFrom: string } {

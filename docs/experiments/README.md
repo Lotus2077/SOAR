@@ -33,9 +33,17 @@ This folder holds the committed, sanitized record of live trials (see
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
   - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 7(a) part 2 for caps and
-    thinking, 9 for structured output, 8 for K and 7(b) for admission. Until then,
-    adopt an all-default card or leave the pair unset.
+    refused until the backlog item that uses it merges: 9 for structured output, 8
+    for K and 7(b) for admission. Until then, adopt a card that keeps those
+    values at their defaults, or leave the pair unset.
+  - **Caps and thinking are read since 7a.2** (BL-20261114-1346-research-role-policy-design).
+    The research stage sends each local role's attempts the card's caps and
+    thinking: attempt 1 is a role's first call, attempt 2 its repair or second
+    call. A cloud planner or synthesiser keeps today's values. The run is refused
+    before any request (`research_role_policy_invalid`) when a cap exceeds its role
+    model's limit, or when a synthesis attempt's length ceiling falls below 100
+    words. A non-default policy changes the research protocol hash, the session
+    identity and freeze.json's pipeline block. Without a card, nothing changes.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and

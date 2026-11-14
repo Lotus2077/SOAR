@@ -14,6 +14,7 @@ import { diagnosticRetention, digest, restrictedContext } from "../../src/main/p
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -194,6 +195,23 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(evidence).toContain(RESEARCH_FALLBACK_POLICY.skeleton.opening);
     const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
     expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 2, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
+  });
+  it("7a.2: the identity binds a non-default role policy, so a resume under another card drifts; the default equals no card (BL-20261114-1346-research-role-policy-design)", async () => {
+    // Every cap fits the fixture's 4,096-token role models, so the policy is sent exactly.
+    const card = (extract: [number, number]): ResearchRolePolicy => { const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy;
+      roles.plan.maxOutputTokens = [4096, 4096]; roles.synthesis.maxOutputTokens = [4096, 4096]; roles.extract.maxOutputTokens = extract; return roles; };
+    const f = await fixture(), runs: Run[] = [], first = options(f, "job-card", runs); first.research = { ...first.research!, roles: card([1024, 2048]) };
+    expect(await new GeneralAgentSession(first).run()).toMatchObject({ status: "submitted" });
+    expect(f.bodies.filter(body => body.system.startsWith("You extract")).length).toBeGreaterThan(0);
+    const other = options(f, "job-card", runs); other.research = { ...other.research!, roles: card([1536, 2048]) };
+    expect(await new GeneralAgentSession(other).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    const same = options(f, "job-card", runs); same.research = { ...same.research!, roles: card([1024, 2048]) };
+    expect(await new GeneralAgentSession(same).run()).toMatchObject({ status: "submitted" });
+    // Without a card and with an all-default card, the job is the same session.
+    const bare = options(f, "job-default", runs);
+    expect(await new GeneralAgentSession(bare).run()).toMatchObject({ status: "submitted" });
+    const defaulted = options(f, "job-default", runs); defaulted.research = { ...defaulted.research!, roles: structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy };
+    expect(await new GeneralAgentSession(defaulted).run()).toMatchObject({ status: "submitted" });
   });
   it("refuses a cloud-shaped planner on a private lineage at the broker, stops the stage with the denial code, and dispatches nothing to it", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-private", runs, "private-model");

@@ -22,7 +22,7 @@ import { claimsReportPath } from "../src/main/private-agent/host-flags";
 import { withDocumentReview } from "../src/main/private-agent/document-review";
 import { loadRepairDirectory, repairMatchesRun, repairSeedMatches, withRepair } from "../src/main/private-agent/repair";
 import { DECK_CHECK_VERSION, deckArtifacts, withDeckValidity } from "../src/main/private-agent/ooxml";
-import { loadResearchSeed, seededPipelineFreeze } from "../src/main/private-agent/research-seed";
+import { assertSeedRolePolicy, loadResearchSeed, seededPipelineFreeze } from "../src/main/private-agent/research-seed";
 import { assertRunDirectoryIgnored, createDiagnosticsFileSink } from "../src/main/private-agent/research-diagnostics";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
@@ -31,6 +31,7 @@ import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX
 import { createResearchInput } from "../src/main/private-agent/research-producer";
 import { researchPresentationPolicySha256, researchPresentationIdentity } from "../src/main/private-agent/research-presentation";
 import { loadServingCard, servingCardExpectation, servingCardFreeze, servingCardRefusal, type LoadedServingCard } from "../src/main/private-agent/serving-card";
+import { nonDefaultRoleParameters, type ResearchRolePolicy } from "../src/main/private-agent/research-roles";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
 /** Cap on one assembled reply from the owned model. */
@@ -230,10 +231,19 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
 }
 /**
  * SC: the adopted serving card the operator's env pair selects, read and checked before any run directory, database or
- * request exists; undefined without the pair. A refusal throws ServingCardError. Nothing consumes its policy yet.
+ * request exists; undefined without the pair. A refusal throws ServingCardError. Since 7a.2 the research stage reads its role
+ * policy (the caps and thinking); nothing reads its other values yet.
  */
 export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): LoadedServingCard | undefined {
   return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
+}
+/**
+ * freeze.json's pipeline block for a run with the reading stage: the protocol under the card's role policy, which the block names
+ * only when it is not the default (7a.2, BL-20261114-1346-research-role-policy-design), so a run without a card records what it did.
+ */
+export function researchPipelineFreeze(planner: "cloud" | "local", roles?: ResearchRolePolicy) {
+  return { name: "research" as const, version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles), budget: RESEARCH_PIPELINE_BUDGET,
+    planner, writer: "local" as const, ...(roles && nonDefaultRoleParameters(roles).length ? { roles } : {}) };
 }
 /**
  * The CLI's one failure line. A serving-card refusal adds its fixed code and allowlisted key path; every other failure prints
@@ -391,6 +401,11 @@ configOptions?: LoadConfigOptions) {
   if (config.providerMode !== "local" || config.vllm.costPolicy !== "local_zero_cost") throw new Error("local_screen_provider_not_admitted");
   // SC: a refused card stops the run before the output directory, the database or any request exists, so a loop stays resumable.
   const servingCard = buildLocalScreenServingCard(config);
+  // 7a.2 (BL-20261114-1346-research-role-policy-design): the card's role policy reaches the reading stage and, when it is not the
+  // default, the freeze's pipeline block. A seeded run writes from a packet read under a policy, so its source must have read under
+  // this run's policy (the default without a card); refused, like the card, before anything is created.
+  const roles = servingCard?.policy.roles;
+  if (seed) assertSeedRolePolicy(seed.pipeline, roles);
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
   if (input.retainDiagnostics) assertRunDirectoryIgnored(directory);
@@ -469,7 +484,7 @@ configOptions?: LoadConfigOptions) {
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
       profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}), arm: cloud ? cloud.freeze : { arm: "local" as const },
-      ...(pipeline ? { pipeline: { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET, planner: cloud ? "cloud" : "local", writer: "local" } } : {}),
+      ...(pipeline ? { pipeline: researchPipelineFreeze(cloud ? "cloud" : "local", roles) } : {}),
       ...(diagnostics ? { diagnosticsRetained: true } : {}),
       ...(pipeline || seed ? { researchPresentationPolicySha256: researchPresentationPolicySha256() } : {}),
       ...(pipeline && !publicPhase ? { researchInput: createResearchInput(privatePhase.contract.goal,
@@ -492,7 +507,7 @@ configOptions?: LoadConfigOptions) {
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
       ...(pipeline ? { research: { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, localModelConfig, jobId, contextId),
         planner: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId), synthesiser: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId) }),
-        ...(diagnostics ? { diagnostics } : {}) } } : {}),
+        ...(diagnostics ? { diagnostics } : {}), ...(roles ? { roles } : {}) } } : {}),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;

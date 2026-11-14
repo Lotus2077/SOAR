@@ -9,7 +9,10 @@ import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
 import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
 import { DEFAULT_SERVING_POLICY, ServingCardError, servingCardExpectation, servingCardFreeze } from "../../src/main/private-agent/serving-card";
-import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
+import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenSourceFreeze, researchPipelineFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
+import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import { PipelineFreezeSchema } from "../../src/main/private-agent/research-seed";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -134,5 +137,14 @@ describe("shared harness local role configuration", () => {
     for (const error of [tampered, new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json")]) {
       expect(localScreenFailureLine(error)).not.toContain("/synthetic"); expect(localScreenFailureLine(error)).not.toContain("parameter");
     }
+  });
+  it("7a.2: the freeze's pipeline block is the pre-7a.2 block without a card, and names a non-default card's policy with the protocol computed under it (BL-20261114-1346-research-role-policy-design)", () => {
+    const before = { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET, planner: "local", writer: "local" };
+    expect(canonical(researchPipelineFreeze("local"))).toBe(canonical(before));
+    expect(canonical(researchPipelineFreeze("cloud", structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy))).toBe(canonical({ ...before, planner: "cloud" }));
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy; roles.synthesis.thinking = ["disabled", "model"];
+    const block = researchPipelineFreeze("local", roles);
+    expect(block).toEqual({ ...before, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles), roles });
+    expect(block.protocolSha256).not.toBe(before.protocolSha256); expect(PipelineFreezeSchema.parse(block)).toEqual(block);
   });
 });

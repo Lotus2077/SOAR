@@ -9,7 +9,8 @@ import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import { createResearchInput, createResearchProducer, validateResearchProducer, type ResearchProducer } from "../../src/main/private-agent/research-producer";
-import { loadResearchSeed, researchTransferPresent, researchTransferSnapshot, researchTransferStatus, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
+import { assertSeedRolePolicy, loadResearchSeed, researchTransferPresent, researchTransferSnapshot, researchTransferStatus, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { RESEARCH_TRANSFER_CHECK_ID, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionFile, type SessionPhase } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
@@ -324,6 +325,33 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const forcedProducer = createResearchProducer({ ...localInput, files: forced.files, receipts: forced.receipts });
     expect(forcedProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", "unknown"], ["synthesise", "failed"]]);
     expect(loadResearchSeed(sourceRun({ base: forced, producer: () => forcedProducer }), task).seed.producer.receipts).toEqual(forcedProducer.receipts);
+  });
+  it("7a.2: a source read under a non-default role policy seeds under its recorded protocol, and only a run under the same policy may seed from it (BL-20261114-1346-research-role-policy-design)", async () => {
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy; roles.extract.maxOutputTokens = [1024, 2048]; roles.plan.thinking = ["disabled", "model"];
+    const rows: Record<string, unknown>[] = [];
+    const request = async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body) as { messages: { content: string }[] }, content = researchV4Reply(body.messages[0]!.content, body.messages[1]!.content);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      rows.push({ id: `receipt-${rows.length}`, jobId, contextId, contextSha256: h("3"), packetSha256: digest(input.body), destinationId: "fixture", destinationSha256: h("4"), purpose: input.purpose,
+        policyRevision: 0, committedAt: rows.length + 1, reservedFeeMicrousd: 0, status: "settled", feeMicrousd: settle(bytes), responseSha256: digest(bytes), scan: { status: "not_required_for_synthetic_local_test" } });
+      return { bytes, receipt: rows.at(-1) };
+    };
+    const config = { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium" as const, inputUsdPerMillion: 0, outputUsdPerMillion: 0 };
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, jobId, contextId);
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal, record() {}, roles });
+    expect(outcome.status).toBe("completed"); expect(outcome.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles));
+    const recorded = { ...pipeline(), protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles), roles };
+    const seed = loadResearchSeed(sourceRun({ base: { files: outcome.files, receipts: rows }, freeze: { pipeline: recorded } }), task);
+    expect(seed.pipeline.roles).toEqual(roles); expect(() => assertSeedRolePolicy(seed.pipeline, roles)).not.toThrow();
+    // A seeding run without a card, or under another card, writes under another protocol.
+    expect(() => assertSeedRolePolicy(seed.pipeline, undefined)).toThrow("research_seed_protocol_mismatch");
+    expect(() => assertSeedRolePolicy(seed.pipeline, { ...roles, extract: { ...roles.extract, maxOutputTokens: [1536, 2048] } })).toThrow("research_seed_protocol_mismatch");
+    // A recorded policy the protocol does not account for is refused by the loader itself.
+    expect(() => loadResearchSeed(sourceRun({ base: { files: outcome.files, receipts: rows }, freeze: { pipeline: { ...pipeline(), roles } } }), task)).toThrow("research_seed_protocol_mismatch");
+    // A source read without a card seeds only a run without one, or under an all-default card.
+    const plain = loadResearchSeed(sourceRun(), task);
+    expect(() => assertSeedRolePolicy(plain.pipeline, undefined)).not.toThrow(); expect(() => assertSeedRolePolicy(plain.pipeline, structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy)).not.toThrow();
+    expect(() => assertSeedRolePolicy(plain.pipeline, roles)).toThrow("research_seed_protocol_mismatch");
   });
   it("uses the same production transfer path for a loaded seed and a freshly generated packet", () => {
     const base: SessionPhase = { files: researchV4Sources().map(({ path, bytes }) => ({ path, bytes })), checks: [{ id: "c", python: "pass" }],

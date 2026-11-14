@@ -38462,3 +38462,93 @@ Next gate: The implementation with deterministic tests and its `Implemented` ent
 - The 120 s wait before SIGKILL on an owner's stop, and the cap of 4 re-invocations per loop. Default: these values.
 
 References: BL-20261101-0036-planner-diagnostic-result; BL-20261101-0135-h5-held-closure-supervision; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261109-0422-registry-run-commit-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; issue #63; .soar/next-milestones plan item 11.5.
+
+### BL-20261114-1307-experiment-launcher-implemented -- 2026-11-14 -- Plan 11.5 implemented: the supervised experiment launcher, tested on fakes for the clock, the children, the metrics and git
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261114-1250-experiment-launcher-design (plan 11.5; backlog item 11; issue #63) as decided there:
+- scripts/experiment-launcher.ts, with `pnpm launcher`;
+- its deterministic tests;
+- docs/experiments/LAUNCHER.md.
+
+Implemented is not Verified: no batch has run under the launcher, and the first E3 batch is what verifies it. Nothing here ran a model, an endpoint, Docker or a paid call.
+
+Decisions: These are as the design proposed:
+- the design's decisions (1) to (10);
+- the six batch rules (HARN-26);
+- the refusals;
+- the supervision bounds of 120 s and 10 s;
+- the four resumable loop stops, and the cap of 4 re-invocations.
+
+These implementation choices go beyond the design:
+- **(a) The window a lost loop stopped in.** For a loop lost with the launcher, its "later window" is computed from the window it was admitted in, not from the time of the restart. A restart inside that window waits for a later one; a restart in a later window resumes it. A first version used the restart time, and the restart test caught it.
+- **(b) Which loop record counts.** A loop's outcome is read from `loop.json` only when the invocation wrote a new record: its `finishedAt` differs from the value the launcher recorded at the admission (`priorFinishedAt` in `run_admitted`). Otherwise the outcome comes from the loop's failure line. So a locked or refused invocation never re-invokes on an older record's resumable stop. A loop killed or signalled before it saved resumes like an interrupted one, unless its failure line is `loop_locked` or `loop_terminal`.
+- **(c) A re-invoked loop's cap.** For a loop invoked again, the next run's cap is what is left of its own cap after its spend so far.
+- **(d) Idle results.** Consecutive identical idle-check results are recorded once; each post-run quiescence check is recorded.
+- **(e) A leading `--`.** One leading `--` on the command line is dropped, since `pnpm launcher -- ...` passes it on.
+- **(f) The production child.**
+  - Each run is `node --import tsx <script> <argv>` from the repository root, detached into its own process group, with its output appended to `runs/<id>.<attempt>.out` and `.err` in the state directory.
+  - Forwarded signals and SIGKILL go to the group.
+  - The inhibitor is `caffeinate -i -w <the launcher's pid>` on macOS. Elsewhere there is none, recorded as `none`.
+  - `/metrics` is read with a 10 s timeout, and a redirect counts as unreadable.
+- **(g) The lock file.** The launcher reuses part 3b's `acquireLoopLock` on its state directory, so the lock file there is named `loop.lock`.
+
+Changes:
+- scripts/experiment-launcher.ts (new);
+- tests/unit/experiment-launcher.test.ts (new, 15 tests);
+- docs/experiments/LAUNCHER.md (new);
+- docs/experiments/README.md: a pointer, and the launcher's state directory among the ignored records;
+- package.json: the `launcher` script.
+
+No source-freeze file, protocol, driver, loop, broker, store or registry file changes, so neither the runtime hash nor `researchProtocolSha256()` moves.
+
+Evidence:
+- **The launcher's tests.** tests/unit/experiment-launcher.test.ts passes 15 of 15. On fakes, they show:
+  - the strict queue parse, the command line, and the metrics parse;
+  - the exposure formula over real ledgers: settled, superseded, failed, unknown and committed rows; moved-aside and void directories; `loop.json`'s total; refusal of unreadable rows, a freeze without a ledger, a symbolic link, and a torn `loop.json`;
+  - every refusal;
+  - order and windows, including a run that outlasts its window uncut;
+  - the three idle observations and their spacing, a busy and an unreadable endpoint, and the windows running out;
+  - the batch cap from a real ledger, and an unreadable ledger;
+  - a single run never started again, with its `jobId` recorded;
+  - the STOP file;
+  - forwarding, SIGKILL after 120 s or at once on a second signal, and `reap_unconfirmed`;
+  - a loop re-invoked in a later window, and never on `loop_locked` (also under a signal), on a terminal stop or on a fresh non-resumable failure; the re-invocation cap;
+  - a restart: finished runs skipped, a live pid refused, a lost loop resumed;
+  - a ledger that holds no path, argument or child output.
+- **Mutants.** 14 single-edit mutants of scripts/experiment-launcher.ts were run, each restored from a saved clean copy before the next:
+  - no window check;
+  - one idle observation;
+  - no pinned reservations;
+  - no batch cap;
+  - no forwarding;
+  - SIGKILL at once;
+  - `loop_locked` resumable;
+  - any fresh failure resumable;
+  - single runs re-run;
+  - same-window resumes;
+  - arguments in the ledger;
+  - the STOP file ignored;
+  - a dirty tree allowed;
+  - no re-invocation cap.
+
+  Each fails at least one test. Two survived the first version of the tests: `loop_locked` under a signal, and a fresh non-resumable failure. The tests gained a case for each.
+- **Checks.** At 2400cc4, on Node 22.22.2 and pnpm 10.12.4, `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm exec vitest run`, run alone, ran 196 files and 3,683 tests: 3,597 passed, 86 were skipped and none failed. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 at this entry's commit.
+
+Failures or blockers:
+- **The first mutant run was invalid.** The launcher file was still untracked, so `git checkout` could not restore it between mutants; macOS has no `timeout` command, so no test ran. The 14 edits stacked. The file was restored by reversing each edit exactly, with every match asserted, and re-verified at 15 of 15 with a clean typecheck. The mutants were then run again from a saved copy. Nothing from the invalid run was committed.
+- **The first version's restart rule for a lost loop was wrong.** Decision (a) records the fix.
+
+Limitations and non-claims:
+- Implemented, not Verified. The tests run on fakes only. No real child process, process-group signal, `caffeinate`, `/metrics` route, Docker container or paid call was exercised. The production dependencies (`spawn` into a group, `process.kill` on it, `fetch`, `caffeinate`, git) are not covered by the tests.
+- The registry does not read the ledger yet: plan 11.4 wires `signal_forwarded` and `run_exited` into `registry-row.py --run-dir`.
+- Nothing checks the queue against a card, and no E3 or E4 card exists yet.
+- Without `projectedSeconds` there is no feasibility check at a window's end.
+- The owner questions stay open with their defaults: HARN-26, the 120 s wait and the re-invocation cap.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on this pull request; the coordinator's light review; and its merge under the standing go-ahead, with the entries re-stamped after `main`'s tail if it has moved. Then plan 11.4 in this lane, after S-desk's 7d.C on registry-row.py and S-assist's 8.1 on store.ts and broker.ts. The first E3 batch under the launcher verifies it.
+
+References: BL-20261114-1250-experiment-launcher-design; BL-20261113-0836-infra-resume-design; BL-20261101-0135-h5-held-closure-supervision; BL-20261101-0036-planner-diagnostic-result; BL-20261113-0937-owner-decision-restamp-unmerged-entries.

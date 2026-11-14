@@ -31,7 +31,7 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
     --batch, --task, --family, --exposure, --lesson and --verdict-by owner.
 
     `--supersedes ROW_ID [--registry PATH]` copies the registry row with that id verbatim (every measurement,
-    taskJobSha256, date, usd, entailment, loop) and changes only id, supersedes, outcome, verdictBy, ownerMinutes,
+    taskJobSha256, date, usd, entailment, hostFlags, loop) and changes only id, supersedes, outcome, verdictBy, ownerMinutes,
     interventions, lesson, verdictAt and, unless the copied row's commit came from its run (gitSource run or
     runs_differ), git, gitSource and gitDirty (the commit the row is written at). It refuses an unknown id, an id
     another row already supersedes, and a new id that already exists.
@@ -669,6 +669,8 @@ def receipt_row(args) -> dict:
     row = {key: receipt[key] for key in RECEIPT_KEYS if key not in ("version", "taskId", "verdict")}
     row.update(derived)
     row["exportedThroughApp"] = verdict["exportedThroughApp"]
+    # Backlog item 7(d), part C: receipt version 1 carries no host flags, so they are not recorded on this row.
+    row["hostFlags"] = None
     return row
 
 
@@ -967,7 +969,7 @@ def active_seconds(loop_dir: str, loop: dict):
     return round(total, 1)
 
 
-def freeze_fields(freeze: dict, result=None, events=()) -> dict:
+def freeze_fields(freeze: dict, result=None, events=(), run_dir: str = "") -> dict:
     """A stopped stage's row fields, read defensively (part 3b): from its freeze, the date it started, its task, profile, model
     settings, cloud model and pipeline; from its readable result (read_result), its status and cause; from its events, its entailment,
     as run_counts reads them. A field none of them holds is None, so a damaged directory never stops the row with a traceback."""
@@ -985,7 +987,7 @@ def freeze_fields(freeze: dict, result=None, events=()) -> dict:
             "thinking": config.get("thinking") if isinstance(config.get("thinking"), (bool, str)) else None, **cloud_fields(freeze),
             "pipeline": text(pipeline.get("name")), "pipelinePlanner": text(pipeline.get("planner")),
             "runStatus": text(result.get("status")) if result is not None else None, "terminalCause": text(result.get("reason")) if result is not None else None,
-            "entailment": entailment if result is not None else None}
+            "entailment": entailment if result is not None else None, "hostFlags": host_flags(events, run_dir) if result is not None else None}
 
 
 def refuse_unselected_accept(outcome, loop) -> None:
@@ -1095,7 +1097,8 @@ def loop_row(args) -> dict:
             sys.exit("the loop record holds a malformed stop")
         path = os.path.join(loop_dir, stage) if stage else None
         fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": task["jobSha256"], "profile": None, "maxOutputTokens": None,
-                  "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None}
+                  "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None,
+                  "hostFlags": None}
         evidence = {"kind": "none"}
         if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):
             # What the stopped stage left, as phase4-loop.ts closeLoop reads it: a readable result; else its ledger, when its freeze is
@@ -1104,7 +1107,7 @@ def loop_row(args) -> dict:
             result = read_result(path)
             if ledger["freeze"] is not None:
                 # The loop's own date, task and pipeline stand where the freeze records none.
-                found = freeze_fields(read_freeze(path), result, ledger_rows(path)[0])
+                found = freeze_fields(read_freeze(path), result, ledger_rows(path)[0], path)
                 fields = {**fields, **{key: value for key, value in found.items() if value is not None or key not in ("date", "taskJobSha256", "pipeline")}}
                 evidence = {"kind": "result", "end": run_end_evidence(path, marked(stage))} if result is not None else {"kind": "ledger", "dispatches": ledger["dispatches"]}
         elif path is not None and stage == "critique" and os.path.isdir(path):
@@ -1119,6 +1122,55 @@ def loop_row(args) -> dict:
     if cloud is not None:
         row.update(cloud_fields(cloud))
     return row
+
+HOST_FLAGS_VERSION = 1
+HOST_FLAG_RULES = ("absence", "review")
+HOST_FLAG_SECTIONS = ("report_failed", "argument_failed", "misses_failed", "review_failed")
+HOST_FLAG_SCAN_KEYS = ("format", "scanned", "reason", "textCut", "truncated")
+HOST_FLAG_REVIEW_KEYS = ("valid", "reason", "errors", "read")
+
+
+def host_flags(events, run_dir: str) -> dict | None:
+    """Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the run's host_flags event (7d.B) without its positions,
+    or None when the run recorded none, which means "not recorded", never "no flags". It keeps the event's version, the rule sets that ran
+    and its counts, and, when present, the run's misses, the sections that failed, and the report's, the argument's and the review's states.
+    It drops every hit line, flag position and edit id. An event this cannot read refuses the row, as a ledger row that is not JSON does."""
+    event = next((item for item in reversed(list(events)) if isinstance(item, dict) and item.get("type") == "host_flags"), None)
+    if event is None:
+        return None
+
+    def refuse():
+        sys.exit(f"{os.path.basename(os.path.normpath(run_dir))} holds a host_flags event the registry cannot read: the row is refused")
+
+    def one(value) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value == 1
+
+    def counted(value) -> dict:
+        if not isinstance(value, dict) or not all(isinstance(key, str) and isinstance(n, int) and not isinstance(n, bool) and n >= 0 for key, n in value.items()):
+            refuse()
+        return dict(value)
+    rules = event.get("rules")
+    if not one(event.get("version")) or not isinstance(rules, dict) or any(key not in HOST_FLAG_RULES or not one(value) for key, value in rules.items()):
+        refuse()
+    flags = {"version": HOST_FLAGS_VERSION, "rules": dict(rules), "counts": counted(event.get("counts"))}
+    if "misses" in event:
+        flags["misses"] = counted(event["misses"])
+    if "errors" in event:
+        errors = event["errors"]
+        if not isinstance(errors, list) or not errors or any(code not in HOST_FLAG_SECTIONS for code in errors):
+            refuse()
+        flags["errors"] = list(errors)
+    for name in ("report", "argument"):
+        if name in event:
+            if not isinstance(event[name], dict) or not isinstance(event[name].get("scanned"), bool):
+                refuse()
+            flags[name] = {key: event[name][key] for key in HOST_FLAG_SCAN_KEYS if key in event[name]}
+    if "review" in event:
+        if not isinstance(event["review"], dict) or not isinstance(event["review"].get("valid"), bool):
+            refuse()
+        flags["review"] = {key: copy.deepcopy(event["review"][key]) for key in HOST_FLAG_REVIEW_KEYS if key in event["review"]}
+    return flags
+
 
 def support_rate(counts: dict | None) -> float | None:
     """Supported / judged claims; an unjudged claim is neither supported nor a negative judgement."""
@@ -1148,6 +1200,8 @@ def run_counts(run_dir: str) -> dict:
             "entailment": next(({"counts": event.get("counts"), "entailmentCalls": event.get("entailmentCalls"), "truncated": event.get("truncated"),
                 "supportRate": support_rate(event.get("counts"))}
                 for event in reversed(events) if event.get("type") == "claims_entailment"), None),
+            # Backlog item 7(d), part C: the host flags, or None when not recorded.
+            "hostFlags": host_flags(events, run_dir),
         },
         "wallSeconds": round((ended - started).total_seconds(), 1),
         **counts_of(events, dispatches),

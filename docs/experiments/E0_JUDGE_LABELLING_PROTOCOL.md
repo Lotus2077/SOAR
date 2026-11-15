@@ -92,8 +92,9 @@ orchestrator recorded and the owner may change. Before the first claim is sent:
 - **One request labels and plants.** If a second request cannot be avoided, it carries
   only the number of claims still to plant per class. It never carries a label.
 
-This protocol does not name the provider or the model, and no labelling tool exists in
-the repository yet.
+This protocol does not name the provider or the model. The labelling tool is
+`pnpm label:judge` (`scripts/judge-labeller.ts`, BL-20261115-1956-e0-judge-labeller-design);
+the card's amendment names it before the first claim is sent.
 
 ## Step 2: label
 

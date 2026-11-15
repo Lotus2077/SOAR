@@ -84,7 +84,8 @@ This folder holds the committed, sanitized record of live trials (see
   per-class minimum, conditions and repeats from the card's amendment. It is a template
   until the owner pins it. [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md)
   says how the claims are harvested, labelled by a cloud model through its API, planted
-  and pinned. The claims and the labels (evaluator gold) stay under the ignored
+  and pinned; `pnpm label:judge` (`scripts/judge-labeller.ts`) sends the labelling
+  request. The claims and the labels (evaluator gold) stay under the ignored
   `.soar/`.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.

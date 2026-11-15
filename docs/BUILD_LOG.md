@@ -41664,3 +41664,97 @@ References:
 - BL-20261114-2254-correction-judge-fixture-second-restamp
 - BL-20261113-0937-owner-decision-restamp-unmerged-entries
 - BL-20261113-0938-correction-restamp-rule-dates
+
+### BL-20261115-1112-handoff-start-here-restated -- 2026-11-15 -- Handoff: docs/HANDOFF.md "Start here" restated for `main` at b7c0431, with the fourteen merges of 2026-11-14, the owner questions they leave standing, and #80's question closed
+
+Status: `Implemented`
+
+Scope or hypothesis: Replace "Start here (2026-11-14)", which described `main` at 6c30bbf, with "Start here (2026-11-15)", so that the next session starts from `main` at b7c0431, the merge of #100. The Next gate of BL-20261114-1119-handoff-start-here asked for this update once E0's work or E1-G landed. Fourteen pull requests merged on 2026-11-14, E1-G (#97) among them, and BL-20261114-2300-correction-handoff-hash-line-restamp records that the section still described the earlier `main`. The section keeps its seven subsections. The "September 2026 record" and everything below it are unchanged. This entry records what the section now says; it decides nothing. It also records one review that the log lacks: the orchestrating session's light review of the doctor change in #111's merge of `main`, which the Next gate of BL-20261114-2305-correction-serving-card-request-settings-second-restamp asked for.
+
+Decisions: None. The section restates what other entries and the pull requests record:
+- **1. Get the work.** `main` is at b7c0431. The merge table gains five rows for 2026-11-14: #96; #99 (7d.C), #98 (11.5), #101 (8.1) and #104 (11.4); #107, #109 and #112; #91, #90 and #106; #111, #97 (E1-G) and #100 (6.4). The research protocol hash is unchanged since #93.
+- **2. Read.** The log is about 42,000 lines. A fourth item lists the entries of 2026-11-14 on E1's gate, the judge fixture, the doctor, the SC settings binding and the owner's merge go.
+- **3. Decided.** One bullet is added: the owner's merge go of 2026-11-14 (BL-20261114-2254-correction-judge-fixture-second-restamp). It approved five merges and answered none of §4's questions.
+- **4. Still open.**
+  - The decision table is unchanged.
+  - The later owner questions add the defaults that #97, #98, #101, #104 and #100 state, each with its entry.
+    - #88's question is now listed as E1-6, under #97.
+    - The r3 question names the E1 card's default and why that default may not reach the r3 run.
+    - #101's four defaults are split: ASSIST-M1 governs 8.1, and ASSIST-1, ASSIST-2 and ASSIST-M2 govern 8.2b.
+  - #80's question is closed. It went as its default: #109 was the one follow-up PR. #112 followed decision (10) of BL-20261114-1711-claims-check-linear-strips-design.
+  - The open pull requests are #102, #103, #108, #110, #105 and #86; #90 and #91 merged.
+  - A pointer names the git-ignored owner-facing summary of 2026-11-15.
+- **5. Act next.**
+  - Step 2 (E0): #91, #90 and #111 join the done list.
+    - `pnpm setup:general` comes first, before the r3 run, which is E0's first use of the endpoint. The Next gate of BL-20261114-2255-doctor-endpoint-identity-implemented asks for it before E0's probes, and BL-20261114-2256-correction-doctor-endpoint-identity-restamp recommends running it first.
+    - The r3 run waits for the owner's answer on E1's gate.
+    - The judge's steps after #91 are listed in order: a labelling tool, which does not exist yet; the amendment that names the labelling and fixes the per-class minimum, the conditions and the repeats; then the harvest, the labelling and the pin. A pin before the adapter probe carries both J1 cells.
+    - The hash rule gains SC's unbound list: a PR that changes what the card cannot bind must state that it invalidates earlier cards' structured-output evidence.
+  - Step 3 (E1): E1-G is merged, and the gate's release depends on decision 3's defaults (BL-20261114-2307-correction-e1-recoverability-gate-review).
+  - Step 5: 6.4, 8.1, 11.4 and 11.5 join the done list; 7a.2, 7b.2, 7b.3, 8.2b, item 9, 10.b and RA remain. The lane plan's placement of RA, 11.7a/b and 11.8 is named, and 7c's fallback column merged with 11.4.
+- **6. Rules.** Two practices of 2026-11-14 are added, marked as not the owner's:
+  - From later that day, the orchestrating session asks the owner before it merges a PR that is not a lane PR or that states an open default. #98, #101 and #104 had merged earlier under the standing go-ahead.
+  - Ready PRs merge one at a time, and branches that must land in sequence are chained so their CI runs at once.
+- **7. Known limits.**
+  - The source-freeze bullet adds the five merges of 2026-11-14 that moved the digest.
+  - Entries on `main` cite #86's unmerged entry.
+  - The electron-e2e job failed three times on 2026-11-14, each time with the Git-review test. Both reruns passed.
+
+Changes: docs/HANDOFF.md, the "Start here" section only (lines 3 to 399, 397 lines where the old section had 264). docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- Each fact was checked read-only against `git log --first-parent origin/main`, this log, tests/helpers/research-protocol-pin.ts, scripts/registry-row.py, the git-ignored lane plan, and `gh pr list`, `gh pr view`, `gh issue list`, `gh run list` and `gh run view` on Lotus2077/SOAR. The merge times are GitHub's `mergedAt`, in UTC.
+- **The protocol hash.** tests/helpers/research-protocol-pin.ts still pins 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, and its last change on `main` is 7c's (#93).
+- **The source freeze.** The claim comes from `git diff --name-only` between consecutive first-parent merges from 6c30bbf to b7c0431, over the paths `localScreenSourceFreeze()` hashes (scripts/private-agent-local-screen.ts:136-143):
+  - #101 and #104 change src/main/private-agent/broker.ts and store.ts;
+  - #109 and #112 change src/main/private-agent/claims.ts;
+  - #111 changes src/main/private-agent/serving-card.ts and scripts/private-agent-local-screen.ts;
+  - #96, #99, #98, #107, #91, #90, #106, #97 and #100 change none.
+- **The owner questions** and their defaults are taken from each cited entry:
+  - the Next gates of BL-20261114-1344-experiment-launcher-design and BL-20261114-1431-experiment-launcher-signals-design, with decision (1) of BL-20261114-1503-correction-experiment-launcher-hangup;
+  - decision (10) of BL-20261114-1505-concurrent-local-admission-design;
+  - the Next gate of BL-20261114-1523-registry-columns-design. BL-20261114-1526-registry-columns-review-design supersedes four column rules, adds no question and leaves `domains` unchanged;
+  - decision 3 of BL-20261114-2306-e1-recoverability-gate-ci-verified, with decision 3 of BL-20261114-2307-correction-e1-recoverability-gate-review;
+  - the Failures field of BL-20261114-2309-revoke-reopens-budget-stop-design, with decision 2 of BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp.
+- **#80's question.** BL-20261114-1711-claims-check-linear-strips-design says that the pull request it begins is the one follow-up that the handoff's owner question named.
+- **The r3 question.** It quotes decision (7) of BL-20261109-0351-e1-recoverability-card ("Does E1 gate E0? Default: no"), and the open question that BL-20261114-2306-e1-recoverability-gate-ci-verified states.
+- **SC's unbound list.** It comes from decision (1) of BL-20261114-2301-serving-card-request-settings-design and decision (2) of BL-20261114-2304-correction-serving-card-request-settings-review. That entry's Limitations say the list is procedural only.
+- **The open pull requests,** from `gh pr view` at 11:06 UTC:
+  - #102 is ready, and #103, #105, #108 and #110 are drafts.
+  - All but #108 are `CONFLICTING`.
+  - #108's base is #103's branch, and `git merge-tree --write-tree origin/main` with #108's head, 8ff0501, exits 1. So #108 conflicts with `main` as well.
+- **The electron-e2e failures.**
+  - On attempt 1, each of three runs failed electron-e2e with check green: run 43603168641 (#104 at 7eb5499), run 43624738761 (#111 at 379d230) and run 43651915923 (#97 at d78c208).
+  - Each failure included tests/e2e/electron.spec.ts:510. #111's run also failed :680, :797 and :842.
+  - The last two runs passed on attempt 2. The first was not rerun.
+- **This change's light review.** One reviewer, with privacy checked, found no privacy issue and no blocker.
+  - It found one major: the judge's steps left out that no labelling tool exists, and that the amendment also fixes the per-class minimum, the conditions and the repeats before the first claim is sent.
+  - It also found eleven minor findings.
+  - The orchestrating session checked all twelve against their cited lines. Each held, and each was applied before this entry's first commit.
+  - No separate skeptic ran, because the cited lines settle the major, which is an omission.
+- **The doctor change in #111's merge.**
+  - The Next gate of BL-20261114-2305-correction-serving-card-request-settings-second-restamp asked for a light review of the doctor change in 9ea07ee (scripts/setup-general.ts).
+  - The orchestrating session reviewed it before #111 merged and found no blocker or major issue.
+  - Its one minor finding is a limitation that entry already states: the doctor reads an invalid `SOAR_STREAMING` as off, where the app refuses the configuration.
+  - No entry recorded that review until this one.
+- **registry-row.py's modes** are `--run-dir`, `--loop-dir`, `--verdict-file` and `--supersedes`. None is for a probe or a fixture run.
+- The section below "Start here" is byte-identical to `main`'s, compared with `cmp`.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm --silent validate:readiness` pass at this entry's commit, each gated on its own exit status.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A documentation change only. Nothing ran: no model, endpoint, Docker container, test suite or paid call.
+- The section summarises its sources and does not replace them. Where it and a cited entry differ, the entry governs.
+- Section 6's two practices of 2026-11-14 rest on the orchestrating session's account. The owner has not adopted them.
+- The owner-facing summary of 2026-11-15 and the lane plan are git-ignored files in the owner's checkout. This log cannot show their text.
+- The open pull requests' states are as of 11:06 UTC on 2026-11-15 and will move.
+- The open draft #86 also edits "Start here", so whichever of #86 and this change merges second resolves the conflict.
+- The doctor's place before the r3 run follows the recommendation of BL-20261114-2256-correction-doctor-endpoint-identity-restamp. The doctor's own entry asks for it only before E0's probes.
+- The review of the doctor change rests on the orchestrating session's account. Its text is in neither this log nor the review files.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green, and the owner's go to merge, since this is not a lane pull request. The next handoff note updates this section after E0 runs, 7b.2 lands or E1's gate is released.
+
+References: docs/HANDOFF.md "Start here"; BL-20261114-1119-handoff-start-here; BL-20261114-2300-correction-handoff-hash-line-restamp; BL-20261114-2254-correction-judge-fixture-second-restamp; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2307-correction-e1-recoverability-gate-review; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261114-2255-doctor-endpoint-identity-implemented; BL-20261114-2256-correction-doctor-endpoint-identity-restamp; BL-20261114-2301-serving-card-request-settings-design; BL-20261114-2302-serving-card-request-settings-implemented; BL-20261114-2304-correction-serving-card-request-settings-review; BL-20261114-2305-correction-serving-card-request-settings-second-restamp; BL-20261109-0351-e1-recoverability-card; BL-20261114-1344-experiment-launcher-design; BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1523-registry-columns-design; BL-20261114-1526-registry-columns-review-design; BL-20261114-2309-revoke-reopens-budget-stop-design; BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; BL-20261114-1808-claims-check-long-char-refs-implemented; pull requests #37 to #112 as the section lists them; issues #46 and #57.

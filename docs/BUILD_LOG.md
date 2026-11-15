@@ -41938,3 +41938,182 @@ Next gate:
 - Then the harvest runs, and the owner runs the labelling.
 
 References: BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261022-1157-cloud-cache-write-price-correction; BL-20261030-0620-claude-cloud-adapter-design; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; PLAN.md §4; pull request #114.
+
+### BL-20261115-2044-e0-judge-labeller-implemented -- 2026-11-15 -- E0's judge labelling tool implemented: `pnpm --silent label:judge`, with the summary contract agreed with lane S-harn and the light review's fixes; tested against a loopback fake only, and nothing was sent to OpenAI
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261115-1956-e0-judge-labeller-design on branch `feat/e0-judge-labeller`, from `main` at d92a3af (lane S-e1). The commits are:
+- the design, cd000aa;
+- the tool, a4c1611;
+- the summary contract agreed with lane S-harn, 7a757ba;
+- the light review's fixes, 5d5492f.
+
+The coordinating session reports a harvested set of 40 claims from r3's run-5. This lane neither read nor used it: every test and estimate here is synthetic.
+
+Decisions: Implemented as decided, with these details and the changes below.
+- **The command.** `scripts/with-cloud-key.sh pnpm --silent label:judge -- --claims .soar/experiments/e0-judge/claims.json --minimum-per-class <n> [--dry-run]`.
+  - `--silent` keeps pnpm's own banner, which names the checkout's path, off standard output.
+  - Every flag is named once. An unknown or repeated flag prints the usage line.
+  - The exit code is 0 when labelled with every class at the minimum, 3 when labelled with a class still short, and 2 when refused or failed.
+  - A dry run exits 0 when the first request would be admitted and 2 when it would not.
+- **The constants.** No flag or variable changes them.
+  - The model is `gpt-6-sol` and the labeller `openai/gpt-6-sol`.
+  - The endpoint is `https://api.openai.com/v1/responses`.
+  - The key variable is `SOAR_PHASE2_CLOUD_API_KEY`. A test checks that it equals the cloud arm's `CLOUD_ARM_KEY_VARIABLE`.
+  - The cap is 1,000,000 micro-USD, charged to the envelope line `synthetic_data`.
+  - The prices are the design's table. A test checks that they equal H5's pinned flags.
+  - The timeout is 900 seconds.
+- **The instructions.** They are the protocol's step 2 and 3 sections, cut by line from the `## Step 2: label` heading up to `## Files`, with trailing blank lines dropped.
+  - At this commit they are 2,200 bytes, with sha256 `0184b561b5cee866c56fcda7321095a719a522d529b5a46158856d6fa2d3f9d2`. The amendment can cite that hash.
+  - The tool refuses any other layout (`labeller_protocol_unrecognised`).
+- **The checks before the first request.** Each refusal is a fixed code and writes nothing. In order:
+  - the minimum;
+  - the endpoint, which must be the constant or, in tests, a loopback IP literal;
+  - the instructions;
+  - the path: inside `.soar/experiments/e0-judge/` and named `claims.json`;
+  - an existing labels.json;
+  - the claim set: `ClaimsFileSchema`, valid UTF-8, and text that the request encoding accepts;
+  - the claim set's exact bytes, which must be the harvest's own serialization (`labeller_claims_not_canonical`);
+  - the sidecar: the same task and the same ids, in order;
+  - the key.
+
+  Then, under the lock:
+  - labels.json and the claim set's digest are checked again;
+  - a ledger missing where a labelling already ran is refused (`labeller_ledger_missing`);
+  - the cap is checked.
+- **The run directory.** Each paid invocation's `labelling-<UTC stamp>/` has mode 0700. It keeps more than the design named, all mode 0600:
+  - `requests/call-<n>.json`, each exact request body, written before the request is sent, so what left the machine can be checked afterwards;
+  - `replies/call-<n>.json`, each raw reply;
+  - `summary.json`.
+- **The ledger.** Each request appends a `reserved` line before it is sent and one final line after: `settled`, `rejected`, `not_sent`, `unknown` or `outside_projection`. Each line records the micro-USD counted against the cap and is fsynced, and the file has mode 0600.
+  - The tool refuses a malformed line, a final line without its reservation, or a second final line.
+  - The total holds only while the ledger does, per checkout. A relabelling keeps the ledger and puts its new set in a subdirectory.
+- **The lock.** `labelling.lock` is created exclusively and removed when the paid invocation ends. A killed run leaves it in place, and the owner removes it by hand (`labeller_busy`). The ledger still counts the killed request at its reservation.
+- **The outcome of each request.**
+  - **HTTP 200 with usage.** It settles with model.ts's formula. If the reply omits `cache_write_tokens`, every uncached input token is taken as written, at the dearer write rate. model.ts counts an absent value as zero writes, but the cap must not under-count.
+  - **Outside the projection.** The request counts at its reservation, or at its computed fee if larger, and the tool sends nothing more. This applies to the cases the design names, and to:
+    - 12-hour cache writes;
+    - cache-write tier parts that do not add up;
+    - a served model other than `gpt-6-sol` or a dated snapshot of it (`labeller_served_model_mismatch`).
+
+    The summary records a served model's name only if it is a plain name of up to 64 characters.
+  - **Settled at zero.** Only HTTP 400, 401, 403, 404 and 429 (`UNBILLED_STATUSES`), and a connection that failed before its TLS handshake finished. Every other status, 408 and the other 4xx included, counts at its reservation.
+- **The summary.** The shape is the one proposed to lane S-harn for its registry-row mode. S-harn accepted it on 2026-11-15 with three changes, all taken:
+  - a top-level `envelopeLine`;
+  - the closed sets exported as runtime arrays: `LABELLING_OUTCOMES`, `LABELLING_FAILURES` (18 codes), `CALL_KINDS`, `CALL_STATES`, `SECOND_REQUEST_VALUES` and `PLANT_REJECTIONS`;
+  - the per-call rules. `usd` is the fee when settled, 0 when rejected or not sent, and null when unknown or outside the projection. The token fields are 0 without a usable reply.
+
+  `LabellingSummarySchema`, which is strict, checks every summary before it is written, against the sums S-harn's writer cross-checks. The summary is written atomically before each request, with that request counted at its reservation and the outcome `labeller_interrupted`. It is rewritten after each reply and at the end. So a killed tool still leaves a summary of every request that may have been charged, as S-harn asked. Two example summaries, written by the tool against a loopback fake, are in the orchestrator's shared notes folder as S-harn's fixtures.
+- **Protocol wording.** The protocol's two "only" passages now name the tool's fixed framing (an untrusted-text sentence, a sentence stating the minimum or the counts still to plant, and the reply's JSON schema). A second request adds only the counts to the first request's instructions and claims.json, never a label or a planted claim. Steps 2 and 3 are unchanged.
+- **Corrections to the design entry,** which stays as written:
+  - **Decision 3's prefix.** It says claims.json comes before the request-specific sentence "so that a second request shares the first one's prefix". In the default implicit cache mode, a request's write ends at its last message (BL-20261022-1157-cloud-cache-write-price-correction), so the second request reuses no cached claims. The order is kept, and it does no harm.
+  - **Decision 5's timeouts.** It counts "a timeout" at its reservation. A timeout before the handshake finished counts zero, because nothing was sent.
+- **The light review.** One light review, with privacy checked, under the owner's lighter-review rule. It found no blocker or major, so no skeptic ran. Its six minor findings and seven nits are fixed in 5d5492f:
+  - narrower unbilled statuses;
+  - cache-write tiers;
+  - the ledger guard;
+  - canonical bytes;
+  - the protocol wording;
+  - the tests: a cap-limited second request, a TLS handshake that never finished, `.invalid` hosts, and a preload that blocks connections off loopback for the command-line tests;
+  - the served-model check under settlement;
+  - re-checks under the lock;
+  - the loopback IP literal;
+  - `--silent`;
+  - the corrected wording above.
+
+Changes:
+- scripts/judge-labeller.ts and tests/unit/judge-labeller.test.ts, both new (28 tests).
+- package.json: `label:judge`.
+- README.md: the command, its `--silent`, the ledger and the lock, and a row in the command table.
+- docs/experiments/README.md: the tool's name in the judge manifest's paragraph.
+- docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md: the tool sentence, and the two passages on what is sent.
+
+Evidence:
+- **The tests.** `pnpm exec vitest run tests/unit/judge-labeller.test.ts` passes 28 tests. Their only server is a loopback fake, and the command-line tests run behind a preload that throws on any connection off loopback. They prove these points.
+  - **The request.** It is exactly:
+    - the protocol's sections, cut independently by the test;
+    - the untrusted-text sentence;
+    - claims.json's exact text;
+    - the minimum sentence.
+
+    The body has exactly the seven Responses keys, and the key goes only in the Authorization header. None of these appears in any body: the sidecar's run name or claim ids, a directory, the home directory, the address or the key.
+  - **The endpoint.** Every host but the constant and a loopback IP literal is refused, `localhost` and `.invalid` names included.
+  - **Projection and settlement.**
+    - The projection equals `PrivateAgentModel.reservationMicrousd` at H5's pinned arm, for six byte counts across the 272K tier and three output caps.
+    - The settlement equals model.ts's own, through `PrivateAgentModel.complete` with a broker stub.
+    - The output cap shrinks to fit and never passes the cap.
+    - A reply without a write count settles at the write rate.
+  - **The cap.**
+    - It counts the ledger's earlier settled and unsettled spend, refusing before any request when the projection would pass it.
+    - The first request's settled fee is counted before a second request is admitted. In a test whose first request settles at exactly its reservation, the second is refused, and the ledger stays under the cap.
+    - A missing ledger is refused where a run directory or labels.json exists.
+  - **The files.**
+    - claims.json and labels.json are written with mode 0600, and the judge fixture's `verifyJudgeFixtureInputs` accepts them under a manifest pinned from the summary's hashes and counts.
+    - The planted claims carry their sources' quotes and contexts, the next free ids and `planted: true`.
+    - Neither the summary nor the printed line holds a path, the key, an address, the sidecar's run name, a note, a claim sentence or a passage.
+  - **Planting.**
+    - A second request carries the counts and none of the first reply's planted sentences or notes. A surplus planted claim is rejected, and no third request is made.
+    - A class still short exits 3 with the labels written.
+    - A rejected second request keeps the first request's labels.
+    - A note longer than 400 characters is shortened, while the raw reply keeps it whole, and each kind of planted-claim rejection is counted.
+  - **Failing closed.** Usage outside the projection fails closed in eight cases: too many prompt tokens, too much output, no prompt tokens, too many cached tokens, another service tier, writes beyond the prompt, 12-hour writes, and write tiers that do not add up. A served model that is not `gpt-6-sol` fails closed too, and an unsafe model string is never copied.
+  - **Settling at zero or at the reservation.**
+    - 404 and 429 settle at zero; 408, 409, 422, 500 and 503 count at their reservations.
+    - A timeout after connecting, and a reply too large to read, count at their reservations.
+    - A refused connection, and TLS handshakes that never finished, count at zero.
+  - **Nothing written.** Each of these writes nothing:
+    - a missing, repeated or unknown label;
+    - a reply cut at the output cap;
+    - a refusal;
+    - a reply that is not JSON;
+    - a body that is not a Responses reply;
+    - a claims.json changed while the request was out.
+  - **The input refusals.** Seventeen input refusals each come before any request, among them a claims.json that hides text behind a duplicate key, and a re-indented one. A set is never labelled twice.
+  - **The summary contract.**
+    - The summary is written ahead: while each request is in flight, it counts that request at its reservation.
+    - The keys and the closed sets are pinned.
+    - The schema refuses sixteen broken summaries.
+  - **The command line.** It accepts pnpm's argument shape. A dry run needs no key and prints aggregates without a path or the host. A paid run without the key prints only `labeller_key_missing`, and a path outside the directory only `labeller_claims_outside_root`.
+- **Mutants.** Twenty-six mutants of scripts/judge-labeller.ts were run, and 25 fail the file. They include:
+  - the first sixteen, for the sidecar, the rate, the earlier spend, the usage check, labels in a second request, the copied quote, the 4xx and not-sent counts, the surplus rule, unsettled reservations, incomplete labels, the sidecar check, the host, notes, the served model and the floor;
+  - the review's surviving mutant, in which a second request ignores the first's spend, which now fails;
+  - the canonical check, the ledger guard, all 4xx unbilled, 12-hour writes, TLS counted as sent at its TCP connect, unreported writes counted free, no write-ahead summary, and an unsafe model string.
+
+  The survivor is the repeated check under the lock, which no single-threaded test can reach.
+- **Neighbouring tests.** `pnpm exec vitest run tests/unit/judge-labeller.test.ts tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/private-agent-model-responses.test.ts` passes 97 tests in 4 files.
+- **The checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. So does `pnpm --silent validate:build-log -- --base-ref origin/main`, with its exit status checked directly.
+- **Readiness.** It first refused the test file, because its first test key had an OpenAI-style shape. The key was replaced, without the `sk-` prefix, before the first commit.
+- **The light review checked these.**
+  - **On loopback:** a stalled or failed TLS handshake counts as not sent, and a silent server or a reset after the handshake as sent. Near the cap with earlier spend, two requests never pass USD 1.00.
+  - **By reading:** stdout, stderr and the summary carry fixed codes and aggregates only.
+- **Sizing for the 40 harvested claims.** This is from the tool's own projection on synthetic sets with a minimum of 10.
+  - With plain prose contexts at the 1,200-character bound, the request body is about 68 KB and the first projection USD 0.49.
+  - With every field at its bound and quote-heavy text, the body is 140 KB and the projection USD 0.67.
+
+Failures or blockers: None in the offline work. The paid labelling waits for the card's amendment.
+
+Limitations and non-claims:
+- **`Implemented`, not `Verified`.** Nothing was sent to OpenAI.
+- **The request body is untested against OpenAI.** It is unproven that the Responses API accepts the strict `json_schema` text format, `reasoning.effort: medium`, and a `max_output_tokens` of up to 65,536 for `gpt-6-sol`. A rejected body is a 400, settled at zero on the assumption that OpenAI bills no request it rejects with 400, 401, 403, 404 or 429.
+- **The projection is a byte bound.** It admits fewer claims than their actual fee would. A second request fits only while the first has not used most of the cap.
+- **The output cap's constants are estimates.** A reply cut off at the cap fails, and its fee counts.
+- **The prices are as OpenAI published them on 2026-10-22.**
+- **The ledger holds the total per checkout only.** Another checkout's labelling, or a deleted ledger in a directory with no earlier run, is not counted.
+- **The repeated checks under the lock are untested.**
+- **Where the claims came from.** The tool checks only that the claim set came from the harvest, not that its runs were public or synthetic.
+- **Planted claims.** The tool checks their form, not that each is wrong for one stated reason.
+- **A crash between the two writes** leaves labels.json beside the unlabelled claims.json. The judge fixture refuses that pair, and the tool refuses to label again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. No request left the machine.
+
+Next gate:
+- CI, then a merge after #114, whose entry this one cites.
+- Then the card's amendment, which:
+  - names the tool, the labeller string, the instructions' hash and the envelope line;
+  - fixes the minimum, the conditions and the repeats;
+  - rechecks the prices.
+- Then `scripts/with-cloud-key.sh --check`, the owner's dry run, and the labelling.
+- S-harn's `--labelling-file` mode rows the summary. Whichever of the two pull requests merges second adds the test that pins its closed sets to this tool's arrays.
+
+References: BL-20261115-1956-e0-judge-labeller-design; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261022-1157-cloud-cache-write-price-correction; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; pull request #114.

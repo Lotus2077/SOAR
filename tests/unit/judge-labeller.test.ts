@@ -11,9 +11,10 @@ import { PrivateAgentModel, type PrivateModelConfig } from "../../src/main/priva
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { CLOUD_ARM_KEY_VARIABLE, buildCloudArm } from "../../scripts/private-agent-local-screen";
 import { verifyJudgeFixtureInputs, type FixtureClaim } from "../../scripts/judge-fixture";
-import { LABELLER_ENDPOINT, LABELLER_KEY_VARIABLE, LABELLER_MODEL, LABELLER_NAME, LABELLER_PRICES, LABELLING_CAP_MICROUSD, LEDGER_NAME, LOCK_NAME, NOTE_MAX_CHARS,
-  OUTPUT_TOKENS, UNTRUSTED_SENTENCE, admittedEndpoint, countedMicrousd, labellerInstructions, minimumSentence, parseLabellerArguments, planRequest, reservationMicrousd,
-  runLabelling, settlementMicrousd, shortenNote, stillToPlantSentence, userMessage, type LabellingOptions } from "../../scripts/judge-labeller";
+import { CALL_KINDS, CALL_STATES, CallRecordSchema, ENVELOPE_LINE, LABELLER_ENDPOINT, LABELLER_KEY_VARIABLE, LABELLER_MODEL, LABELLER_NAME, LABELLER_PRICES, LABELLING_CAP_MICROUSD,
+  LABELLING_FAILURES, LABELLING_OUTCOMES, LEDGER_NAME, LOCK_NAME, LabellingSummarySchema, NOTE_MAX_CHARS, OUTPUT_TOKENS, PLANT_REJECTIONS, SECOND_REQUEST_VALUES, UNTRUSTED_SENTENCE,
+  admittedEndpoint, countedMicrousd, labellerInstructions, minimumSentence, parseLabellerArguments, planRequest, reservationMicrousd, runLabelling, settlementMicrousd, shortenNote,
+  stillToPlantSentence, userMessage, type LabellingOptions, type LabellingSummary } from "../../scripts/judge-labeller";
 import { H5_GPT_ARM, OPENAI_ENVIRONMENT } from "./private-agent-identity-golden.fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -77,11 +78,11 @@ async function fake(script: Scripted[]) {
   return { endpoint: `http://127.0.0.1:${address.port}/v1/responses`, requests };
 }
 /** A Responses reply whose usage stays inside the request's projection unless `usage` overrides it. */
-function reply(payload: unknown, usage: Partial<{ input: number; cached: number; written: number; output: number; reasoning: number }> = {}, extra: Record<string, unknown> = {}) {
+function reply(payload: unknown, usage: Partial<{ input: number; cached: number; written: number | null; output: number; reasoning: number }> = {}, extra: Record<string, unknown> = {}) {
   return (seen: Seen) => ({ body: { id: "resp_fake", object: "response", model: "gpt-6-sol-2026-09-22", status: "completed", service_tier: "default",
     output: [{ type: "reasoning", id: "rs_fake", summary: [] },
       { type: "message", id: "msg_fake", role: "assistant", status: "completed", content: [{ type: "output_text", text: typeof payload === "string" ? payload : JSON.stringify(payload), annotations: [] }] }],
-    usage: { input_tokens: usage.input ?? Math.floor(Buffer.byteLength(seen.body) / 4), input_tokens_details: { cached_tokens: usage.cached ?? 0, cache_write_tokens: usage.written ?? 0 },
+    usage: { input_tokens: usage.input ?? Math.floor(Buffer.byteLength(seen.body) / 4), input_tokens_details: { cached_tokens: usage.cached ?? 0, ...(usage.written === null ? {} : { cache_write_tokens: usage.written ?? 0 }) },
       output_tokens: usage.output ?? 1_500, output_tokens_details: { reasoning_tokens: usage.reasoning ?? 900 } }, ...extra } });
 }
 const fullReply = (planted: unknown[] = [PLANT_UNSUPPORTED, PLANT_CONTRADICTED_1, PLANT_CONTRADICTED_2], labels: unknown[] = REAL_LABELS) => reply({ labels, planted });
@@ -223,7 +224,7 @@ describe("E0 judge labeller: the files", () => {
     expect(ledger.map(line => line.event)).toEqual(["reserved", "settled"]);
     expect(ledger[1].microusd).toBeLessThanOrEqual(ledger[0].microusd);
     expect(summary.usd).toBe(ledger[1].microusd / 1_000_000);
-    expect(summary.countedUsd).toBe(summary.usd);
+    expect(summary).toMatchObject({ envelopeLine: ENVELOPE_LINE, reservedUnknownUsd: 0, unknownDispatches: 0, rejectedDispatches: 0, calls: [{ state: "settled", cacheWriteReported: true }] });
     expect(mode(set.ledgerPath)).toBe(0o600);
     expect(existsSync(join(set.root, LOCK_NAME))).toBe(false);
     // The run directory keeps the exact request and the raw reply, private; the summary and the printed line carry no path, key, claim text or label.
@@ -295,8 +296,10 @@ describe("E0 judge labeller: failing closed", () => {
       const set = harvested(), server = await fake([reply({ labels: REAL_LABELS, planted: [] }, usage, extra), fullReply()]);
       const result = await runLabelling(options(set, server.endpoint));
       expect(server.requests).toHaveLength(1);
-      expect(result).toMatchObject({ exitCode: 2, summary: { outcome: "failed", failure: "labeller_usage_outside_projection", calls: [{ state: "outside_projection", usd: null }] } });
+      expect(result).toMatchObject({ exitCode: 2, summary: { outcome: "failed", failure: "labeller_usage_outside_projection", usd: 0, unknownDispatches: 1,
+        calls: [{ state: "outside_projection", usd: null }] } });
       const call = result.summary!.calls[0]!;
+      expect(result.summary!.reservedUnknownUsd).toBe(call.countedUsd);
       expect(call.countedUsd).toBeGreaterThanOrEqual(call.projectedUsd);
       expect(existsSync(set.labelsPath)).toBe(false);
       expect(readFileSync(set.claimsPath, "utf8")).toBe(set.claimsText);
@@ -308,23 +311,25 @@ describe("E0 judge labeller: failing closed", () => {
     const rejected = harvested(), server = await fake([{ status: 401, body: { error: { type: "invalid_request_error", code: "invalid_api_key", message: "Incorrect API key sk-...0001" } } },
       { status: 503, body: { error: { message: "overloaded" } } }, { never: true }]);
     const first = await runLabelling(options(rejected, server.endpoint));
-    expect(first).toMatchObject({ exitCode: 2, summary: { failure: "labeller_rejected", rejectedDispatches: 1, countedUsd: 0,
-      calls: [{ state: "rejected", httpStatus: 401, errorType: "invalid_request_error", errorCode: "invalid_api_key", countedUsd: 0 }] } });
+    expect(first).toMatchObject({ exitCode: 2, summary: { failure: "labeller_rejected", rejectedDispatches: 1, unknownDispatches: 0, usd: 0, reservedUnknownUsd: 0,
+      calls: [{ state: "rejected", httpStatus: 401, errorType: "invalid_request_error", errorCode: "invalid_api_key", usd: 0, countedUsd: 0, inputTokens: 0 }] } });
     expect(countedMicrousd(readFileSync(rejected.ledgerPath, "utf8"))).toBe(0);
     expect(JSON.stringify(first.summary)).not.toContain("Incorrect API key");
     const unavailable = harvested(), second = await runLabelling(options(unavailable, server.endpoint));
-    expect(second).toMatchObject({ exitCode: 2, summary: { failure: "labeller_http_status", unknownDispatches: 1, calls: [{ state: "unknown", httpStatus: 503 }] } });
+    expect(second).toMatchObject({ exitCode: 2, summary: { failure: "labeller_http_status", unknownDispatches: 1, usd: 0, calls: [{ state: "unknown", httpStatus: 503, usd: null }] } });
+    expect(second.summary!.reservedUnknownUsd).toBe(second.summary!.calls[0]!.projectedUsd);
     expect(countedMicrousd(readFileSync(unavailable.ledgerPath, "utf8"))).toBe(Math.round(second.summary!.calls[0]!.projectedUsd * 1_000_000));
     const slow = harvested(), third = await runLabelling(options(slow, server.endpoint, { timeoutMs: 300 }));
     expect(third).toMatchObject({ exitCode: 2, summary: { failure: "labeller_timeout", calls: [{ state: "unknown", httpStatus: null }] } });
-    expect(third.summary!.countedUsd).toBe(third.summary!.calls[0]!.projectedUsd);
+    expect(third.summary!.reservedUnknownUsd).toBe(third.summary!.calls[0]!.projectedUsd);
     // A closed port: the connection is refused before any byte of the request leaves, so nothing is counted.
     const closed = createServer();
     await new Promise<void>(done => closed.listen(0, "127.0.0.1", done));
     const port = (closed.address() as { port: number }).port;
     await new Promise<void>(done => closed.close(() => done()));
     const refused = harvested(), fourth = await runLabelling(options(refused, `http://127.0.0.1:${port}/v1/responses`));
-    expect(fourth).toMatchObject({ exitCode: 2, summary: { failure: "labeller_transport_failed", countedUsd: 0, calls: [{ state: "not_sent" }] } });
+    expect(fourth).toMatchObject({ exitCode: 2, summary: { failure: "labeller_transport_failed", usd: 0, reservedUnknownUsd: 0, rejectedDispatches: 1,
+      calls: [{ state: "not_sent", httpStatus: null, usd: 0, countedUsd: 0 }] } });
     for (const set of [rejected, unavailable, slow, refused]) { expect(existsSync(set.labelsPath)).toBe(false); expect(readFileSync(set.claimsPath, "utf8")).toBe(set.claimsText); }
   });
 
@@ -384,6 +389,70 @@ describe("E0 judge labeller: failing closed", () => {
     rmSync(set.labelsPath);
     await expect(runLabelling(options(set, server.endpoint))).rejects.toThrow("labeller_claims_not_harvested");
     expect(server.requests).toHaveLength(1);
+  });
+});
+
+describe("E0 judge labeller: the summary contract (lane S-harn's registry row)", () => {
+  it("writes the summary ahead of each request, so a killed tool still leaves the call counted at its reservation", async () => {
+    const set = harvested(), seen: LabellingSummary[] = [];
+    const ahead = (step: Scripted) => (request: Seen) => {
+      const [run] = runDirectories(set.root);
+      seen.push(LabellingSummarySchema.parse(JSON.parse(readFileSync(join(set.root, run!, "summary.json"), "utf8"))));
+      return typeof step === "function" ? step(request) : step;
+    };
+    const server = await fake([ahead(fullReply([PLANT_CONTRADICTED_1])), ahead(reply({ planted: [PLANT_UNSUPPORTED, PLANT_CONTRADICTED_2] }))]);
+    const result = await runLabelling(options(set, server.endpoint));
+    expect(server.requests).toHaveLength(2);
+    expect(seen[0]).toMatchObject({ outcome: "failed", failure: "labeller_interrupted", modelCalls: 1, unknownDispatches: 1, usd: 0,
+      calls: [{ call: 1, state: "unknown", failure: "labeller_interrupted", usd: null, httpStatus: null }], claims: { claimsSha256: null, labelsSha256: null } });
+    expect(seen[0]!.reservedUnknownUsd).toBe(seen[0]!.calls[0]!.projectedUsd);
+    // While the second request is in flight, the first is settled and the second counts at its reservation.
+    expect(seen[1]).toMatchObject({ outcome: "failed", failure: "labeller_interrupted", modelCalls: 2, unknownDispatches: 1,
+      calls: [{ call: 1, state: "settled", failure: null }, { call: 2, state: "unknown", failure: "labeller_interrupted" }] });
+    expect(seen[1]!.usd).toBe(seen[1]!.calls[0]!.usd);
+    expect(seen[1]!.reservedUnknownUsd).toBe(seen[1]!.calls[1]!.projectedUsd);
+    expect(result.summary).toMatchObject({ outcome: "labelled", failure: null, modelCalls: 2, unknownDispatches: 0, reservedUnknownUsd: 0 });
+    expect(JSON.parse(readFileSync(join(set.root, result.summary!.run, "summary.json"), "utf8"))).toEqual(result.summary);
+    expect(readdirSync(join(set.root, result.summary!.run)).sort()).toEqual(["replies", "requests", "summary.json"]);
+  });
+
+  it("settles a reply that does not report its cache writes as if every uncached input token was written", async () => {
+    const set = harvested(), server = await fake([reply({ labels: REAL_LABELS, planted: [PLANT_UNSUPPORTED, PLANT_CONTRADICTED_1, PLANT_CONTRADICTED_2] },
+      { input: 2_000, cached: 100, written: null, output: 1_500, reasoning: 700 })]);
+    const result = await runLabelling(options(set, server.endpoint));
+    expect(settlementMicrousd({ promptTokens: 2_000, cachedTokens: 100, cacheWriteTokens: 1_900, completionTokens: 1_500 })).toBe(1_900 * 2.5 + 100 * 0.2 + 1_500 * 10);
+    expect(result.summary).toMatchObject({ outcome: "labelled", usd: 0.01977, cacheWriteTokens: 1_900,
+      calls: [{ state: "settled", inputTokens: 2_000, cachedTokens: 100, cacheWriteTokens: 1_900, cacheWriteReported: false, usd: 0.01977, countedUsd: 0.01977 }] });
+  });
+
+  it("pins the agreed keys and closed sets, and refuses a summary that breaks a cross-check", async () => {
+    expect(Object.keys(CallRecordSchema.shape)).toEqual(["call", "kind", "httpStatus", "state", "failure", "projectedUsd", "usd", "countedUsd", "maxOutputTokens", "bodyBytes",
+      "bodySha256", "inputTokens", "cachedTokens", "cacheWriteTokens", "outputTokens", "reasoningTokens", "cacheWriteReported", "elapsedMs", "servedModel", "requestId",
+      "errorType", "errorCode"]);
+    expect(Object.keys(LabellingSummarySchema.shape)).toEqual(["version", "kind", "protocol", "labeller", "cloudModel", "cloudApi", "servedModel", "envelopeLine", "run",
+      "startedUtc", "finishedUtc", "outcome", "failure", "secondRequest", "modelCalls", "rejectedDispatches", "unknownDispatches", "inputTokens", "cachedTokens",
+      "cacheWriteTokens", "outputTokens", "reasoningTokens", "usd", "reservedUnknownUsd", "priorCountedUsd", "capUsd", "instructionsSha256", "prices", "calls", "claims"]);
+    expect(Object.keys(LabellingSummarySchema.shape.claims.shape.plantedRejected.shape)).toEqual([...PLANT_REJECTIONS]);
+    expect([LABELLING_OUTCOMES, CALL_KINDS, CALL_STATES, SECOND_REQUEST_VALUES].map(set => [...set])).toEqual([["labelled", "labelled_below_minimum", "failed"],
+      ["label_and_plant", "plant_only"], ["settled", "rejected", "not_sent", "unknown", "outside_projection"], ["sent", "labeller_cap_exceeded"]]);
+    expect(LABELLING_FAILURES).toHaveLength(18);
+    expect(LABELLING_FAILURES.every(code => /^labeller_[a-z_]+$/u.test(code))).toBe(true);
+    const set = harvested(), server = await fake([fullReply()]);
+    const summary = (await runLabelling(options(set, server.endpoint))).summary!;
+    expect(LabellingSummarySchema.safeParse(summary).success).toBe(true);
+    const call = summary.calls[0]!;
+    const broken: [string, Record<string, unknown>][] = [
+      ["usd", { usd: summary.usd + 0.000001 }], ["reservedUnknownUsd", { reservedUnknownUsd: 0.5 }], ["modelCalls", { modelCalls: 2 }],
+      ["unknownDispatches", { unknownDispatches: 1 }], ["rejectedDispatches", { rejectedDispatches: 1 }], ["outputTokens", { outputTokens: summary.outputTokens + 1 }],
+      ["an extra key", { costUsd: 1 }], ["a failure outside the set", { failure: "labeller_something_else" }], ["an outcome outside the set", { outcome: "accepted" }],
+      ["labelled with a shortfall", { claims: { ...summary.claims, belowMinimum: { contradicted: 1 } } }],
+      ["failed with files written", { outcome: "failed", failure: "labeller_reply_invalid" }],
+      ["a settled call without its fee", { calls: [{ ...call, usd: null }] }], ["a rejected call with a fee", { calls: [{ ...call, state: "rejected", httpStatus: 401 }] }],
+      ["an unknown call under its reservation", { calls: [{ ...call, state: "unknown", usd: null, inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0,
+        cacheWriteReported: false }], usd: 0, reservedUnknownUsd: call.countedUsd, unknownDispatches: 1, inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0 }],
+      ["a fee below one micro-USD", { usd: 0.0000001 }], ["a path in run", { run: "../labelling-x" }],
+    ];
+    for (const [name, change] of broken) expect(LabellingSummarySchema.safeParse({ ...summary, ...change }).success, name).toBe(false);
   });
 });
 

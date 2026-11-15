@@ -63,6 +63,26 @@ export const PLANTABLE = Object.freeze(["partial", "unsupported", "contradicted"
 export type Plantable = (typeof PLANTABLE)[number];
 /** labels.json's note bound (LabelsFileSchema), in UTF-16 code units. */
 export const NOTE_MAX_CHARS = 400;
+/**
+ * The summary's closed sets. Lane S-harn's registry-row mode (`--labelling-file`) mirrors them, and a test pins its copy to these.
+ * A failure code here is a fixed name, never text from a reply.
+ */
+export const LABELLING_OUTCOMES = Object.freeze(["labelled", "labelled_below_minimum", "failed"] as const);
+export const CALL_KINDS = Object.freeze(["label_and_plant", "plant_only"] as const);
+export const CALL_STATES = Object.freeze(["settled", "rejected", "not_sent", "unknown", "outside_projection"] as const);
+export const SECOND_REQUEST_VALUES = Object.freeze(["sent", "labeller_cap_exceeded"] as const);
+export const PLANT_REJECTIONS = Object.freeze(["unknown_source", "unchanged_sentence", "duplicate", "sentence_bounds", "empty_note", "surplus", "no_free_id"] as const);
+export const LABELLING_FAILURES = Object.freeze(["labeller_interrupted", "labeller_timeout", "labeller_reply_too_large", "labeller_transport_failed", "labeller_rejected",
+  "labeller_http_status", "labeller_reply_undecodable", "labeller_usage_outside_projection", "labeller_reply_cut_at_output_cap", "labeller_reply_incomplete",
+  "labeller_reply_refused", "labeller_served_model_mismatch", "labeller_reply_invalid", "labeller_labels_incomplete", "labeller_output_invalid", "labeller_claims_changed",
+  "labeller_labels_unwritable", "labeller_claims_unwritable"] as const);
+/** PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)", which BL-20261115-1937 decision 2(b) charges the labelling to. */
+export const ENVELOPE_LINE = "synthetic_data";
+export type LabellingOutcomeName = (typeof LABELLING_OUTCOMES)[number];
+export type CallKind = (typeof CALL_KINDS)[number];
+export type CallState = (typeof CALL_STATES)[number];
+export type PlantRejection = (typeof PLANT_REJECTIONS)[number];
+export type LabellingFailure = (typeof LABELLING_FAILURES)[number];
 
 const STEP_2 = "## Step 2: label", STEP_3 = "## Step 3: plant negatives up to the minimum", FILES = "## Files";
 /**
@@ -106,7 +126,6 @@ const LabelReplySchema = z.object({ labels: z.array(z.object({ id: z.string(), l
 const PlantReplySchema = z.object({ planted: z.array(PlantedReplySchema) }).strict();
 type PlantedReply = z.infer<typeof PlantedReplySchema>;
 
-export type CallKind = "label_and_plant" | "plant_only";
 /** model.ts's Responses shape (thinking at `medium`, no stored state, the standard tier) with a strict reply format; no tools. */
 export function buildLabellingBody(kind: CallKind, instructions: string, user: string, maxOutputTokens: number): string {
   return canonical({ model: LABELLER_MODEL, input: responsesInput([{ role: "system", content: instructions }, { role: "user", content: user }]),
@@ -152,9 +171,10 @@ export function planRequest(kind: CallKind, instructions: string, user: string, 
   return { body, bodyBytes, bodySha256: digest(body), maxOutputTokens, projectedMicrousd };
 }
 
-export type LedgerEvent = "reserved" | "settled" | "rejected" | "not_sent" | "unknown" | "outside_projection";
-const LedgerLineSchema = z.object({ version: z.literal(1), run: z.string().regex(/^labelling-[0-9A-Za-z-]{1,40}$/u), call: z.union([z.literal(1), z.literal(2)]),
-  event: z.enum(["reserved", "settled", "rejected", "not_sent", "unknown", "outside_projection"]), microusd: z.number().int().nonnegative().safe(), utc: z.string().max(40) }).strict();
+export type LedgerEvent = "reserved" | CallState;
+const RUN_PATTERN = /^labelling-[0-9A-Za-z-]{1,40}$/u;
+const LedgerLineSchema = z.object({ version: z.literal(1), run: z.string().regex(RUN_PATTERN), call: z.union([z.literal(1), z.literal(2)]),
+  event: z.union([z.literal("reserved"), z.enum(CALL_STATES)]), microusd: z.number().int().nonnegative().safe(), utc: z.string().max(40) }).strict();
 /**
  * What the labelling has spent so far, by the ledger: each request at its final line's amount, or at its reservation when no final line
  * follows (a crash after the request was sent). Any malformed line refuses, so a damaged ledger can never under-count.
@@ -243,7 +263,9 @@ const ResponsesReplySchema = z.object({
 }).passthrough();
 const OutputMessageSchema = z.object({ type: z.literal("message"), content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()) }).passthrough();
 export interface DecodedReply { model: string | null; serviceTier: string | null | undefined; status: string; incompleteReason: string | null; text: string; refused: boolean;
-  usage: ReportedUsage; reasoningTokens: number }
+  usage: ReportedUsage; reasoningTokens: number;
+  /** False when the reply gave no `cache_write_tokens`: the usage then counts every uncached input token as written. */
+  cacheWriteReported: boolean }
 /** The Responses reply: its usage (which settles the fee) and the joined output text; a refusal part marks the reply refused. */
 export function decodeReply(bytes: Buffer): DecodedReply {
   const reply = ResponsesReplySchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
@@ -256,9 +278,13 @@ export function decodeReply(bytes: Buffer): DecodedReply {
     }
   }
   const input = reply.usage.input_tokens_details ?? {}, output = reply.usage.output_tokens_details ?? {};
+  // A reply that does not report its writes settles as if every uncached input token was written. The write rate is the dearer one,
+  // so the fee can only be over-counted; model.ts settles an absent count as no writes, but the cap here must never under-count.
+  const cached = input.cached_tokens ?? 0, reported = typeof input.cache_write_tokens === "number";
   return { model: reply.model ?? null, serviceTier: reply.service_tier, status: reply.status, incompleteReason: reply.incomplete_details?.reason ?? null, text, refused,
-    usage: { promptTokens: reply.usage.input_tokens, cachedTokens: input.cached_tokens ?? 0, cacheWriteTokens: input.cache_write_tokens ?? 0, completionTokens: reply.usage.output_tokens },
-    reasoningTokens: output.reasoning_tokens ?? 0 };
+    usage: { promptTokens: reply.usage.input_tokens, cachedTokens: cached, cacheWriteTokens: reported ? input.cache_write_tokens! : Math.max(0, reply.usage.input_tokens - cached),
+      completionTokens: reply.usage.output_tokens },
+    reasoningTokens: output.reasoning_tokens ?? 0, cacheWriteReported: reported };
 }
 /** The model the owner named, or one of its dated snapshots. */
 export function servedModelMatches(model: string | null): boolean { return model === LABELLER_MODEL || (model !== null && /^gpt-6-sol-[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(model)); }
@@ -272,7 +298,6 @@ export function shortenNote(note: string): { note: string; shortened: boolean } 
 }
 
 export interface PlantedClaim { id: string; sourceId: string; label: Plantable; sentence: string; quote: string; context: string; note: string }
-export type PlantRejection = "unknown_source" | "unchanged_sentence" | "duplicate" | "sentence_bounds" | "empty_note" | "surplus" | "no_free_id";
 export interface PlantingState { sources: Map<string, FixtureClaim>; keys: Set<string>; counts: Record<EntailmentVerdict, number>; minimum: number; nextNumber: number;
   accepted: PlantedClaim[]; rejected: Partial<Record<PlantRejection, number>>; notesShortened: number }
 const claimKey = (sentence: string, quote: string, context: string) => canonical([sentence, quote, context]);
@@ -302,23 +327,65 @@ export function acceptPlanted(items: readonly PlantedReply[], state: PlantingSta
   }
 }
 
-export type CallState = Exclude<LedgerEvent, "reserved">;
-export interface CallRecord {
-  call: 1 | 2; kind: CallKind; httpStatus: number | null; state: CallState; failure: string | null;
-  projectedUsd: number; usd: number | null; countedUsd: number; maxOutputTokens: number; bodyBytes: number; bodySha256: string;
-  inputTokens: number; cachedTokens: number; cacheWriteTokens: number; outputTokens: number; reasoningTokens: number; elapsedMs: number;
-  servedModel: string | null; requestId: string | null; errorType: string | null; errorCode: string | null;
-}
-export type LabellingOutcomeName = "labelled" | "labelled_below_minimum" | "failed";
-export interface LabellingSummary {
-  version: 1; kind: "e0_judge_labelling"; protocol: typeof LABELLING_PROTOCOL; labeller: string; cloudModel: string; cloudApi: "openai_responses";
-  servedModel: string | null; run: string; startedUtc: string; finishedUtc: string; outcome: LabellingOutcomeName; failure: string | null; secondRequest: string | null;
-  modelCalls: number; rejectedDispatches: number; unknownDispatches: number;
-  inputTokens: number; cachedTokens: number; cacheWriteTokens: number; outputTokens: number; reasoningTokens: number;
-  usd: number; countedUsd: number; priorCountedUsd: number; capUsd: number; instructionsSha256: string; prices: typeof LABELLER_PRICES; calls: CallRecord[];
-  claims: { harvested: number; planted: number; minimumPerClass: number; labelCounts: Record<EntailmentVerdict, number> | null; belowMinimum: Partial<Record<EntailmentVerdict, number>> | null;
-    plantedRejected: Partial<Record<PlantRejection, number>>; notesShortened: number; inputSha256: string; claimsSha256: string | null; labelsSha256: string | null };
-}
+const usdOf = (microusd: number) => Number((microusd / 1_000_000).toFixed(6));
+const micro = (usd: number | null) => Math.round((usd ?? 0) * 1_000_000);
+const usdField = z.number().finite().nonnegative().refine(value => Number.isSafeInteger(micro(value)) && usdOf(micro(value)) === value, "whole micro-USD");
+const countField = z.number().int().nonnegative().safe(), sha256Field = z.string().regex(/^[0-9a-f]{64}$/u), fixedField = z.string().regex(/^[a-z0-9_]{1,64}$/u);
+export const TOKEN_FIELDS = Object.freeze(["inputTokens", "cachedTokens", "cacheWriteTokens", "outputTokens", "reasoningTokens"] as const);
+/** A request whose charge is not settled from its reply, so it counts at its reservation or more. */
+const unsettled = (state: CallState) => state === "unknown" || state === "outside_projection";
+/** A request settled at zero without a reply: rejected (HTTP 4xx other than 408), or never sent (its connection failed before the handshake). */
+const zeroFee = (state: CallState) => state === "rejected" || state === "not_sent";
+/** One request in the summary: the contract agreed with lane S-harn, whose registry-row mode refuses any other key. */
+export const CallRecordSchema = z.object({
+  call: z.union([z.literal(1), z.literal(2)]), kind: z.enum(CALL_KINDS), httpStatus: z.number().int().min(100).max(599).nullable(), state: z.enum(CALL_STATES),
+  failure: z.enum(LABELLING_FAILURES).nullable(), projectedUsd: usdField, usd: usdField.nullable(), countedUsd: usdField, maxOutputTokens: countField, bodyBytes: countField,
+  bodySha256: sha256Field, inputTokens: countField, cachedTokens: countField, cacheWriteTokens: countField, outputTokens: countField, reasoningTokens: countField,
+  cacheWriteReported: z.boolean(), elapsedMs: countField, servedModel: z.string().max(200).nullable(), requestId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/u).nullable(),
+  errorType: fixedField.nullable(), errorCode: fixedField.nullable(),
+}).strict();
+export type CallRecord = z.infer<typeof CallRecordSchema>;
+const priceTier = { input: z.number(), cached: z.number(), write: z.number(), output: z.number() };
+const verdictCounts = z.object({ supported: countField, partial: countField, unsupported: countField, contradicted: countField }).strict();
+/**
+ * The summary, with the cross-checks the registry row applies: the call counts, the token totals and the USD totals are the sums over
+ * `calls`, each call's USD follows its state, and the outcome agrees with what was written.
+ */
+export const LabellingSummarySchema = z.object({
+  version: z.literal(1), kind: z.literal("e0_judge_labelling"), protocol: z.literal(LABELLING_PROTOCOL), labeller: z.literal(LABELLER_NAME), cloudModel: z.literal(LABELLER_MODEL),
+  cloudApi: z.literal("openai_responses"), servedModel: z.string().max(200).nullable(), envelopeLine: z.literal(ENVELOPE_LINE), run: z.string().regex(RUN_PATTERN),
+  startedUtc: z.string().max(40), finishedUtc: z.string().max(40), outcome: z.enum(LABELLING_OUTCOMES), failure: z.enum(LABELLING_FAILURES).nullable(),
+  secondRequest: z.enum(SECOND_REQUEST_VALUES).nullable(), modelCalls: countField, rejectedDispatches: countField, unknownDispatches: countField,
+  inputTokens: countField, cachedTokens: countField, cacheWriteTokens: countField, outputTokens: countField, reasoningTokens: countField,
+  usd: usdField, reservedUnknownUsd: usdField, priorCountedUsd: usdField, capUsd: usdField, instructionsSha256: sha256Field,
+  prices: z.object({ ...priceTier, longContext: z.object({ aboveTokens: countField, ...priceTier }).strict() }).strict(),
+  calls: z.array(CallRecordSchema).max(2),
+  claims: z.object({ harvested: countField, planted: countField, minimumPerClass: countField, labelCounts: verdictCounts.nullable(),
+    belowMinimum: z.object({ supported: countField.optional(), partial: countField.optional(), unsupported: countField.optional(), contradicted: countField.optional() }).strict().nullable(),
+    plantedRejected: z.object({ unknown_source: countField.optional(), unchanged_sentence: countField.optional(), duplicate: countField.optional(),
+      sentence_bounds: countField.optional(), empty_note: countField.optional(), surplus: countField.optional(), no_free_id: countField.optional() }).strict(),
+    notesShortened: countField, inputSha256: sha256Field, claimsSha256: sha256Field.nullable(), labelsSha256: sha256Field.nullable() }).strict(),
+}).strict().superRefine((summary, context) => {
+  const broken = (rule: string) => context.addIssue({ code: "custom", message: rule }), calls = summary.calls;
+  if (calls.some((call, index) => call.call !== index + 1 || call.kind !== CALL_KINDS[index])) broken("calls_order");
+  if (summary.modelCalls !== calls.length || summary.rejectedDispatches !== calls.filter(call => zeroFee(call.state)).length ||
+      summary.unknownDispatches !== calls.filter(call => unsettled(call.state)).length) broken("call_counts");
+  if (TOKEN_FIELDS.some(field => summary[field] !== calls.reduce((sum, call) => sum + call[field], 0))) broken("token_totals");
+  if (micro(summary.usd) !== calls.reduce((sum, call) => sum + micro(call.usd), 0) ||
+      micro(summary.reservedUnknownUsd) !== calls.filter(call => unsettled(call.state)).reduce((sum, call) => sum + micro(call.countedUsd), 0)) broken("usd_totals");
+  for (const call of calls) {
+    const usd = call.state === "settled" ? call.usd !== null && micro(call.usd) === micro(call.countedUsd) && micro(call.usd) <= micro(call.projectedUsd) && call.httpStatus === 200
+      : zeroFee(call.state) ? call.usd === 0 && call.countedUsd === 0 && (call.state === "rejected" ? call.httpStatus !== null : call.httpStatus === null)
+      : call.state === "unknown" ? call.usd === null && micro(call.countedUsd) === micro(call.projectedUsd)
+      : call.usd === null && micro(call.countedUsd) >= micro(call.projectedUsd) && call.httpStatus === 200;
+    const tokens = call.state === "settled" || call.state === "outside_projection" || (TOKEN_FIELDS.every(field => call[field] === 0) && !call.cacheWriteReported);
+    if (!usd || !tokens) broken("call_rules");
+  }
+  const written = summary.claims.claimsSha256 !== null && summary.claims.labelsSha256 !== null && summary.claims.labelCounts !== null;
+  if (summary.outcome === "failed" ? summary.failure === null || written || summary.claims.belowMinimum !== null || summary.claims.planted !== 0
+      : !written || (summary.outcome === "labelled") !== (summary.claims.belowMinimum === null) || (summary.outcome === "labelled" && summary.failure !== null)) broken("outcome_rules");
+});
+export type LabellingSummary = z.infer<typeof LabellingSummarySchema>;
 export interface LabellingOptions {
   claimsPath: string; root: string; minimumPerClass: number; protocolText: string;
   /** Absent on a dry run, which sends nothing. */
@@ -329,7 +396,6 @@ export interface LabellingOptions {
 }
 export interface LabellingResult { exitCode: number; printed: Record<string, unknown>; summary?: LabellingSummary }
 
-const usdOf = (microusd: number) => Number((microusd / 1_000_000).toFixed(6));
 const OriginSidecarSchema = z.object({ version: z.literal(1), task: z.string(), origins: z.array(z.object({ id: z.string(), run: z.string(), claimId: z.string() }).strict()) }).strict();
 const decodeJson = (bytes: Buffer) => JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
 
@@ -388,25 +454,55 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
     const runDirectory = join(dirname(place.claimsPath), run), replies = join(runDirectory, "replies"), requests = join(runDirectory, "requests");
     try { mkdirSync(runDirectory, { mode: 0o700 }); mkdirSync(replies, { mode: 0o700 }); mkdirSync(requests, { mode: 0o700 }); } catch { throw new Error("labeller_run_directory_unwritable"); }
     const calls: CallRecord[] = [];
-    let counted = 0;
+    let counted = 0, failure: LabellingFailure | null = null;
+    const summary: LabellingSummary = { version: 1, kind: "e0_judge_labelling", protocol: LABELLING_PROTOCOL, labeller: LABELLER_NAME, cloudModel: LABELLER_MODEL,
+      cloudApi: "openai_responses", servedModel: null, envelopeLine: ENVELOPE_LINE, run, startedUtc, finishedUtc: startedUtc, outcome: "failed", failure: "labeller_interrupted",
+      secondRequest: null, modelCalls: 0, rejectedDispatches: 0, unknownDispatches: 0, inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0,
+      usd: 0, reservedUnknownUsd: 0, priorCountedUsd: usdOf(prior), capUsd: usdOf(LABELLING_CAP_MICROUSD), instructionsSha256, prices: LABELLER_PRICES, calls,
+      claims: { harvested: harvested.length, planted: 0, minimumPerClass: minimum, labelCounts: null, belowMinimum: null, plantedRejected: {}, notesShortened: 0,
+        inputSha256, claimsSha256: null, labelsSha256: null } };
+    /**
+     * The summary is written ahead: before each request, with that request counted at its reservation and the outcome
+     * `labeller_interrupted`; after each reply; and at the end. Each write is atomic and checked against the agreed contract, so a killed
+     * tool still leaves a summary that counts every request it may have been charged for (lane S-harn's ask; the ledger does the same
+     * for the cap).
+     */
+    const writeSummary = () => {
+      summary.finishedUtc = now().toISOString(); summary.modelCalls = calls.length;
+      summary.rejectedDispatches = calls.filter(call => zeroFee(call.state)).length; summary.unknownDispatches = calls.filter(call => unsettled(call.state)).length;
+      for (const field of TOKEN_FIELDS) summary[field] = calls.reduce((sum, call) => sum + call[field], 0);
+      summary.usd = usdOf(calls.reduce((sum, call) => sum + micro(call.usd), 0));
+      summary.reservedUnknownUsd = usdOf(calls.filter(call => unsettled(call.state)).reduce((sum, call) => sum + micro(call.countedUsd), 0));
+      summary.servedModel = calls.map(call => call.servedModel).filter((model): model is string => model !== null).at(-1) ?? null;
+      LabellingSummarySchema.parse(summary);
+      const temporary = join(runDirectory, ".summary.json.tmp");
+      writePrivate(temporary, `${JSON.stringify(summary, null, 1)}\n`, "w");
+      renameSync(temporary, join(runDirectory, "summary.json"));
+    };
 
     const send = async (call: 1 | 2, kind: CallKind, plan: RequestPlan): Promise<{ record: CallRecord; decoded?: DecodedReply }> => {
       writePrivate(join(requests, `call-${call}.json`), plan.body);
       appendLedger(ledgerPath, { version: 1, run, call, event: "reserved", microusd: plan.projectedMicrousd, utc: now().toISOString() });
+      const record: CallRecord = { call, kind, httpStatus: null, state: "unknown", failure: "labeller_interrupted", projectedUsd: usdOf(plan.projectedMicrousd), usd: null,
+        countedUsd: usdOf(plan.projectedMicrousd), maxOutputTokens: plan.maxOutputTokens, bodyBytes: plan.bodyBytes, bodySha256: plan.bodySha256, inputTokens: 0, cachedTokens: 0,
+        cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheWriteReported: false, elapsedMs: 0, servedModel: null, requestId: null, errorType: null, errorCode: null };
+      calls.push(record);
+      summary.outcome = "failed"; summary.failure = "labeller_interrupted";
+      writeSummary();
       const started = performance.now();
       const result = await postOnce(endpoint, options.apiKey!, plan.body, options.timeoutMs ?? LABELLER_TIMEOUT_MS);
-      const record: CallRecord = { call, kind, httpStatus: result.kind === "response" ? result.status : null, state: "unknown", failure: null,
-        projectedUsd: usdOf(plan.projectedMicrousd), usd: null, countedUsd: usdOf(plan.projectedMicrousd), maxOutputTokens: plan.maxOutputTokens, bodyBytes: plan.bodyBytes,
-        bodySha256: plan.bodySha256, inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0,
-        elapsedMs: Math.round(performance.now() - started), servedModel: null, requestId: result.kind === "response" ? result.requestId : null, errorType: null, errorCode: null };
+      record.elapsedMs = Math.round(performance.now() - started); record.failure = null;
       let countedMicro = plan.projectedMicrousd, decoded: DecodedReply | undefined;
-      if (result.kind === "response") writePrivate(join(replies, `call-${call}.json`), result.bytes);
+      if (result.kind === "response") {
+        record.httpStatus = Number.isInteger(result.status) && result.status >= 100 && result.status <= 599 ? result.status : null; record.requestId = result.requestId;
+        writePrivate(join(replies, `call-${call}.json`), result.bytes);
+      }
       if (result.kind === "error") {
         // Before the handshake finished, no request byte left; after it, the provider may have billed a reply nobody saw.
-        record.state = result.sent ? "unknown" : "not_sent"; countedMicro = result.sent ? plan.projectedMicrousd : 0;
+        if (result.sent) record.state = "unknown"; else { record.state = "not_sent"; countedMicro = 0; record.usd = 0; }
         record.failure = result.code === "timeout" ? "labeller_timeout" : result.code === "reply_too_large" ? "labeller_reply_too_large" : "labeller_transport_failed";
       } else if (result.status >= 400 && result.status < 500 && result.status !== 408) {
-        record.state = "rejected"; countedMicro = 0; record.failure = "labeller_rejected";
+        record.state = "rejected"; countedMicro = 0; record.usd = 0; record.failure = "labeller_rejected";
         try {
           const error = (decodeJson(result.bytes) as { error?: { type?: unknown; code?: unknown } }).error;
           const fixed = (value: unknown) => typeof value === "string" && /^[a-z0-9_]{1,64}$/u.test(value) ? value : null;
@@ -419,7 +515,7 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
         if (decoded) {
           const fee = settlementMicrousd(decoded.usage);
           Object.assign(record, { inputTokens: decoded.usage.promptTokens, cachedTokens: decoded.usage.cachedTokens, cacheWriteTokens: decoded.usage.cacheWriteTokens,
-            outputTokens: decoded.usage.completionTokens, reasoningTokens: decoded.reasoningTokens, servedModel: decoded.model });
+            outputTokens: decoded.usage.completionTokens, reasoningTokens: decoded.reasoningTokens, cacheWriteReported: decoded.cacheWriteReported, servedModel: decoded.model });
           if (!usageInsideProjection(decoded.usage, decoded.serviceTier, plan.bodyBytes, plan.maxOutputTokens, plan.projectedMicrousd)) {
             // Fail closed: the projection no longer bounds this reply, so it counts at least its reservation and nothing more is sent.
             record.state = "outside_projection"; record.failure = "labeller_usage_outside_projection";
@@ -431,7 +527,7 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
       }
       record.countedUsd = usdOf(countedMicro); counted += countedMicro;
       appendLedger(ledgerPath, { version: 1, run, call, event: record.state, microusd: countedMicro, utc: now().toISOString() });
-      calls.push(record);
+      writeSummary();
       return { record, ...(decoded ? { decoded } : {}) };
     };
     /** The reply's content: completed, not refused, from the named model, and in the request's schema. */
@@ -442,22 +538,11 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
       if (!servedModelMatches(decoded.model)) { record.failure = "labeller_served_model_mismatch"; return undefined; }
       try { return schema.parse(JSON.parse(decoded.text)); } catch { record.failure = "labeller_reply_invalid"; return undefined; }
     };
-
-    const summary: LabellingSummary = { version: 1, kind: "e0_judge_labelling", protocol: LABELLING_PROTOCOL, labeller: LABELLER_NAME, cloudModel: LABELLER_MODEL,
-      cloudApi: "openai_responses", servedModel: null, run, startedUtc, finishedUtc: startedUtc, outcome: "failed", failure: null, secondRequest: null,
-      modelCalls: 0, rejectedDispatches: 0, unknownDispatches: 0, inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0,
-      usd: 0, countedUsd: 0, priorCountedUsd: usdOf(prior), capUsd: usdOf(LABELLING_CAP_MICROUSD), instructionsSha256, prices: LABELLER_PRICES, calls,
-      claims: { harvested: harvested.length, planted: 0, minimumPerClass: minimum, labelCounts: null, belowMinimum: null, plantedRejected: {}, notesShortened: 0,
-        inputSha256, claimsSha256: null, labelsSha256: null } };
-    const finish = (exitCode: number): LabellingResult => {
-      summary.finishedUtc = now().toISOString(); summary.modelCalls = calls.length;
-      summary.rejectedDispatches = calls.filter(call => call.state === "rejected").length; summary.unknownDispatches = calls.filter(call => call.state === "unknown").length;
-      for (const name of ["inputTokens", "cachedTokens", "cacheWriteTokens", "outputTokens", "reasoningTokens"] as const) summary[name] = calls.reduce((sum, call) => sum + call[name], 0);
-      summary.usd = usdOf(calls.reduce((sum, call) => sum + Math.round((call.usd ?? 0) * 1_000_000), 0)); summary.countedUsd = usdOf(counted);
-      summary.servedModel = calls.map(call => call.servedModel).filter((model): model is string => model !== null).at(-1) ?? null;
-      writePrivate(join(runDirectory, "summary.json"), `${JSON.stringify(summary, null, 1)}\n`);
+    const finish = (outcome: LabellingOutcomeName, exitCode: number): LabellingResult => {
+      summary.outcome = outcome; summary.failure = failure;
+      writeSummary();
       return { exitCode, summary, printed: { outcome: summary.outcome, failure: summary.failure, secondRequest: summary.secondRequest, run, modelCalls: summary.modelCalls,
-        usd: summary.usd, countedUsd: summary.countedUsd, priorCountedUsd: summary.priorCountedUsd, capUsd: summary.capUsd, inputTokens: summary.inputTokens,
+        usd: summary.usd, reservedUnknownUsd: summary.reservedUnknownUsd, priorCountedUsd: summary.priorCountedUsd, capUsd: summary.capUsd, inputTokens: summary.inputTokens,
         cachedTokens: summary.cachedTokens, cacheWriteTokens: summary.cacheWriteTokens, outputTokens: summary.outputTokens, reasoningTokens: summary.reasoningTokens,
         claims: { harvested: harvested.length, planted: summary.claims.planted, labelCounts: summary.claims.labelCounts, belowMinimum: summary.claims.belowMinimum,
           claimsSha256: summary.claims.claimsSha256, labelsSha256: summary.claims.labelsSha256 } } };
@@ -466,13 +551,13 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
     // Request 1 labels and plants.
     const first = await send(1, "label_and_plant", plan1);
     const reply = content(first.record, first.decoded, LabelReplySchema);
-    if (!reply) { summary.failure = first.record.failure ?? "labeller_failed"; return finish(2); }
+    if (!reply) { failure = first.record.failure ?? "labeller_reply_invalid"; return finish("failed", 2); }
     const labels = new Map<string, { label: EntailmentVerdict; note: string | null }>();
     for (const item of reply.labels) {
       if (labels.has(item.id)) { labels.clear(); break; }
       labels.set(item.id, { label: item.label, note: item.note });
     }
-    if (labels.size !== harvested.length || harvested.some(claim => !labels.has(claim.id))) { summary.failure = "labeller_labels_incomplete"; return finish(2); }
+    if (labels.size !== harvested.length || harvested.some(claim => !labels.has(claim.id))) { failure = "labeller_labels_incomplete"; return finish("failed", 2); }
     const state: PlantingState = { sources: new Map(harvested.map(claim => [claim.id, claim])), keys: new Set(harvested.map(claim => claimKey(claim.sentence, claim.quote, claim.context))),
       counts: { supported: 0, partial: 0, unsupported: 0, contradicted: 0 }, minimum, accepted: [], rejected: {}, notesShortened: 0,
       nextNumber: Math.max(...harvested.map(claim => Number(claim.id.slice(1)))) + 1 };
@@ -495,7 +580,7 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
         const second = await send(2, "plant_only", plan2);
         const plants = content(second.record, second.decoded, PlantReplySchema);
         if (plants) acceptPlanted(plants.planted, state);
-        else summary.failure = second.record.failure ?? "labeller_failed";
+        else failure = second.record.failure ?? "labeller_reply_invalid";
       }
     }
 
@@ -503,7 +588,7 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
     const plantedLabels = state.accepted.map(claim => ({ id: claim.id, label: claim.label, planted: true, note: claim.note }));
     const labelsFile = { version: 1, protocol: LABELLING_PROTOCOL, labeller: LABELLER_NAME, labels: [...harvestedLabels, ...plantedLabels] };
     const claimsFile = { version: 1, task: raw.task, claims: [...raw.claims, ...state.accepted.map(claim => ({ id: claim.id, sentence: claim.sentence, quote: claim.quote, context: claim.context }))] };
-    try { LabelsFileSchema.parse(labelsFile); ClaimsFileSchema.parse(claimsFile); } catch { summary.failure = "labeller_output_invalid"; return finish(2); }
+    try { LabelsFileSchema.parse(labelsFile); ClaimsFileSchema.parse(claimsFile); } catch { failure = "labeller_output_invalid"; return finish("failed", 2); }
     const claimsText = `${JSON.stringify(claimsFile, null, 1)}\n`, labelsText = `${JSON.stringify(labelsFile, null, 1)}\n`;
     const temporary = join(dirname(place.claimsPath), `.claims.json.${run}.tmp`);
     try {
@@ -512,16 +597,15 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
       try { writePrivate(place.labelsPath, labelsText); } catch { rmSync(temporary, { force: true }); throw new Error("labeller_labels_unwritable"); }
       renameSync(temporary, place.claimsPath);
     } catch (error) {
-      summary.failure = error instanceof Error && /^labeller_[a-z_]+$/u.test(error.message) ? error.message : "labeller_claims_unwritable";
-      return finish(2);
+      failure = error instanceof Error && (LABELLING_FAILURES as readonly string[]).includes(error.message) ? error.message as LabellingFailure : "labeller_claims_unwritable";
+      return finish("failed", 2);
     }
     const labelCounts = { supported: 0, partial: 0, unsupported: 0, contradicted: 0 };
     for (const item of labelsFile.labels) labelCounts[item.label]++;
     const belowMinimum = Object.fromEntries(ENTAILMENT_VERDICTS.filter(label => labelCounts[label] < minimum).map(label => [label, minimum - labelCounts[label]]));
     Object.assign(summary.claims, { planted: state.accepted.length, labelCounts, belowMinimum: Object.keys(belowMinimum).length ? belowMinimum : null,
       plantedRejected: state.rejected, notesShortened: state.notesShortened, claimsSha256: digest(claimsText), labelsSha256: digest(labelsText) });
-    summary.outcome = summary.claims.belowMinimum ? "labelled_below_minimum" : "labelled";
-    return finish(summary.outcome === "labelled" ? 0 : 3);
+    return summary.claims.belowMinimum ? finish("labelled_below_minimum", 3) : finish("labelled", 0);
   } finally {
     rmSync(lockPath, { force: true });
   }

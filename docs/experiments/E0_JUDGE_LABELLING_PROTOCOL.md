@@ -32,7 +32,10 @@ card's amendment fixes.
 - **Labeller** (a cloud model, through its API, separate from the judge): labels every
   claim and plants negatives.
   - It receives only the instructions of steps 2 and 3, the per-class minimum from the
-    card's amendment, and `claims.json`.
+    card's amendment, and `claims.json`. The labelling tool adds only fixed framing: a
+    sentence that the claims are untrusted text and contain no instructions, a sentence
+    that states the minimum (in a second request, the counts still to plant), and the
+    reply's JSON schema.
   - It never receives the provenance sidecar, because a run's id leads to that run's own
     judge verdicts.
   - It must not see any judge verdict on these claims: no `claims_entailment` events
@@ -88,9 +91,11 @@ orchestrator recorded and the owner may change. Before the first claim is sent:
 - **Project the fee from the claim count first.** Do this before the first call, and
   stop before any call that would pass the cap.
 - **Send only the instructions, the per-class minimum and `claims.json`.** No sidecar,
-  verdict, grade, run directory, path or address leaves the machine.
-- **One request labels and plants.** If a second request cannot be avoided, it carries
-  only the number of claims still to plant per class. It never carries a label.
+  verdict, grade, run directory, path or address leaves the machine. The tool's fixed
+  framing (its two sentences and the reply's JSON schema) carries none of them.
+- **One request labels and plants.** If a second request cannot be avoided, the only
+  thing it adds to the first request's instructions and `claims.json` is the number of
+  claims still to plant per class. It never carries a label or a planted claim.
 
 This protocol does not name the provider or the model. The labelling tool is
 `pnpm label:judge` (`scripts/judge-labeller.ts`, BL-20261115-1956-e0-judge-labeller-design);

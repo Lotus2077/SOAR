@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import { createServer as createTcpServer, type Socket } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,8 +14,8 @@ import { CLOUD_ARM_KEY_VARIABLE, buildCloudArm } from "../../scripts/private-age
 import { verifyJudgeFixtureInputs, type FixtureClaim } from "../../scripts/judge-fixture";
 import { CALL_KINDS, CALL_STATES, CallRecordSchema, ENVELOPE_LINE, LABELLER_ENDPOINT, LABELLER_KEY_VARIABLE, LABELLER_MODEL, LABELLER_NAME, LABELLER_PRICES, LABELLING_CAP_MICROUSD,
   LABELLING_FAILURES, LABELLING_OUTCOMES, LEDGER_NAME, LOCK_NAME, LabellingSummarySchema, NOTE_MAX_CHARS, OUTPUT_TOKENS, PLANT_REJECTIONS, SECOND_REQUEST_VALUES, UNTRUSTED_SENTENCE,
-  admittedEndpoint, countedMicrousd, labellerInstructions, minimumSentence, parseLabellerArguments, planRequest, reservationMicrousd, runLabelling, settlementMicrousd, shortenNote,
-  stillToPlantSentence, userMessage, type LabellingOptions, type LabellingSummary } from "../../scripts/judge-labeller";
+  UNBILLED_STATUSES, admittedEndpoint, countedMicrousd, labellerInstructions, minimumSentence, parseLabellerArguments, planRequest, postOnce, reservationMicrousd, runLabelling,
+  settlementMicrousd, shortenNote, stillToPlantSentence, userMessage, type LabellingOptions, type LabellingSummary, type RequestPlan } from "../../scripts/judge-labeller";
 import { H5_GPT_ARM, OPENAI_ENVIRONMENT } from "./private-agent-identity-golden.fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -68,6 +69,7 @@ async function fake(script: Scripted[]) {
       requests.push(seen);
       const step = script[requests.length - 1], reply = typeof step === "function" ? step(seen) : step;
       if (!reply || reply.never) return;
+      response.on("error", () => undefined);
       response.writeHead(reply.status ?? 200, { "content-type": "application/json", "x-request-id": `req_fake_${requests.length}` });
       response.end(typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body));
     });
@@ -78,11 +80,13 @@ async function fake(script: Scripted[]) {
   return { endpoint: `http://127.0.0.1:${address.port}/v1/responses`, requests };
 }
 /** A Responses reply whose usage stays inside the request's projection unless `usage` overrides it. */
-function reply(payload: unknown, usage: Partial<{ input: number; cached: number; written: number | null; output: number; reasoning: number }> = {}, extra: Record<string, unknown> = {}) {
+function reply(payload: unknown, usage: Partial<{ input: number; cached: number; written: number | null; output: number; reasoning: number;
+  parts: { ttl_30m_tokens?: number; ttl_12h_tokens?: number } }> = {}, extra: Record<string, unknown> = {}) {
   return (seen: Seen) => ({ body: { id: "resp_fake", object: "response", model: "gpt-6-sol-2026-09-22", status: "completed", service_tier: "default",
     output: [{ type: "reasoning", id: "rs_fake", summary: [] },
       { type: "message", id: "msg_fake", role: "assistant", status: "completed", content: [{ type: "output_text", text: typeof payload === "string" ? payload : JSON.stringify(payload), annotations: [] }] }],
-    usage: { input_tokens: usage.input ?? Math.floor(Buffer.byteLength(seen.body) / 4), input_tokens_details: { cached_tokens: usage.cached ?? 0, ...(usage.written === null ? {} : { cache_write_tokens: usage.written ?? 0 }) },
+    usage: { input_tokens: usage.input ?? Math.floor(Buffer.byteLength(seen.body) / 4), input_tokens_details: { cached_tokens: usage.cached ?? 0, ...(usage.written === null ? {} : { cache_write_tokens: usage.written ?? 0 }),
+      ...(usage.parts ? { cache_write_tokens_details: usage.parts } : {}) },
       output_tokens: usage.output ?? 1_500, output_tokens_details: { reasoning_tokens: usage.reasoning ?? 900 } }, ...extra } });
 }
 const fullReply = (planted: unknown[] = [PLANT_UNSUPPORTED, PLANT_CONTRADICTED_1, PLANT_CONTRADICTED_2], labels: unknown[] = REAL_LABELS) => reply({ labels, planted });
@@ -123,7 +127,8 @@ describe("E0 judge labeller: what leaves the machine", () => {
 
   it("refuses any endpoint but the owner's host or the tests' loopback fake, before reading anything", async () => {
     expect(admittedEndpoint(LABELLER_ENDPOINT).href).toBe("https://api.openai.com/v1/responses");
-    for (const endpoint of ["https://api.openai.com/v1/chat/completions", "https://example.com/v1/responses", "http://api.openai.com/v1/responses", "http://10.0.0.5:8000/v1/responses",
+    for (const endpoint of ["https://api.openai.com/v1/chat/completions", "https://labeller.invalid/v1/responses", "http://api.openai.com/v1/responses", "http://10.0.0.5:8000/v1/responses",
+      "http://localhost:9/v1/responses",
       "http://user:pass@127.0.0.1:9/v1/responses", "not a url"]) expect(() => admittedEndpoint(endpoint)).toThrow("labeller_endpoint_refused");
     expect(LABELLER_KEY_VARIABLE).toBe(CLOUD_ARM_KEY_VARIABLE);
   });
@@ -292,7 +297,8 @@ describe("E0 judge labeller: the files", () => {
 
 describe("E0 judge labeller: failing closed", () => {
   it("fails closed when the reported usage leaves the projection: nothing written, the reservation counted, no second request", async () => {
-    for (const [usage, extra] of [[{ input: 10_000_000 }, {}], [{ output: 10_000_000 }, {}], [{ input: 0 }, {}], [{ cached: 9_000_000 }, {}], [{}, { service_tier: "priority" }]] as const) {
+    for (const [usage, extra] of [[{ input: 10_000_000 }, {}], [{ output: 10_000_000 }, {}], [{ input: 0 }, {}], [{ cached: 9_000_000 }, {}], [{}, { service_tier: "priority" }],
+      [{ cached: 100, written: 1_000_000 }, {}], [{ written: 50, parts: { ttl_30m_tokens: 0, ttl_12h_tokens: 50 } }, {}], [{ written: 50, parts: { ttl_30m_tokens: 40 } }, {}]] as const) {
       const set = harvested(), server = await fake([reply({ labels: REAL_LABELS, planted: [] }, usage, extra), fullReply()]);
       const result = await runLabelling(options(set, server.endpoint));
       expect(server.requests).toHaveLength(1);
@@ -358,7 +364,11 @@ describe("E0 judge labeller: failing closed", () => {
     const server = await fake([fullReply()]);
     const refusals: [() => LabellingOptions, string][] = [
       [() => { const set = harvested(); return options(set, server.endpoint, { minimumPerClass: 0 }); }, "labeller_minimum_invalid"],
-      [() => { const set = harvested(); return options(set, "https://example.com/v1/responses"); }, "labeller_endpoint_refused"],
+      [() => { const set = harvested(); return options(set, "https://labeller.invalid/v1/responses"); }, "labeller_endpoint_refused"],
+      [() => { const set = harvested(); writeFileSync(set.claimsPath, set.claimsText.replace(`"sentence": "${CLAIMS[0]!.sentence}"`,
+        `"sentence": "${SIDECAR_RUN}",\n   "sentence": "${CLAIMS[0]!.sentence}"`)); return options(set, server.endpoint); }, "labeller_claims_not_canonical"],
+      [() => { const set = harvested(); writeFileSync(set.claimsPath, `${JSON.stringify({ version: 1, task: "synthetic", claims: CLAIMS }, null, 2)}\n`); return options(set, server.endpoint); },
+        "labeller_claims_not_canonical"],
       [() => { const set = harvested(); return options(set, server.endpoint, { protocolText: PROTOCOL.replace("## Step 3: plant negatives up to the minimum", "## Step 3") }); }, "labeller_protocol_unrecognised"],
       [() => { const set = harvested(); return options(set, server.endpoint, { protocolText: PROTOCOL.replace("## Files", "## Files and more\n\n## Step 2b: extra\n\n## Files") }); }, "labeller_protocol_unrecognised"],
       [() => { const set = harvested(), outside = join(set.base, "claims.json"); writeFileSync(outside, set.claimsText); return options(set, server.endpoint, { claimsPath: outside }); }, "labeller_claims_outside_root"],
@@ -389,6 +399,95 @@ describe("E0 judge labeller: failing closed", () => {
     rmSync(set.labelsPath);
     await expect(runLabelling(options(set, server.endpoint))).rejects.toThrow("labeller_claims_not_harvested");
     expect(server.requests).toHaveLength(1);
+  });
+});
+
+describe("E0 judge labeller: the review's cases", () => {
+  it("counts the first request's settled fee before admitting a second, and refuses the second when the cap no longer covers it", async () => {
+    const set = harvested(), instructions = labellerInstructions(PROTOCOL);
+    const first = planRequest("label_and_plant", instructions, userMessage(set.claimsText, minimumSentence(2)), 6, 6, LABELLING_CAP_MICROUSD) as RequestPlan;
+    const prior = LABELLING_CAP_MICROUSD - first.projectedMicrousd - 1_000;
+    writeFileSync(set.ledgerPath, [{ version: 1, run: "labelling-2026-11-15T190000000Z", call: 1, event: "reserved", microusd: prior, utc: "2026-11-15T19:00:00.000Z" },
+      { version: 1, run: "labelling-2026-11-15T190000000Z", call: 1, event: "settled", microusd: prior, utc: "2026-11-15T19:01:00.000Z" }].map(line => JSON.stringify(line)).join("\n") + "\n");
+    // Every body byte a written prompt token and every output token used: the first request settles at exactly its reservation.
+    const server = await fake([(seen: Seen) => reply({ labels: REAL_LABELS, planted: [] },
+      { input: Buffer.byteLength(seen.body), written: Buffer.byteLength(seen.body), output: seen.json.max_output_tokens })(seen), fullReply()]);
+    const result = await runLabelling(options(set, server.endpoint));
+    expect(server.requests).toHaveLength(1);
+    expect(server.requests[0]!.json.max_output_tokens).toBe(first.maxOutputTokens);
+    expect(result).toMatchObject({ exitCode: 3, summary: { outcome: "labelled_below_minimum", secondRequest: "labeller_cap_exceeded", modelCalls: 1,
+      calls: [{ state: "settled", usd: first.projectedMicrousd / 1_000_000 }] } });
+    expect(countedMicrousd(readFileSync(set.ledgerPath, "utf8"))).toBe(LABELLING_CAP_MICROUSD - 1_000);
+  });
+
+  it("counts a TLS connection whose handshake never finished as not sent", async () => {
+    const held: Socket[] = [];
+    const silent = createTcpServer(socket => { held.push(socket); }), closing = createTcpServer(socket => socket.destroy());
+    for (const server of [silent, closing]) {
+      await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
+      cleanups.push(() => new Promise<void>(done => { held.forEach(socket => socket.destroy()); server.close(() => done()); }));
+    }
+    const port = (server: typeof silent) => (server.address() as { port: number }).port;
+    expect(await postOnce(new URL(`https://127.0.0.1:${port(silent)}/v1/responses`), KEY, "{}", 400)).toEqual({ kind: "error", code: "timeout", sent: false });
+    expect(await postOnce(new URL(`https://127.0.0.1:${port(closing)}/v1/responses`), KEY, "{}", 5_000)).toEqual({ kind: "error", code: "transport_failed", sent: false });
+  });
+
+  it("settles at zero only the statuses OpenAI rejects before generating, and counts every other status at its reservation", async () => {
+    expect([...UNBILLED_STATUSES]).toEqual([400, 401, 403, 404, 429]);
+    for (const [status, state] of [[404, "rejected"], [429, "rejected"], [408, "unknown"], [409, "unknown"], [422, "unknown"], [500, "unknown"]] as const) {
+      const set = harvested(), server = await fake([{ status, body: { error: { type: "server_error" } } }]);
+      const call = (await runLabelling(options(set, server.endpoint))).summary!.calls[0]!;
+      expect([call.httpStatus, call.state]).toEqual([status, state]);
+      expect(call.countedUsd).toBe(state === "rejected" ? 0 : call.projectedUsd);
+    }
+  });
+
+  it("refuses a missing ledger where a labelling already ran, so deleting it cannot reset the total", async () => {
+    const server = await fake([fullReply()]);
+    const ran = harvested();
+    mkdirSync(join(ran.root, "labelling-2026-11-15T190000000Z"));
+    await expect(runLabelling(options(ran, server.endpoint))).rejects.toThrow("labeller_ledger_missing");
+    await expect(runLabelling(options(ran, server.endpoint, { dryRun: true, apiKey: undefined }))).rejects.toThrow("labeller_ledger_missing");
+    const archived = harvested();
+    mkdirSync(join(archived.root, "v1"));
+    writeFileSync(join(archived.root, "v1", "labels.json"), "{}");
+    await expect(runLabelling(options(archived, server.endpoint))).rejects.toThrow("labeller_ledger_missing");
+    expect(server.requests).toHaveLength(0);
+  });
+
+  it("records a reply from another model as outside the projection, and never copies an unsafe model string", async () => {
+    for (const [model, recorded] of [["gpt-6-luna", "gpt-6-luna"], ["gpt-6-sol /tmp/x", null]] as const) {
+      const set = harvested(), server = await fake([reply({ labels: REAL_LABELS, planted: [] }, {}, { model })]);
+      const result = await runLabelling(options(set, server.endpoint));
+      expect(result).toMatchObject({ exitCode: 2, summary: { outcome: "failed", failure: "labeller_served_model_mismatch", servedModel: recorded,
+        calls: [{ state: "outside_projection", failure: "labeller_served_model_mismatch", usd: null, servedModel: recorded }] } });
+      expect(result.summary!.calls[0]!.countedUsd).toBe(result.summary!.calls[0]!.projectedUsd);
+      expect(existsSync(set.labelsPath)).toBe(false);
+    }
+  });
+
+  it("writes nothing when claims.json changes while the request is out, and still counts the request", async () => {
+    const set = harvested(), server = await fake([(seen: Seen) => { writeFileSync(set.claimsPath, `${set.claimsText} `); return fullReply()(seen); }]);
+    const result = await runLabelling(options(set, server.endpoint));
+    expect(result).toMatchObject({ exitCode: 2, summary: { outcome: "failed", failure: "labeller_claims_changed", calls: [{ state: "settled" }] } });
+    expect(existsSync(set.labelsPath)).toBe(false);
+    expect(readFileSync(set.claimsPath, "utf8")).toBe(`${set.claimsText} `);
+    expect(countedMicrousd(readFileSync(set.ledgerPath, "utf8"))).toBe(Math.round(result.summary!.calls[0]!.usd! * 1_000_000));
+  });
+
+  it("counts a reply too large to read at its reservation", async () => {
+    const set = harvested(), server = await fake([{ status: 200, body: "x".repeat(9 * 1024 * 1024) }]);
+    const result = await runLabelling(options(set, server.endpoint));
+    expect(result).toMatchObject({ exitCode: 2, summary: { failure: "labeller_reply_too_large", unknownDispatches: 1, calls: [{ state: "unknown", httpStatus: null }] } });
+    expect(result.summary!.reservedUnknownUsd).toBe(result.summary!.calls[0]!.projectedUsd);
+  });
+
+  it("keeps the first request's labels when the second is rejected", async () => {
+    const set = harvested(), server = await fake([fullReply([PLANT_CONTRADICTED_1]), { status: 401, body: { error: { type: "invalid_request_error", code: "invalid_api_key" } } }]);
+    const result = await runLabelling(options(set, server.endpoint));
+    expect(result).toMatchObject({ exitCode: 3, summary: { outcome: "labelled_below_minimum", failure: "labeller_rejected", secondRequest: "sent", rejectedDispatches: 1,
+      calls: [{ state: "settled" }, { state: "rejected", usd: 0 }], claims: { planted: 1, belowMinimum: { unsupported: 1, contradicted: 1 } } } });
+    expect(JSON.parse(readFileSync(set.labelsPath, "utf8")).labels).toHaveLength(7);
   });
 });
 
@@ -458,8 +557,23 @@ describe("E0 judge labeller: the summary contract (lane S-harn's registry row)",
 
 describe("E0 judge labeller: the command", () => {
   const TSX = pathToFileURL(join(ROOT, "node_modules", "tsx", "dist", "loader.mjs")).href, SCRIPT = join(ROOT, "scripts", "judge-labeller.ts");
-  const cli = (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
-    spawnSync(process.execPath, ["--import", TSX, SCRIPT, ...args], { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env } });
+  /** A preload that throws on any connection off loopback, so no regression in the command can reach a real host from a test. */
+  const blocker = () => {
+    const path = join(tempDir(), "block-network.mjs");
+    writeFileSync(path, ["import net from \"node:net\";", "const connect = net.Socket.prototype.connect;", "net.Socket.prototype.connect = function (...args) {",
+      "  const first = Array.isArray(args[0]) ? args[0][0] : args[0];", "  const host = first && typeof first === \"object\" ? first.host : typeof args[1] === \"string\" ? args[1] : undefined;",
+      "  if (first && typeof first === \"object\" && first.path) return connect.apply(this, args);",
+      "  if (host !== \"127.0.0.1\" && host !== \"::1\") throw new Error(\"test_network_blocked\");", "  return connect.apply(this, args);", "};", ""].join("\n"));
+    return pathToFileURL(path).href;
+  };
+  const cli = (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}) => spawnSync(process.execPath, ["--import", blocker(), "--import", TSX, SCRIPT, ...args],
+    { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env } });
+
+  it("runs its command-line tests behind a preload that refuses any connection off loopback", () => {
+    const probe = spawnSync(process.execPath, ["--import", blocker(), "-e",
+      "const net = require('node:net'); try { net.connect({ host: '192.0.2.1', port: 9 }); console.log('not blocked'); } catch (error) { console.log(error.message); }"], { encoding: "utf8" });
+    expect(probe.stdout.trim()).toBe("test_network_blocked");
+  });
 
   it("parses its flags strictly", () => {
     expect(parseLabellerArguments(["--claims", "c.json", "--minimum-per-class", "10", "--dry-run"])).toEqual({ claims: "c.json", minimumPerClass: 10, dryRun: true });

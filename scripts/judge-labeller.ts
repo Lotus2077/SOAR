@@ -7,7 +7,9 @@
  * The tool, not the model, copies each planted claim's quote and context from the local claim set, gives it the next free id, marks
  * it planted, and writes claims.json and labels.json beside the claim set.
  *
- *   scripts/with-cloud-key.sh pnpm label:judge -- --claims .soar/experiments/e0-judge/claims.json --minimum-per-class <n> [--dry-run]
+ *   scripts/with-cloud-key.sh pnpm --silent label:judge -- --claims .soar/experiments/e0-judge/claims.json --minimum-per-class <n> [--dry-run]
+ *
+ * `--silent` keeps pnpm's own banner, which names the checkout's path, off standard output.
  *
  * Nothing else leaves the machine: no provenance sidecar, verdict, grade, run directory, path or address. The key comes from
  * SOAR_PHASE2_CLOUD_API_KEY, which the wrapper sets at launch; it goes only into the Authorization header and is never printed or
@@ -16,7 +18,7 @@
  * leaves the projection fails closed. Every file stays under the git-ignored .soar/experiments/e0-judge/ with mode 0o600, and
  * standard output prints aggregates only; a failure prints a fixed code, never a path.
  */
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeSync, type Dirent } from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -192,6 +194,20 @@ export function countedMicrousd(ledger: string): number {
   }
   return [...calls.values()].reduce((sum, call) => sum + (call.final ?? call.reserved ?? 0), 0);
 }
+/** A labelling ran here before: a run directory or a labels.json anywhere under the e0-judge directory, a few levels deep. */
+function labelledBefore(directory: string, depth = 0): boolean {
+  let entries: Dirent[];
+  try { entries = readdirSync(directory, { withFileTypes: true }); } catch { return false; }
+  return entries.some(entry => entry.isDirectory() ? RUN_PATTERN.test(entry.name) || (depth < 3 && labelledBefore(join(directory, entry.name), depth + 1)) : entry.name === "labels.json");
+}
+/**
+ * The ledger's count, refusing a missing ledger where a labelling already ran: the USD 1.00 total holds only while the ledger does, so
+ * a relabelling keeps it and puts its new set in a subdirectory of `.soar/experiments/e0-judge/`.
+ */
+function priorMicrousd(root: string, ledgerPath: string): number {
+  if (!existsSync(ledgerPath) && labelledBefore(root)) throw new Error("labeller_ledger_missing");
+  return countedMicrousd(readLedger(ledgerPath));
+}
 function readLedger(path: string): string {
   if (!existsSync(path)) return "";
   try { return readFileSync(path, "utf8"); } catch { throw new Error("labeller_ledger_invalid"); }
@@ -210,7 +226,7 @@ export function admittedEndpoint(value: string): URL {
   let url: URL;
   try { url = new URL(value); } catch { throw new Error("labeller_endpoint_refused"); }
   if (url.href === LABELLER_ENDPOINT) return url;
-  if (url.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname) && !url.username && !url.password && !url.search) return url;
+  if (url.protocol === "http:" && ["127.0.0.1", "[::1]"].includes(url.hostname) && !url.username && !url.password && !url.search) return url;
   throw new Error("labeller_endpoint_refused");
 }
 
@@ -258,14 +274,20 @@ const ResponsesReplySchema = z.object({
   incomplete_details: z.object({ reason: z.string().max(64).optional() }).passthrough().nullable().optional(),
   output: z.array(z.object({ type: z.string() }).passthrough()).max(64),
   usage: z.object({ input_tokens: tokens, output_tokens: tokens,
-    input_tokens_details: z.object({ cached_tokens: tokens.optional(), cache_write_tokens: tokens.optional() }).passthrough().nullable().optional(),
+    input_tokens_details: z.object({ cached_tokens: tokens.optional(), cache_write_tokens: tokens.optional(),
+      cache_write_tokens_details: z.object({ ttl_30m_tokens: tokens.optional(), ttl_12h_tokens: tokens.optional() }).passthrough().nullable().optional() }).passthrough().nullable().optional(),
     output_tokens_details: z.object({ reasoning_tokens: tokens.optional() }).passthrough().nullable().optional() }).passthrough(),
 }).passthrough();
 const OutputMessageSchema = z.object({ type: z.literal("message"), content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()) }).passthrough();
 export interface DecodedReply { model: string | null; serviceTier: string | null | undefined; status: string; incompleteReason: string | null; text: string; refused: boolean;
   usage: ReportedUsage; reasoningTokens: number;
   /** False when the reply gave no `cache_write_tokens`: the usage then counts every uncached input token as written. */
-  cacheWriteReported: boolean }
+  cacheWriteReported: boolean;
+  /**
+   * The reported writes are all at the 30-minute tier the prices hold. 12-hour writes (USD 5.00 per million, BL-20261022-1157), or tier
+   * parts that do not add up to the total, leave the projection, so the request fails closed.
+   */
+  writesPriced: boolean }
 /** The Responses reply: its usage (which settles the fee) and the joined output text; a refusal part marks the reply refused. */
 export function decodeReply(bytes: Buffer): DecodedReply {
   const reply = ResponsesReplySchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
@@ -280,14 +302,22 @@ export function decodeReply(bytes: Buffer): DecodedReply {
   const input = reply.usage.input_tokens_details ?? {}, output = reply.usage.output_tokens_details ?? {};
   // A reply that does not report its writes settles as if every uncached input token was written. The write rate is the dearer one,
   // so the fee can only be over-counted; model.ts settles an absent count as no writes, but the cap here must never under-count.
-  const cached = input.cached_tokens ?? 0, reported = typeof input.cache_write_tokens === "number";
+  const cached = input.cached_tokens ?? 0, reported = typeof input.cache_write_tokens === "number", tiers = input.cache_write_tokens_details;
+  const writesPriced = !tiers || ((tiers.ttl_12h_tokens ?? 0) === 0 && (!reported || (tiers.ttl_30m_tokens ?? 0) + (tiers.ttl_12h_tokens ?? 0) === input.cache_write_tokens));
   return { model: reply.model ?? null, serviceTier: reply.service_tier, status: reply.status, incompleteReason: reply.incomplete_details?.reason ?? null, text, refused,
     usage: { promptTokens: reply.usage.input_tokens, cachedTokens: cached, cacheWriteTokens: reported ? input.cache_write_tokens! : Math.max(0, reply.usage.input_tokens - cached),
       completionTokens: reply.usage.output_tokens },
-    reasoningTokens: output.reasoning_tokens ?? 0, cacheWriteReported: reported };
+    reasoningTokens: output.reasoning_tokens ?? 0, cacheWriteReported: reported, writesPriced };
 }
 /** The model the owner named, or one of its dated snapshots. */
 export function servedModelMatches(model: string | null): boolean { return model === LABELLER_MODEL || (model !== null && /^gpt-6-sol-[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(model)); }
+/** What the summary may record of a served model: a plain model name, or nothing. */
+const recordedModel = (model: string | null) => model !== null && /^[A-Za-z0-9._:-]{1,64}$/u.test(model) ? model : null;
+/**
+ * The statuses OpenAI answers before any generation (bad request, key, permission, model, rate or quota), settled at zero. Any other
+ * non-200 status, 408 and the other 4xx included, counts at its reservation, so the assumption that a rejection is free reaches only these.
+ */
+export const UNBILLED_STATUSES = Object.freeze([400, 401, 403, 404, 429] as const);
 
 /** A note within labels.json's bound: cut at a code point boundary. The label itself is never changed; the raw reply keeps the full note. */
 export function shortenNote(note: string): { note: string; shortened: boolean } {
@@ -426,6 +456,9 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
     file = ClaimsFileSchema.parse(raw);
     canonical(raw);
   } catch { throw new Error("labeller_claims_invalid"); }
+  // The request carries these exact bytes, so they must be the value the schema checked: the harvest's own serialization, with no
+  // duplicate key or other text that JSON.parse would drop.
+  if (text !== `${JSON.stringify(raw, null, 1)}\n`) throw new Error("labeller_claims_not_canonical");
   const inputSha256 = digest(bytes), harvested = file.claims;
   // Step 1's harvest wrote the sidecar with the same ids; a set holding planted claims (or any other edit) no longer matches it.
   try {
@@ -436,7 +469,7 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
 
   const firstUser = userMessage(text, minimumSentence(minimum)), ledgerPath = join(place.root, LEDGER_NAME), lockPath = join(place.root, LOCK_NAME);
   if (options.dryRun) {
-    const prior = countedMicrousd(readLedger(ledgerPath));
+    const prior = priorMicrousd(place.root, ledgerPath);
     const plan = planRequest("label_and_plant", instructions, firstUser, harvested.length, PLANTABLE.length * minimum, LABELLING_CAP_MICROUSD - prior);
     return { exitCode: "refusal" in plan ? 2 : 0, printed: { dryRun: true, admitted: !("refusal" in plan), ...("refusal" in plan ? { refusal: plan.refusal } : {}),
       claims: harvested.length, minimumPerClass: minimum, inputSha256, instructionsSha256,
@@ -447,7 +480,12 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
   // One paid invocation at a time: the ledger read, the reservation and the request happen under this lock.
   try { closeSync(openSync(lockPath, "wx", 0o600)); } catch { throw new Error("labeller_busy"); }
   try {
-    const prior = countedMicrousd(readLedger(ledgerPath));
+    // Review nit: the checks above ran before the lock, so the two that another run could change are repeated under it.
+    if (existsSync(place.labelsPath)) throw new Error("labeller_labels_exist");
+    let current: Buffer;
+    try { current = readFileSync(place.claimsPath); } catch { throw new Error("labeller_claims_changed"); }
+    if (digest(current) !== inputSha256) throw new Error("labeller_claims_changed");
+    const prior = priorMicrousd(place.root, ledgerPath);
     const plan1 = planRequest("label_and_plant", instructions, firstUser, harvested.length, PLANTABLE.length * minimum, LABELLING_CAP_MICROUSD - prior);
     if ("refusal" in plan1) throw new Error(plan1.refusal);
     const now = options.now ?? (() => new Date()), startedUtc = now().toISOString(), run = `labelling-${startedUtc.replace(/[:.]/gu, "")}`;
@@ -501,7 +539,7 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
         // Before the handshake finished, no request byte left; after it, the provider may have billed a reply nobody saw.
         if (result.sent) record.state = "unknown"; else { record.state = "not_sent"; countedMicro = 0; record.usd = 0; }
         record.failure = result.code === "timeout" ? "labeller_timeout" : result.code === "reply_too_large" ? "labeller_reply_too_large" : "labeller_transport_failed";
-      } else if (result.status >= 400 && result.status < 500 && result.status !== 408) {
+      } else if ((UNBILLED_STATUSES as readonly number[]).includes(result.status)) {
         record.state = "rejected"; countedMicro = 0; record.usd = 0; record.failure = "labeller_rejected";
         try {
           const error = (decodeJson(result.bytes) as { error?: { type?: unknown; code?: unknown } }).error;
@@ -515,10 +553,12 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
         if (decoded) {
           const fee = settlementMicrousd(decoded.usage);
           Object.assign(record, { inputTokens: decoded.usage.promptTokens, cachedTokens: decoded.usage.cachedTokens, cacheWriteTokens: decoded.usage.cacheWriteTokens,
-            outputTokens: decoded.usage.completionTokens, reasoningTokens: decoded.reasoningTokens, cacheWriteReported: decoded.cacheWriteReported, servedModel: decoded.model });
-          if (!usageInsideProjection(decoded.usage, decoded.serviceTier, plan.bodyBytes, plan.maxOutputTokens, plan.projectedMicrousd)) {
-            // Fail closed: the projection no longer bounds this reply, so it counts at least its reservation and nothing more is sent.
-            record.state = "outside_projection"; record.failure = "labeller_usage_outside_projection";
+            outputTokens: decoded.usage.completionTokens, reasoningTokens: decoded.reasoningTokens, cacheWriteReported: decoded.cacheWriteReported,
+            servedModel: recordedModel(decoded.model) });
+          const named = servedModelMatches(decoded.model);
+          if (!named || !decoded.writesPriced || !usageInsideProjection(decoded.usage, decoded.serviceTier, plan.bodyBytes, plan.maxOutputTokens, plan.projectedMicrousd)) {
+            // Fail closed: another model, or usage the prices and projection do not cover, counts at least its reservation, and nothing more is sent.
+            record.state = "outside_projection"; record.failure = named ? "labeller_usage_outside_projection" : "labeller_served_model_mismatch";
             countedMicro = Number.isSafeInteger(fee) && fee > plan.projectedMicrousd ? fee : plan.projectedMicrousd; decoded = undefined;
           } else {
             record.state = "settled"; countedMicro = fee; record.usd = usdOf(fee);
@@ -535,7 +575,6 @@ export async function runLabelling(options: LabellingOptions): Promise<Labelling
       if (!decoded || record.failure) return undefined;
       if (decoded.status !== "completed") { record.failure = decoded.incompleteReason === "max_output_tokens" ? "labeller_reply_cut_at_output_cap" : "labeller_reply_incomplete"; return undefined; }
       if (decoded.refused) { record.failure = "labeller_reply_refused"; return undefined; }
-      if (!servedModelMatches(decoded.model)) { record.failure = "labeller_served_model_mismatch"; return undefined; }
       try { return schema.parse(JSON.parse(decoded.text)); } catch { record.failure = "labeller_reply_invalid"; return undefined; }
     };
     const finish = (outcome: LabellingOutcomeName, exitCode: number): LabellingResult => {

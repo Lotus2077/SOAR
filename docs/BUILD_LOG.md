@@ -42046,3 +42046,87 @@ Next gate:
 - The first E0 rows, which verify the modes.
 
 References: BL-20261115-1954-e0-registry-modes-design; BL-20261115-1937-owner-adopts-standing-defaults (pull request #114); BL-20261114-1523-registry-columns-design; docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md; PLAN.md §4; issue #57.
+
+### BL-20261115-2135-correction-e0-registry-modes-skeptic -- 2026-11-15 -- Correction: E0's registry modes after the skeptic pass on #117. A local account name is removed from the tests, unknown token totals become null, the labelling tool's schema rules are mirrored, fixture calls are checked per cell, sums are bounded, and a running labelling is refused
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinator's skeptic pass on #117 at 639c804 gave a minor verdict, with no blocker or major. It asked for six items and six nits to be fixed before merge.
+
+The pass found these hold:
+- The writer accepts all 136 summaries #115's tool wrote at a4c482f, interim ones included, and all 25 of #116's at 18b062e.
+- Every closed set and key set equals #115's exports.
+- The USD accounting is right.
+- No row field leaks text.
+
+This entry corrects BL-20261115-2057-e0-registry-modes-implemented and BL-20261115-1954-e0-registry-modes-design without editing either. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Privacy (item 5).** Three test strings carried the owner's local account name. They had been copied from a review probe into tests/unit/registry-row-e0.test.ts as a probe failure, an expected-absent string and a labelling model id. bd24b3e replaces them with neutral placeholders. Commit 3662404's tree still holds them. Whether #117 is squash-merged or its history rewritten is the coordinator's decision.
+- **(2) Unknown token totals (item 1).**
+  - **The flaw.** An answered call without usage was skipped before `cachedMissing` was counted, so a run with missing usage read as zero cache reuse. #116's own test summary rows `cachedTokens` 15360 with `cachedMissing` 0, although its call 9 (HTTP 200, `malformed_reply`, usage null) reported none.
+  - **The fix.**
+    - `cachedMissing` now counts every answered call without a cached-token detail, usage-less ones included. `cachedTokens` is null when the count is above 0.
+    - `inputTokens` and `outputTokens` are null when `usageMissing` is above 0. `fixture.usage` keeps the reported sums and the calls they cover, as `probe.usage` does.
+    - A labelling row's `cacheWriteTokens` is null when the tool assumed a reply's cache writes, since plan 11.4's column holds reported writes.
+- **(3) The labelling tool's schema rules (item 2),** mirrored from `LabellingSummarySchema` at #115's head. The skeptic built 10 variants that the tool refuses, and the writer had accepted every one. Now:
+  - call i is `CALL_KINDS[i]`, and there are at most two calls;
+  - `settled` and `outside_projection` calls were answered 200;
+  - a settled fee is at most its projection;
+  - `usd` is a number or null, never a boolean (`false` had been written as `feeUsd: false`);
+  - a call without a reply reports no tokens and no cache write;
+  - **the outcome rules:**
+    - `failed` has a failure, with nothing written or planted and no class below the minimum;
+    - `labelled` and `labelled_below_minimum` wrote the set;
+    - `labelled` has no class below the minimum and no failure.
+
+  The test that accepted a second call of the first call's kind is fixed.
+- **(4) Fixture calls per cell (item 3).** The total alone admitted every call moved into one condition. Now:
+  - the planner's calls are one per condition and ordinal, the judge's one per condition, repeat and claim, and the extractor's one per condition, repeat and chunk;
+  - the extractor's chunks are one named chunk per manifest source;
+  - the judge's copied scores must score `claimCount` claims, `judged` must count the calls judged, and the agreements must fall within them;
+  - `meetsLevel` is recomputed from the manifest's measure and level, as `meetsAgreementLevel` computes it.
+- **(5) Sums are bounded (item 4).** Every number an E0 row carries, sums included, stays within 2^53 - 1. A per-call `prompt_tokens` of 2^53 - 1 had summed to 1.4e17.
+- **(6) A running labelling (item 6).** A summary whose run directory has `labelling.lock` beside it is refused, as a held `loop.lock` is. `wallSeconds` is null for an interim summary (`labeller_interrupted`), whose `finishedUtc` is the time of the rewrite.
+- **(7) Nits.**
+  - An unhashable `state` is refused instead of raising a `TypeError`.
+  - `feeUsd` is null on a labelling call that did not settle, per plan 11.4's `cloudCalls`.
+  - The README says "every request attempted".
+  - `cloudApi` must be `openai_responses`.
+  - The probe's exception classes are a fixed list (the built-in exceptions and the probe's library classes), so a row does not depend on the interpreter.
+  - An interrupted extractor row omits the call in flight, which is now stated as a limitation.
+- **(8) Tests.**
+  - **The extractor summary** in the tests now has #116's real shape: `thinking` "disabled" or "model", no `perChunk`, S1C1-style chunk ids and `deployedCondition` thinking-off.
+  - **#116's real summaries.** S-pipe's two summaries from #116's real command line (120 calls finished, 37 interrupted) were rowed by hand at 639c804 and rowed unchanged. #116's pin test rows its real output.
+  - **The labelling summaries** pasted in the tests come from #115 at 7a757ba, older than its head. When #117 merges after #115, this lane adds the labelling pin test. It rows summaries that `runLabelling` writes against a loopback fake, and pins `UNBILLED_STATUSES`, the key sets and `LABELLER_MODEL` as well as the closed sets.
+
+Changes:
+- scripts/registry-row.py;
+- tests/unit/registry-row-e0.test.ts (20 tests);
+- docs/experiments/README.md ("E0 rows");
+- docs/BUILD_LOG.md (this entry).
+
+Evidence: At fedeb08, on Node 22.22.2 and Python 3.9.5, after `git fetch` (`origin/main` d92a3af):
+- tests/unit/registry-row-e0.test.ts passes 20 of 20.
+- The registry, fixture, probe and serving-card suites pass 268 of 268, in 16 files.
+- 20 of 20 single-edit mutants of this entry's rules fail at least one test. The mutated rules are:
+  - **fixtures:** the usage-less cache count, the nulled totals, the cell checks, the source count, the judge's scores and its `meetsLevel`;
+  - **every row:** the sum bound;
+  - **labelling:** call order and count, the status, fee and boolean rules, the cache-write rule, the outcome rules, the lock, the interim wall time, assumed cache writes, the unsettled fee, the request shape and the unhashable state.
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- `git grep -i` finds the account name nowhere at the tip.
+
+Failures or blockers: The account name reached a pushed commit (3662404) and #117's diff before the skeptic pass found it. The tip no longer holds it. The decision on the history is open with the coordinator.
+
+Limitations and non-claims:
+- Implemented and tested on fixtures and loopback fakes only. It is not `Verified`: no real E0 run has been rowed.
+- The writer now mirrors #115's cross-checks, so a change to them needs this writer changed too. The pin test covers the closed sets and key sets, not the cross-checks.
+- A null token column means "unknown", not zero. `fixture.usage` and `probe.usage` hold the partial sums.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The coordinator's choice on 3662404's history.
+- The merge after #115 and the coordinator's E0 follow-up, with the re-stamp and the labelling pin test.
+
+References: BL-20261115-1954-e0-registry-modes-design; BL-20261115-2057-e0-registry-modes-implemented; pull requests #114, #115, #116 and #117.

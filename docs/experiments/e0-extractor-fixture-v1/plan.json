@@ -1,0 +1,42 @@
+{
+ "version": 2,
+ "questions": [
+  {
+   "id": "Q1",
+   "text": "What did the Halverstrand seawall trial build, where on the harbour, and between which dates?",
+   "requirementIds": ["U1"],
+   "sourceIds": ["input/corpus/board-notice.md", "input/corpus/monitoring-report.md"],
+   "lookFor": ["length and form of the wall", "crest height", "start, completion and handover dates"]
+  },
+  {
+   "id": "Q2",
+   "text": "What overtopping did the sources measure before and after the trial, with which figures and units?",
+   "requirementIds": ["U2"],
+   "sourceIds": ["input/corpus/board-notice.md", "input/corpus/gauge-log.md", "input/corpus/monitoring-report.md"],
+   "lookFor": ["litres per second per metre", "storm events", "mean and peak overtopping", "road closures"]
+  },
+  {
+   "id": "Q3",
+   "text": "Where do the sources disagree with each other, or with themselves, on figures, dates or claims?",
+   "requirementIds": ["U3"],
+   "sourceIds": [],
+   "lookFor": ["completion date", "overtopping means", "total cost", "gauge outages"]
+  },
+  {
+   "id": "Q4",
+   "text": "What did the trial cost, and who paid which share?",
+   "requirementIds": ["U4"],
+   "sourceIds": ["input/corpus/board-notice.md", "input/corpus/monitoring-report.md"],
+   "lookFor": ["crowns", "coastal fund share", "design changes"]
+  },
+  {
+   "id": "Q5",
+   "text": "What limitations or gaps do the sources state for their own measurements?",
+   "requirementIds": ["U5"],
+   "sourceIds": [],
+   "lookFor": ["gauge failures", "calibration", "baseline differences", "a single winter"]
+  }
+ ],
+ "conflictsToCheck": ["the date the wall was completed or handed over", "mean overtopping before and after the trial", "the total cost of the trial"],
+ "deliverableNotes": "Give each figure with its unit and source, and mark provisional figures as provisional."
+}

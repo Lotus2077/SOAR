@@ -41758,3 +41758,136 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green, and the owner's go to merge, since this is not a lane pull request. The next handoff note updates this section after E0 runs, 7b.2 lands or E1's gate is released.
 
 References: docs/HANDOFF.md "Start here"; BL-20261114-1119-handoff-start-here; BL-20261114-2300-correction-handoff-hash-line-restamp; BL-20261114-2254-correction-judge-fixture-second-restamp; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2307-correction-e1-recoverability-gate-review; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261114-2255-doctor-endpoint-identity-implemented; BL-20261114-2256-correction-doctor-endpoint-identity-restamp; BL-20261114-2301-serving-card-request-settings-design; BL-20261114-2302-serving-card-request-settings-implemented; BL-20261114-2304-correction-serving-card-request-settings-review; BL-20261114-2305-correction-serving-card-request-settings-second-restamp; BL-20261109-0351-e1-recoverability-card; BL-20261114-1344-experiment-launcher-design; BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1523-registry-columns-design; BL-20261114-1526-registry-columns-review-design; BL-20261114-2309-revoke-reopens-budget-stop-design; BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; BL-20261114-1808-claims-check-long-char-refs-implemented; pull requests #37 to #112 as the section lists them; issues #46 and #57.
+
+### BL-20261115-2006-e0-extractor-fixture-design -- 2026-11-15 -- E0 extractor fixture designed: the pipeline's own extraction request on three committed synthetic chunks, judged by the extraction stage's own checks, under three thinking conditions
+
+Status: `Proposed`
+
+Scope or hypothesis: E0's card lists an extractor fixture on "3 synthetic chunks" (docs/experiments/e0-card-2026-11-13.md, Role fixtures; docs/PROJECT_REVIEW_2026-11-05.md section 5.6, row E0).
+- **Its state.** No script runs it yet, and the card names its command in an amendment before it runs. Decision 5 of BL-20261115-1937-owner-adopts-standing-defaults (on #114) runs it after the planner fixture and builds it in a reviewed lane pull request.
+- **The request.** The coordinating session asked lane S-pipe for it on 2026-11-15, built the way scripts/planner-fixture.ts is built:
+  - three committed, synthetic, public chunks;
+  - the pipeline's own extraction request body, reused rather than copied, as the export and P10 build it;
+  - conditions and repeats proposed in this entry;
+  - zero-fee local calls only, with the outputs git-ignored under `.soar/experiments/`;
+  - a pinned manifest and a `pnpm fixture:extractor` script;
+  - unit tests against a loopback fake server only.
+- **Hypothesis.** The extraction role's replies on chunks shaped like research sources, judged as the stage judges them, inform two of the card's decisions: the thinking policy for the role, and the extraction stage's bounds and clocks.
+  - P10 measures the role's schema validity under `response_format` on one short synthetic payload.
+  - P11 measures prefill and decode on filler.
+  - Neither judges a reply the way the stage does: each quote located verbatim in its chunk, every question named once, and each status consistent with the quotes kept.
+- **Why this matters now.** The coordinating session reports that E0's first two r3 runs on d92a3af ended `research_extraction_incomplete`.
+  - Their extraction diagnostics include `schema_too_big` on notes, `needs_followup`, `quote_not_located`, `no_verified_evidence_with_quote` and `evidence_found_without_quote`.
+  - E0's own entries will record those runs. This fixture counts the same reasons for each condition.
+
+Decisions:
+(1) **What it measures.** For each chunk and condition, the extraction stage's judgement of an initial attempt:
+- **The state:** complete, `needs_followup`, invalid or truncated. For a complete reply, it also records whether the stage would hold the attempt for repair. That happens when a question marked `evidence_found` lost every quote it was given (owner question 3's corner, BL-20261110-0726-correction-research-tolerance-total-loss).
+- **The reasons,** by code and path only. For example `quote_length`, `quote_not_located`, `question_set_mismatch`, `evidence_found_without_quote`, `no_verified_evidence_with_quote`, `needs_followup`, `invalid_json`, `truncated` and the `schema_*` codes.
+- **The counts:** quotes given, kept and dropped; conflicts kept and dropped; notes cleared; questions downgraded and upgraded; and each question's outcome.
+- **The call:** the finish reason, the token usage as reported (prompt, completion, cached and reasoning tokens) and the wall time.
+
+(2) **The inputs.** Three synthetic public sources are committed under docs/experiments/e0-extractor-fixture-v1/sources/. Each is exactly one chunk under the pipeline's chunking.
+- **S1C1, `input/corpus/board-notice.md`, 1,745 bytes.** A short public notice: the trial's dates and figures, its cost, and a provisional caveat.
+- **S2C1, `input/corpus/gauge-log.md`, 62,694 bytes.** A raw data-logger export: 410 rows of 21 columns, notes on gauge outages and a calibration, and a storm-detail appendix. Most rows bear on no question.
+  - It is 2,842 bytes under the 65,536-byte chunk size.
+  - Its extraction user message is 66,709 bytes.
+- **S3C1, `input/corpus/monitoring-report.md`, 6,691 bytes.** A consultant's report: a storm table, the cost, limitations, and observations that bear on no question.
+- **The brief and plan.** The brief (brief.md, 406 bytes) has five numbered requirements, U1 to U5. The plan (plan.json) has five questions, one for each requirement. The pipeline's plan assessor, `assessResearchPlanReply`, accepts it against the units and the three source ids.
+- **What the texts contain.**
+  - They are invented. Each source says so in its first lines and names no real place, person or organisation.
+  - Their figures and dates disagree between sources and within one.
+  - They carry characters that web text carries and a verbatim quote must keep: a curly apostrophe, en and em dashes, and a degree sign.
+- **No gold.** No expected outcome, quote or label exists. The fixture scores no reply against one: its measure is what the stage would keep.
+- **How the log was made.** A seeded script outside the repository wrote the gauge log. The committed file, pinned by sha256, is the input.
+
+(3) **The request: the pipeline's own body, built where P10 builds its bodies.**
+- **The builder.** A helper in scripts/export-role-schemas.ts builds one role call's body through `PrivateAgentModel.requestBody`. It uses `buildLocalScreenModelConfig` with the heavy profile and the cache salt on, as `buildP10Requests` does today. `buildP10Requests` then builds its six cells with that helper, so the export's output stays byte-identical.
+- **The messages.** The system message is `EXTRACT_SYSTEM`. The user message is `researchExtractionUserContent` of the stable packet (brief, units and plan) and the chunk (source id and sha256, chunk id, bytes and text), with `repairReason` null. That is what the stage sends on an initial attempt.
+- **The settings** are the desktop's, read by `loadConfig()` as the export reads them: the model, `SOAR_STREAMING`, and the reply contract with its context. The summary records them as `servingCardRequestSettings` builds them.
+- **The cache salt.** The job id `e0-extractor-fixture` salts the bodies (`vllmCacheSalt`), so all of a run's calls share one prefix-cache key, as one research job's calls do.
+- **A streamed reply** is reassembled by the broker's own `assembleSseChatCompletion`, so streamed and plain replies are judged alike.
+
+(4) **The judgement: the stage's own checks, exported.**
+- **The function.** The checks the extraction stage runs on a settled reply move unchanged into an exported pure function in research-pipeline.ts, `assessResearchExtractionReply`, and the stage calls it.
+  - The stage keeps its counters, its quote merging and evidence ids, its held-attempt rule and its diagnostics. It applies them to the function's result as before.
+  - `assessResearchPlanReply` plays the same part for the planner fixture.
+- **The protocol hash.** `researchProtocolSha256()` hashes prompts, schemas, budgets and policies, and none of them changes. So the default hash is unchanged, and its pinned tests stay green.
+- **The harness source freeze moves.** `localScreenSourceFreeze()` hashes every file in src/main/private-agent/, so its digest changes with research-pipeline.ts. On `main` at d92a3af it is 42f138aa8945905bb85b2fcabf893d4b7f55cb5e5124f7dda2bb718d4178a2b5. A frozen run's `--runtime-sha256` must be re-read after this merges.
+
+(5) **Conditions and repeats (proposed).**
+- **`thinking-off`:** the stage's own call today, with thinking disabled (`THINKING.extract`) and `max_tokens` 2,048 (`OUTPUT_TOKENS.extract`).
+- **`thinking-on`:** the same call with the role model's thinking, the heavy profile's medium effort and sampling, still at 2,048 tokens. This is what changing the thinking policy alone would send.
+- **`thinking-on-8192`:** thinking on with an 8,192-token cap, the plan and synthesis cap. This is what a card that turns extraction thinking on would need. 7a.2's role policy (#103) admits such a cap and thinking for each attempt.
+- **Repeats.** Each chunk under each condition runs 10 times, 90 calls in all. The order is repeat-major: each repeat runs every chunk under every condition. An interrupted run then leaves balanced cells, and any drift over the run spreads evenly.
+- **What is not a condition:**
+  - the reply contract, which the configuration fixes (legacy during E0, decision 4 of BL-20261115-1937-owner-adopts-standing-defaults);
+  - structured output, which P10 measures;
+  - a repair attempt, which follows only a failed first attempt.
+
+(6) **What a run keeps.**
+- **Where.** Under `.soar/experiments/e0-extractor-fixture-<UTC timestamp>/`, which Git ignores: each raw reply under `replies/`, and `summary.json`. Every file is mode 0600.
+- **The summary** holds codes, hashes, counts, times and token usage only. It holds no reply text, quote, note or reasoning, and no address or key. It is rewritten after each call, so an interrupted run keeps what it measured.
+- **Reasoning text** stays in the raw replies: the card's item 4 keeps it for synthetic and public inputs.
+
+(7) **Refusals before any request.**
+- The manifest, docs/experiments/e0-extractor-fixture-v1.json, must parse strictly and be `pinned`.
+- The brief, the plan and each source must match their pinned sha256 and byte counts.
+- The brief must have its pinned units, and the plan assessor must accept the plan. Each source must be exactly one chunk, with its pinned id.
+- The conditions and the repeats come from the manifest only.
+- `loadConfig()`'s endpoint policy must pass. A base that is not loopback needs `SOAR_VLLM_COST_POLICY=local_zero_cost`; one that is not loopback and uses `http` also needs `SOAR_ALLOW_INSECURE_VLLM_HTTP=true`.
+- A dry run builds and hashes every body, sends nothing and writes nothing.
+
+(8) **Where it posts.** Directly to the configured endpoint's `/chat/completions`, outside the broker, as the planner and judge fixtures do. The input is public and synthetic, the call is at zero fee, and no dispatch row is written. Each call's timeout is the heavy profile's 900 s, and calls run one at a time.
+
+(9) **Tests, offline only, against a loopback fake server.**
+- The fixture's `thinking-off` body equals what `PrivateAgentModel.complete` sends for the stage's extraction call, captured with a fake broker.
+- P10's export bytes are unchanged.
+- The tests also cover streamed replies, every refusal, the summary's privacy, and the assessor's states and reasons.
+- The research suites pass unchanged.
+
+(10) **When it merges.** It touches research-pipeline.ts, so its pull request is held with #103, #108 and #110 until the coordinating session says E0's probe window (export to assessment) has closed. This holds although no request body and no protocol hash changes. The fixture runs after the planner fixture in any case. The coordinating session writes the card amendment that names the command.
+
+Changes: This entry, and the corpus under docs/experiments/e0-extractor-fixture-v1/: brief.md, plan.json and the three sources. No code yet.
+
+Evidence: These ran on the corpus at this commit, through the pipeline's own functions:
+- `deriveBriefUnits` gives U1 to U5.
+- `assessResearchPlanReply` accepts plan.json with no issue.
+- `inventoryResearchSources` gives S1C1, S2C1 and S3C1, each the whole of its source.
+- `researchExtractionUserContent` gives user messages of 5,109, 66,709 and 10,116 bytes.
+- The seeded script, run twice, wrote the same gauge log byte for byte.
+- The sha256 values:
+  - brief.md: a84e2c7689dc325a6e843f351646133d1177ca8adecc2457e070efa5b67667a4;
+  - plan.json: 7d92c892e07d080695357198a54bb0deef4c4bbdddb9c90157e4c8f293ba9c83;
+  - board-notice.md: 333790c0149b2ceeda89a2d3c1d72d764911c5c601f88761dc5d2ddc158196eb;
+  - gauge-log.md: ba92e4e9a20415a3a80e7df6bb87d7d1985e16f726fb9a35c1c3082045e3c3fe;
+  - monitoring-report.md: 03ef4f92d8fa2566f01955ab7911d0f7c48f641378fe213b250d09ae8e534ea3.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **Synthetic chunks are not web text.** One notice, one report and one log cannot stand for a corpus's range. The fixture measures the extraction role's behaviour on them, not research quality.
+- **Initial attempts only.** The fixture runs no repair. It shows how often the stage would need one, not whether the repair would succeed.
+- **One endpoint and one configuration** per run, with calls one at a time.
+- **The reasons from the r3 runs** are the coordinating session's report. E0's entries will record them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The implementation in the same pull request, with an `Implemented` entry;
+- a light review with privacy checked;
+- the merge after E0's probe window closes;
+- the card amendment that names the command;
+- then the run, after the planner fixture.
+
+References:
+- docs/experiments/e0-card-2026-11-13.md;
+- docs/PROJECT_REVIEW_2026-11-05.md section 5.6, row E0;
+- BL-20261113-0936-e0-card and BL-20261113-1003-e0-card-owner-answers;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- BL-20261108-0911-probe-extensions-implemented;
+- BL-20261110-0726-correction-research-tolerance-total-loss;
+- BL-20261115-1937-owner-adopts-standing-defaults (on #114);
+- scripts/planner-fixture.ts, scripts/judge-fixture.ts and scripts/export-role-schemas.ts;
+- issue #57.

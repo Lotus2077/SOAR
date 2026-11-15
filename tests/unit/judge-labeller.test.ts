@@ -491,6 +491,23 @@ describe("E0 judge labeller: the review's cases", () => {
   });
 });
 
+describe("E0 judge labeller: duplicates across the two requests", () => {
+  it("drops a planted claim in the second request that repeats the first request's planted claim or a harvested claim", async () => {
+    // The second request never sees what the first planted, so it may plant the same claim again; the tool keeps one key set across both.
+    const repeatsHarvested = { ...PLANT_UNSUPPORTED, sourceId: "C5", sentence: CLAIMS[2]!.sentence };
+    const set = harvested(), server = await fake([fullReply([PLANT_CONTRADICTED_1]),
+      reply({ planted: [PLANT_CONTRADICTED_1, repeatsHarvested, PLANT_UNSUPPORTED, PLANT_CONTRADICTED_2] })]);
+    const result = await runLabelling(options(set, server.endpoint));
+    expect(server.requests).toHaveLength(2);
+    expect(result).toMatchObject({ exitCode: 0, summary: { outcome: "labelled", secondRequest: "sent",
+      claims: { planted: 3, plantedRejected: { duplicate: 2 }, labelCounts: { supported: 3, partial: 2, unsupported: 2, contradicted: 2 } } } });
+    const claims = JSON.parse(readFileSync(set.claimsPath, "utf8")).claims as FixtureClaim[];
+    expect(claims.filter(claim => claim.sentence === PLANT_CONTRADICTED_1.sentence)).toHaveLength(1);
+    expect(claims.filter(claim => claim.sentence === CLAIMS[2]!.sentence)).toHaveLength(1);
+    expect(new Set(claims.map(claim => JSON.stringify([claim.sentence, claim.quote, claim.context]))).size).toBe(claims.length);
+  });
+});
+
 describe("E0 judge labeller: the summary contract (lane S-harn's registry row)", () => {
   it("writes the summary ahead of each request, so a killed tool still leaves the call counted at its reservation", async () => {
     const set = harvested(), seen: LabellingSummary[] = [];

@@ -42117,3 +42117,47 @@ Next gate:
 - S-harn's `--labelling-file` mode rows the summary. Whichever of the two pull requests merges second adds the test that pins its closed sets to this tool's arrays.
 
 References: BL-20261115-1956-e0-judge-labeller-design; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261022-1157-cloud-cache-write-price-correction; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; pull request #114.
+
+### BL-20261115-2049-correction-e0-judge-labeller-duplicate-plants -- 2026-11-15 -- Correction to BL-20261115-2044-e0-judge-labeller-implemented: a test now shows that a second request's repeat of an earlier planted or harvested claim is dropped, and the coordinating session approved #115's protocol wording
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session reviewed #115 on 2026-11-15. It approved the protocol wording that the pull request changes. It also asked whether the tool drops a planted sentence that repeats an earlier planted or harvested one, since the second request never sees what the first one planted. BL-20261115-2044-e0-judge-labeller-implemented stays as written. This entry answers the question and records the one test added for it.
+
+Decisions:
+- **The answer.** Yes: the code has dropped such repeats since a4c1611, and a test now shows it.
+  - `acceptPlanted` keeps one key set across both requests. It holds the harvested claims' (sentence, quote, context) triples and the triple of every planted claim it accepts.
+  - A planted claim whose triple is already in the set is rejected as `duplicate`, and the summary counts it in `plantedRejected`.
+  - The triple is the harvest's own duplicate key. So a planted claim counts as a repeat exactly when the harvest would also have kept only one of the two.
+  - A planted sentence equal to its own source's sentence is rejected earlier, as `unchanged_sentence`.
+  - The same sentence planted from a different source has a different quote and context. To the judge it is a different claim, and the tool keeps it.
+- **The evidence, corrected.** BL-20261115-2044-e0-judge-labeller-implemented counts 28 tests, and its second-request test shows only that a surplus planted claim is rejected. No test then covered a repeat across the two requests.
+  - The file now has 29 tests.
+  - The new test has the second request plant the first request's claim again, together with a planted claim that repeats a harvested one. Both are dropped as duplicates, and the written claims.json holds each triple once.
+- **The protocol wording.** The coordinating session approved the wording that #115 gives the protocol's two "only" passages, and asked that it stay as written. Its reasons:
+  - nothing forbidden leaves the machine;
+  - the fixed framing carries no data;
+  - the stateless second request re-sends only what the first one sent, plus the counts.
+- **The merge order the coordinating session set:** #114, then #102, then #115, then its own E0 follow-up. #115 merges `main` in after #102, without a force-push. Its entries already sort after #102's.
+
+Changes:
+- tests/unit/judge-labeller.test.ts: one test, 29 in the file.
+- docs/BUILD_LOG.md: this entry.
+- No change to scripts/judge-labeller.ts.
+
+Evidence:
+- `pnpm exec vitest run tests/unit/judge-labeller.test.ts` passes 29 tests.
+- With the duplicate check removed from `acceptPlanted`, the new test fails.
+- `pnpm typecheck` passes, and so does `pnpm --silent validate:build-log -- --base-ref origin/main`, with its exit status checked directly.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A test and a record correction only.
+- The tool drops exact duplicates only. A planted sentence that words the same point differently from an earlier one is kept, and its label is the labeller's.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI, then the merge of `main` after #102, then the coordinating session's merge under the standing go-ahead.
+
+References: BL-20261115-2044-e0-judge-labeller-implemented; BL-20261115-1956-e0-judge-labeller-design; pull requests #102, #114 and #115.

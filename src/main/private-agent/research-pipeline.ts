@@ -217,6 +217,91 @@ const SYNTHESIS_KEYS: ReadonlySet<string> = new Set(["version", "argument", "que
 function schemaReasons(issues: readonly z.core.$ZodIssue[], known: ReadonlySet<string>): ResearchDiagnosticReason[] {
   return issues.map(issue => ({ code: `schema_${issue.code}`, path: issue.path.map(part => typeof part === "number" ? part : typeof part === "string" && known.has(part) ? part : "?") }));
 }
+/** One settled extraction reply as the extraction stage judges it (assessResearchExtractionReply). */
+export interface ResearchExtractionAssessment {
+  /**
+   * The chunk state the reply gives on its own: truncated; invalid (no JSON, a schema failure, or a question set other than the
+   * plan's); needs_followup (every question named once, one or more of them needs_followup); or complete. The stage holds a
+   * complete first attempt whose `lostEvidence` is set for repair, and counts it invalid until it settles it (owner question 3's
+   * corner, BL-20261110-0726-correction-research-tolerance-total-loss).
+   */
+  state: "complete" | "invalid" | "truncated" | "needs_followup";
+  /** Every reason the stage computes, as fixed codes and positions: why the reply is not complete, or what a kept reply lost or had corrected. */
+  reasons: ResearchDiagnosticReason[];
+  /** The located quotes in reply order: normalised, question ids sorted, and no evidence id yet (`id` is ""). Empty unless the reply parsed. */
+  quotes: ResearchEvidence["quotes"];
+  /** The conflicts kept, in reply order. */
+  conflicts: { questionIds: string[]; note: string }[];
+  /** Each question's outcome in the reply's order: needs_followup as the reply marks it, otherwise whether a located quote names it. Empty unless the reply parsed. */
+  outcomes: { questionId: string; status: "evidence_retained" | "no_verified_evidence" | "needs_followup" }[];
+  /** Quotes not kept: out of the length range, unencodable, not located in the chunk, or naming a duplicate or unknown question. */
+  quotesDropped: number;
+  /** Conflicts not kept: a duplicate or unknown question id, or a note canonical() cannot encode. */
+  conflictsDropped: number;
+  /** Quote notes cleared because canonical() cannot encode them. */
+  notesCleared: number;
+  /** Questions marked evidence_found with no located quote, and questions marked no_verified_evidence that a located quote names. */
+  questionsDowngraded: number;
+  questionsUpgraded: number;
+  /** A complete reply in which a question marked evidence_found lost every quote it was given. */
+  lostEvidence: boolean;
+}
+/**
+ * The extraction stage's checks of one settled reply (backlog item 4; 7a.1, D2), exported so that E0's extractor fixture judges a
+ * reply exactly as the stage does (scripts/extractor-fixture.ts, BL-20261115-2006-e0-extractor-fixture-design). Pure: the stage
+ * applies its counters, quote merging and evidence ids, held-attempt rule and diagnostics to the result. Each quote and conflict is
+ * judged alone, and every reason is reported for any parsed reply. A reply that names every question once keeps each quote and
+ * conflict it can verify, clears a note canonical() cannot encode, and lets each question's outcome follow the verified quotes.
+ */
+export function assessResearchExtractionReply(input: { content: string; truncated: boolean; questions: ReadonlySet<string>; source: { id: string };
+  chunk: { id: string; sourceSha256: string; startLine: number }; chunkText: string }): ResearchExtractionAssessment {
+  const { questions, source, chunk, chunkText } = input;
+  const result: ResearchExtractionAssessment = { state: input.truncated ? "truncated" : "invalid", reasons: input.truncated ? [{ code: "truncated", path: [] }] : [],
+    quotes: [], conflicts: [], outcomes: [], quotesDropped: 0, conflictsDropped: 0, notesCleared: 0, questionsDowngraded: 0, questionsUpgraded: 0, lostEvidence: false };
+  if (input.truncated) return result;
+  const reasons = result.reasons;
+  const decoded = parseJsonReply(input.content), parsed = decoded === undefined ? undefined : ExtractReplySchema.safeParse(decoded);
+  if (parsed === undefined) { reasons.push({ code: "invalid_json", path: [] }); return result; }
+  if (!parsed.success) { reasons.push(...schemaReasons(parsed.error.issues, EXTRACT_KEYS)); return result; }
+  const value = parsed.data, exactQuestions = unique(value.questions.map(q => q.questionId)) && canonical(value.questions.map(q => q.questionId).sort()) === canonical([...questions].sort());
+  if (!exactQuestions) reasons.push({ code: "question_set_mismatch", path: ["questions"] });
+  const droppedFor = new Set<string>();
+  for (const [i, q] of value.quotes.entries()) {
+    const normalized = normalizeQuoteText(q.quote), length = [...normalized].length, inRange = length >= RESEARCH_QUOTE_MIN_CHARS && length <= RESEARCH_QUOTE_MAX_CHARS;
+    // A quote may end or start inside an astral character of the chunk (locateQuote matches UTF-16 units); canonical() refuses it.
+    const wellFormed = encodable(normalized), location = inRange && wellFormed ? locateChunkQuote(chunkText, normalized, chunk.startLine) : undefined;
+    if (!inRange) reasons.push({ code: "quote_length", path: ["quotes", i, "quote"], minimum: RESEARCH_QUOTE_MIN_CHARS, maximum: RESEARCH_QUOTE_MAX_CHARS });
+    else if (!wellFormed) reasons.push({ code: "quote_unencodable", path: ["quotes", i, "quote"] });
+    else if (!location) reasons.push({ code: "quote_not_located", path: ["quotes", i, "quote"] });
+    if (!unique(q.questionIds)) reasons.push({ code: "duplicate_question_id", path: ["quotes", i, "questionIds"] });
+    if (q.questionIds.some(id => !questions.has(id))) reasons.push({ code: "unknown_question_id", path: ["quotes", i, "questionIds"] });
+    if (!location || !unique(q.questionIds) || q.questionIds.some(id => !questions.has(id))) { result.quotesDropped++; for (const id of q.questionIds) droppedFor.add(id); continue; }
+    let note = q.note ?? "";
+    if (!encodable(note)) { reasons.push({ code: "note_unencodable", path: ["quotes", i, "note"] }); result.notesCleared++; note = ""; }
+    result.quotes.push({ id: "", questionIds: [...q.questionIds].sort(), sourceId: source.id, sourceSha256: chunk.sourceSha256, chunkIds: [chunk.id], locator: location.locator, quote: normalized, note });
+  }
+  for (const [i, c] of value.conflicts.entries()) {
+    const before = reasons.length;
+    if (!unique(c.questionIds)) reasons.push({ code: "duplicate_question_id", path: ["conflicts", i, "questionIds"] });
+    if (c.questionIds.some(q => !questions.has(q))) reasons.push({ code: "unknown_question_id", path: ["conflicts", i, "questionIds"] });
+    if (reasons.length === before && !encodable(c.note)) reasons.push({ code: "note_unencodable", path: ["conflicts", i, "note"] });
+    if (reasons.length === before) result.conflicts.push(c); else result.conflictsDropped++;
+  }
+  result.outcomes = value.questions.map((q, i) => {
+    const found = result.quotes.some(c => c.questionIds.includes(q.questionId));
+    if (q.status === "evidence_found" && !found) { reasons.push({ code: "evidence_found_without_quote", path: ["questions", i] }); result.questionsDowngraded++; }
+    if (q.status === "no_verified_evidence" && found) { reasons.push({ code: "no_verified_evidence_with_quote", path: ["questions", i] }); result.questionsUpgraded++; }
+    return { questionId: q.questionId, status: q.status === "needs_followup" ? "needs_followup" as const : found ? "evidence_retained" as const : "no_verified_evidence" as const };
+  });
+  if (exactQuestions && value.questions.some(q => q.status === "needs_followup")) {
+    result.state = "needs_followup";
+    for (const [i, q] of value.questions.entries()) if (q.status === "needs_followup") reasons.push({ code: "needs_followup", path: ["questions", i] });
+  } else if (exactQuestions) {
+    result.state = "complete";
+    result.lostEvidence = value.questions.some(q => q.status === "evidence_found" && droppedFor.has(q.questionId) && !result.quotes.some(c => c.questionIds.includes(q.questionId)));
+  }
+  return result;
+}
 export async function runResearchPipeline(input: ResearchPipelineInput): Promise<ResearchPipelineOutcome> {
   const parsedBudget = z.object({ indexCalls: z.number().int().min(1).max(24), extractionCalls: z.number().int().min(1).max(40), plannerCalls: z.number().int().min(1).max(2), synthesisCalls: z.number().int().min(1).max(2) }).strict().safeParse(input.budget === undefined ? RESEARCH_PIPELINE_BUDGET : input.budget);
   const budget = parsedBudget.success ? parsedBudget.data : RESEARCH_PIPELINE_BUDGET, stages: ResearchStageCounts[] = [], files = new Map<string, Buffer>();
@@ -376,72 +461,29 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
       chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: repair ? `previous_${chunk.status}; return compact COMPLETE JSON for every question` : null }), OUTPUT_TOKENS.extract, PURPOSES.extract, THINKING.extract);
     if ("denied" in reply) return reply.denied;
     settled(extractCounts, reply); if (repair) extractCounts.repairCalls!++; else { extractCounts.initialCalls!++; extractCounts.pairsExtracted!++; }
-    let state: "complete" | "invalid" | "truncated" | "needs_followup" = reply.truncated ? "truncated" : "invalid";
-    // Backlog item 4: the fixed reasons a reply is not complete, and since 7a.1 what a kept reply lost or had corrected, by position
-    // only; they reach the diagnostics sink and nothing else.
-    const reasons: ResearchDiagnosticReason[] = reply.truncated ? [{ code: "truncated", path: [] }] : [];
-    if (!reply.truncated) {
-      const decoded = parseJsonReply(reply.content), parsed = decoded === undefined ? undefined : ExtractReplySchema.safeParse(decoded);
-      if (parsed === undefined) reasons.push({ code: "invalid_json", path: [] });
-      else if (!parsed.success) reasons.push(...schemaReasons(parsed.error.issues, EXTRACT_KEYS));
-      else {
-        const value = parsed.data, exactQuestions = unique(value.questions.map(q => q.questionId)) && canonical(value.questions.map(q => q.questionId).sort()) === canonical([...questions].sort());
-        if (!exactQuestions) reasons.push({ code: "question_set_mismatch", path: ["questions"] });
-        // 7a.1 (D2): each quote and conflict is judged alone. Every reason is reported for any reply, as before; a reply that names
-        // every question once then keeps each quote and conflict it can verify, clears a note canonical() cannot encode, and lets
-        // each question's outcome follow the verified quotes. Each drop and correction of a kept reply is counted.
-        const candidateQuotes: ResearchEvidence["quotes"] = [], keptConflicts: typeof value.conflicts = [], droppedFor = new Set<string>();
-        let notes = 0, droppedConflicts = 0;
-        for (const [i, q] of value.quotes.entries()) {
-          const normalized = normalizeQuoteText(q.quote), length = [...normalized].length, inRange = length >= RESEARCH_QUOTE_MIN_CHARS && length <= RESEARCH_QUOTE_MAX_CHARS;
-          // A quote may end or start inside an astral character of the chunk (locateQuote matches UTF-16 units); canonical() refuses it.
-          const wellFormed = encodable(normalized), location = inRange && wellFormed ? locateChunkQuote(chunkText, normalized, chunk.startLine) : undefined;
-          if (!inRange) reasons.push({ code: "quote_length", path: ["quotes", i, "quote"], minimum: RESEARCH_QUOTE_MIN_CHARS, maximum: RESEARCH_QUOTE_MAX_CHARS });
-          else if (!wellFormed) reasons.push({ code: "quote_unencodable", path: ["quotes", i, "quote"] });
-          else if (!location) reasons.push({ code: "quote_not_located", path: ["quotes", i, "quote"] });
-          if (!unique(q.questionIds)) reasons.push({ code: "duplicate_question_id", path: ["quotes", i, "questionIds"] });
-          if (q.questionIds.some(id => !questions.has(id))) reasons.push({ code: "unknown_question_id", path: ["quotes", i, "questionIds"] });
-          if (!location || !unique(q.questionIds) || q.questionIds.some(id => !questions.has(id))) { extractCounts.quotesDropped!++; for (const id of q.questionIds) droppedFor.add(id); continue; }
-          let note = q.note ?? "";
-          if (!encodable(note)) { reasons.push({ code: "note_unencodable", path: ["quotes", i, "note"] }); notes++; note = ""; }
-          candidateQuotes.push({ id: "", questionIds: [...q.questionIds].sort(), sourceId: source.id, sourceSha256: chunk.sourceSha256, chunkIds: [chunk.id], locator: location.locator, quote: normalized, note });
-        }
-        for (const [i, c] of value.conflicts.entries()) {
-          const before = reasons.length;
-          if (!unique(c.questionIds)) reasons.push({ code: "duplicate_question_id", path: ["conflicts", i, "questionIds"] });
-          if (c.questionIds.some(q => !questions.has(q))) reasons.push({ code: "unknown_question_id", path: ["conflicts", i, "questionIds"] });
-          if (reasons.length === before && !encodable(c.note)) reasons.push({ code: "note_unencodable", path: ["conflicts", i, "note"] });
-          if (reasons.length === before) keptConflicts.push(c); else droppedConflicts++;
-        }
-        let downgraded = 0, upgraded = 0;
-        const outcomes = value.questions.map((q, i) => {
-          const found = candidateQuotes.some(c => c.questionIds.includes(q.questionId));
-          if (q.status === "evidence_found" && !found) { reasons.push({ code: "evidence_found_without_quote", path: ["questions", i] }); downgraded++; }
-          if (q.status === "no_verified_evidence" && found) { reasons.push({ code: "no_verified_evidence_with_quote", path: ["questions", i] }); upgraded++; }
-          return q.status === "needs_followup" ? "needs_followup" as const : found ? "evidence_retained" as const : "no_verified_evidence" as const;
-        });
-        if (exactQuestions && value.questions.some(q => q.status === "needs_followup")) {
-          state = "needs_followup";
-          for (const [i, q] of value.questions.entries()) if (q.status === "needs_followup") reasons.push({ code: "needs_followup", path: ["questions", i] });
-        } else if (exactQuestions) {
-          // Only the attempt a chunk keeps contributes quotes, conflicts and outcomes, and only its conflict, note and outcome
-          // corrections are counted; quotesDropped counts the quotes dropped from every parsed reply.
-          const ordinal = extractCounts.calls;
-          const keep = () => {
-          extractCounts.conflictsDropped! += droppedConflicts; extractCounts.notesDropped! += notes; extractCounts.questionsDowngraded! += downgraded; extractCounts.questionsUpgraded! += upgraded;
-          for (const q of candidateQuotes) { const key = `${q.sourceId}\u0000${q.locator}\u0000${q.quote}`; const prior = quoteMap.get(key); if (prior) { prior.questionIds = [...new Set([...prior.questionIds, ...q.questionIds])].sort(); prior.chunkIds = [...new Set([...prior.chunkIds, chunk.id])]; extractCounts.quotesDropped!++; extractCounts.quotesMerged!++; } else { q.id = `E${verified.length + 1}`; verified.push(q); quoteMap.set(key, q); } }
-          conflicts.push(...keptConflicts.map(c => ({ questionIds: c.questionIds, sourceId: source.id, note: c.note })));
-          chunk.questions = value.questions.map((q, i) => ({ questionId: q.questionId, status: outcomes[i]!, evidenceIds: [] }));
-          // A merge with an earlier identical quote carries no reason: only a drop or a correction makes this reply worth retaining.
-          if (reasons.length) retain(extractCounts, PURPOSES.extract, reply, reasons, "accepted_with_drops", ordinal);
-          };
-          const lost = value.questions.some(q => q.status === "evidence_found" && droppedFor.has(q.questionId) && !candidateQuotes.some(c => c.questionIds.includes(q.questionId)));
-          if (!repair && lost) {
-            held.set(chunk.id, { keep, reject: () => { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons, undefined, ordinal); } });
-            state = "invalid";
-          } else { state = "complete"; keep(); }
-        }
-      }
+    // Backlog item 4 and 7a.1: the reply's checks (assessResearchExtractionReply). Its reasons, by position only, reach the
+    // diagnostics sink and nothing else; quotesDropped counts the quotes dropped from every parsed reply.
+    const assessed = assessResearchExtractionReply({ content: reply.content, truncated: reply.truncated, questions, source, chunk, chunkText });
+    let state = assessed.state;
+    const reasons = assessed.reasons;
+    extractCounts.quotesDropped! += assessed.quotesDropped;
+    if (state === "complete") {
+      // Only the attempt a chunk keeps contributes quotes, conflicts and outcomes, and only its conflict, note and outcome
+      // corrections are counted.
+      const { quotes: candidateQuotes, conflicts: keptConflicts, conflictsDropped: droppedConflicts, notesCleared: notes, questionsDowngraded: downgraded, questionsUpgraded: upgraded } = assessed;
+      const ordinal = extractCounts.calls;
+      const keep = () => {
+        extractCounts.conflictsDropped! += droppedConflicts; extractCounts.notesDropped! += notes; extractCounts.questionsDowngraded! += downgraded; extractCounts.questionsUpgraded! += upgraded;
+        for (const q of candidateQuotes) { const key = `${q.sourceId}\u0000${q.locator}\u0000${q.quote}`; const prior = quoteMap.get(key); if (prior) { prior.questionIds = [...new Set([...prior.questionIds, ...q.questionIds])].sort(); prior.chunkIds = [...new Set([...prior.chunkIds, chunk.id])]; extractCounts.quotesDropped!++; extractCounts.quotesMerged!++; } else { q.id = `E${verified.length + 1}`; verified.push(q); quoteMap.set(key, q); } }
+        conflicts.push(...keptConflicts.map(c => ({ questionIds: c.questionIds, sourceId: source.id, note: c.note })));
+        chunk.questions = assessed.outcomes.map(outcome => ({ questionId: outcome.questionId, status: outcome.status, evidenceIds: [] }));
+        // A merge with an earlier identical quote carries no reason: only a drop or a correction makes this reply worth retaining.
+        if (reasons.length) retain(extractCounts, PURPOSES.extract, reply, reasons, "accepted_with_drops", ordinal);
+      };
+      if (!repair && assessed.lostEvidence) {
+        held.set(chunk.id, { keep, reject: () => { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons, undefined, ordinal); } });
+        state = "invalid";
+      } else keep();
     }
     // A held first attempt is settled later (settleHeld); a held chunk's own repair that fails counts and is retained now, as any other.
     if (state !== "complete" && (repair || !held.has(chunk.id))) { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons); }

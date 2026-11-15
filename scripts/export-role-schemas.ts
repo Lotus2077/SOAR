@@ -67,21 +67,29 @@ export function requestSettingsOf(config: Pick<SoarConfig, "vllm" | "streamingEn
     streamingEnabled: config.streamingEnabled === true };
 }
 
+/** The system message the pipeline sends for each role with a reply schema. */
+const ROLE_SYSTEMS: Readonly<Record<RoleWithSchema, string>> = Object.freeze({ plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM });
+
 /**
- * P10-align (BL-20261113-1011-p10-align-design): each body exactly as `PrivateAgentModel.requestBody` builds it for a pipeline call, under the
- * configuration the headless driver gives every local research role (`buildLocalScreenModelConfig`), with the heavy profile, whose thinking is
- * on, and the cache salt on. "on" is the role call with the model's thinking; "off" adds the call override `thinking: "disabled"`, as the
- * pipeline's call() sends a role whose thinking is disabled. The broker is never called: requestBody only builds.
+ * P10-align (BL-20261113-1011-p10-align-design): one role call's body exactly as `PrivateAgentModel.requestBody` builds it for a pipeline call,
+ * under the configuration the headless driver gives every local research role (`buildLocalScreenModelConfig`), with the heavy profile, whose
+ * thinking is on, and the cache salt on, salted for `jobId`. Without overrides the call takes the model's thinking and the role's pipeline cap;
+ * `thinking: "disabled"` is the override the pipeline's call() sends for a role whose thinking is disabled. P10's cells (buildP10Requests) and
+ * E0's extractor fixture (scripts/extractor-fixture.ts, BL-20261115-2006-e0-extractor-fixture-design) build their bodies here. The broker is
+ * never called: requestBody only builds, and it never reads the model's context id.
  */
-export function buildP10Requests(settings: RequestSettings, userContent: Record<RoleWithSchema, Record<P10ThinkingMode, string>>): RoleSchemaExport["requests"] {
+export function buildRoleRequest(settings: RequestSettings, jobId: string, role: RoleWithSchema, userContent: string,
+  overrides: { thinking?: "disabled"; maxOutputTokens?: number } = {}): P10Request {
   const config = buildLocalScreenModelConfig({ vllm: settings.vllm as SoarConfig["vllm"], streamingEnabled: settings.streamingEnabled }, COORDINATOR_PROFILES.heavy, true);
-  const model = new PrivateAgentModel({} as PrivateAgentBroker, config, P10_JOB_ID, "p10");
-  const systems = { plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM };
-  const cell = (role: RoleWithSchema, mode: P10ThinkingMode): P10Request => {
-    const { body } = model.requestBody([{ role: "system", content: systems[role] }, { role: "user", content: userContent[role][mode] }], [],
-      { maxOutputTokens: OUTPUT_TOKENS[role], ...(mode === "off" ? { thinking: "disabled" as const } : {}) });
-    return { body: JSON.parse(body) as Record<string, unknown>, bodySha256: digest(body) };
-  };
+  const model = new PrivateAgentModel({} as PrivateAgentBroker, config, jobId, jobId);
+  const { body } = model.requestBody([{ role: "system", content: ROLE_SYSTEMS[role] }, { role: "user", content: userContent }], [],
+    { maxOutputTokens: overrides.maxOutputTokens ?? OUTPUT_TOKENS[role], ...(overrides.thinking ? { thinking: overrides.thinking } : {}) });
+  return { body: JSON.parse(body) as Record<string, unknown>, bodySha256: digest(body) };
+}
+
+/** P10's six cells: "on" is the role call with the model's thinking; "off" adds the call override `thinking: "disabled"`. */
+export function buildP10Requests(settings: RequestSettings, userContent: Record<RoleWithSchema, Record<P10ThinkingMode, string>>): RoleSchemaExport["requests"] {
+  const cell = (role: RoleWithSchema, mode: P10ThinkingMode): P10Request => buildRoleRequest(settings, P10_JOB_ID, role, userContent[role][mode], mode === "off" ? { thinking: "disabled" } : {});
   return Object.fromEntries(P10_ROLES.map(role => [role, { on: cell(role, "on"), off: cell(role, "off") }])) as RoleSchemaExport["requests"];
 }
 

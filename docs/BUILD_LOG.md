@@ -41758,3 +41758,145 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green, and the owner's go to merge, since this is not a lane pull request. The next handoff note updates this section after E0 runs, 7b.2 lands or E1's gate is released.
 
 References: docs/HANDOFF.md "Start here"; BL-20261114-1119-handoff-start-here; BL-20261114-2300-correction-handoff-hash-line-restamp; BL-20261114-2254-correction-judge-fixture-second-restamp; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2307-correction-e1-recoverability-gate-review; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261114-2255-doctor-endpoint-identity-implemented; BL-20261114-2256-correction-doctor-endpoint-identity-restamp; BL-20261114-2301-serving-card-request-settings-design; BL-20261114-2302-serving-card-request-settings-implemented; BL-20261114-2304-correction-serving-card-request-settings-review; BL-20261114-2305-correction-serving-card-request-settings-second-restamp; BL-20261109-0351-e1-recoverability-card; BL-20261114-1344-experiment-launcher-design; BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1523-registry-columns-design; BL-20261114-1526-registry-columns-review-design; BL-20261114-2309-revoke-reopens-budget-stop-design; BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; BL-20261114-1808-claims-check-long-char-refs-implemented; pull requests #37 to #112 as the section lists them; issues #46 and #57.
+
+### BL-20261115-1954-e0-registry-modes-design -- 2026-11-15 -- Decide registry-row.py's three E0 modes: a serving-probe run, a role-fixture run and the labelling call each get one sanitized row from the producer's own output
+
+Status: `Proposed`
+
+Scope or hypothesis: E0 needs one registry row per run (docs/experiments/e0-card-2026-11-13.md, "Records"; PLAN.md §4). scripts/registry-row.py rows only harness runs, H4 loops, desktop verdict receipts and corrections. BL-20261115-1937-owner-adopts-standing-defaults (on pull request #114) lists these modes among the tools E0 still lacks, and the coordinator assigned them to lane S-harn on 2026-11-15. There are three producers:
+- scripts/serving-probe.py's run directory, `.soar/experiments/serving-probe-<time>/probe.json` (probe version 2);
+- the role fixtures' run directories, each `<out>/summary.json`: scripts/planner-fixture.ts (`FixtureSummary`), scripts/judge-fixture.ts (`JudgeFixtureSummary`), and the extractor fixture that lane S-pipe is building;
+- the labelling tool that lane S-e1 is building. It labels the judge's claim set through gpt-6-sol and writes a summary JSON whose shape this entry proposes.
+
+One persisted contract changes: the registry row. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Three new sources.** Each excludes the four existing ones and the others:
+  - `--probe-dir DIR` reads `DIR/probe.json`;
+  - `--fixture-dir DIR --fixture planner|judge|extractor` reads `DIR/summary.json`;
+  - `--labelling-file FILE` reads the labelling summary.
+
+  The operator still types `--id`, `--batch`, `--task`, `--family`, `--exposure`, `--arm`, `--outcome`, `--verdict-by` and `--lesson`. `--critical-checks`, `--owner-minutes`, `--interventions` and `--verdict-at` work as before.
+- **(2) What every new row carries.** PLAN.md §4's fields, so each row also carries the three columns of the 2026-11-05 review (§5.1, rule 2): acceptance, settled USD with reserved USD and body bytes per cloud call, and disclosed bytes.
+  - `git`, with `gitSource` `row_written` and `gitDirty` null: no producer records a commit.
+  - `date`: the UTC date the producer recorded the run starting. `wallSeconds`: the recorded span, null when the run did not finish.
+  - `inputSha256`, defined per mode in decisions (3) to (5).
+  - `profile`, `thinking` and `maxOutputTokens`, all null: no coordinator profile applies.
+  - `modelCalls`: every request the run made to a model, answered or not. Run rows differ: they count finished calls and put failures in the dispatch columns. Each new row's mode object says how its requests ended.
+  - The token columns, `usd`, `reservedUsd`, `pinnedUsd`, `cloudCalls` and `disclosedBytes`, with plan 11.4's meanings (BL-20261114-1523-registry-columns-design), and `unknownDispatches`.
+  - `terminalCause`: a fixed code per mode.
+  - The operator's fields: `outcome`, `criticalChecks`, `verdictBy`, `ownerMinutes`, `interventions` and `lesson`.
+
+  The other run-row columns are absent, and an absent column means not recorded.
+- **(3) Probe rows.**
+  - **Refused:**
+    - a probe version other than 2;
+    - a record that does not show the probe's zero-fee guard: `transport_class` `loopback`, or `cost_policy` `local_zero_cost`. The probe refuses to start otherwise, so an unmodified probe always shows it.
+  - **Spend:** `usd`, `reservedUsd`, `pinnedUsd` and `disclosedBytes` are 0, `cloudCalls` is empty and `unknownDispatches` is 0. The probe sends only to the owned endpoint, at zero fee, and HARN-27 counts nothing as disclosed to a local model.
+  - **`modelCalls`:** the chat-completion requests that the completed probes' records show, counted from each record:
+    - P2's five, P3's three, P4's one, P5's one, P6's two, P7's three, P8's one and P9's one;
+    - P10's six acceptance checks and its cells' calls;
+    - P11's one per measured size, its cache-layout requests and every K burst's streams;
+    - the adapter's six.
+
+    /models, /version, /metrics, /openapi.json and /tokenize are not model calls. A failed probe records no calls, so the count is then a lower bound, and the row names the failed probe.
+  - **Tokens:** `inputTokens`, `outputTokens` and `cachedTokens` are null. The probe keeps no usage for several of its calls: P5, P9, P10's acceptance checks, P11's K bursts, and the adapter's plain and cache-salt calls. `probe.usage` holds the sums it did record and how many calls they cover.
+  - **`inputSha256`:** the sha256 of the canonical JSON of P10's per-cell `request_body_sha256`, the exported request bodies. It is null without P10. The other probes' prompts are synthetic and are seeded per run.
+  - **`probe`:**
+    - `version`;
+    - `sha256`, over probe.json's bytes. It equals the serving card's `probe.sha256` when the card was written from the same file;
+    - `protocolSha256`, from `roles.protocol_sha256`;
+    - `selected`, `run`, `skipped` and `failed`: probe names, and for each failed probe its exception's class name;
+    - `finished`;
+    - `assessed`: whether `pnpm probe:assess` has run on P10, or null without P10;
+    - `calls`, per probe;
+    - `usage`.
+  - **`terminalCause`:** `probe_finished`, or `probe_unfinished` when probe.json has no `finished_utc` (the process ended before its last save).
+  - **Outcome:** `--outcome accepted` is refused for an unfinished run, a run in which a probe failed, and a P10 that has not been assessed.
+- **(4) Fixture rows.**
+  - **Refused:**
+    - a summary of another version;
+    - a dry run;
+    - a call or count that the producer's closed sets do not admit;
+    - a `--task` or `--exposure` other than the fixture manifest's.
+  - **Spend:** as for probe rows. The fixtures POST only to the owned endpoint, outside the broker.
+  - **`modelCalls`:** the summary's call records.
+  - **Tokens:** the sums of each reply's `usage`: `prompt_tokens`, `completion_tokens` and `prompt_tokens_details.cached_tokens`. `fixture.usageMissing` counts answered calls whose usage lacks them.
+  - **`inputSha256`:** the sha256 of the canonical JSON of the request digests by condition: the planner's `requestSha256` and the judge's `requestSetSha256`. They bind every request body the run sent.
+  - **`fixture`:**
+    - `kind`, `version` and `sha256` (over summary.json's bytes);
+    - `conditions` and `repeats`;
+    - `manifest`, its hashes and counts only:
+      - planner: `indexSha256`, `briefSha256`, `sourceIdsSha256`, `sourceCount`, `mandatorySourceChunks` and `extractionCallBudget`;
+      - judge: `sha256`, `claimsSha256`, `labelsSha256`, `claimCount`, `labelCounts`, `plantedCount`, `minimumPerClass` and `agreement`;
+    - `classes`: per condition, the calls by the producer's class. For the planner that is its `classification`; for the judge it is the verdict, or, for a call not judged, its failure;
+    - `usageMissing`.
+
+    The judge's rows add `promptVersion`, `promptSha256`, `replyContract`, `activationCondition` and `scores`. `scores` holds, per condition and repeat, `{claims, judged, exactCount, establishedCount, meetsLevel}` as the run computed them. The writer never reads labels.json.
+  - **A run that died:** a directory without summary.json is rowed from its `replies/` listing.
+    - `modelCalls` is the number of reply files, a lower bound.
+    - Tokens and `inputSha256` are null.
+    - `date` comes from the earliest reply.
+    - `terminalCause` is `fixture_unfinished`, and the outcome may only be `incomplete` or `infra_invalid`.
+
+    A finished run's `terminalCause` is `fixture_finished`. Its outcome is the operator's: the writer encodes no decision rule, since the card and its amendment hold them.
+  - **The extractor kind:** S-pipe's script does not exist yet. It joins on the planner's shape, with its own closed sets, read from the script once it exists. If that is not settled before this pull request merges, a follow-up with its own entry adds it.
+- **(5) Labelling rows**, from a summary of version 1. It was proposed to S-e1 on 2026-11-15, and the Implemented entry records the final shape.
+  - **The summary holds exactly these keys.** Any other key, or text where a code is expected, is refused.
+    - `kind` (`soar_labelling_summary`), `version` (1) and `protocol` (`e0-judge-labelling-v1`);
+    - `startedUtc`, and `finishedUtc` (null while unfinished);
+    - `model`, and `api` (a `cloudApi` value);
+    - `envelopeLine`: `synthetic_data`, PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)", per BL-20261115-1937 (b);
+    - `capUsd`;
+    - `claimsSha256` and `claimCount`, for the claim set sent;
+    - `calls`: per request, in send order, `purpose` (`label` or `plant`), `status` (`settled`, `failed` or `unknown`), `bodySha256`, `bodyBytes`, `reservedUsd`, `feeUsd`, `inputTokens`, `outputTokens` and `cachedTokens`. The last four are null unless the call settled;
+    - `result`: null, or the planted set's hashes and counts;
+    - `outcome`: a closed code.
+  - **The row:**
+    - `cloudModel` and `cloudApi`;
+    - `modelCalls`, every call, with `failedDispatches` and `unknownDispatches`;
+    - `usd`, the settled fees;
+    - `reservedUsd`, every reservation, and `pinnedUsd`, the reservations of `unknown` calls;
+    - `cloudCalls`, each `{purpose, status, feeUsd, reservedUsd, bodyBytes}`;
+    - `disclosedBytes`: the body bytes, counted once per distinct `bodySha256`;
+    - the tokens, summed over settled calls;
+    - `inputSha256`: the input `claimsSha256`;
+    - `terminalCause`: the outcome code;
+    - `labelling`: `{version, sha256, envelopeLine, capUsd, claimCount, result}`.
+  - **Outcome:** `--outcome accepted` is refused unless the code is `labelled`. An exposure over the cap is recorded, never refused.
+- **(6) `--supersedes`** copies these rows like any other, and repeats the outcome refusals of decisions (3) to (5) against the copy's own fields.
+- **(7) Privacy.** A row copies only 64-hex digests, counts, USD amounts, booleans, closed enums, exception class names and the labelling model's id, which is recorded as run rows' `cloudModel` is.
+
+  It never copies any of these:
+  - the served alias or the engine version;
+  - P10's binding, whose source ids are paths;
+  - the request settings;
+  - file names;
+  - reply or claim text, labels or notes;
+  - error bodies;
+  - the producers' free-text manifest fields (`name`, `task`, `note`). These are only compared.
+
+Changes: This entry only. The code follows in this pull request: scripts/registry-row.py, docs/experiments/README.md and a new unit test.
+
+Evidence: Reading only, at d92a3af.
+- scripts/serving-probe.py:
+  - `main` (:1006-1066) saves probe.json after each probe and adds `finished_utc` last.
+  - The probes' record shapes are at :690-962. P10's call records keep usage. P5, P9 and the acceptance checks keep none. P11's K bursts keep aggregates only (`aggregate_streams`, :347).
+- scripts/assess-probe-replies.ts rewrites probe.json in place, with `P10.assessed`.
+- scripts/serving-card.py:901-903: the card's `probe.sha256` is the digest of probe.json's raw bytes.
+- scripts/planner-fixture.ts:84-148 and scripts/judge-fixture.ts:208-321 write `summary.json` last, and only outside a dry run. Each call's usage is the reply's own object.
+- BL-20261115-1937 names the labeller, its host, its key variable and its envelope line.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- Proposed only. Nothing is implemented, tested or verified, and no row is written here.
+- probe.json does not hold every call's tokens, and a failed probe's calls are not counted.
+- A fixture row's counts are the producer's own records. The writer checks their types and closed sets, not that the calls happened.
+- The labelling summary does not exist yet. Its shape is a proposal until S-e1's tool writes it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with unit tests on fixtures only, and its `Implemented` entry; S-e1's answer on the labelling summary and S-pipe's on the extractor summary; then one light review with privacy checked.
+
+References: PLAN.md §4; docs/PROJECT_REVIEW_2026-11-05.md §5.1 and §5.6 (E0); docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261114-1523-registry-columns-design; BL-20261115-1937-owner-adopts-standing-defaults (pull request #114); issue #57.

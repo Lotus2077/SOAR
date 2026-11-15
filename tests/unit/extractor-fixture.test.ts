@@ -13,6 +13,7 @@ import type { RequestSettings } from "../../scripts/export-role-schemas";
 import { CONDITION_CALLS, EXTRACTOR_CONDITIONS, FIXTURE_JOB_ID, buildExtractorRequests, runExtractorFixture, verifyExtractorInputs,
   type ExtractorFixtureInputs } from "../../scripts/extractor-fixture";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
+import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
@@ -187,7 +188,9 @@ describe("E0 extractor fixture: a run against a loopback endpoint", () => {
     const order = [1, 2].flatMap(repeat => fixture.chunks.flatMap(c => EXTRACTOR_CONDITIONS.map(condition => ({ repeat, chunkId: c.chunkId, condition }))));
     expect(summary.calls.map(c => ({ repeat: c.repeat, chunkId: c.chunkId, condition: c.condition }))).toEqual(order);
     server.requests.forEach((request, i) => expect(digest(request.raw)).toBe(summary.requests[order[i]!.chunkId]![order[i]!.condition]!.bodySha256));
-    expect(summary).toMatchObject({ version: 1, dryRun: false, protocolSha256: researchProtocolSha256(), conditions: [...EXTRACTOR_CONDITIONS], repeats: 2, order: "repeat_chunk_condition",
+    // Exporting the stage's checks moved no prompt, schema, budget or policy: the default protocol hash is the shared pin.
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(summary).toMatchObject({ version: 1, dryRun: false, protocolSha256: RESEARCH_PROTOCOL_SHA256, conditions: [...EXTRACTOR_CONDITIONS], repeats: 2, order: "repeat_chunk_condition",
       requestSettings: { model: "Synthetic", streaming: false, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
       manifest: { name: "e0-extractor-fixture-v1", sha256: inputs.manifestSha256, corpus: "e0-extractor-fixture-v1", units: ["U1", "U2", "U3", "U4", "U5"] } });
     const [kept, drops, held, followup, mismatch, tooBig, truncated, rejected, malformed] = summary.calls;

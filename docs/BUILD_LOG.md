@@ -41891,3 +41891,133 @@ References:
 - BL-20261115-1937-owner-adopts-standing-defaults (on #114);
 - scripts/planner-fixture.ts, scripts/judge-fixture.ts and scripts/export-role-schemas.ts;
 - issue #57.
+
+### BL-20261115-2023-e0-extractor-fixture-implemented -- 2026-11-15 -- E0 extractor fixture implemented: `pnpm fixture:extractor` sends the extraction stage's own request on the three pinned chunks and judges each reply with the stage's own exported checks; offline tests only
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261115-2006-e0-extractor-fixture-design, with no change to its decisions. Decision (11) below lists the details the design left open. Nothing ran against an endpoint.
+
+Decisions:
+(1) **The stage's checks, exported unchanged.**
+- **The function.** research-pipeline.ts gains `assessResearchExtractionReply` and its result type, `ResearchExtractionAssessment`.
+  - It returns the state and every reason, as before.
+  - It also returns the located quotes (no evidence id yet), the kept conflicts, each question's outcome, the drop and correction counts, and `lostEvidence`.
+- **How it was moved.** The function body is the stage's code: the same checks, in the same order, giving the same reasons. The stage now calls it.
+- **What the stage keeps:**
+  - it adds `quotesDropped` for every parsed reply, as before;
+  - it keeps its `keep` closure, quote merging and evidence ids;
+  - it holds a first attempt whose `lostEvidence` is set;
+  - it keeps its diagnostics.
+- **One line was not retyped.** The `keep` closure's lines were re-indented by a script that copied their bytes from the file. So the quote-merge key's escape sequence was never typed by hand.
+
+(2) **The shared body builder.**
+- `buildRoleRequest(settings, jobId, role, userContent, overrides)` in scripts/export-role-schemas.ts builds one role call's body with `PrivateAgentModel.requestBody`. It uses `buildLocalScreenModelConfig` with the heavy profile and the cache salt on, and the salt follows `jobId`.
+- `buildP10Requests` builds its six cells with it.
+- The model's context id is now the job id. `requestBody` never reads it.
+
+(3) **The fixture**, scripts/extractor-fixture.ts:
+- **Verification first.** `verifyExtractorInputs` parses the manifest strictly. It reads the brief, the plan and each source, and checks every sha256 and byte count. It checks the units against the brief, the plan with `assessResearchPlanReply`, and that each source is exactly one chunk with the pinned id. Each check refuses with a fixed `extractor_fixture_*` code.
+- **The bodies.** `buildExtractorRequests` builds every chunk under every condition with `buildRoleRequest` and job id `e0-extractor-fixture`. It sends the exact bytes `requestBody` made: the body is re-serialised with `canonical()`, and a fixture refuses one whose sha256 differs.
+- **The run.** `runExtractorFixture` takes the calls repeat by repeat, then chunk, then condition. It POSTs each to `/chat/completions` with the heavy profile's 900 s timeout.
+  - A streamed reply goes through `assembleSseChatCompletion`.
+  - Empty content counts as empty, as the model layer's decoder reads it.
+  - The finish reason `length` marks a reply truncated, as the stage's `call()` reads it.
+
+(4) **The classes.**
+- From the assessment: `complete`; `held`, a complete first attempt the stage would hold because `lostEvidence` is set; `needs_followup`; `invalid`; and `truncated`.
+- Before any assessment: `request_rejected`, `malformed_reply` and `transport_failed`.
+- **`keptWithDrops`** marks a complete reply that has any reason. That is the stage's `accepted_with_drops`.
+
+(5) **What a run keeps.**
+- **The raw replies** go under `replies/` in the out directory, as `<chunk>-<condition>-<repeat>.json`, or `.sse` for a stream. Each file is mode 0600, and the folder 0700.
+- **The summary**, `summary.json`, mode 0600, is written beside the replies and renamed into place after every call. It holds:
+  - the run's request settings, as `servingCardRequestSettings` builds them;
+  - the manifest's name, sha256, corpus folder and units;
+  - each body's sha256 and size;
+  - for each call: its ordinal, repeat, chunk and condition, the HTTP status, the time, the reply file's sha256 and size, the class, the reason codes and paths, counts of quotes, conflicts, notes and status corrections, each question's outcome, and token usage;
+  - the tallies for each chunk and condition.
+- **Token usage** is kept as four numbers when the server reports them: prompt, completion, cached and reasoning tokens.
+- **A plain reply's reasoning field and byte count** are kept too. A streamed reply's are not, because the assembler drops reasoning deltas; the raw stream keeps them.
+
+(6) **The command line**, `pnpm fixture:extractor -- [--manifest <path>] [--out <dir>] [--dry-run]`.
+- It reads the endpoint and the settings through `loadConfig()`, so the app's endpoint policy refuses an undeclared remote base. The default manifest is docs/experiments/e0-extractor-fixture-v1.json.
+- **Refusals before any request:**
+  - an out directory that already exists;
+  - outside a dry run, an out directory Git does not ignore. This is the research driver's own `assertRunDirectoryIgnored` check. The default out directory is `.soar/experiments/e0-extractor-fixture-<UTC timestamp>/`.
+- **What it prints** to stdout: the conditions, repeats, chunk ids, request settings, body hashes, tallies, and the retained folder's name. It never prints the address.
+- **A configuration error** is printed only when the message cannot carry an address. Otherwise the error is the fixed code `extractor_fixture_config_invalid`.
+
+(7) **The manifest**, docs/experiments/e0-extractor-fixture-v1.json, is `pinned` from the start, because every input is committed.
+- It names the corpus folder and binds brief.md, plan.json and the three sources by sha256 and byte count. It also names the units U1 to U5, each source's id and chunk id, the three conditions and 10 repeats.
+- Paths are relative to the manifest's folder. A path that starts with a slash or a dot is refused.
+
+(8) **The script and the docs.** package.json gains `fixture:extractor`. docs/experiments/README.md lists the manifest and the corpus, and adds `e0-extractor-fixture-*/` to what stays under the ignored `.soar/experiments/`.
+
+(9) **The protocol hash is unchanged.** `researchProtocolSha256()` hashes prompts, schemas, budgets and policies, and none of them changed. On this branch, from `main` at d92a3af, it is 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92. The new test compares it with the shared pin in tests/helpers/research-protocol-pin.ts, which #102 will move to 7100b7a2… for its own reasons.
+
+(10) **The harness source freeze moves.** `localScreenSourceFreeze()` on this branch is 46971fde89dab5d15c971ce2c1c82222d9e0660587d6c594d2383e4bb765109d; on d92a3af it was 42f138aa8945905bb85b2fcabf893d4b7f55cb5e5124f7dda2bb718d4178a2b5. Only research-pipeline.ts moves it, because the export script and the fixture are outside the freeze. A frozen run's `--runtime-sha256` must be re-read once this merges.
+
+(11) **Details the design left open:**
+- the `held` class and `keptWithDrops`;
+- refusing an existing out directory;
+- the Git-ignored check on the command line;
+- the four usage numbers in place of the server's usage object;
+- the reasoning count for plain replies only;
+- the exact-bytes check on each body.
+
+Changes:
+- src/main/private-agent/research-pipeline.ts: `assessResearchExtractionReply`, its result type, and the stage calling it.
+- scripts/export-role-schemas.ts: `buildRoleRequest`, which `buildP10Requests` now uses.
+- scripts/extractor-fixture.ts: new.
+- tests/unit/extractor-fixture.test.ts: new, with 10 tests.
+- docs/experiments/e0-extractor-fixture-v1.json: new.
+- package.json: the `fixture:extractor` script.
+- docs/experiments/README.md: the manifest, the corpus and the ignored outputs.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On this branch, from `main` at d92a3af:
+- **Static checks.** `pnpm typecheck` passes, and so does `pnpm validate:readiness`, which scans tracked files for secret patterns. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The fixture's tests,** tests/unit/extractor-fixture.test.ts, pass: 10 tests, against a loopback fake server only. They cover:
+  - the committed corpus and every refusal, with no request and no file written;
+  - the bodies: `thinking-off` equals, byte for byte, what `PrivateAgentModel.complete` sends for the stage's extraction call, under the legacy shape with and without streaming and under flash_next_v1;
+  - a run of 18 calls through every class, with the order, the files and their modes, the summary rewritten after each call, and its privacy (no address, port, key, reasoning, corpus text or reply text);
+  - streamed replies, including a stream cut before its end;
+  - a dry run;
+  - the command line's dry run and its refusal of an unignored out directory;
+  - the assessor's states and reasons, quote by quote.
+- **The research suites** pass unchanged, with the export, planner-fixture and serving-probe suites: 19 files, 442 tests.
+- **The full suite,** `pnpm exec vitest run`, before the pin assertion was added to the new test: 188 files passed and 13 skipped; 3,701 tests passed and 86 skipped. None failed.
+- **The export is byte-identical.** `buildRoleSchemaExport` was run under three settings: legacy with streaming, legacy without it, and flash_next_v1. Its 144,720-byte output is the same before and after the change.
+- **Mutants.** 23 single-edit mutants each fail a test:
+  - seven of the assessor;
+  - three of the stage's use of it;
+  - two of the body builder;
+  - eleven of the fixture, among them the summary carrying the endpoint, the summary written only at the end, and the Git-ignored check dropped.
+- **The command line's dry run** under a loopback base printed the nine body hashes and the request settings, and no address.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called, and the fixture has not run against the owner's endpoint. Its run is E0's, after the planner fixture and the card amendment that names the command.
+- **The refactor's identity rests on the tests.** The moved checks are the stage's code, and the research suites pass unchanged. But no test runs the old and the new code side by side.
+- **Initial attempts only.** The fixture measures what the stage would do with a first attempt. It does not run repairs, the held-chunk settlement, or quote merging across chunks.
+- **A streamed reply's reasoning size** comes from the server's usage, when it reports reasoning tokens.
+- **The pull request is held** with #103, #108 and #110 until E0's probe window closes. When it merges, `main` will carry #114 and #102, and these entries follow their tail. #102 moves the shared pin; the test follows it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- A light review with privacy checked;
+- the merge after E0's probe window closes;
+- the card amendment that names `pnpm fixture:extractor`;
+- the run, from which E0's own entries record results.
+
+References:
+- BL-20261115-2006-e0-extractor-fixture-design;
+- BL-20261110-0726-correction-research-tolerance-total-loss;
+- BL-20261113-1011-p10-align-design and BL-20261113-1023-p10-align-implemented;
+- BL-20261115-1937-owner-adopts-standing-defaults (on #114);
+- docs/experiments/e0-card-2026-11-13.md;
+- scripts/planner-fixture.ts;
+- issue #57.

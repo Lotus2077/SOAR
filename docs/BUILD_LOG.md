@@ -42021,3 +42021,108 @@ References:
 - docs/experiments/e0-card-2026-11-13.md;
 - scripts/planner-fixture.ts;
 - issue #57.
+
+### BL-20261115-2051-correction-e0-extractor-fixture-review -- 2026-11-15 -- Correction to BL-20261115-2006-e0-extractor-fixture-design and BL-20261115-2023-e0-extractor-fixture-implemented: the light review's findings, a fourth condition at 16,384 tokens, one cache salt per repeat and condition, and the summary contract of the registry's fixture mode
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261115-2006-e0-extractor-fixture-design and BL-20261115-2023-e0-extractor-fixture-implemented. Neither entry is edited. Three things changed before the pull request opened:
+- **The light review.** One reviewer, with privacy checked. Its verdict: minor findings only, with no blocker and no major.
+  - It confirmed that the extraction stage behaves exactly as before. It compared the stage's old checks with the exported function: the states, the reasons and their order, every counter, the held-attempt rule, what the diagnostics receive, and what each chunk keeps.
+  - It found the corpus, the code, the summary and the printed output private.
+  - It made three minor findings and five nits.
+- **A fourth condition.** E0's r3 runs showed thinking fill the planner's 8,192-token cap. The coordinating session asked for thinking at 16,384 tokens beside the 8,192 cell, not in its place.
+- **The registry's reader.** Lane S-harn is adding registry-row.py's mode for E0's fixture runs, which reads the summary. The summary now follows the planner and judge fixtures' shape.
+
+Decisions:
+(1) **The review's findings.**
+- **Finding 1, minor: the body test copied `call()`'s overrides by hand.**
+  - A test now runs the real pipeline on the committed corpus, under the legacy shape with and without streaming and under flash_next_v1. Its planner returns plan.json, and its models take the driver's configuration under the fixture's first job.
+  - The first three extraction bodies the pipeline sends equal repeat 1's `thinking-off` bodies, byte for byte. The implemented entry's "byte for byte" now rests on this test.
+- **Finding 2, minor: one salt covered every call.** Repeats of identical bodies were then prefix-cache hits, and their times understated the stage's.
+  - Now each repeat and condition is salted as one research job (`fixtureJobId`). The order is repeat, then condition, then chunk. So a call reuses only its job's cached system message and stable packet line, as the stage's calls do.
+  - Repeats differ only in `cache_salt`.
+  - This replaces the design's single salt (decision (3)) and the implemented entry's order (repeat, chunk, condition).
+- **Finding 3, minor: `transport_failed` was never exercised.**
+  - A test now drops the connection. The call records the class and the error's name only (`TypeError`), with no reply file. The summary holds nothing of the address or the port.
+  - The implemented entry's "through every class" now holds.
+- **Finding 4, nit: a reply without `content` was classed `malformed_reply`.** The model layer reads missing content as empty, and so does the fixture now. The stage's checks then give `invalid_json`.
+- **Finding 5, nit: the stage keeps nothing from some replies that were counted as kept.** `quotes.kept` and `conflicts.kept` are now `located` and `valid`. The stage keeps them only from a complete reply.
+- **Finding 6, nit: the finish reason was copied as sent.** It is now kept only as a plain code (`^[a-z_]{1,32}$`); anything else reads `other`.
+- **Finding 7, nit: the test's port check could match digits inside a digest.** It now checks for `:<port>`.
+- **Finding 8, nit: unknown flags were ignored.** An unknown or repeated flag, or a flag without its value, is now refused with a usage line before anything runs.
+
+(2) **The fourth condition: `thinking-on-16384`.**
+- **What it is.** 16,384 is the Heavy profile's ceiling: `COORDINATOR_PROFILES.heavy.maxOutputTokens`, to which `requestBody` clamps.
+- **Why both caps.** Beside the 8,192 cell, the plan and synthesis cap, it separates a role that needs more room from one that does not stop thinking. That is the per-role thinking policy E0 reports.
+- **The run's size.** 4 conditions, 3 chunks and 10 repeats make 120 calls.
+- **The deployed cell** is `thinking-off`. It is exported as `DEPLOYED_CONDITION` and recorded in the summary.
+- **Endpoint time.** The estimate uses the ~154 decode tokens/s of the 2026-11-04 qualification (BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused). E0's P11 measures today's rate.
+  - A reply that runs to its cap decodes for about 13 s at 2,048 tokens, 53 s at 8,192 and 107 s at 16,384.
+  - Each repeat and condition adds about 20 s of prefill.
+  - So the 30 calls at 16,384 take at most about an hour, and the whole run at most about 1 h 45 min.
+- **The manifest's note** states the deployed cell, the 120 calls and the estimate.
+
+(3) **The summary, for lane S-harn's registry mode.**
+- **The top level** adds `model` (the configured alias), `deployedCondition` and `order: "repeat_condition_chunk"`. `finishedUtc` is present only when the run completes; without it, the run was interrupted.
+- **`manifest`** holds `sha256`, `name`, `task`, `exposure`, `briefSha256`, `planSha256`, `unitCount` and `sourceCount`. The list is exported as `EXTRACTOR_SUMMARY_MANIFEST_FIELDS`.
+  - `sha256` is now digest(canonical(manifest)), the judge fixture's rule. On the command line it was the file's bytes.
+  - The manifest gains `task` (`e0-extractor-synthetic-v1`) and `exposure`. The exposure is `fresh`: the corpus is new, and no run or prompt tuning has seen it.
+- **`requests`** is per condition, as the judge fixture records its sets. Each holds `requestSetSha256` (the digest of the condition's request digests in run order), `requests` (30), `requestBytes` (their sum), `maxTokens`, `thinking` and `streamed`.
+- **Each call record** adds `requestSha256` and `requestBytes`.
+  - The reply's digest and size are named `bodySha256` and `bodyBytes`, as in the planner's and the judge's records.
+  - It adds `contentBytes`.
+  - `usage` is the reply's usage object, with its numeric fields only: lower-case snake_case keys, two levels deep.
+- **`counts`** is per condition, each class's count, as the planner's is. `cells` holds the per-chunk tallies that the implemented entry called `counts`.
+- **The registry writer's copy** can be pinned to the exported runtime arrays: `EXTRACTOR_CONDITIONS`, `EXTRACTOR_CLASSES` and `EXTRACTOR_SUMMARY_MANIFEST_FIELDS`.
+- **`contentBytes`** is the byte length of the reply's content. The coordinating session asked that it sit beside the reasoning tokens. Together they show a reply that thinking filled to its cap with no content, as the r3 planner's empty truncations were, apart from one cut off mid-answer.
+
+(4) **What does not change:**
+- the corpus, the chunking and the plan;
+- how bodies are built, through `buildRoleRequest`;
+- the exported checks, and the stage's use of them;
+- `researchProtocolSha256()`, which is still the shared pin;
+- the harness source freeze. No file in src/main/private-agent/ changes here, so 46971fde… stands.
+
+Changes:
+- scripts/extractor-fixture.ts;
+- tests/unit/extractor-fixture.test.ts, now 12 tests;
+- docs/experiments/e0-extractor-fixture-v1.json;
+- docs/experiments/README.md;
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: At this commit, on `main` at d92a3af:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The fixture's tests:** 12 pass, against loopback fakes only.
+- **The full suite,** `pnpm exec vitest run`: 188 files passed and 13 skipped; 3,703 tests passed and 86 skipped. None failed.
+- **Mutants.** 35 single edits each fail a test.
+  - These are the 23 earlier ones, with anchors updated where the code moved.
+  - Twelve are new: the 16,384 cap, the deployed cell, the per-job salt, the manifest digest, the request set's digest, the per-condition counts, the empty-content reading, `contentBytes`, the finish-reason filter, two of the usage filter, and an unknown flag.
+- **Two command-line runs** against a throwaway loopback fake that varies its replies:
+  - a finished run of 120 calls;
+  - a run stopped with SIGTERM while its 38th call waited, which left 37 calls and no `finishedUtc`.
+
+  Neither summary holds the address. Each run's reply files match its calls, 120 and 37. The two summaries were copied, for S-harn's tests, to the session notes folder outside the repository, and the run directories were deleted.
+
+Failures or blockers: None. The first run of the new usage-filter case failed: it expected an object nested three levels deep to survive. The filter stops at two levels by design, and the test's case was corrected.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called.
+- **The time estimate** uses the 2026-11-04 decode rate.
+- **Prefix reuse is the server's.** Whether vLLM keeps a job's prefix between that job's chunks, with other jobs' calls in between, is up to the server. Cached tokens show only when the server reports prompt token details.
+- **The pull request stays held** with #103, #108 and #110 until E0's probe window closes.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the pull request, held until E0's probe window closes;
+- the coordinating session's card amendment, which names the command, the manifest and the four conditions;
+- the merge of `main`, after #114 and #102, with these entries re-stamped if another entry reaches `main` first;
+- the run.
+
+References:
+- BL-20261115-2006-e0-extractor-fixture-design and BL-20261115-2023-e0-extractor-fixture-implemented (corrected);
+- BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused;
+- BL-20261110-0726-correction-research-tolerance-total-loss;
+- the light review of the extractor fixture;
+- lane S-harn's registry contract note.

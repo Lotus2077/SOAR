@@ -160,7 +160,7 @@ unresolved outcomes. H4/H5 acceptance remains unestablished.
 | `ownerMinutes`, `interventions` | Owner effort (owner-run jobs only). With `verdictBy: owner` both are required: minutes as a finite number of at least 0, interventions as an integer of at least 0 (an edit pass counts as one, PLAN.md section 1). Other rows carry `ownerMinutes: null` and `interventions: 0` |
 | `exportedThroughApp` | Owner rows written from a desktop verdict receipt only: whether the owner declared the deliverable exported through the app, an OAJ condition (PLAN.md section 1) |
 | `lesson` | One line |
-| `inputSha256`, `probe`, `fixture`, `labelling` | E0 rows only, written by `--probe-dir`, `--fixture-dir` and `--labelling-file` (BL-20261115-1954-e0-registry-modes-design); see "E0 rows" below. On those rows `modelCalls` counts every request the run made, answered or not, and the mode object says how each ended |
+| `inputSha256`, `probe`, `fixture`, `labelling` | E0 rows only, written by `--probe-dir`, `--fixture-dir` and `--labelling-file` (BL-20261115-1954-e0-registry-modes-design); see "E0 rows" below. On those rows `modelCalls` counts every request the run made, answered or not: the mode object says how each probe or fixture request ended, and `failedDispatches` and `unknownDispatches` how each labelling request did |
 | `loop` | H4 select-and-repair loop rows only (`scripts/phase4-loop.ts`, `registry-row.py --loop-dir`): `version`, `rule` (the selection protocol version), `samples`, `repaired`, `seeded` (whether sample `b` and the repair wrote from sample `a`'s evidence packet), `stage1` (the sample the host-checked selection chose), `selected` (the loop's deliverable: `a`, `b` or `repair`), `step` (the rule step that decided it), `critiqued` and `critiqueFailure`, `writeIdentityEqual` (whether the two samples' write phases carried the same identity) and `candidates` (every sample's own `status` and `terminalCause`, so the harness-terminal rate is computed per sample). The row's counts sum the loop's runs plus the critique's one call (from `critique.json`, or `critique-failure.json` when the critic answered and the tool refused the reply), `wallSeconds` spans the loop from its earliest start to its latest end over its runs, and status, cause, binding and entailment are the selected run's; the all-cloud arm has no loop and no such field. From part 3b (backlog item 11, BL-20261113-0836), a row of either version carries each sample's own `runClass` in `candidates`, classed with that sample's own interrupt mark. Version 2 adds these fields: `seeded.a` (sample `a` resumed as a writer seeded from its moved run); `resumes` (`[{stage, cause, as}]`, the stages resumed once at zero fee); `closed` (whether the operator ended the loop with `scripts/phase4-loop.ts --close`, at a stop or after stage 1); the `step` `repair_failed`; and, for a loop that ended without a selection, `stopped` (`{stage, failure, closed}`) with `selected` and `step` null. A stopped row's run fields are the stopped stage's run's when it has a readable result, else those its freeze records (status, cause and entailment null), else null ones with `date` and `taskJobSha256` from the loop. Its counts sum every run the loop made, found by one scan of the loop directory: its stages, every stage it moved aside (`<stage>.infra-1`), and every critique record (`critique/`, `critique.infra-1/`). A void start (`<stage>.void-<n>`) adds nothing, and a run without a readable `result.json` (none, or one torn by a crash) adds its ledger's counts; a critique record that cannot be read adds nothing. A version-1 loop's row also sums every run directory that an operator moved aside inside the loop directory under part 1. In either version each run is summed once per job, a stage's own directory before a copy of it. It is refused when `log.txt` records more finished runs than the directory holds. The writer refuses: a loop directory while a loop holds its `loop.lock`; a version-2 directory holding what its record does not name, unless the operator closed the loop (`closed`), in which case every run directory is summed; a run of another task or runtime than the loop's; a run with a readable freeze or a result whose ledger (`state.sqlite` and its tables) is missing; a version-2 record whose task, pipeline, begun entries, stop or closed mark is malformed; and a loop with neither a selection nor a stop (a version-1 loop is resumed; only a version-2 loop can be closed) |
 
 Loop rows record the selection protocol in `loop.rule`; split them by it before comparing. Under rule 1, a stage-2 tie
@@ -206,112 +206,185 @@ operator types `--id`, `--batch`, `--task`, `--family`, `--exposure`, `--arm`,
 python3 scripts/registry-row.py --probe-dir .soar/experiments/serving-probe-<time> ...
 python3 scripts/registry-row.py --fixture-dir .soar/experiments/e0-planner-fixture-<time> --fixture planner ...
 python3 scripts/registry-row.py --fixture-dir .soar/experiments/e0-judge-fixture-<time> --fixture judge ...
-python3 scripts/registry-row.py --labelling-file <the labelling tool's summary.json> ...
+python3 scripts/registry-row.py --fixture-dir <the extractor fixture's out directory> --fixture extractor ...
+python3 scripts/registry-row.py --labelling-file .soar/experiments/e0-judge/labelling-<time>/summary.json ...
 ```
 
 **Every E0 row:**
 - `git` is the commit the row was written at (`gitSource` `row_written`), since no producer
   records one.
 - `date` and `wallSeconds` come from the producer's recorded start and end.
-- `profile`, `thinking` and `maxOutputTokens` are null.
+- `profile`, `thinking` and `maxOutputTokens` are null. So are `cloudModel` and `cloudApi`,
+  except on a labelling row.
 - The row carries the three columns: `outcome`, `usd` with `reservedUsd`, `pinnedUsd` and
   `cloudCalls`, and `disclosedBytes`.
 - Columns this section does not name are absent, which means not recorded.
-- A row copies only digests, counts, USD amounts, booleans, closed codes, exception class
-  names and the labelling model's id. It never copies:
+- A row copies only:
+  - digests, booleans and closed codes;
+  - counts of at most 2^53 - 1, which a JavaScript reader holds exactly;
+  - USD amounts of at most 1,000,000;
+  - known exception class names;
+  - the approved labelling model's id.
+- It never copies:
   - the served alias or the engine version;
   - P10's binding, whose source ids are paths, or the request settings;
-  - file names;
+  - file or directory names;
   - reply, claim or label text;
-  - error bodies;
-  - a manifest's `name`, `task` or `note`.
+  - error bodies or a provider's error codes or request ids;
+  - a manifest's `name`.
 
-**`--probe-dir`** reads `probe.json` (scripts/serving-probe.py, probe version 2). Run it
+  The fixture manifest's `task` and `exposure` are compared with `--task` and
+  `--exposure`, not copied.
+
+**`--probe-dir`** reads `probe.json` (scripts/serving-probe.py, probe version 2). Write the row
 after `pnpm probe:assess`.
-- **Refused:** another probe version, and a record that shows neither a loopback endpoint
-  nor `SOAR_VLLM_COST_POLICY=local_zero_cost`, the probe's zero-fee guard.
+- **Refused:**
+  - another probe version;
+  - a record that shows neither a loopback endpoint nor
+    `SOAR_VLLM_COST_POLICY=local_zero_cost`, the probe's zero-fee guard;
+  - a finished run that neither ran nor failed a probe it selected.
+
+  A NaN the probe wrote for a metrics reading is read past, since the row never copies it.
 - **Spend:** `usd`, `reservedUsd`, `pinnedUsd`, `disclosedBytes` and `unknownDispatches`
   are 0, and `cloudCalls` is empty.
 - **`modelCalls`:** the chat-completion requests that the completed probes' records show.
   - P11's K bursts count their streams.
-  - The adapter's /tokenize call and the /models, /version and /metrics reads are not
-    model calls.
-  - A failed probe keeps no record, so its calls are not counted.
-- **Tokens:** the token columns are null. The probe keeps no usage for P5, P9, P10's
-  acceptance checks, P11's K bursts, or the adapter's plain and cache-salt calls, so
-  `probe.usage` holds only the tokens it did record and the number of calls they cover.
-- **`inputSha256`:** the sha256 of the canonical JSON of P10's per-cell
-  `request_body_sha256`. It is null without P10 or without those digests.
-- **`probe`:** `version`; `sha256` over probe.json's bytes, which matches the serving
-  card's `probe.sha256` when both read the same file; `protocolSha256`; `selected`,
-  `run`, `skipped`; `failed` (each failed probe's exception class name); `finished`;
-  `assessed` (null without P10); `calls` per probe; and `usage`.
+  - The adapter's /tokenize call and the /models, /version, /metrics and /openapi.json reads
+    are not model calls.
+  - A failed probe keeps no record, so its calls are not counted. Neither are those of the
+    probe in flight when an unfinished run stopped.
+- **Tokens:** the token columns are null, because the probe keeps no complete usage.
+  `probe.usage` sums the calls whose record keeps both prompt and completion tokens, and
+  says how many calls that covers.
+  - P5, P8, P9, P6's aborted stream, P10's acceptance checks, P11's K bursts and
+    cache-layout requests, and the adapter's plain and cache-salt calls keep no such pair.
+  - A stream that got no usage chunk is recorded by the probe as 0 and 0, and counts as
+    covered.
+- **`inputSha256`:** the sha256 of the canonical JSON of what P10 sent: each cell's
+  exported `request_body_sha256`, the roles' `schema_sha256` and each cell's `strict`
+  variant. It is null without P10, or without any of those.
+- **`probe`:**
+  - `version`;
+  - `sha256` over probe.json's bytes, which matches the serving card's `probe.sha256`
+    when both read the same file;
+  - `protocolSha256`;
+  - `selected`, `run` and `skipped`;
+  - `failed`: each failed probe's exception class when it is a built-in exception or one of
+    the probe's library classes, else `other`;
+  - `finished`;
+  - `assessed`, and `schemasProtocolMatch` from the assessment, both null without P10;
+  - `calls` per probe, and `usage`.
 - **`terminalCause`:** `probe_finished`, or `probe_unfinished` when probe.json has no
   `finished_utc`.
-- **Outcome:** `--outcome accepted` is refused for an unfinished run, a run with a failed
-  probe, and an unassessed P10.
+- **Outcome:** `--outcome accepted` is refused when:
+  - the run did not finish;
+  - a probe failed;
+  - P10 is unassessed;
+  - P10 was assessed under another research protocol than its export's.
 
-**`--fixture-dir DIR --fixture planner|judge`** reads `summary.json`
-(scripts/planner-fixture.ts, scripts/judge-fixture.ts).
+**`--fixture-dir DIR --fixture planner|judge|extractor`** reads `summary.json`
+(scripts/planner-fixture.ts, scripts/judge-fixture.ts, and lane S-pipe's
+scripts/extractor-fixture.ts, pull request #116).
 - **Refused:**
   - another version;
   - a dry run;
   - a condition, class, verdict or failure the fixture does not write;
   - a call count other than the design's;
   - planner counts that disagree with its calls;
-  - a `--task` or `--exposure` other than the manifest's.
+  - a judge activation cell outside its conditions;
+  - a `--task` or `--exposure` other than the manifest's;
+  - an extractor directory without `summary.json`, since the extractor writes it before its
+    first request.
 - **Spend:** as for probe rows.
 - **`modelCalls`:** the recorded calls.
-- **Tokens:** the sums of the answered calls' own `usage`; `fixture.usageMissing`
-  counts answered calls without it.
+- **Tokens:** the sums of the answered calls' own `usage`.
+  - `fixture.usageMissing` counts answered calls without prompt or completion tokens.
+  - `cachedTokens` is null when any answered call's usage has no cached-token detail. vLLM
+    leaves it out unless started with `--enable-prompt-tokens-details`, and unknown reuse is
+    not zero; `fixture.cachedMissing` counts those calls.
 - **`inputSha256`:** the sha256 of the canonical JSON of the request digests by
-  condition: the planner's `requestSha256`, the judge's `requestSetSha256`.
+  condition: the planner's `requestSha256`, the judge's and the extractor's
+  `requestSetSha256`.
 - **`fixture`:** `kind`, `finished`, `version`, `sha256` (over summary.json), `conditions`,
-  `repeats`, the manifest's hashes and counts, `classes` per condition (the planner's
-  classification; the judge's verdict, or the failure of a call not judged) and
-  `usageMissing`.
+  `repeats`, the manifest's hashes and counts, `classes` per condition, `usageMissing` and
+  `cachedMissing`.
+  - The planner's and the extractor's classes are their classification. The judge's are each
+    call's verdict, or the failure of a call not judged.
+  - Planner and extractor rows add `protocolSha256`, the research protocol hash their request
+    bodies were built under.
+  - An extractor row's manifest is its `sha256`, `briefSha256`, `planSha256`, `unitCount` and
+    `sourceCount`. Its conditions are `thinking-off`, `thinking-on`, `thinking-on-8192` and
+    `thinking-on-16384`, and the row adds `deployedCondition`, the one the pipeline sends. A
+    finished run holds one call per condition, repeat and chunk. The writer
+    never copies its `requestSettings`, its `chunks` (whose source ids are paths), its `order`,
+    its `cells`, or any per-call field but the classification and the usage counts.
   - A judge row adds `promptVersion`, `promptSha256`, `replyContract`,
     `activationCondition` and `scores`: per condition and repeat, `claims`, `judged`,
     `exactCount`, `establishedCount` and `meetsLevel`, as the run computed them.
   - The writer never reads the labels.
 - **A run that died** without `summary.json` is rowed from its `replies/` listing:
-  - `modelCalls` counts the reply files, a lower bound;
+  - the listing must hold only the fixture's own reply files, by name, as regular files;
+  - `modelCalls` counts them, a lower bound;
   - tokens and `inputSha256` are null;
   - `date` comes from the earliest reply;
+  - `fixture` is `{kind, finished: false, replies}`;
   - `terminalCause` is `fixture_unfinished`, and the outcome may only be `incomplete` or
     `infra_invalid`.
 
   A finished run's `terminalCause` is `fixture_finished`, and its outcome is the operator's,
   by the card's rule.
-- **Not yet supported:** the extractor fixture, whose script does not exist yet.
+- **An interrupted extractor run:** the extractor rewrites `summary.json` after every call, so
+  a summary without `finishedUtc` is a run that stopped. Its row holds the calls made so far:
+  `terminalCause` `fixture_unfinished`, `fixture.finished` false, `wallSeconds` null, and the
+  outcome `incomplete` or `infra_invalid` only.
 
-**`--labelling-file FILE`** reads the labelling tool's summary, version 1. It holds
-exactly these keys, and anything else is refused:
-- `kind` (`soar_labelling_summary`), `version`, `protocol` (`e0-judge-labelling-v1`);
-- `startedUtc`, and `finishedUtc` (null if the tool stopped);
-- `model` and `api`;
-- `envelopeLine`: `synthetic_data` is PLAN.md §4's line "Synthetic personas, mailboxes and
-  documents (no owner seed)";
-- `capUsd`, `claimsSha256` and `claimCount`;
-- `calls`: in send order, each with `purpose`, `status` (`settled`, `failed` or
-  `unknown`), `bodySha256`, `bodyBytes`, `reservedUsd`, and `feeUsd`, `inputTokens`,
-  `outputTokens` and `cachedTokens`, which are null unless the call settled;
-- `result`: null, or the planted set's hashes and counts;
-- `outcome`, a closed code.
+**`--labelling-file FILE`** reads the summary that the labelling tool (`pnpm label:judge`,
+scripts/judge-labeller.ts) writes for each paid invocation, version 1, as agreed with the
+tool's lane on 2026-11-15. The writer refuses any key it does not know: at the top level,
+in a call, under `claims` or under `prices`.
+- **Checked, not copied:**
+  - `labeller`, `run` and `servedModel`;
+  - each call's `servedModel`, `requestId`, `errorType`, `errorCode` and `failure`.
+- **Required and copied:**
+  - `cloudModel` must be an approved labelling model (`gpt-6-sol`, BL-20261115-1937), and
+    `cloudApi` a request shape;
+  - `envelopeLine` is `synthetic_data`, PLAN.md §4's line "Synthetic personas, mailboxes
+    and documents (no owner seed)".
+- **Call states:**
+  - `settled` is written as `settled`;
+  - `rejected` (HTTP 400, 401, 403, 404 or 429, the statuses the tool counts as unbilled)
+    and `not_sent` (the connection failed before its handshake) are written as `failed`;
+  - `unknown` and `outside_projection` are written as `unknown`.
+- **Per-call rules:** `usd` is the fee when settled, 0 when rejected or not sent, and null
+  otherwise. A `rejected` call must carry one of the unbilled statuses, and a `not_sent` call
+  none. `countedUsd`, what the cap counts, is the fee, 0, the reservation, or at
+  least the reservation outside the projection. Tokens are 0 unless a reply was read.
+- **Totals:** `modelCalls`, `rejectedDispatches`, `unknownDispatches`, the token totals,
+  `usd` and `reservedUnknownUsd` must equal the sums over the calls, in micro-USD.
+- **Outcome:** a `labelled` summary must record its finish and the labelled set's hashes
+  and counts.
 
 The row:
 - `cloudModel` and `cloudApi`;
-- `modelCalls` (every call), `failedDispatches` and `unknownDispatches`;
-- `usd` (the settled fees), `reservedUsd`, and `pinnedUsd` (the reservations of `unknown`
-  calls);
-- `cloudCalls`;
-- `disclosedBytes`, the body bytes once per distinct `bodySha256` (HARN-27);
-- the tokens, summed over the settled calls;
-- `inputSha256` (the claim set sent), and `terminalCause` (the outcome code);
-- `labelling`: `version`, `sha256`, `envelopeLine`, `capUsd`, `claimCount` and `result`.
+- `modelCalls` (every request sent), `failedDispatches` and `unknownDispatches`;
+- `usd` (settled fees), `reservedUsd` (every `projectedUsd`), and `pinnedUsd`
+  (`reservedUnknownUsd`, what the cap counts for unknown calls);
+- `cloudCalls`, each `{purpose, status, feeUsd, reservedUsd, bodyBytes}`;
+- `disclosedBytes`: each distinct `bodySha256`'s bytes once, over every call except
+  `not_sent` (HARN-27);
+- the token columns;
+- `inputSha256`, the claim set before labelling;
+- `terminalCause`: the failure code, else the outcome;
+- `labelling`:
+  - `version`, `sha256`, `outcome`, `failure` and `secondRequest`;
+  - `envelopeLine`, `capUsd` and `priorCountedUsd`;
+  - `instructionsSha256` and `prices`;
+  - `reasoningTokens`, and `cacheWriteAssumed`: replies whose cache-write tokens the tool
+    assumed;
+  - the claims' counts and hashes.
 
-`--outcome accepted` is refused unless the code is `labelled`. An exposure above the cap is
-recorded, not refused.
+`--outcome accepted` is refused unless the outcome is `labelled`. An exposure above the cap
+is recorded, not refused.
 
 `--supersedes` copies an E0 row like any other and repeats these outcome refusals against
 the copy.

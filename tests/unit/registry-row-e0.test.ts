@@ -1,21 +1,24 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENTAILMENT_PROMPT_VERSION, ENTAILMENT_VERDICTS } from "../../src/main/private-agent/claims";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { inventoryResearchSources } from "../../src/main/private-agent/research-coverage";
 import { assembleIndexEntry, buildLiteralSourceCard } from "../../src/main/private-agent/research-index";
+import { researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
+import { assessProbeFile } from "../../scripts/assess-probe-replies";
 import { JUDGE_CONDITIONS, runJudgeFixture } from "../../scripts/judge-fixture";
 import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, runPlannerFixture } from "../../scripts/planner-fixture";
 import { syntheticProbe } from "../helpers/serving-probe-fixture";
 
 /**
- * E0's registry modes (BL-20261115-1954-e0-registry-modes-design): a serving-probe run from its probe.json, a planner or judge fixture
- * run from the summary.json the real fixture writes against a loopback fake, a fixture run that died from its replies/ listing, and
- * the labelling call from its summary. Nothing here reaches a real endpoint, a cloud model or Docker.
+ * E0's registry modes (BL-20261115-1954-e0-registry-modes-design): a serving-probe run from its probe.json, the real probe's included; a
+ * planner or judge fixture run from the summary.json the real fixture writes against a loopback fake, or, when it died, from its replies
+ * listing; and the labelling call from the summary lane S-e1's labelling tool writes. Nothing here reaches a real endpoint, a cloud model
+ * or Docker.
  */
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
@@ -66,16 +69,19 @@ describe("E0 registry modes: the producers' closed sets", () => {
 
 describe("E0 registry modes: serving-probe runs", () => {
   /** The card tests' synthetic probe result, with the export's request body digest on every P10 cell as P10-align records it. */
-  function probeDir(change: (probe: Record<string, any>) => void = () => {}) {
+  function probeDir(change: (probe: Record<string, any>) => void = () => {}, text: (json: string) => string = json => json) {
     const probe = syntheticProbe();
     for (const [name, cell] of Object.entries(probe.P10.cells as Record<string, Record<string, unknown>>)) cell.request_body_sha256 = digest(`body ${name}`);
     change(probe);
     const dir = join(scratch(), probe.run_id as string); mkdirSync(dir);
-    writeFileSync(join(dir, "probe.json"), `${JSON.stringify(probe, null, 1)}\n`);
+    writeFileSync(join(dir, "probe.json"), text(`${JSON.stringify(probe, null, 1)}\n`));
     return { dir, probe, bytes: readFileSync(join(dir, "probe.json")) };
   }
+  /** Every probe the synthetic run selected ran or failed; this one makes P6 run too. */
+  const complete = (probe: Record<string, any>) => { probe.probes_failed = {}; probe.probes_run.push("P6"); probe.P6 = { running_before: 0, abort: { aborted_after_s: 4.01 },
+    running_after_abort_1s_steps: [1, 0], next_request: { status: 200, prompt_tokens: 20, completion_tokens: 2 } }; };
 
-  it("counts each completed probe's model calls, keeps the usage it recorded, spends nothing, and copies no alias, version or source id", () => {
+  it("counts each completed probe's model calls, keeps the usage it recorded, binds what P10 sent, spends nothing, and copies no alias, version or source id", () => {
     const { dir, probe, bytes } = probeDir();
     const line = run(["--probe-dir", dir], "rejected"), result = JSON.parse(line);
     // P1 and the adapter's /tokenize are not model calls; P11's K bursts are 1 + 2 + 4 + 8 streams; P6 failed and P8 was skipped.
@@ -87,54 +93,84 @@ describe("E0 registry modes: serving-probe runs", () => {
     expect(result).toMatchObject({ date: "2026-11-08", wallSeconds: 6430, usd: 0, reservedUsd: 0, pinnedUsd: 0, unknownDispatches: 0, cloudCalls: [], disclosedBytes: 0,
       cloudModel: null, cloudApi: null, profile: null, thinking: null, maxOutputTokens: null, terminalCause: "probe_finished", gitSource: "row_written", gitDirty: null, outcome: "rejected" });
     expect(result.probe).toMatchObject({ version: 2, sha256: digest(bytes), protocolSha256: h("c"), selected: probe.probes_selected, run: probe.probes_run, skipped: ["P8"],
-      failed: { P6: "URLError" }, finished: true, assessed: true });
-    expect(result.inputSha256).toBe(digest(canonical(Object.fromEntries(Object.entries(probe.P10.cells as Record<string, { request_body_sha256: string }>).map(([name, cell]) => [name, cell.request_body_sha256])))));
+      failed: { P6: "URLError" }, finished: true, assessed: true, schemasProtocolMatch: true });
+    // Each cell sent its exported body plus a response_format from its role's schema and its strict variant.
+    const cells = probe.P10.cells as Record<string, { request_body_sha256: string; strict: boolean }>;
+    expect(result.inputSha256).toBe(digest(canonical({ bodies: Object.fromEntries(Object.entries(cells).map(([name, cell]) => [name, cell.request_body_sha256])),
+      schemas: probe.P10.schema_sha256, strict: Object.fromEntries(Object.entries(cells).map(([name, cell]) => [name, cell.strict])) })));
     expectAbsent(line, "RM-01", "Qwen3.8", "0.33.0rc1", "input/corpus", "alpha.md", probe.run_id, "local_zero_cost", "loopback");
   });
 
-  it("refuses accepted for a run that did not finish, lost a probe or left P10 unassessed, and accepts a complete one", () => {
-    const complete = (probe: Record<string, any>) => { probe.probes_failed = {}; probe.probes_run.push("P6"); probe.P6 = { running_before: 0, abort: { aborted_after_s: 4.01 }, running_after_abort_1s_steps: [1, 0],
-      next_request: { status: 200, prompt_tokens: 20, completion_tokens: 2 } }; };
+  it("refuses accepted for a run that did not finish, lost a probe, left P10 unassessed or assessed it under another protocol, and accepts a complete one", () => {
     expect(row(["--probe-dir", probeDir(complete).dir], "accepted")).toMatchObject({ outcome: "accepted", modelCalls: 170, probe: { failed: {}, calls: { P6: 2 } } });
     expect(refused(["--probe-dir", probeDir().dir], "accepted")).toContain("probes failed (P6)");
     const unfinished = probeDir(probe => { complete(probe); delete probe.finished_utc; });
     expect(refused(["--probe-dir", unfinished.dir], "accepted")).toContain("did not finish");
     expect(row(["--probe-dir", unfinished.dir], "incomplete")).toMatchObject({ terminalCause: "probe_unfinished", wallSeconds: null, probe: { finished: false } });
     expect(refused(["--probe-dir", probeDir(probe => { complete(probe); delete probe.P10.assessed; }).dir], "accepted")).toContain("pnpm probe:assess");
+    expect(refused(["--probe-dir", probeDir(probe => { complete(probe); probe.P10.assessed.schemasProtocolMatch = false; }).dir], "accepted")).toContain("another research protocol");
     // A P1-only run: no P10, so no input hash and no assessment to wait for.
     const p1 = probeDir(probe => { probe.probes_selected = ["P1"]; probe.probes_run = ["P1"]; probe.probes_failed = {}; probe.probes_skipped = probe.probes_skipped.concat(
       ["P2", "P3", "P4", "P5", "P6", "P7", "P9", "P10", "P11", "adapter"]).sort(); });
-    expect(row(["--probe-dir", p1.dir], "accepted")).toMatchObject({ modelCalls: 0, inputSha256: null, probe: { assessed: null, calls: { P1: 0 } } });
+    expect(row(["--probe-dir", p1.dir], "accepted")).toMatchObject({ modelCalls: 0, inputSha256: null, probe: { assessed: null, schemasProtocolMatch: null, calls: { P1: 0 } } });
     // An export without body digests binds no input hash.
     expect(row(["--probe-dir", probeDir(probe => { delete probe.P10.cells["plan/on"].request_body_sha256; }).dir], "rejected").inputSha256).toBeNull();
     // Only answered calls' usage counts: a request that was not answered 200 counts as a call, never its token fields.
     const errored = row(["--probe-dir", probeDir(probe => { probe.P2.kwargs_low = { status: 503, prompt_tokens: 40, completion_tokens: 600, elapsed_s: 0.2 }; }).dir], "rejected");
     expect([errored.modelCalls, errored.probe.usage.calls, errored.probe.usage.outputTokens]).toEqual([168, 138, 60160 - 600]);
-  });
+  }, 60_000);
 
-  it("refuses another probe version, a record without the zero-fee guard, unknown probe names and a failure that is not a class name", () => {
+  it("keeps a failure's class only when it is a known exception class, and reads past a NaN reading it never copies", () => {
+    for (const text of ["lotusxu_Developer_SOAR_secret", "connection refused by 10.0.0.5"]) {
+      const line = run(["--probe-dir", probeDir(probe => { probe.probes_failed = { P6: text }; }).dir], "rejected");
+      expect(JSON.parse(line).probe.failed).toEqual({ P6: "other" });
+      expectAbsent(line, "lotusxu", "10.0.0.5");
+    }
+    expect(row(["--probe-dir", probeDir(probe => { probe.probes_failed = { P6: "TimeoutError" }; }).dir], "rejected").probe.failed).toEqual({ P6: "TimeoutError" });
+    expect(row(["--probe-dir", probeDir(undefined, json => json.replace("\"waiting\": 0", "\"waiting\": NaN")).dir], "rejected").modelCalls).toBe(168);
+  }, 60_000);
+
+  it("refuses another probe version, a record without the zero-fee guard, unknown or unaccounted probes, and a P10 digest that is not one", () => {
     expect(refused(["--probe-dir", probeDir(probe => { probe.probe_version = 1; }).dir], "rejected")).toContain("probe version 2");
+    expect(refused(["--probe-dir", probeDir(undefined, json => json.replace("\"probe_version\": 2,", "\"probe_version\": 2.0,")).dir], "rejected")).toContain("probe version 2");
     expect(refused(["--probe-dir", probeDir(probe => { probe.transport_class = "https"; probe.cost_policy = null; }).dir], "rejected")).toContain("zero-fee guard");
     expect(refused(["--probe-dir", probeDir(probe => { probe.probes_run.push("P12"); }).dir], "rejected")).toContain("probes_run");
-    expect(refused(["--probe-dir", probeDir(probe => { probe.probes_failed = { P6: "connection refused by 10.0.0.5" }; }).dir], "rejected")).toContain("probes_failed");
+    expect(refused(["--probe-dir", probeDir(probe => { probe.probes_failed = {}; }).dir], "rejected")).toContain("neither ran nor failed every probe it selected");
     expect(refused(["--probe-dir", probeDir(probe => { probe.P10.cells["plan/on"].request_body_sha256 = "/Users/someone/body"; }).dir], "rejected")).toContain("P10's cells");
+    expect(refused(["--probe-dir", probeDir(probe => { probe.roles.protocol_sha256 = "/Users/someone/protocol"; }).dir], "rejected")).toContain("roles.protocol_sha256");
+    expect(refused(["--probe-dir", probeDir(probe => { probe.P11.k_streams["2"].streams = 2 ** 60; }).dir], "rejected")).toContain("K burst");
     expect(refused(["--probe-dir", scratch()], "rejected")).toContain("probe.json is missing");
-  });
+  }, 60_000);
+
+  it("rows the probe's real output against a loopback fake: one model call per chat request the fake received, after the real assessor", () => {
+    const result = JSON.parse(execFileSync("python3", ["-I", join(ROOT, "tests", "helpers", "serving-probe-fake.py"), ROOT, join(scratch(), "probe"), researchProtocolSha256()],
+      { encoding: "utf8", timeout: 240_000 }));
+    expect(result.exit, result.stderr).toBe(0);
+    expect(refused(["--probe-dir", result.runDir], "accepted")).toContain("pnpm probe:assess");
+    assessProbeFile(join(result.runDir, "probe.json"));
+    const line = run(["--probe-dir", result.runDir], "accepted"), probeRow = JSON.parse(line);
+    expect(probeRow.modelCalls).toBe(result.received.chat);
+    expect(probeRow.probe.calls).toEqual({ P1: 0, P2: 5, P3: 3, P4: 1, P5: 1, P7: 3, P8: 1, P9: 1, P10: 6 + 12, P11: 1 + 4 + 3, adapter: 6 });
+    expect(probeRow.probe).toMatchObject({ assessed: true, schemasProtocolMatch: true, failed: {}, finished: true, skipped: ["P6"] });
+    expect(probeRow.inputSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expectAbsent(line, ...(result.leaks as string[]), basename(result.runDir));
+  }, 240_000);
 });
 
 describe("E0 registry modes: role-fixture runs", () => {
   const ALIAS = "Synthetic-Served-Alias";
+  const USAGE = { prompt_tokens: 1200, completion_tokens: 80, prompt_tokens_details: { cached_tokens: 256 } };
   /** A loopback chat-completions fake: each call gets the scripted reply of its ordinal, or a dropped connection. */
-  async function fakeServer(script: (ordinal: number, body: any) => { status?: number; content?: string; finish?: string; drop?: boolean }) {
+  async function fakeServer(script: (ordinal: number) => { status?: number; content?: string; finish?: string; drop?: boolean }, usage: Record<string, unknown> = USAGE) {
     let ordinal = 0;
     const server: Server = createServer((request, response) => {
       let data = ""; request.on("data", chunk => { data += chunk; });
       request.on("end", () => {
-        const reply = script(++ordinal, JSON.parse(data));
+        const reply = script(++ordinal);
         if (reply.drop) { request.socket.destroy(); return; }
         response.writeHead(reply.status ?? 200, { "content-type": "application/json" });
         response.end(JSON.stringify({ id: "x", model: ALIAS, choices: [{ index: 0, message: { role: "assistant", ...(reply.content === undefined ? {} : { content: reply.content }), reasoning_content: "hidden thoughts" },
-          finish_reason: reply.finish ?? "stop" }], usage: { prompt_tokens: 1200, completion_tokens: 80, prompt_tokens_details: { cached_tokens: 256 } } }));
+          finish_reason: reply.finish ?? "stop" }], usage }));
       });
     });
     await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
@@ -157,6 +193,25 @@ describe("E0 registry modes: role-fixture runs", () => {
   const plan = JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What do the surveys establish?", requirementIds: ["U1", "U2"], sourceIds: ["input/corpus/alpha.md", "input/corpus/beta.md"],
     lookFor: [] }], conflictsToCheck: [], deliverableNotes: "" });
 
+  /** A judge run of eight synthetic claims, two per label, judged as labelled except C3 (no verdict) and C6 (an error status). */
+  async function judgeRun() {
+    const passage = "The orchard recorded twelve healthy trees during the autumn survey, and the meadow recorded seven.";
+    const claims = ["supported", "supported", "partial", "partial", "unsupported", "unsupported", "contradicted", "contradicted"].map((label, i) => ({ id: `C${i + 1}`, label,
+      claim: { id: `C${i + 1}`, sentence: `Synthetic claim sentence number ${i + 1} about the orchard.`, quote: "twelve healthy trees", context: passage } }));
+    const claimsBytes = Buffer.from(`${JSON.stringify({ version: 1, task: "r3-grid-batteries", claims: claims.map(item => item.claim) }, null, 1)}\n`);
+    const labelsBytes = Buffer.from(`${JSON.stringify({ version: 1, protocol: "e0-judge-labelling-v1", labeller: "openai gpt-6-sol labeller", labels: claims.map(item => ({ id: item.id, label: item.label,
+      planted: item.id === "C5", ...(item.id === "C5" ? { note: "PLANTED-NOTE-TEXT" } : {}) })) }, null, 1)}\n`);
+    const manifest = { schemaVersion: 1, name: "e0-judge-fixture-test-name", status: "pinned", task: "r3-grid-batteries", exposure: "exposed", promptVersion: ENTAILMENT_PROMPT_VERSION,
+      claimsSha256: digest(claimsBytes), labelsSha256: digest(labelsBytes), claimCount: 8, labelCounts: { supported: 2, partial: 2, unsupported: 2, contradicted: 2 }, plantedCount: 1,
+      minimumPerClass: 2, agreement: { measure: "exact", level: 0.95 }, conditions: ["j1-legacy"], repeats: 1 };
+    const baseUrl = await fakeServer(ordinal => ordinal === 3 ? { content: "no verdict here" } : ordinal === 6 ? { status: 500, content: "" }
+      : { content: `{"verdict":"${claims[ordinal - 1]!.label}","reason":"synthetic"}` });
+    const out = join(scratch(), "judge-run");
+    await runJudgeFixture({ endpoint: { baseUrl, model: ALIAS }, inputs: { claims: claimsBytes, labels: labelsBytes, manifest }, out });
+    const bytes = readFileSync(join(out, "summary.json"));
+    return { out, bytes, summary: JSON.parse(bytes.toString("utf8")), claimsBytes, labelsBytes };
+  }
+
   it("rows a planner run from the summary the fixture wrote: its calls, usage, classes, manifest hashes and request digests, and no alias or path", async () => {
     // Per condition, two repeats: valid and truncated, rejected and valid, a dropped connection and a reply without content.
     const baseUrl = await fakeServer(ordinal => [{ content: plan }, { content: plan.slice(0, 40), finish: "length" }, { status: 500, content: "" }, { content: plan }, { drop: true }, {}][ordinal - 1]!);
@@ -166,7 +221,8 @@ describe("E0 registry modes: role-fixture runs", () => {
     const line = run(["--fixture-dir", out, "--fixture", "planner"], "accepted"), result = JSON.parse(line);
     expect(result).toMatchObject({ modelCalls: 6, inputTokens: 3 * 1200, outputTokens: 3 * 80, cachedTokens: 3 * 256, usd: 0, reservedUsd: 0, pinnedUsd: 0, unknownDispatches: 0,
       cloudCalls: [], disclosedBytes: 0, terminalCause: "fixture_finished", date: summary.startedUtc.slice(0, 10), outcome: "accepted", cloudModel: null, profile: null });
-    expect(result.fixture).toEqual({ kind: "planner", finished: true, version: 1, sha256: digest(bytes), conditions: [...DEFAULT_CONDITIONS], repeats: 2, usageMissing: 1,
+    expect(result.fixture).toEqual({ kind: "planner", finished: true, version: 1, sha256: digest(bytes), conditions: [...DEFAULT_CONDITIONS], repeats: 2, usageMissing: 1, cachedMissing: 0,
+      protocolSha256: researchProtocolSha256(),
       manifest: { indexSha256: inputs.manifest.indexSha256, briefSha256: inputs.manifest.briefSha256, sourceIdsSha256: inputs.manifest.sourceIdsSha256, sourceCount: 2,
         mandatorySourceChunks: inputs.manifest.mandatorySourceChunks, extractionCallBudget: 40 },
       classes: summary.counts });
@@ -177,6 +233,14 @@ describe("E0 registry modes: role-fixture runs", () => {
     expect(refused(["--fixture-dir", out, "--fixture", "planner"], "accepted", { "--task": "another-task" })).toContain("--task must equal the fixture manifest's task");
     expect(refused(["--fixture-dir", out, "--fixture", "planner"], "accepted", { "--exposure": "fresh" })).toContain("--exposure must equal");
     expect(refused(["--fixture-dir", out, "--fixture", "judge"], "accepted")).toContain("judge fixture conditions");
+  }, 60_000);
+
+  it("reads a reply without its cached-token detail as unknown reuse, not zero", async () => {
+    const baseUrl = await fakeServer(() => ({ content: plan }), { prompt_tokens: 1200, completion_tokens: 80 });
+    const out = join(scratch(), "planner-no-details");
+    await runPlannerFixture({ endpoint: { baseUrl, model: ALIAS }, inputs: plannerInputs(), out, repeats: 2, conditions: ["thinking-off"] });
+    expect(row(["--fixture-dir", out, "--fixture", "planner"], "rejected")).toMatchObject({ inputTokens: 2400, outputTokens: 160, cachedTokens: null,
+      fixture: { usageMissing: 0, cachedMissing: 2 } });
   });
 
   it("refuses a planner summary whose counts disagree with its calls, a class it never writes, and a dry run", async () => {
@@ -191,28 +255,16 @@ describe("E0 registry modes: role-fixture runs", () => {
     expect(refused(["--fixture-dir", out, "--fixture", "planner"], "rejected")).toContain("classification");
     write(copy => { copy.dryRun = true; });
     expect(refused(["--fixture-dir", out, "--fixture", "planner"], "rejected")).toContain("sent its requests");
+    write(copy => { copy.manifest.indexSha256 = "/Users/someone/index.json"; });
+    expect(refused(["--fixture-dir", out, "--fixture", "planner"], "rejected")).toContain("manifest does not record its hashes and counts");
     expect(refused(["--fixture-dir", out], "rejected")).toContain("--fixture-dir and --fixture go together");
-  });
+  }, 60_000);
 
   it("rows a judge run with its classes, its own scores and its activation cell, and copies no claim, label, note or alias", async () => {
-    const passage = "The orchard recorded twelve healthy trees during the autumn survey, and the meadow recorded seven.";
-    const claims = ["supported", "supported", "partial", "partial", "unsupported", "unsupported", "contradicted", "contradicted"].map((label, i) => ({ id: `C${i + 1}`, label,
-      claim: { id: `C${i + 1}`, sentence: `Synthetic claim sentence number ${i + 1} about the orchard.`, quote: "twelve healthy trees", context: passage } }));
-    const claimsBytes = Buffer.from(`${JSON.stringify({ version: 1, task: "r3-grid-batteries", claims: claims.map(item => item.claim) }, null, 1)}\n`);
-    const labelsBytes = Buffer.from(`${JSON.stringify({ version: 1, protocol: "e0-judge-labelling-v1", labeller: "openai gpt-6-sol labeller", labels: claims.map(item => ({ id: item.id, label: item.label,
-      planted: item.id === "C5", ...(item.id === "C5" ? { note: "PLANTED-NOTE-TEXT" } : {}) })) }, null, 1)}\n`);
-    const manifest = { schemaVersion: 1, name: "e0-judge-fixture-test-name", status: "pinned", task: "r3-grid-batteries", exposure: "exposed", promptVersion: ENTAILMENT_PROMPT_VERSION,
-      claimsSha256: digest(claimsBytes), labelsSha256: digest(labelsBytes), claimCount: 8, labelCounts: { supported: 2, partial: 2, unsupported: 2, contradicted: 2 }, plantedCount: 1,
-      minimumPerClass: 2, agreement: { measure: "exact", level: 0.95 }, conditions: ["j1-legacy"], repeats: 1 };
-    // Each claim is judged as labelled, except C3 (a reply that is not a verdict) and C6 (an error status).
-    const baseUrl = await fakeServer(ordinal => ordinal === 3 ? { content: "no verdict here" } : ordinal === 6 ? { status: 500, content: "" }
-      : { content: `{"verdict":"${claims[ordinal - 1]!.label}","reason":"synthetic"}` });
-    const out = join(scratch(), "judge-run");
-    await runJudgeFixture({ endpoint: { baseUrl, model: ALIAS }, inputs: { claims: claimsBytes, labels: labelsBytes, manifest }, out });
-    const bytes = readFileSync(join(out, "summary.json")), summary = JSON.parse(bytes.toString("utf8"));
+    const { out, bytes, summary, claimsBytes, labelsBytes } = await judgeRun();
     const line = run(["--fixture-dir", out, "--fixture", "judge"], "rejected"), result = JSON.parse(line);
     expect(result).toMatchObject({ modelCalls: 8, inputTokens: 7 * 1200, outputTokens: 7 * 80, cachedTokens: 7 * 256, usd: 0, disclosedBytes: 0, terminalCause: "fixture_finished" });
-    expect(result.fixture).toMatchObject({ kind: "judge", sha256: digest(bytes), conditions: ["j1-legacy"], repeats: 1, usageMissing: 0, promptVersion: ENTAILMENT_PROMPT_VERSION,
+    expect(result.fixture).toMatchObject({ kind: "judge", sha256: digest(bytes), conditions: ["j1-legacy"], repeats: 1, usageMissing: 0, cachedMissing: 0, promptVersion: ENTAILMENT_PROMPT_VERSION,
       promptSha256: summary.promptSha256, replyContract: "legacy", activationCondition: "j1-legacy",
       manifest: { sha256: summary.manifest.sha256, claimsSha256: digest(claimsBytes), labelsSha256: digest(labelsBytes), claimCount: 8, plantedCount: 1, minimumPerClass: 2,
         labelCounts: { supported: 2, partial: 2, unsupported: 2, contradicted: 2 }, agreement: { measure: "exact", level: 0.95 } },
@@ -221,9 +273,36 @@ describe("E0 registry modes: role-fixture runs", () => {
     expect(result.fixture.scores).toEqual({ "j1-legacy": { r1: { claims: 8, judged: 6, exactCount: metrics.exactCount, establishedCount: metrics.establishedCount, meetsLevel: false } } });
     expect(result.inputSha256).toBe(digest(canonical({ "j1-legacy": summary.requests["j1-legacy"].requestSetSha256 })));
     expectAbsent(line, ALIAS, "Synthetic claim sentence", "orchard", "PLANTED-NOTE", "gpt-6-sol labeller", "e0-judge-fixture-test-name", "no verdict here");
-    // The writer reads the summary's own scores; it never needs, or opens, the labels.
-    expect(JSON.stringify(summary)).not.toContain("PLANTED-NOTE");
-  });
+  }, 60_000);
+
+  it("refuses a judge summary whose digests, agreement, counts, scores, activation cell or calls are not the fixture's, and a summary file in another form", async () => {
+    const { out, summary } = await judgeRun();
+    const path = join(out, "summary.json");
+    const write = (text: string) => { rmSync(path, { force: true }); writeFileSync(path, text); };
+    const judge = () => refused(["--fixture-dir", out, "--fixture", "judge"], "rejected");
+    const cases: [(copy: any) => void, string][] = [
+      [copy => { copy.version = true; }, "version 1 summary"],
+      [copy => { copy.manifest.claimsSha256 = "/Users/someone/claims.json"; }, "manifest does not record its hashes and counts"],
+      [copy => { copy.requests["j1-legacy"].requestSetSha256 = "x"; }, "request digest per condition"],
+      [copy => { copy.manifest.agreement = { measure: "exact", level: 1.5 }; }, "agreement measure and level"],
+      [copy => { copy.manifest.labelCounts = { supported: 8 }; }, "label counts"],
+      [copy => { copy.metrics["j1-legacy"].r1.meetsLevel = "yes"; }, "level check"],
+      [copy => { copy.metrics["j1-legacy"] = {}; }, "every condition and repeat"],
+      [copy => { copy.replyContract = "flash_next_v1"; copy.activationCondition = "j1-flash"; }, "activation cell"],
+      [copy => { copy.calls[0].verdict = "supported"; copy.calls[0].failure = "transport_failed"; }, "verdict and failure"],
+      [copy => { copy.calls.pop(); }, "does not record its 8 calls"],
+    ];
+    for (const [change, message] of cases) {
+      const copy = structuredClone(summary); change(copy); write(`${JSON.stringify(copy)}\n`);
+      expect(judge()).toContain(message);
+    }
+    write(`﻿${JSON.stringify(summary)}`);
+    expect(judge()).toContain("not strict UTF-8 JSON");
+    write(JSON.stringify(summary).replace("\"repeats\":1", "\"repeats\":NaN"));
+    expect(judge()).toContain("not strict UTF-8 JSON");
+    const elsewhere = join(scratch(), "summary.json"); writeFileSync(elsewhere, JSON.stringify(summary)); rmSync(path); symlinkSync(elsewhere, path);
+    expect(judge()).toContain("missing or not a regular file");
+  }, 60_000);
 
   it("rows a fixture run that died from its replies listing, dated by the earliest reply, as incomplete or infra_invalid only", () => {
     const out = join(scratch(), "e0-planner-fixture-dead"), replies = join(out, "replies"); mkdirSync(replies, { recursive: true });
@@ -231,66 +310,223 @@ describe("E0 registry modes: role-fixture runs", () => {
       writeFileSync(join(replies, name), "{\"secret reply\": true}\n");
       const at = Date.UTC(2026, 10, 15, 21, i) / 1000; utimesSync(join(replies, name), at, at);
     });
-    writeFileSync(join(replies, "notes.txt"), "not a reply");
     const line = run(["--fixture-dir", out, "--fixture", "planner"], "incomplete"), result = JSON.parse(line);
     expect(result).toMatchObject({ modelCalls: 3, date: "2026-11-15", wallSeconds: null, inputSha256: null, inputTokens: null, usd: 0, terminalCause: "fixture_unfinished",
       fixture: { kind: "planner", finished: false, replies: 3 } });
     expectAbsent(line, "legacy-thinking-01", "secret reply");
     expect(row(["--fixture-dir", out, "--fixture", "planner"], "infra_invalid").outcome).toBe("infra_invalid");
     for (const outcome of ["accepted", "rejected"]) expect(refused(["--fixture-dir", out, "--fixture", "planner"], outcome)).toContain("did not finish");
+    // The listing must be the fixture's own: the other fixture's names, a stray file or a symbolic link is refused.
+    expect(refused(["--fixture-dir", out, "--fixture", "judge"], "incomplete")).toContain("replies/ holds an entry the judge fixture does not write");
+    writeFileSync(join(replies, "operator-notes.json"), "{}");
+    expect(refused(["--fixture-dir", out, "--fixture", "planner"], "incomplete")).toContain("replies/ holds an entry the planner fixture does not write");
+    rmSync(join(replies, "operator-notes.json")); symlinkSync(join(replies, "legacy-thinking-01.json"), join(replies, "legacy-thinking-03.json"));
+    expect(refused(["--fixture-dir", out, "--fixture", "planner"], "incomplete")).toContain("does not write");
+    const judged = join(scratch(), "judge-dead"); mkdirSync(join(judged, "replies"), { recursive: true });
+    for (const name of ["j1-legacy-r1-C1.json", "j1-legacy-r1-C2.json"]) writeFileSync(join(judged, "replies", name), "{}");
+    expect(row(["--fixture-dir", judged, "--fixture", "judge"], "incomplete")).toMatchObject({ modelCalls: 2, fixture: { kind: "judge", replies: 2 } });
     const empty = join(scratch(), "empty"); mkdirSync(join(empty, "replies"), { recursive: true });
     expect(refused(["--fixture-dir", empty, "--fixture", "judge"], "incomplete")).toContain("nothing dates it");
     expect(refused(["--fixture-dir", scratch(), "--fixture", "judge"], "incomplete")).toContain("neither summary.json nor a replies directory");
-  });
+  }, 60_000);
+});
+
+describe("E0 registry modes: the extractor fixture", () => {
+  /** A summary in the shape lane S-pipe's extractor fixture (scripts/extractor-fixture.ts, pull request #116 at 18b062e) writes: three
+   * chunks per condition and repeat, rewritten after every call, its usage cut to numeric fields (here without the cached-token detail). */
+  const CHUNKS = ["K1", "K2", "K3"].map((chunkId, i) => ({ chunkId, sourceId: `input/corpus/secret-source-${i}.md`, sourceSha256: h(String(i + 1)), bytes: 900, userContentBytes: 1400 }));
+  const CLASSES: Record<string, string[]> = { "thinking-off": ["complete", "held", "transport_failed"], "thinking-on": ["complete", "needs_followup", "truncated"] };
+  function summary(over: Record<string, unknown> = {}): Record<string, any> {
+    const conditions = Object.keys(CLASSES);
+    const calls = conditions.flatMap(condition => CHUNKS.map((chunk, i) => {
+      const classification = CLASSES[condition]![i]!, answered = classification !== "transport_failed";
+      return { condition, repeat: 1, chunkId: chunk.chunkId, status: answered ? 200 : null, elapsedMs: 900, replyFile: answered ? `${condition}-r1-${chunk.chunkId}.json` : null,
+        bodySha256: answered ? h("9") : null, bodyBytes: answered ? 3000 : 0, usage: answered ? { prompt_tokens: 2000, completion_tokens: 300, total_tokens: 2300 } : null,
+        classification, finishReason: answered ? "stop" : null, reasons: [{ code: "quote_not_found", path: "input/corpus/secret-source-0.md" }] };
+    }));
+    const counts = Object.fromEntries(conditions.map(condition => [condition, CLASSES[condition]!.reduce<Record<string, number>>((n, c) => ({ ...n, [c]: (n[c] ?? 0) + 1 }), {})]));
+    return { version: 1, startedUtc: "2026-11-16T09:00:00.000Z", finishedUtc: "2026-11-16T09:20:00.000Z", protocolSha256: h("7"), model: "Extractor-Served-Alias", dryRun: false,
+      requestSettings: { model: "Extractor-Served-Alias", streaming: true, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
+      manifest: { sha256: h("a"), name: "e0-extractor-fixture-secret-name", task: "e0-synthetic-extraction", exposure: "fresh", briefSha256: h("b"), planSha256: h("c"), unitCount: 5, sourceCount: 3 },
+      conditions, deployedCondition: "thinking-on", repeats: 1, chunks: CHUNKS, order: "repeat_condition_chunk",
+      requests: Object.fromEntries(conditions.map((condition, i) => [condition, { requestSetSha256: h(String(i + 4)), requests: 3, requestBytes: 4200, maxTokens: 4096,
+        thinking: condition !== "thinking-off", streamed: true, perChunk: Object.fromEntries(CHUNKS.map(chunk => [chunk.chunkId, { requestSha256: h("d"), requestBytes: 1400 }])) }])),
+      calls, counts, cells: {}, ...over };
+  }
+  function extractorDir(content: Record<string, unknown>) {
+    const dir = join(scratch(), "e0-extractor-fixture-20261116T090000000Z"); mkdirSync(dir);
+    writeFileSync(join(dir, "summary.json"), `${JSON.stringify(content, null, 1)}\n`);
+    return dir;
+  }
+  const flags = { "--task": "e0-synthetic-extraction", "--exposure": "fresh" };
+
+  it("rows a finished extractor run: its classes, usage, manifest hashes, protocol and request digests, and no alias, source id or reason", () => {
+    const dir = extractorDir(summary());
+    const line = run(["--fixture-dir", dir, "--fixture", "extractor"], "accepted", flags), result = JSON.parse(line);
+    expect(result).toMatchObject({ modelCalls: 6, inputTokens: 5 * 2000, outputTokens: 5 * 300, cachedTokens: null, usd: 0, disclosedBytes: 0, terminalCause: "fixture_finished",
+      wallSeconds: 1200, date: "2026-11-16" });
+    expect(result.fixture).toEqual({ kind: "extractor", finished: true, version: 1, sha256: digest(readFileSync(join(dir, "summary.json"))), conditions: ["thinking-off", "thinking-on"],
+      repeats: 1, manifest: { sha256: h("a"), briefSha256: h("b"), planSha256: h("c"), unitCount: 5, sourceCount: 3 }, protocolSha256: h("7"), deployedCondition: "thinking-on",
+      usageMissing: 0, cachedMissing: 5,
+      classes: { "thinking-off": { complete: 1, held: 1, transport_failed: 1 }, "thinking-on": { complete: 1, needs_followup: 1, truncated: 1 } } });
+    expect(result.inputSha256).toBe(digest(canonical({ "thinking-off": h("4"), "thinking-on": h("5") })));
+    expectAbsent(line, "Extractor-Served-Alias", "secret-source", "e0-extractor-fixture-secret-name", "quote_not_found", "repeat_condition_chunk", "e0-extractor-fixture-2026");
+  }, 60_000);
+
+  it("rows an interrupted extractor run from the calls it made, as incomplete or infra_invalid only, and refuses what the extractor never writes", () => {
+    const interrupted = summary({ finishedUtc: undefined });
+    interrupted.calls = interrupted.calls.slice(0, 4);
+    interrupted.counts = { "thinking-off": { complete: 1, held: 1, transport_failed: 1 }, "thinking-on": { complete: 1 } };
+    const dir = extractorDir(interrupted);
+    expect(row(["--fixture-dir", dir, "--fixture", "extractor"], "incomplete", flags)).toMatchObject({ modelCalls: 4, inputTokens: 3 * 2000, wallSeconds: null,
+      terminalCause: "fixture_unfinished", fixture: { finished: false } });
+    expect(refused(["--fixture-dir", dir, "--fixture", "extractor"], "accepted", flags)).toContain("did not finish");
+    const odd = summary(); odd.calls[0].classification = "email jane doe"; odd.counts["thinking-off"] = { "email jane doe": 1, held: 1, transport_failed: 1 };
+    const cases: [Record<string, any>, string][] = [
+      [summary({ calls: summary().calls.slice(0, 5) }), "does not record its 6 calls"],
+      [summary({ finishedUtc: undefined, calls: [...summary().calls, summary().calls[0]] }), "does not record its 6 calls"],
+      [summary({ protocolSha256: "/Users/someone/protocol" }), "research protocol hash"],
+      [summary({ chunks: [] }), "does not record its chunks"],
+      [summary({ conditions: ["thinking-off", "thinking-max"] }), "extractor fixture conditions"],
+      [summary({ deployedCondition: "thinking-max" }), "deployed condition"],
+      [summary({ counts: { "thinking-off": { complete: 3 }, "thinking-on": { complete: 3 } } }), "counts do not match"],
+      [odd, "classification is not one the extractor fixture writes"],
+    ];
+    for (const [content, message] of cases) expect(refused(["--fixture-dir", extractorDir(content), "--fixture", "extractor"], "rejected", flags)).toContain(message);
+    expect(refused(["--fixture-dir", scratch(), "--fixture", "extractor"], "incomplete", flags)).toContain("writes summary.json before its first request");
+  }, 60_000);
 });
 
 describe("E0 registry modes: the labelling call", () => {
-  const call = (over: Record<string, unknown>) => ({ purpose: "label", status: "settled", bodySha256: h("a"), bodyBytes: 48210, reservedUsd: 0.62, feeUsd: 0.31, inputTokens: 12000,
-    outputTokens: 9000, cachedTokens: 1024, ...over });
-  const unsettled = { feeUsd: null, inputTokens: null, outputTokens: null, cachedTokens: null };
-  const result = { claimsSha256: h("c"), labelsSha256: h("d"), claimCount: 48, plantedCount: 8, labelCounts: { supported: 20, partial: 10, unsupported: 10, contradicted: 8 } };
-  function summaryFile(over: Record<string, unknown> = {}) {
-    const summary = { kind: "soar_labelling_summary", version: 1, protocol: "e0-judge-labelling-v1", startedUtc: "2026-11-16T10:00:00.000Z", finishedUtc: "2026-11-16T10:02:30.000Z",
-      model: "gpt-6-sol", api: "openai", envelopeLine: "synthetic_data", capUsd: 1, claimsSha256: h("b"), claimCount: 40, calls: [call({})], result, outcome: "labelled", ...over };
+  const noTokens = { inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+  const call = (over: Record<string, unknown>) => ({ call: 1, kind: "label_and_plant", httpStatus: 200, state: "settled", failure: null, projectedUsd: 0.62, usd: 0.31, countedUsd: 0.31,
+    maxOutputTokens: 32000, bodyBytes: 48210, bodySha256: h("a"), inputTokens: 12000, cachedTokens: 1024, cacheWriteTokens: 0, outputTokens: 9000, reasoningTokens: 4000,
+    cacheWriteReported: true, elapsedMs: 95000, servedModel: "gpt-6-sol-2026-10-01", requestId: "req_abc123", errorType: null, errorCode: null, ...over });
+  const claims = { harvested: 40, planted: 8, minimumPerClass: 10, labelCounts: { supported: 20, partial: 10, unsupported: 10, contradicted: 8 }, belowMinimum: null,
+    plantedRejected: { duplicate: 1 }, notesShortened: 2, inputSha256: h("b"), claimsSha256: h("c"), labelsSha256: h("d") };
+  const unlabelled = { ...claims, labelCounts: null, claimsSha256: null, labelsSha256: null };
+  const prices = { input: 1.25, cached: 0.125, write: 1.25, output: 10, longContext: { aboveTokens: 272000, input: 2.5, cached: 0.25, write: 2.5, output: 15 } };
+  /** A summary in the exact shape lane S-e1's labelling tool (`pnpm label:judge`) writes; its totals are its calls' sums unless `over` changes them. */
+  function summaryFile(calls: Record<string, any>[] = [call({})], over: Record<string, unknown> = {}) {
+    const sum = (key: string) => calls.reduce((n, item) => n + item[key], 0);
+    const usd = (items: Record<string, any>[], key: string) => Math.round(items.reduce((n, item) => n + (item[key] ?? 0), 0) * 1e6) / 1e6;
+    const state = (...names: string[]) => calls.filter(item => names.includes(item.state));
+    const summary = { version: 1, kind: "e0_judge_labelling", protocol: "e0-judge-labelling-v1", labeller: "openai/gpt-6-sol", cloudModel: "gpt-6-sol", cloudApi: "openai_responses",
+      servedModel: "gpt-6-sol-2026-10-01", envelopeLine: "synthetic_data", run: "labelling-20261116T100000Z", startedUtc: "2026-11-16T10:00:00.000Z", finishedUtc: "2026-11-16T10:02:30.000Z",
+      outcome: "labelled", failure: null, secondRequest: null, modelCalls: calls.length, rejectedDispatches: state("rejected", "not_sent").length,
+      unknownDispatches: state("unknown", "outside_projection").length, inputTokens: sum("inputTokens"), cachedTokens: sum("cachedTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
+      outputTokens: sum("outputTokens"), reasoningTokens: sum("reasoningTokens"), usd: usd(calls, "usd"), reservedUnknownUsd: usd(state("unknown", "outside_projection"), "countedUsd"),
+      priorCountedUsd: 0, capUsd: 1, instructionsSha256: h("e"), prices, calls, claims, ...over };
     const path = join(scratch(), "summary.json"); writeFileSync(path, `${JSON.stringify(summary, null, 1)}\n`);
     return { path, bytes: readFileSync(path) };
   }
+  const failed = (failure: string, over: Record<string, unknown> = {}) => ({ outcome: "failed", failure, claims: unlabelled, ...over });
 
-  it("rows a labelled call with its settled fee, reservation, tokens, cloud call, disclosed bytes and envelope line", () => {
-    const { path, bytes } = summaryFile();
-    expect(row(["--labelling-file", path], "accepted", { "--arm": "cloud-gpt-6-sol" })).toMatchObject({ date: "2026-11-16", wallSeconds: 150, inputSha256: h("b"), cloudModel: "gpt-6-sol",
-      cloudApi: "openai", modelCalls: 1, failedDispatches: 0, unknownDispatches: 0, inputTokens: 12000, outputTokens: 9000, cachedTokens: 1024, usd: 0.31, reservedUsd: 0.62, pinnedUsd: 0,
-      cloudCalls: [{ purpose: "label", status: "settled", feeUsd: 0.31, reservedUsd: 0.62, bodyBytes: 48210 }], disclosedBytes: 48210, terminalCause: "labelled", profile: null,
-      labelling: { version: 1, sha256: digest(bytes), envelopeLine: "synthetic_data", capUsd: 1, claimCount: 40, result }, outcome: "accepted", gitSource: "row_written" });
+  /** Two summaries that lane S-e1's labelling tool wrote against its loopback fake (its commit 7a757ba), checked there by LabellingSummarySchema. */
+  const TOOL_LABELLED = {"version":1,"kind":"e0_judge_labelling","protocol":"e0-judge-labelling-v1","labeller":"openai/gpt-6-sol","cloudModel":"gpt-6-sol","cloudApi":"openai_responses","servedModel":"gpt-6-sol-2026-09-22","envelopeLine":"synthetic_data","run":"labelling-2026-11-15T202351214Z","startedUtc":"2026-11-15T20:23:51.214Z","finishedUtc":"2026-11-15T20:23:51.304Z","outcome":"labelled","failure":null,"secondRequest":"sent","modelCalls":2,"rejectedDispatches":0,"unknownDispatches":0,"inputTokens":2286,"cachedTokens":0,"cacheWriteTokens":2280,"outputTokens":2400,"reasoningTokens":1600,"usd":0.029713,"reservedUnknownUsd":0,"priorCountedUsd":0,"capUsd":1,"instructionsSha256":"0184b561b5cee866c56fcda7321095a719a522d529b5a46158856d6fa2d3f9d2","prices":{"input":2,"cached":0.2,"write":2.5,"output":10,"longContext":{"aboveTokens":272000,"input":4,"cached":0.4,"write":5,"output":15}},"calls":[{"call":1,"kind":"label_and_plant","httpStatus":200,"state":"settled","failure":null,"projectedUsd":0.202648,"usd":0.014979,"countedUsd":0.014979,"maxOutputTokens":19072,"bodyBytes":4771,"bodySha256":"a2e1c9d2901eeddfb57396c32ab9b8d62308146395116739f264eb834f6d557b","inputTokens":1192,"cachedTokens":0,"cacheWriteTokens":1189,"outputTokens":1200,"reasoningTokens":800,"cacheWriteReported":true,"elapsedMs":6,"servedModel":"gpt-6-sol-2026-09-22","requestId":"req_example_1","errorType":null,"errorCode":null},{"call":2,"kind":"plant_only","httpStatus":200,"state":"settled","failure":null,"projectedUsd":0.182463,"usd":0.014734,"countedUsd":0.014734,"maxOutputTokens":17152,"bodyBytes":4377,"bodySha256":"6e2833d5284a4f328438928ae93c8f8119e94cbc6888e2c5208417766b9188d5","inputTokens":1094,"cachedTokens":0,"cacheWriteTokens":1091,"outputTokens":1200,"reasoningTokens":800,"cacheWriteReported":true,"elapsedMs":4,"servedModel":"gpt-6-sol-2026-09-22","requestId":"req_example_2","errorType":null,"errorCode":null}],"claims":{"harvested":4,"planted":4,"minimumPerClass":2,"labelCounts":{"supported":2,"partial":2,"unsupported":2,"contradicted":2},"belowMinimum":null,"plantedRejected":{},"notesShortened":0,"inputSha256":"f65149d26f509fda3e3a7cef5041864c98aeaffd5fe407bc381d793bb4834308","claimsSha256":"a05fee0a742216cc8dd0eea8cd23149829fe647c7ae74c2a9cdd236f853d2378","labelsSha256":"f3f83b8e09091d9d6119d3ccc52cfab0ad60a39ff36dfd5fe37872978ef0f679"}} as const;
+  const TOOL_REJECTED = {"version":1,"kind":"e0_judge_labelling","protocol":"e0-judge-labelling-v1","labeller":"openai/gpt-6-sol","cloudModel":"gpt-6-sol","cloudApi":"openai_responses","servedModel":null,"envelopeLine":"synthetic_data","run":"labelling-2026-11-15T202351317Z","startedUtc":"2026-11-15T20:23:51.317Z","finishedUtc":"2026-11-15T20:23:51.350Z","outcome":"failed","failure":"labeller_rejected","secondRequest":null,"modelCalls":1,"rejectedDispatches":1,"unknownDispatches":0,"inputTokens":0,"cachedTokens":0,"cacheWriteTokens":0,"outputTokens":0,"reasoningTokens":0,"usd":0,"reservedUnknownUsd":0,"priorCountedUsd":0,"capUsd":1,"instructionsSha256":"0184b561b5cee866c56fcda7321095a719a522d529b5a46158856d6fa2d3f9d2","prices":{"input":2,"cached":0.2,"write":2.5,"output":10,"longContext":{"aboveTokens":272000,"input":4,"cached":0.4,"write":5,"output":15}},"calls":[{"call":1,"kind":"label_and_plant","httpStatus":401,"state":"rejected","failure":"labeller_rejected","projectedUsd":0.202648,"usd":0,"countedUsd":0,"maxOutputTokens":19072,"bodyBytes":4771,"bodySha256":"a2e1c9d2901eeddfb57396c32ab9b8d62308146395116739f264eb834f6d557b","inputTokens":0,"cachedTokens":0,"cacheWriteTokens":0,"outputTokens":0,"reasoningTokens":0,"cacheWriteReported":false,"elapsedMs":2,"servedModel":null,"requestId":"req_example_1","errorType":"invalid_request_error","errorCode":"invalid_api_key"}],"claims":{"harvested":4,"planted":0,"minimumPerClass":2,"labelCounts":null,"belowMinimum":null,"plantedRejected":{},"notesShortened":0,"inputSha256":"f65149d26f509fda3e3a7cef5041864c98aeaffd5fe407bc381d793bb4834308","claimsSha256":null,"labelsSha256":null}} as const;
+  function toolFile(summary: unknown) { const path = join(scratch(), "summary.json"); writeFileSync(path, `${JSON.stringify(summary, null, 1)}\n`); return path; }
+
+  it("rows the summaries the labelling tool itself wrote: a labelled run and a rejected one", () => {
+    const line = run(["--labelling-file", toolFile(TOOL_LABELLED)], "accepted", { "--arm": "cloud-gpt-6-sol" }), labelled = JSON.parse(line);
+    expect(labelled).toMatchObject({ date: "2026-11-15", inputSha256: TOOL_LABELLED.claims.inputSha256, cloudModel: "gpt-6-sol", cloudApi: "openai_responses", modelCalls: 2,
+      failedDispatches: 0, unknownDispatches: 0, inputTokens: 2286, outputTokens: 2400, cachedTokens: 0, cacheWriteTokens: 2280, usd: 0.029713, reservedUsd: 0.202648 + 0.182463,
+      pinnedUsd: 0, disclosedBytes: 4771 + 4377, terminalCause: "labelled", labelling: { outcome: "labelled", secondRequest: "sent", reasoningTokens: 1600, cacheWriteAssumed: 0,
+        claims: { labelsSha256: TOOL_LABELLED.claims.labelsSha256, planted: 4 } },
+      cloudCalls: [{ purpose: "label_and_plant", status: "settled", feeUsd: 0.014979, reservedUsd: 0.202648, bodyBytes: 4771 },
+        { purpose: "plant_only", status: "settled", feeUsd: 0.014734, reservedUsd: 0.182463, bodyBytes: 4377 }] });
+    expectAbsent(line, "openai/gpt-6-sol", "gpt-6-sol-2026-09-22", "req_example", TOOL_LABELLED.run);
+    const rejectedLine = run(["--labelling-file", toolFile(TOOL_REJECTED)], "infra_invalid");
+    expect(JSON.parse(rejectedLine)).toMatchObject({ modelCalls: 1, failedDispatches: 1, usd: 0, pinnedUsd: 0, disclosedBytes: 4771, terminalCause: "labeller_rejected",
+      cloudCalls: [{ status: "failed", feeUsd: 0 }] });
+    expectAbsent(rejectedLine, "invalid_api_key", "invalid_request_error");
+    expect(refused(["--labelling-file", toolFile(TOOL_REJECTED)], "accepted")).toContain("the labelling ended failed, not labelled");
   });
 
-  it("counts failed and unknown calls, pins an unknown call's reservation, discloses a resent body once, and refuses accepted unless labelled", () => {
-    const { path } = summaryFile({ finishedUtc: null, result: null, outcome: "charge_unknown", calls: [call({}), call({ purpose: "plant", status: "failed", bodySha256: h("e"), bodyBytes: 900,
-      reservedUsd: 0.2, ...unsettled }), call({ purpose: "plant", status: "unknown", bodySha256: h("e"), bodyBytes: 900, reservedUsd: 0.2, ...unsettled })] });
-    expect(row(["--labelling-file", path], "incomplete")).toMatchObject({ modelCalls: 3, failedDispatches: 1, unknownDispatches: 1, usd: 0.31, reservedUsd: 1.02, pinnedUsd: 0.2,
-      disclosedBytes: 48210 + 900, wallSeconds: null, inputTokens: 12000, terminalCause: "charge_unknown",
-      cloudCalls: [{ status: "settled" }, { purpose: "plant", status: "failed", feeUsd: null, reservedUsd: 0.2 }, { status: "unknown", feeUsd: null }] });
-    expect(refused(["--labelling-file", path], "accepted")).toContain("ended charge_unknown, not labelled");
-    expect(row(["--labelling-file", summaryFile({ calls: [], result: null, outcome: "cap_refused" }).path], "rejected")).toMatchObject({ modelCalls: 0, usd: 0, disclosedBytes: 0, cloudCalls: [] });
+  it("rows a labelled call with its fee, reservation, tokens, cloud call, disclosed bytes, envelope line and prices, and none of the provider's strings", () => {
+    const { path, bytes } = summaryFile([call({ cacheWriteReported: false, cacheWriteTokens: 10976 })]);
+    const line = run(["--labelling-file", path], "accepted", { "--arm": "cloud-gpt-6-sol" }), result = JSON.parse(line);
+    expect(result).toMatchObject({ date: "2026-11-16", wallSeconds: 150, inputSha256: h("b"), cloudModel: "gpt-6-sol", cloudApi: "openai_responses", modelCalls: 1, failedDispatches: 0,
+      unknownDispatches: 0, inputTokens: 12000, outputTokens: 9000, cachedTokens: 1024, cacheWriteTokens: 10976, usd: 0.31, reservedUsd: 0.62, pinnedUsd: 0,
+      cloudCalls: [{ purpose: "label_and_plant", status: "settled", feeUsd: 0.31, reservedUsd: 0.62, bodyBytes: 48210 }], disclosedBytes: 48210, terminalCause: "labelled", profile: null,
+      outcome: "accepted", gitSource: "row_written" });
+    expect(result.labelling).toEqual({ version: 1, sha256: digest(bytes), outcome: "labelled", failure: null, secondRequest: null, envelopeLine: "synthetic_data", capUsd: 1,
+      priorCountedUsd: 0, instructionsSha256: h("e"), prices, reasoningTokens: 4000, cacheWriteAssumed: 1,
+      claims: { harvested: 40, planted: 8, minimumPerClass: 10, labelCounts: claims.labelCounts, belowMinimum: null, plantedRejected: { duplicate: 1 }, notesShortened: 2,
+        claimsSha256: h("c"), labelsSha256: h("d") } });
+    expectAbsent(line, "openai/gpt-6-sol", "gpt-6-sol-2026-10-01", "req_abc123", "labelling-20261116T100000Z");
   });
 
-  it("refuses any other key, a free-text model or code, a call that does not hold its keys, and a result that does not match the outcome", () => {
-    const cases: [Record<string, unknown>, string][] = [
-      [{ note: "the labeller's free text" }, "exactly the labelling summary's keys"],
-      [{ model: "gpt 6 sol on https://api.example" }, "model or api"],
-      [{ api: "responses" }, "model or api"],
-      [{ envelopeLine: "phase4_harness" }, "envelope line"],
-      [{ outcome: "labelled but late" }, "outcome is not one of its codes"],
-      [{ result: null }, "a result is recorded with outcome labelled"],
-      [{ protocol: "e0-judge-labelling-v2" }, "version 1 labelling summary"],
-      [{ calls: [call({ feeUsd: null })] }, "a settled call must record its fee"],
-      [{ calls: [call({ purpose: "label the claims for jane" })] }, "purpose, status, body or reservation"],
-      [{ calls: [{ ...call({}), url: "https://api.openai.com/v1" }] }, "exactly the summary's call keys"],
-      [{ calls: [call({}), call({ bodyBytes: 7 })] }, "one body digest with different sizes"],
-      [{ result: { ...result, labelCounts: { supported: 1 } } }, "result does not hold exactly"],
+  it("counts each call state as the tool defines it, pins what the cap counts, discloses nothing unsent, and refuses accepted unless labelled", () => {
+    // The second request timed out after the first settled.
+    const timedOut = summaryFile([call({}), call({ call: 2, kind: "plant_only", httpStatus: null, state: "unknown", failure: "labeller_timeout", projectedUsd: 0.2, usd: null,
+      countedUsd: 0.2, bodyBytes: 900, bodySha256: h("f"), ...noTokens, servedModel: null, requestId: null })], failed("labeller_timeout", { secondRequest: "sent", finishedUtc: null }));
+    expect(row(["--labelling-file", timedOut.path], "incomplete")).toMatchObject({ modelCalls: 2, failedDispatches: 0, unknownDispatches: 1, usd: 0.31, reservedUsd: 0.82, pinnedUsd: 0.2,
+      disclosedBytes: 48210 + 900, wallSeconds: null, terminalCause: "labeller_timeout", labelling: { outcome: "failed", secondRequest: "sent", claims: { labelsSha256: null } },
+      cloudCalls: [{ status: "settled" }, { purpose: "plant_only", status: "unknown", feeUsd: null, reservedUsd: 0.2 }] });
+    expect(refused(["--labelling-file", timedOut.path], "accepted")).toContain("the labelling ended failed, not labelled");
+    // A rejected request was received, so its body counts; a request whose connection never completed disclosed nothing.
+    const rejected = call({ httpStatus: 400, state: "rejected", failure: "labeller_rejected", usd: 0, countedUsd: 0, ...noTokens, errorType: "invalid_request_error",
+      errorCode: "context_length_exceeded" });
+    const rejectedLine = run(["--labelling-file", summaryFile([rejected], failed("labeller_rejected")).path], "rejected");
+    expect(JSON.parse(rejectedLine)).toMatchObject({ failedDispatches: 1, usd: 0, pinnedUsd: 0, disclosedBytes: 48210, cloudCalls: [{ status: "failed", feeUsd: 0 }] });
+    expectAbsent(rejectedLine, "invalid_request_error", "context_length_exceeded");
+    const unsent = call({ httpStatus: null, state: "not_sent", failure: "labeller_transport_failed", usd: 0, countedUsd: 0, ...noTokens });
+    expect(row(["--labelling-file", summaryFile([unsent], failed("labeller_transport_failed")).path], "infra_invalid")).toMatchObject({ failedDispatches: 1, disclosedBytes: 0 });
+    // A reply outside the projection is counted at no less than its reservation, and its tokens are kept.
+    const outside = call({ state: "outside_projection", failure: "labeller_usage_outside_projection", usd: null, countedUsd: 0.8 });
+    expect(row(["--labelling-file", summaryFile([outside], failed("labeller_usage_outside_projection")).path], "rejected")).toMatchObject({ unknownDispatches: 1, usd: 0, pinnedUsd: 0.8,
+      inputTokens: 12000, cloudCalls: [{ status: "unknown", feeUsd: null }] });
+    // HARN-27 counts a body once, even if the same body were resent.
+    const resent = summaryFile([rejected, call({ call: 2 })], failed("labeller_rejected", { outcome: "labelled", failure: null, claims }));
+    expect(row(["--labelling-file", resent.path], "accepted").disclosedBytes).toBe(48210);
+    expect(refused(["--labelling-file", summaryFile(undefined, { outcome: "labelled_below_minimum", claims: { ...claims, belowMinimum: { contradicted: 2 } } }).path], "accepted"))
+      .toContain("ended labelled_below_minimum");
+  }, 60_000);
+
+  it("refuses any other key, free text where a code or model id belongs, totals that are not its calls' sums, and calls that break the tool's rules", () => {
+    const cases: [Record<string, any>[] | undefined, Record<string, unknown>, string][] = [
+      [undefined, { note: "the labeller's free text" }, "exactly the labelling summary's keys"],
+      [undefined, { protocol: "e0-judge-labelling-v2" }, "version 1 e0_judge_labelling summary"],
+      [undefined, { cloudModel: "gpt 6 sol on https://api.example" }, "approved labelling model"],
+      [undefined, { cloudModel: "192.168.1.20" }, "approved labelling model"],
+      [undefined, { cloudModel: "lotusxu-private-labeller" }, "approved labelling model"],
+      [undefined, { cloudApi: "responses" }, "cloudApi is not a request shape"],
+      [undefined, { version: true }, "version 1 e0_judge_labelling summary"],
+      [undefined, { finishedUtc: null }, "a labelled outcome records when the tool finished"],
+      [undefined, { labeller: "x".repeat(201) }, "labeller, run or servedModel"],
+      [undefined, { run: null }, "labeller, run or servedModel"],
+      [undefined, { outcome: "refused" }, "outcome, failure or second request"],
+      [undefined, { failure: "labeller_email_jane_doe" }, "outcome, failure or second request"],
+      [undefined, { secondRequest: "maybe" }, "outcome, failure or second request"],
+      [undefined, { envelopeLine: "phase4_harness" }, "envelope line, instructions digest"],
+      [undefined, { instructionsSha256: "steps 2 and 3" }, "envelope line, instructions digest"],
+      [undefined, { prices: { ...prices, longContext: undefined } }, "prices are not its rates"],
+      [undefined, { modelCalls: 2 }, "totals are not the sums of its calls"],
+      [undefined, { usd: 0.5 }, "totals are not the sums of its calls"],
+      [undefined, { reservedUnknownUsd: 0.2 }, "totals are not the sums of its calls"],
+      [[call({ usd: null })], {}, "the settled call's usd, countedUsd, status or tokens break"],
+      [[call({ countedUsd: 0.62 })], {}, "the settled call's usd, countedUsd, status or tokens break"],
+      [[call({ state: "unknown", usd: null, countedUsd: 0.1 })], {}, "the unknown call's usd, countedUsd, status or tokens break"],
+      [[call({ state: "rejected", usd: 0, countedUsd: 0 })], {}, "the rejected call's usd, countedUsd, status or tokens break"],
+      // Zero is claimed only for a status the provider does not bill (the tool's UNBILLED_STATUSES) and for a request that never left.
+      [[call({ httpStatus: 500, state: "rejected", usd: 0, countedUsd: 0, ...noTokens })], {}, "the rejected call's usd, countedUsd, status or tokens break"],
+      [[call({ httpStatus: 503, state: "not_sent", usd: 0, countedUsd: 0, ...noTokens })], {}, "the not_sent call's usd, countedUsd, status or tokens break"],
+      [[{ ...call({}), url: "https://api.openai.com/v1/responses" }], {}, "exactly the summary's call keys"],
+      [[call({ call: 2 })], {}, "a call's number"],
+      [[call({ call: true })], {}, "a call's number"],
+      // No count or amount can carry a long value: counts stay within 2^53 - 1 and amounts within USD 1,000,000.
+      [[call({ bodyBytes: 2 ** 60 })], {}, "a call's number, kind, state, codes"],
+      [[call({ usd: 1e308, countedUsd: 1e308 })], {}, "amounts or counts"],
+      [[call({ errorCode: "Context Length Exceeded for jane@example.com" })], {}, "a call's number, kind, state, codes"],
+      [[call({ failure: "labeller_reply_was: the passage says" })], {}, "a call's number, kind, state, codes"],
+      [[call({}), call({ call: 2, bodyBytes: 7 })], {}, "one body digest with different sizes"],
+      [undefined, { claims: { ...claims, labelsSha256: null } }, "a labelled outcome records"],
+      [undefined, { claims: { ...claims, plantedRejected: { made_up_reason: 1 } } }, "claims do not hold exactly"],
+      [undefined, { claims: { ...claims, inputSha256: "input/claims.json" } }, "claims do not hold exactly"],
     ];
-    for (const [over, message] of cases) expect(refused(["--labelling-file", summaryFile(over).path], "rejected")).toContain(message);
-  });
+    for (const [calls, over, message] of cases) expect(refused(["--labelling-file", summaryFile(calls, over).path], "rejected")).toContain(message);
+  }, 60_000);
 });
 
 describe("E0 registry modes: corrections and source rules", () => {
@@ -305,5 +541,5 @@ describe("E0 registry modes: corrections and source rules", () => {
     expect(() => supersede("accepted")).toThrow(/did not finish/u);
     expect(JSON.parse(supersede("infra_invalid"))).toMatchObject({ id: "e0-probe-1b", supersedes: "e0-probe-1", outcome: "infra_invalid", terminalCause: "probe_unfinished", probe: { finished: false } });
     expect(refused(["--probe-dir", dir, "--labelling-file", registry], "incomplete")).toContain("give exactly one of");
-  });
+  }, 60_000);
 });

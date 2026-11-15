@@ -121,10 +121,10 @@ describe("E0 registry modes: serving-probe runs", () => {
   }, 60_000);
 
   it("keeps a failure's class only when it is a known exception class, and reads past a NaN reading it never copies", () => {
-    for (const text of ["lotusxu_Developer_SOAR_secret", "connection refused by 10.0.0.5"]) {
+    for (const text of ["alice_Developer_example_secret", "connection refused by 10.0.0.5"]) {
       const line = run(["--probe-dir", probeDir(probe => { probe.probes_failed = { P6: text }; }).dir], "rejected");
       expect(JSON.parse(line).probe.failed).toEqual({ P6: "other" });
-      expectAbsent(line, "lotusxu", "10.0.0.5");
+      expectAbsent(line, "alice", "10.0.0.5");
     }
     expect(row(["--probe-dir", probeDir(probe => { probe.probes_failed = { P6: "TimeoutError" }; }).dir], "rejected").probe.failed).toEqual({ P6: "TimeoutError" });
     expect(row(["--probe-dir", probeDir(undefined, json => json.replace("\"waiting\": 0", "\"waiting\": NaN")).dir], "rejected").modelCalls).toBe(168);
@@ -490,7 +490,7 @@ describe("E0 registry modes: the labelling call", () => {
       [undefined, { protocol: "e0-judge-labelling-v2" }, "version 1 e0_judge_labelling summary"],
       [undefined, { cloudModel: "gpt 6 sol on https://api.example" }, "approved labelling model"],
       [undefined, { cloudModel: "192.168.1.20" }, "approved labelling model"],
-      [undefined, { cloudModel: "lotusxu-private-labeller" }, "approved labelling model"],
+      [undefined, { cloudModel: "example-private-labeller" }, "approved labelling model"],
       [undefined, { cloudApi: "responses" }, "cloudApi is not a request shape"],
       [undefined, { version: true }, "version 1 e0_judge_labelling summary"],
       [undefined, { finishedUtc: null }, "a labelled outcome records when the tool finished"],

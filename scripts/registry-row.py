@@ -54,7 +54,6 @@ domains, retainedBytes, actions, queries and researchFallback (docs/experiments/
 from __future__ import annotations
 
 import argparse
-import builtins
 import copy
 import datetime
 import hashlib
@@ -154,6 +153,7 @@ def main() -> int:
         row = receipt_row(args)
     elif args.probe_dir is not None or args.fixture_dir is not None or args.labelling_file is not None:
         row = probe_row(args) if args.probe_dir is not None else fixture_row(args) if args.fixture_dir is not None else labelling_row(args)
+        check_e0_numbers(row, "--probe-dir" if args.probe_dir is not None else "--fixture-dir" if args.fixture_dir is not None else "--labelling-file")
         check_e0_outcome(args.outcome, row)
     else:
         row = superseding_row(args)
@@ -1417,10 +1417,22 @@ def run_counts(run_dir: str) -> dict:
 # and error bodies never reach it, and the producers' free-text manifest fields are only compared.
 # A failed probe keeps its exception class only when that is a built-in exception or one of the probe's own library classes; any
 # other name is recorded as `other`, so no text shaped like an identifier reaches a row.
-PROBE_FAILURE_CLASSES = frozenset(name for name in dir(builtins) if isinstance(getattr(builtins, name), type) and issubclass(getattr(builtins, name), BaseException)) \
-    | frozenset(("URLError", "HTTPError", "RemoteDisconnected", "IncompleteRead", "JSONDecodeError", "ConfigError", "timeout"))
+PROBE_FAILURE_CLASSES = frozenset((
+    "ArithmeticError", "AssertionError", "AttributeError", "BaseException", "BaseExceptionGroup", "BlockingIOError", "BrokenPipeError", "BufferError", "BytesWarning",
+    "ChildProcessError", "ConnectionAbortedError", "ConnectionError", "ConnectionRefusedError", "ConnectionResetError", "DeprecationWarning", "EOFError",
+    "EncodingWarning", "EnvironmentError", "Exception", "ExceptionGroup", "FileExistsError", "FileNotFoundError", "FloatingPointError", "FutureWarning",
+    "GeneratorExit", "IOError", "ImportError", "ImportWarning", "IndentationError", "IndexError", "InterruptedError", "IsADirectoryError", "KeyError",
+    "KeyboardInterrupt", "LookupError", "MemoryError", "ModuleNotFoundError", "NameError", "NotADirectoryError", "NotImplementedError", "OSError", "OverflowError",
+    "PendingDeprecationWarning", "PermissionError", "ProcessLookupError", "PythonFinalizationError", "RecursionError", "ReferenceError", "ResourceWarning",
+    "RuntimeError", "RuntimeWarning", "StopAsyncIteration", "StopIteration", "SyntaxError", "SyntaxWarning", "SystemError", "SystemExit", "TabError", "TimeoutError",
+    "TypeError", "UnboundLocalError", "UnicodeDecodeError", "UnicodeEncodeError", "UnicodeError", "UnicodeTranslateError", "UnicodeWarning", "UserWarning",
+    "ValueError", "Warning", "ZeroDivisionError",
+    # The probe's own library classes: urllib's errors, http.client's, json's and the probe's ConfigError (socket.timeout's name before 3.10).
+    "URLError", "HTTPError", "RemoteDisconnected", "IncompleteRead", "JSONDecodeError", "ConfigError", "timeout"))
 # The labelling models the owner approved (BL-20261115-1937-owner-adopts-standing-defaults, (b)).
 LABELLING_MODELS = ("gpt-6-sol",)
+# The request shape the labelling tool sends (its schema's cloudApi literal).
+LABELLING_APIS = ("openai_responses",)
 # An E0 row holds only counts a JavaScript reader holds exactly and bounded USD amounts, so no number can smuggle a long value.
 SAFE_INTEGER_MAX = 2 ** 53 - 1
 E0_USD_MAX = 1_000_000
@@ -1464,6 +1476,8 @@ LABELLING_STATES = {"settled": "settled", "rejected": "failed", "not_sent": "fai
 LABELLING_SECOND_REQUESTS = ("sent", "labeller_cap_exceeded")
 # The tool's UNBILLED_STATUSES: the only statuses a `rejected` call, counted at zero, can carry.
 LABELLING_UNBILLED_STATUSES = (400, 401, 403, 404, 429)
+# The lock a labelling run holds beside its run directories (the tool's LOCK_NAME), created at its start and removed at its end.
+LABELLING_LOCK = "labelling.lock"
 LABELLING_PLANT_REJECTIONS = ("unknown_source", "unchanged_sentence", "duplicate", "sentence_bounds", "empty_note", "surplus", "no_free_id")
 LABELLING_FAILURES = ("labeller_interrupted", "labeller_timeout", "labeller_reply_too_large", "labeller_transport_failed", "labeller_rejected", "labeller_http_status",
                       "labeller_reply_undecodable", "labeller_usage_outside_projection", "labeller_reply_cut_at_output_cap", "labeller_reply_incomplete",
@@ -1522,6 +1536,18 @@ def bounded_count(value) -> bool:
 
 def bounded_amount(value) -> bool:
     return is_amount(value) and value <= E0_USD_MAX
+
+
+def check_e0_numbers(value, source: str) -> None:
+    """Every number an E0 row carries, sums included, stays in the range a JavaScript reader holds exactly."""
+    if isinstance(value, dict):
+        for item in value.values():
+            check_e0_numbers(item, source)
+    elif isinstance(value, list):
+        for item in value:
+            check_e0_numbers(item, source)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool) and not (math.isfinite(value) and 0 <= value <= SAFE_INTEGER_MAX):
+        refuse(source, "a computed count or amount leaves the range a row records exactly")
 
 
 def is_digest(value) -> bool:
@@ -1662,24 +1688,26 @@ def probe_row(args) -> dict:
 
 
 def fixture_usage(calls: list) -> dict:
-    """Token sums over the answered calls' own usage objects. `usageMissing` counts answered calls whose usage lacks its prompt or
-    completion count; `cachedMissing` counts those whose usage reports no cached-token detail (vLLM leaves it out unless it runs with
-    --enable-prompt-tokens-details), which is unknown reuse, not zero."""
-    totals = {"inputTokens": 0, "outputTokens": 0, "cachedTokens": 0, "usageMissing": 0, "cachedMissing": 0}
+    """Token sums over the answered calls' own usage objects. `usageMissing` counts answered calls whose usage lacks its prompt or completion
+    count, and `cachedMissing` those whose usage reports no cached-token detail (none at all included; vLLM leaves the detail out unless it
+    runs with --enable-prompt-tokens-details). Either leaves the run's total unknown, not zero: the row's columns are then null, and
+    `fixture.usage` keeps the sums over the calls that did report usage."""
+    totals = {"calls": 0, "inputTokens": 0, "outputTokens": 0, "cachedTokens": 0, "usageMissing": 0, "cachedMissing": 0}
     for call in calls:
         if call.get("status") != 200:
             continue
         usage = call.get("usage")
-        if not isinstance(usage, dict) or not bounded_count(usage.get("prompt_tokens")) or not bounded_count(usage.get("completion_tokens")):
-            totals["usageMissing"] += 1
-            continue
-        details = usage.get("prompt_tokens_details")
-        totals["inputTokens"] += usage["prompt_tokens"]
-        totals["outputTokens"] += usage["completion_tokens"]
+        details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
         if isinstance(details, dict) and bounded_count(details.get("cached_tokens")):
             totals["cachedTokens"] += details["cached_tokens"]
         else:
             totals["cachedMissing"] += 1
+        if not isinstance(usage, dict) or not bounded_count(usage.get("prompt_tokens")) or not bounded_count(usage.get("completion_tokens")):
+            totals["usageMissing"] += 1
+            continue
+        totals["calls"] += 1
+        totals["inputTokens"] += usage["prompt_tokens"]
+        totals["outputTokens"] += usage["completion_tokens"]
     return totals
 
 
@@ -1700,6 +1728,33 @@ def fixture_manifest(kind: str, manifest, source: str) -> dict:
             refuse(source, "the summary's manifest does not record its agreement measure and level")
         kept.update(labelCounts=dict(labels), agreement=dict(agreement))
     return kept
+
+
+def check_call_cells(kind: str, calls: list, conditions: list, repeats: int, kept: dict, chunks, interrupted: bool, source: str) -> None:
+    """Each condition, repeat and chunk holds its own call (the planner's per condition and repeat, the judge's per claim), never another's:
+    the total alone would admit every call moved into one condition."""
+    plain = lambda value: type(value) is int and 1 <= value <= repeats
+    if kind == "planner":
+        keys = [(call["condition"], call.get("ordinal")) for call in calls if plain(call.get("ordinal"))]
+        expected = {(condition, repeat) for condition in conditions for repeat in range(1, repeats + 1)}
+    elif kind == "extractor":
+        names = [chunk.get("chunkId") for chunk in chunks]
+        if not all(isinstance(name, str) for name in names) or len(set(names)) != len(names) or len(names) != kept["sourceCount"]:
+            refuse(source, "the summary's chunks are not one named chunk per manifest source")
+        keys = [(call["condition"], call.get("repeat"), call.get("chunkId")) for call in calls if plain(call.get("repeat")) and call.get("chunkId") in names]
+        expected = {(condition, repeat, name) for condition in conditions for repeat in range(1, repeats + 1) for name in names}
+    else:
+        keys = [(call["condition"], call.get("repeat"), call.get("claimId")) for call in calls
+                if plain(call.get("repeat")) and isinstance(call.get("claimId"), str) and re.fullmatch(r"C[0-9]{1,3}", call["claimId"])]
+        per_cell = {}
+        for condition, repeat, _ in keys:
+            per_cell[(condition, repeat)] = per_cell.get((condition, repeat), 0) + 1
+        expected = None
+        if set(per_cell) != {(condition, repeat) for condition in conditions for repeat in range(1, repeats + 1)} \
+                or any(number != kept["claimCount"] for number in per_cell.values()):
+            refuse(source, "the summary's calls are not one per condition, repeat and claim")
+    if len(keys) != len(calls) or len(set(keys)) != len(keys) or (expected is not None and not (set(keys) <= expected if interrupted else set(keys) == expected)):
+        refuse(source, f"the summary's calls are not one per condition, repeat and {'chunk' if kind == 'extractor' else 'claim' if kind == 'judge' else 'ordinal'}")
 
 
 def call_class(kind: str, call: dict, source: str) -> str:
@@ -1732,6 +1787,19 @@ def judge_scores(summary: dict, conditions: list, repeats: int, source: str) -> 
                 refuse(source, "a repeat's metrics do not record their counts and level check")
             scores[condition][key] = {name: value[name] for name in ("claims", "judged", "exactCount", "establishedCount", "meetsLevel")}
     return scores
+
+
+def check_judge_scores(scores: dict, calls: list, kept: dict, source: str) -> None:
+    """The judge's copied scores are its calls': each repeat scores every claim, `judged` counts the calls judged, the agreements are
+    within them, and `meetsLevel` is the manifest's measure at its level over the unrounded counts, as meetsAgreementLevel computes it."""
+    measure, level = kept["agreement"]["measure"], kept["agreement"]["level"]
+    for condition, repeats in scores.items():
+        for key, score in repeats.items():
+            judged = sum(1 for call in calls if call["condition"] == condition and call.get("repeat") == int(key[1:]) and call.get("verdict") != "not_judged")
+            agreeing = score["exactCount"] if measure == "exact" else score["establishedCount"]
+            if score["claims"] != kept["claimCount"] or score["judged"] != judged or score["exactCount"] > judged or score["establishedCount"] > judged \
+                    or score["meetsLevel"] != (score["claims"] > 0 and agreeing / score["claims"] >= level):
+                refuse(source, f"the summary's {condition} {key} scores are not its calls' and its manifest's")
 
 
 def unfinished_fixture_row(args, kind: str, source: str) -> dict:
@@ -1790,6 +1858,7 @@ def fixture_row(args) -> dict:
         refuse(source, f"the summary does not record its {expected} calls")
     if not all(call.get("status") is None or (isinstance(call["status"], int) and not isinstance(call["status"], bool)) for call in calls):
         refuse(source, "a call's status is not an HTTP status")
+    check_call_cells(kind, calls, conditions, repeats, kept, chunks, interrupted, source)
     classes = {condition: {} for condition in conditions}
     for call in calls:
         name = call_class(kind, call, source)
@@ -1799,7 +1868,7 @@ def fixture_row(args) -> dict:
     usage = fixture_usage(calls)
     record = {"kind": kind, "finished": not interrupted, "version": 1, "sha256": hashlib.sha256(raw).hexdigest(), "conditions": conditions, "repeats": repeats,
               "manifest": kept, "classes": {condition: dict(sorted(counts.items())) for condition, counts in classes.items()}, "usageMissing": usage["usageMissing"],
-              "cachedMissing": usage["cachedMissing"]}
+              "cachedMissing": usage["cachedMissing"], "usage": {key: usage[key] for key in ("calls", "inputTokens", "outputTokens")}}
     if kind in ("planner", "extractor"):
         # The research protocol hash the run's request bodies were built under (researchProtocolSha256()).
         if not is_digest(summary.get("protocolSha256")):
@@ -1817,9 +1886,10 @@ def fixture_row(args) -> dict:
             refuse(source, "the summary does not record the judge prompt, the reply contract and its activation cell")
         record.update(promptVersion=summary["promptVersion"], promptSha256=summary["promptSha256"], replyContract=contract, activationCondition=activation,
                       scores=judge_scores(summary, conditions, repeats, source))
+        check_judge_scores(record["scores"], calls, kept, source)
     return {**e0_row_base(started, finished, source), "inputSha256": canonical_sha256({condition: requests[condition][digest] for condition in conditions}),
-            "modelCalls": len(calls), "inputTokens": usage["inputTokens"], "outputTokens": usage["outputTokens"],
-            "cachedTokens": usage["cachedTokens"] if usage["cachedMissing"] == 0 else None,
+            "modelCalls": len(calls), "inputTokens": usage["inputTokens"] if usage["usageMissing"] == 0 else None,
+            "outputTokens": usage["outputTokens"] if usage["usageMissing"] == 0 else None, "cachedTokens": usage["cachedTokens"] if usage["cachedMissing"] == 0 else None,
             **local_spend(), "terminalCause": "fixture_unfinished" if interrupted else "fixture_finished", "fixture": record}
 
 
@@ -1829,13 +1899,15 @@ def short_text(value) -> bool:
 
 
 def labelling_call(call, ordinal: int, source: str) -> dict:
-    """One call record under the tool's rules: `usd` is the fee when settled, 0 when rejected or not sent, null otherwise; `countedUsd` is what
-    the cap counts (the fee, 0, the reservation, or at least the reservation outside the projection); tokens are reported only for a reply."""
+    """One call record under the tool's own rules (scripts/judge-labeller.ts, LabellingSummarySchema): call i has kind CALL_KINDS[i];
+    `usd` is a number or null, never a boolean: the fee when settled, at most its projection, 0 when rejected or not sent, null otherwise;
+    `countedUsd` is what the cap counts (the fee, 0, the reservation, or at least the reservation outside the projection); a reply was
+    answered 200; and only a reply has tokens or a reported cache write."""
     if not isinstance(call, dict) or set(call) != LABELLING_CALL_KEYS:
         refuse(source, "a call does not hold exactly the summary's call keys")
-    status, state = call["httpStatus"], call["state"]
-    if type(call["call"]) is not int or call["call"] != ordinal or call["kind"] not in LABELLING_CALL_KINDS or state not in LABELLING_STATES \
-            or (call["failure"] is not None and call["failure"] not in LABELLING_FAILURES) \
+    status, state, kind, failure = call["httpStatus"], call["state"], call["kind"], call["failure"]
+    if type(call["call"]) is not int or call["call"] != ordinal or not isinstance(kind, str) or kind != LABELLING_CALL_KINDS[ordinal - 1] \
+            or not isinstance(state, str) or state not in LABELLING_STATES or not (failure is None or (isinstance(failure, str) and failure in LABELLING_FAILURES)) \
             or not (status is None or (isinstance(status, int) and not isinstance(status, bool) and 100 <= status <= 599)) \
             or not is_digest(call["bodySha256"]) or not isinstance(call["cacheWriteReported"], bool) \
             or not all(bounded_amount(call[key]) for key in ("projectedUsd", "countedUsd")) \
@@ -1843,13 +1915,15 @@ def labelling_call(call, ordinal: int, source: str) -> dict:
             or not all(short_text(call[key]) for key in ("servedModel", "requestId")) \
             or not all(call[key] is None or (isinstance(call[key], str) and PROVIDER_CODE.fullmatch(call[key])) for key in ("errorType", "errorCode")):
         refuse(source, "a call's number, kind, state, codes, body, amounts or counts are not ones the summary admits")
-    fee, counted, reserved = call["usd"], micro(call["countedUsd"]), micro(call["projectedUsd"])
+    fee = call["usd"]
+    counted, reserved = micro(call["countedUsd"]), micro(call["projectedUsd"])
     replied = state in ("settled", "outside_projection")
     # Zero is claimed only for a rejection whose status the provider does not bill, and for a request that never left.
-    rules = {"settled": bounded_amount(fee) and counted == micro(fee), "rejected": fee == 0 and counted == 0 and status in LABELLING_UNBILLED_STATUSES,
-             "not_sent": fee == 0 and counted == 0 and status is None,
-             "unknown": fee is None and counted == reserved, "outside_projection": fee is None and counted >= reserved}
-    if not rules[state] or (not replied and any(call[key] != 0 for key in LABELLING_TOKENS)):
+    rules = {"settled": bounded_amount(fee) and micro(fee) == counted and counted <= reserved and status == 200,
+             "rejected": bounded_amount(fee) and micro(fee) == 0 and counted == 0 and status in LABELLING_UNBILLED_STATUSES,
+             "not_sent": bounded_amount(fee) and micro(fee) == 0 and counted == 0 and status is None,
+             "unknown": fee is None and counted == reserved, "outside_projection": fee is None and counted >= reserved and status == 200}
+    if not rules[state] or (not replied and (any(call[key] != 0 for key in LABELLING_TOKENS) or call["cacheWriteReported"])):
         refuse(source, f"the {state} call's usd, countedUsd, status or tokens break the summary's rules")
     return call
 
@@ -1880,12 +1954,16 @@ def labelling_prices(prices, source: str) -> dict:
 def labelling_row(args) -> dict:
     """Decision (5), in the shape agreed with lane S-e1 (recorded in the Implemented entry): the labelling summary, version 1."""
     source = "--labelling-file"
+    # A labelling run rewrites its summary as interrupted before each request while it holds its lock; a held loop.lock is refused alike.
+    lock = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(args.labelling_file))), LABELLING_LOCK)
+    if os.path.lexists(lock):
+        refuse(source, f"a labelling run holds {LABELLING_LOCK} beside its run directory: row it once that run has ended (a lock a killed run left is removed by hand)")
     raw, summary = read_producer_json(args.labelling_file, source)
     if set(summary) != LABELLING_KEYS:
         refuse(source, "the summary does not hold exactly the labelling summary's keys")
     if type(summary["version"]) is not int or summary["version"] != 1 or summary["kind"] != "e0_judge_labelling" or summary["protocol"] != "e0-judge-labelling-v1":
         refuse(source, "the summary is not a version 1 e0_judge_labelling summary under protocol e0-judge-labelling-v1")
-    if summary["cloudModel"] not in LABELLING_MODELS or summary["cloudApi"] not in CLOUD_APIS:
+    if summary["cloudModel"] not in LABELLING_MODELS or summary["cloudApi"] not in LABELLING_APIS:
         refuse(source, "the summary's cloudModel is not an approved labelling model, or its cloudApi is not a request shape")
     # The labeller's name, the reply's own model name and the run directory's name are checked, never copied; a served-model column
     # waits for its own entry (pull request #86).
@@ -1899,14 +1977,21 @@ def labelling_row(args) -> dict:
             or not all(bounded_count(summary[key]) for key in ("modelCalls", "rejectedDispatches", "unknownDispatches") + LABELLING_TOKENS):
         refuse(source, "the summary's envelope line, instructions digest, amounts or counts are not ones the summary admits")
     claims, prices = labelling_claims(summary["claims"], source), labelling_prices(summary["prices"], source)
-    if summary["outcome"] in ("labelled", "labelled_below_minimum") and None in (claims["claimsSha256"], claims["labelsSha256"], claims["labelCounts"]):
-        refuse(source, "a labelled outcome records the labelled set's hashes and label counts")
+    # The tool's outcome rules: a failed run has a failure and wrote nothing; a labelled one wrote its set, with no class below the minimum and no failure.
+    written = all(claims[key] is not None for key in ("claimsSha256", "labelsSha256", "labelCounts"))
+    if (summary["outcome"] == "failed" and (summary["failure"] is None or written or claims["belowMinimum"] is not None or claims["planted"] != 0)) \
+            or (summary["outcome"] != "failed" and (not written or (summary["outcome"] == "labelled") != (claims["belowMinimum"] is None)
+                                                    or (summary["outcome"] == "labelled" and summary["failure"] is not None))):
+        refuse(source, "the summary's outcome, failure and written files do not agree")
     started = recorded_instant(summary["startedUtc"], source, "startedUtc")
     finished = recorded_instant(summary["finishedUtc"], source, "finishedUtc") if summary["finishedUtc"] is not None else None
+    # An interim summary, rewritten before each request, carries the time of that rewrite, not an end.
+    if summary["failure"] == "labeller_interrupted":
+        finished = None
     if summary["outcome"] == "labelled" and finished is None:
         refuse(source, "a labelled outcome records when the tool finished")
-    if not isinstance(summary["calls"], list):
-        refuse(source, "the summary's calls are not a list")
+    if not isinstance(summary["calls"], list) or len(summary["calls"]) > len(LABELLING_CALL_KINDS):
+        refuse(source, "the summary's calls are not a list of at most two")
     calls = [labelling_call(call, ordinal, source) for ordinal, call in enumerate(summary["calls"], 1)]
     # The summary's totals must be its calls' sums; USD is compared in whole micro-USD.
     states = [call["state"] for call in calls]
@@ -1923,10 +2008,14 @@ def labelling_row(args) -> dict:
             refuse(source, "two calls record one body digest with different sizes")
     return {**e0_row_base(started, finished, source), "inputSha256": claims["inputSha256"], "cloudModel": summary["cloudModel"], "cloudApi": summary["cloudApi"],
             "modelCalls": len(calls), "failedDispatches": totals["rejectedDispatches"], "unknownDispatches": totals["unknownDispatches"],
-            **{key: totals[key] for key in ("inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens")},
+            **{key: totals[key] for key in ("inputTokens", "outputTokens", "cachedTokens")},
+            # 11.4's column holds reported cache writes; a reply that reported none had its writes assumed by the tool's fee, so the total is unknown.
+            "cacheWriteTokens": totals["cacheWriteTokens"] if not any(call["state"] in ("settled", "outside_projection") and not call["cacheWriteReported"] for call in calls) else None,
             "usd": micro(summary["usd"]) / 1_000_000, "reservedUsd": sum(micro(call["projectedUsd"]) for call in calls) / 1_000_000,
             "pinnedUsd": micro(summary["reservedUnknownUsd"]) / 1_000_000,
-            "cloudCalls": [{"purpose": call["kind"], "status": LABELLING_STATES[call["state"]], "feeUsd": call["usd"], "reservedUsd": call["projectedUsd"],
+            # 11.4's feeUsd is the settled fee, and null on a call that did not settle.
+            "cloudCalls": [{"purpose": call["kind"], "status": LABELLING_STATES[call["state"]], "feeUsd": call["usd"] if call["state"] == "settled" else None,
+                            "reservedUsd": call["projectedUsd"],
                             "bodyBytes": call["bodyBytes"]} for call in calls],
             "disclosedBytes": sum(bodies.values()), "terminalCause": summary["failure"] if summary["failure"] is not None else summary["outcome"],
             "labelling": {"version": 1, "sha256": hashlib.sha256(raw).hexdigest(), "outcome": summary["outcome"], "failure": summary["failure"],

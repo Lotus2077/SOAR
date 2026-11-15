@@ -221,7 +221,7 @@ python3 scripts/registry-row.py --labelling-file .soar/experiments/e0-judge/labe
 - Columns this section does not name are absent, which means not recorded.
 - A row copies only:
   - digests, booleans and closed codes;
-  - counts of at most 2^53 - 1, which a JavaScript reader holds exactly;
+  - counts of at most 2^53 - 1, which a JavaScript reader holds exactly, sums included;
   - USD amounts of at most 1,000,000;
   - known exception class names;
   - the approved labelling model's id.
@@ -269,8 +269,8 @@ after `pnpm probe:assess`.
     when both read the same file;
   - `protocolSha256`;
   - `selected`, `run` and `skipped`;
-  - `failed`: each failed probe's exception class when it is a built-in exception or one of
-    the probe's library classes, else `other`;
+  - `failed`: each failed probe's exception class when it is on the writer's fixed list (the
+    built-in exceptions and the probe's library classes), else `other`;
   - `finished`;
   - `assessed`, and `schemasProtocolMatch` from the assessment, both null without P10;
   - `calls` per probe, and `usage`.
@@ -292,16 +292,27 @@ scripts/extractor-fixture.ts, pull request #116).
   - a call count other than the design's;
   - planner counts that disagree with its calls;
   - a judge activation cell outside its conditions;
+  - calls that are not one per condition and ordinal (planner), per condition, repeat and
+    claim (judge), or per condition, repeat and chunk (extractor). The total alone would admit
+    every call moved into one condition;
+  - extractor chunks that are not one named chunk per manifest source;
+  - judge scores that are not the calls' and the manifest's: each repeat must score
+    `claimCount` claims, `judged` must count the calls judged, the agreements must fall within
+    them, and `meetsLevel` is recomputed from the manifest's measure and level;
   - a `--task` or `--exposure` other than the manifest's;
   - an extractor directory without `summary.json`, since the extractor writes it before its
     first request.
 - **Spend:** as for probe rows.
 - **`modelCalls`:** the recorded calls.
-- **Tokens:** the sums of the answered calls' own `usage`.
-  - `fixture.usageMissing` counts answered calls without prompt or completion tokens.
-  - `cachedTokens` is null when any answered call's usage has no cached-token detail. vLLM
-    leaves it out unless started with `--enable-prompt-tokens-details`, and unknown reuse is
-    not zero; `fixture.cachedMissing` counts those calls.
+- **Tokens:** the sums of the answered calls' own `usage`, when every answered call
+  reported it.
+  - `fixture.usageMissing` counts answered calls without prompt or completion tokens. When
+    any exists, `inputTokens` and `outputTokens` are null, since the total is unknown.
+    `fixture.usage` keeps the sums over the calls that did report, and how many they are.
+  - `cachedTokens` is null when any answered call has no cached-token detail, including a call
+    with no usage at all. vLLM leaves the detail out unless started with
+    `--enable-prompt-tokens-details`, and unknown reuse is not zero; `fixture.cachedMissing`
+    counts those calls.
 - **`inputSha256`:** the sha256 of the canonical JSON of the request digests by
   condition: the planner's `requestSha256`, the judge's and the extractor's
   `requestSetSha256`.
@@ -336,7 +347,8 @@ scripts/extractor-fixture.ts, pull request #116).
 - **An interrupted extractor run:** the extractor rewrites `summary.json` after every call, so
   a summary without `finishedUtc` is a run that stopped. Its row holds the calls made so far:
   `terminalCause` `fixture_unfinished`, `fixture.finished` false, `wallSeconds` null, and the
-  outcome `incomplete` or `infra_invalid` only.
+  outcome `incomplete` or `infra_invalid` only. The call in flight when it stopped is not
+  among them.
 
 **`--labelling-file FILE`** reads the summary that the labelling tool (`pnpm label:judge`,
 scripts/judge-labeller.ts) writes for each paid invocation, version 1, as agreed with the
@@ -345,9 +357,12 @@ in a call, under `claims` or under `prices`.
 - **Checked, not copied:**
   - `labeller`, `run` and `servedModel`;
   - each call's `servedModel`, `requestId`, `errorType`, `errorCode` and `failure`.
+- **Refused while running:** a summary whose run directory has `labelling.lock` beside it,
+  since a run holds that lock while it rewrites its summary before each request. A lock that a
+  killed run left is removed by hand.
 - **Required and copied:**
-  - `cloudModel` must be an approved labelling model (`gpt-6-sol`, BL-20261115-1937), and
-    `cloudApi` a request shape;
+  - `cloudModel` must be an approved labelling model (`gpt-6-sol`, BL-20261115-1937), sent
+    through `openai_responses`;
   - `envelopeLine` is `synthetic_data`, PLAN.md §4's line "Synthetic personas, mailboxes
     and documents (no owner seed)".
 - **Call states:**
@@ -355,24 +370,37 @@ in a call, under `claims` or under `prices`.
   - `rejected` (HTTP 400, 401, 403, 404 or 429, the statuses the tool counts as unbilled)
     and `not_sent` (the connection failed before its handshake) are written as `failed`;
   - `unknown` and `outside_projection` are written as `unknown`.
-- **Per-call rules:** `usd` is the fee when settled, 0 when rejected or not sent, and null
-  otherwise. A `rejected` call must carry one of the unbilled statuses, and a `not_sent` call
-  none. `countedUsd`, what the cap counts, is the fee, 0, the reservation, or at
+- **Per-call rules** (the tool's own `LabellingSummarySchema`):
+  - call 1 is `label_and_plant`, call 2 `plant_only`, and there are at most two;
+  - `usd` is a number or null, never a boolean: the fee when settled, at most the call's
+    projection; 0 when rejected or not sent; null otherwise;
+  - a `rejected` call carries one of the unbilled statuses, a `not_sent` call none, and a
+    `settled` or `outside_projection` call HTTP 200;
+  - a call without a reply reports no tokens and no cache write. `countedUsd`, what the cap counts, is the fee, 0, the reservation, or at
   least the reservation outside the projection. Tokens are 0 unless a reply was read.
 - **Totals:** `modelCalls`, `rejectedDispatches`, `unknownDispatches`, the token totals,
   `usd` and `reservedUnknownUsd` must equal the sums over the calls, in micro-USD.
-- **Outcome:** a `labelled` summary must record its finish and the labelled set's hashes
-  and counts.
+- **Outcome rules:**
+  - `failed` has a failure and wrote nothing, with nothing planted and no class below the
+    minimum;
+  - `labelled` and `labelled_below_minimum` wrote the set's hashes and counts;
+  - `labelled` means no class is below the minimum and there is no failure, and it records its
+    finish.
 
 The row:
 - `cloudModel` and `cloudApi`;
-- `modelCalls` (every request sent), `failedDispatches` and `unknownDispatches`;
+- `modelCalls` (every request attempted, a `not_sent` one included), `failedDispatches` and
+  `unknownDispatches`;
 - `usd` (settled fees), `reservedUsd` (every `projectedUsd`), and `pinnedUsd`
   (`reservedUnknownUsd`, what the cap counts for unknown calls);
-- `cloudCalls`, each `{purpose, status, feeUsd, reservedUsd, bodyBytes}`;
+- `cloudCalls`, each `{purpose, status, feeUsd, reservedUsd, bodyBytes}`, with `feeUsd` null
+  on a call that did not settle;
 - `disclosedBytes`: each distinct `bodySha256`'s bytes once, over every call except
   `not_sent` (HARN-27);
-- the token columns;
+- the token columns. `cacheWriteTokens` holds reported cache writes only, so it is null when
+  the tool assumed a reply's writes;
+- `wallSeconds`, null for an interim summary (`labeller_interrupted`), whose `finishedUtc` is
+  the time of that rewrite, not an end;
 - `inputSha256`, the claim set before labelling;
 - `terminalCause`: the failure code, else the outcome;
 - `labelling`:

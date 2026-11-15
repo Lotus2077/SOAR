@@ -219,9 +219,11 @@ describe("E0 registry modes: role-fixture runs", () => {
     await runPlannerFixture({ endpoint: { baseUrl, model: ALIAS }, inputs, out, repeats: 2, conditions: DEFAULT_CONDITIONS });
     const bytes = readFileSync(join(out, "summary.json")), summary = JSON.parse(bytes.toString("utf8"));
     const line = run(["--fixture-dir", out, "--fixture", "planner"], "accepted"), result = JSON.parse(line);
-    expect(result).toMatchObject({ modelCalls: 6, inputTokens: 3 * 1200, outputTokens: 3 * 80, cachedTokens: 3 * 256, usd: 0, reservedUsd: 0, pinnedUsd: 0, unknownDispatches: 0,
+    // The reply without content reported no usage, so the run's tokens and its cache reuse are unknown, not that call's zero.
+    expect(result).toMatchObject({ modelCalls: 6, inputTokens: null, outputTokens: null, cachedTokens: null, usd: 0, reservedUsd: 0, pinnedUsd: 0, unknownDispatches: 0,
       cloudCalls: [], disclosedBytes: 0, terminalCause: "fixture_finished", date: summary.startedUtc.slice(0, 10), outcome: "accepted", cloudModel: null, profile: null });
-    expect(result.fixture).toEqual({ kind: "planner", finished: true, version: 1, sha256: digest(bytes), conditions: [...DEFAULT_CONDITIONS], repeats: 2, usageMissing: 1, cachedMissing: 0,
+    expect(result.fixture).toEqual({ kind: "planner", finished: true, version: 1, sha256: digest(bytes), conditions: [...DEFAULT_CONDITIONS], repeats: 2, usageMissing: 1, cachedMissing: 1,
+      usage: { calls: 3, inputTokens: 3 * 1200, outputTokens: 3 * 80 },
       protocolSha256: researchProtocolSha256(),
       manifest: { indexSha256: inputs.manifest.indexSha256, briefSha256: inputs.manifest.briefSha256, sourceIdsSha256: inputs.manifest.sourceIdsSha256, sourceCount: 2,
         mandatorySourceChunks: inputs.manifest.mandatorySourceChunks, extractionCallBudget: 40 },
@@ -291,6 +293,10 @@ describe("E0 registry modes: role-fixture runs", () => {
       [copy => { copy.replyContract = "flash_next_v1"; copy.activationCondition = "j1-flash"; }, "activation cell"],
       [copy => { copy.calls[0].verdict = "supported"; copy.calls[0].failure = "transport_failed"; }, "verdict and failure"],
       [copy => { copy.calls.pop(); }, "does not record its 8 calls"],
+      [copy => { copy.metrics["j1-legacy"].r1.meetsLevel = true; }, "scores are not its calls' and its manifest's"],
+      [copy => { copy.metrics["j1-legacy"].r1.claims = 7; }, "scores are not its calls' and its manifest's"],
+      [copy => { copy.metrics["j1-legacy"].r1.judged = 8; }, "scores are not its calls' and its manifest's"],
+      [copy => { copy.calls[1].claimId = copy.calls[0].claimId; }, "one per condition, repeat and claim"],
     ];
     for (const [change, message] of cases) {
       const copy = structuredClone(summary); change(copy); write(`${JSON.stringify(copy)}\n`);
@@ -334,23 +340,26 @@ describe("E0 registry modes: role-fixture runs", () => {
 describe("E0 registry modes: the extractor fixture", () => {
   /** A summary in the shape lane S-pipe's extractor fixture (scripts/extractor-fixture.ts, pull request #116 at 18b062e) writes: three
    * chunks per condition and repeat, rewritten after every call, its usage cut to numeric fields (here without the cached-token detail). */
-  const CHUNKS = ["K1", "K2", "K3"].map((chunkId, i) => ({ chunkId, sourceId: `input/corpus/secret-source-${i}.md`, sourceSha256: h(String(i + 1)), bytes: 900, userContentBytes: 1400 }));
+  const CHUNKS = ["S1C1", "S2C1", "S3C1"].map((chunkId, i) => ({ chunkId, sourceId: `input/corpus/secret-source-${i}.md`, sourceSha256: h(String(i + 1)), bytes: 900,
+    userContentBytes: 1400 }));
   const CLASSES: Record<string, string[]> = { "thinking-off": ["complete", "held", "transport_failed"], "thinking-on": ["complete", "needs_followup", "truncated"] };
   function summary(over: Record<string, unknown> = {}): Record<string, any> {
     const conditions = Object.keys(CLASSES);
+    let ordinal = 0;
     const calls = conditions.flatMap(condition => CHUNKS.map((chunk, i) => {
       const classification = CLASSES[condition]![i]!, answered = classification !== "transport_failed";
-      return { condition, repeat: 1, chunkId: chunk.chunkId, status: answered ? 200 : null, elapsedMs: 900, replyFile: answered ? `${condition}-r1-${chunk.chunkId}.json` : null,
-        bodySha256: answered ? h("9") : null, bodyBytes: answered ? 3000 : 0, usage: answered ? { prompt_tokens: 2000, completion_tokens: 300, total_tokens: 2300 } : null,
-        classification, finishReason: answered ? "stop" : null, reasons: [{ code: "quote_not_found", path: "input/corpus/secret-source-0.md" }] };
+      return { ordinal: ++ordinal, repeat: 1, condition, chunkId: chunk.chunkId, requestSha256: h("d"), requestBytes: 1400, status: answered ? 200 : null, elapsedMs: 900,
+        replyFile: answered ? `${condition}-r1-${chunk.chunkId}.json` : null, bodySha256: answered ? h("9") : null, bodyBytes: answered ? 3000 : 0, classification,
+        ...(answered ? { finishReason: "stop", contentBytes: 900, usage: { prompt_tokens: 2000, completion_tokens: 300, total_tokens: 2300 } } : { transportError: "TypeError" }),
+        reasons: [{ code: "quote_not_found", path: "input/corpus/secret-source-0.md" }] };
     }));
     const counts = Object.fromEntries(conditions.map(condition => [condition, CLASSES[condition]!.reduce<Record<string, number>>((n, c) => ({ ...n, [c]: (n[c] ?? 0) + 1 }), {})]));
-    return { version: 1, startedUtc: "2026-11-16T09:00:00.000Z", finishedUtc: "2026-11-16T09:20:00.000Z", protocolSha256: h("7"), model: "Extractor-Served-Alias", dryRun: false,
+    return { version: 1, startedUtc: "2026-11-16T09:00:00.000Z", finishedUtc: "2026-11-16T09:20:00.000Z", model: "Extractor-Served-Alias", dryRun: false, protocolSha256: h("7"),
       requestSettings: { model: "Extractor-Served-Alias", streaming: true, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
       manifest: { sha256: h("a"), name: "e0-extractor-fixture-secret-name", task: "e0-synthetic-extraction", exposure: "fresh", briefSha256: h("b"), planSha256: h("c"), unitCount: 5, sourceCount: 3 },
-      conditions, deployedCondition: "thinking-on", repeats: 1, chunks: CHUNKS, order: "repeat_condition_chunk",
+      chunks: CHUNKS, conditions, deployedCondition: "thinking-off", repeats: 1, order: "repeat_condition_chunk",
       requests: Object.fromEntries(conditions.map((condition, i) => [condition, { requestSetSha256: h(String(i + 4)), requests: 3, requestBytes: 4200, maxTokens: 4096,
-        thinking: condition !== "thinking-off", streamed: true, perChunk: Object.fromEntries(CHUNKS.map(chunk => [chunk.chunkId, { requestSha256: h("d"), requestBytes: 1400 }])) }])),
+        thinking: condition === "thinking-off" ? "disabled" : "model", streamed: true }])),
       calls, counts, cells: {}, ...over };
   }
   function extractorDir(content: Record<string, unknown>) {
@@ -363,14 +372,15 @@ describe("E0 registry modes: the extractor fixture", () => {
   it("rows a finished extractor run: its classes, usage, manifest hashes, protocol and request digests, and no alias, source id or reason", () => {
     const dir = extractorDir(summary());
     const line = run(["--fixture-dir", dir, "--fixture", "extractor"], "accepted", flags), result = JSON.parse(line);
+    // The endpoint here reported no cached-token detail, so the cache reuse is unknown.
     expect(result).toMatchObject({ modelCalls: 6, inputTokens: 5 * 2000, outputTokens: 5 * 300, cachedTokens: null, usd: 0, disclosedBytes: 0, terminalCause: "fixture_finished",
       wallSeconds: 1200, date: "2026-11-16" });
     expect(result.fixture).toEqual({ kind: "extractor", finished: true, version: 1, sha256: digest(readFileSync(join(dir, "summary.json"))), conditions: ["thinking-off", "thinking-on"],
-      repeats: 1, manifest: { sha256: h("a"), briefSha256: h("b"), planSha256: h("c"), unitCount: 5, sourceCount: 3 }, protocolSha256: h("7"), deployedCondition: "thinking-on",
-      usageMissing: 0, cachedMissing: 5,
+      repeats: 1, manifest: { sha256: h("a"), briefSha256: h("b"), planSha256: h("c"), unitCount: 5, sourceCount: 3 }, protocolSha256: h("7"), deployedCondition: "thinking-off",
+      usageMissing: 0, cachedMissing: 5, usage: { calls: 5, inputTokens: 5 * 2000, outputTokens: 5 * 300 },
       classes: { "thinking-off": { complete: 1, held: 1, transport_failed: 1 }, "thinking-on": { complete: 1, needs_followup: 1, truncated: 1 } } });
     expect(result.inputSha256).toBe(digest(canonical({ "thinking-off": h("4"), "thinking-on": h("5") })));
-    expectAbsent(line, "Extractor-Served-Alias", "secret-source", "e0-extractor-fixture-secret-name", "quote_not_found", "repeat_condition_chunk", "e0-extractor-fixture-2026");
+    expectAbsent(line, "Extractor-Served-Alias", "secret-source", "S1C1", "e0-extractor-fixture-secret-name", "quote_not_found", "repeat_condition_chunk", "e0-extractor-fixture-2026");
   }, 60_000);
 
   it("rows an interrupted extractor run from the calls it made, as incomplete or infra_invalid only, and refuses what the extractor never writes", () => {
@@ -390,6 +400,12 @@ describe("E0 registry modes: the extractor fixture", () => {
       [summary({ conditions: ["thinking-off", "thinking-max"] }), "extractor fixture conditions"],
       [summary({ deployedCondition: "thinking-max" }), "deployed condition"],
       [summary({ counts: { "thinking-off": { complete: 3 }, "thinking-on": { complete: 3 } } }), "counts do not match"],
+      // Every call moved into one condition keeps the total but not the cells.
+      [summary({ calls: summary().calls.map((call: Record<string, unknown>) => ({ ...call, condition: "thinking-off" })) }), "one per condition, repeat and chunk"],
+      [summary({ manifest: { ...summary().manifest, sourceCount: 4 } }), "one named chunk per manifest source"],
+      // Each count is in range, but their sum is not.
+      [summary({ calls: summary().calls.map((call: Record<string, any>) => call.usage ? { ...call, usage: { ...call.usage, prompt_tokens: 2 ** 53 - 1 } } : call) }),
+        "leaves the range a row records exactly"],
       [odd, "classification is not one the extractor fixture writes"],
     ];
     for (const [content, message] of cases) expect(refused(["--fixture-dir", extractorDir(content), "--fixture", "extractor"], "rejected", flags)).toContain(message);
@@ -398,13 +414,13 @@ describe("E0 registry modes: the extractor fixture", () => {
 });
 
 describe("E0 registry modes: the labelling call", () => {
-  const noTokens = { inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+  const noTokens = { inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheWriteReported: false };
   const call = (over: Record<string, unknown>) => ({ call: 1, kind: "label_and_plant", httpStatus: 200, state: "settled", failure: null, projectedUsd: 0.62, usd: 0.31, countedUsd: 0.31,
     maxOutputTokens: 32000, bodyBytes: 48210, bodySha256: h("a"), inputTokens: 12000, cachedTokens: 1024, cacheWriteTokens: 0, outputTokens: 9000, reasoningTokens: 4000,
     cacheWriteReported: true, elapsedMs: 95000, servedModel: "gpt-6-sol-2026-10-01", requestId: "req_abc123", errorType: null, errorCode: null, ...over });
   const claims = { harvested: 40, planted: 8, minimumPerClass: 10, labelCounts: { supported: 20, partial: 10, unsupported: 10, contradicted: 8 }, belowMinimum: null,
     plantedRejected: { duplicate: 1 }, notesShortened: 2, inputSha256: h("b"), claimsSha256: h("c"), labelsSha256: h("d") };
-  const unlabelled = { ...claims, labelCounts: null, claimsSha256: null, labelsSha256: null };
+  const unlabelled = { ...claims, planted: 0, labelCounts: null, claimsSha256: null, labelsSha256: null };
   const prices = { input: 1.25, cached: 0.125, write: 1.25, output: 10, longContext: { aboveTokens: 272000, input: 2.5, cached: 0.25, write: 2.5, output: 15 } };
   /** A summary in the exact shape lane S-e1's labelling tool (`pnpm label:judge`) writes; its totals are its calls' sums unless `over` changes them. */
   function summaryFile(calls: Record<string, any>[] = [call({})], over: Record<string, unknown> = {}) {
@@ -438,7 +454,7 @@ describe("E0 registry modes: the labelling call", () => {
     expectAbsent(line, "openai/gpt-6-sol", "gpt-6-sol-2026-09-22", "req_example", TOOL_LABELLED.run);
     const rejectedLine = run(["--labelling-file", toolFile(TOOL_REJECTED)], "infra_invalid");
     expect(JSON.parse(rejectedLine)).toMatchObject({ modelCalls: 1, failedDispatches: 1, usd: 0, pinnedUsd: 0, disclosedBytes: 4771, terminalCause: "labeller_rejected",
-      cloudCalls: [{ status: "failed", feeUsd: 0 }] });
+      cloudCalls: [{ status: "failed", feeUsd: null }] });
     expectAbsent(rejectedLine, "invalid_api_key", "invalid_request_error");
     expect(refused(["--labelling-file", toolFile(TOOL_REJECTED)], "accepted")).toContain("the labelling ended failed, not labelled");
   });
@@ -447,7 +463,7 @@ describe("E0 registry modes: the labelling call", () => {
     const { path, bytes } = summaryFile([call({ cacheWriteReported: false, cacheWriteTokens: 10976 })]);
     const line = run(["--labelling-file", path], "accepted", { "--arm": "cloud-gpt-6-sol" }), result = JSON.parse(line);
     expect(result).toMatchObject({ date: "2026-11-16", wallSeconds: 150, inputSha256: h("b"), cloudModel: "gpt-6-sol", cloudApi: "openai_responses", modelCalls: 1, failedDispatches: 0,
-      unknownDispatches: 0, inputTokens: 12000, outputTokens: 9000, cachedTokens: 1024, cacheWriteTokens: 10976, usd: 0.31, reservedUsd: 0.62, pinnedUsd: 0,
+      unknownDispatches: 0, inputTokens: 12000, outputTokens: 9000, cachedTokens: 1024, cacheWriteTokens: null, usd: 0.31, reservedUsd: 0.62, pinnedUsd: 0,
       cloudCalls: [{ purpose: "label_and_plant", status: "settled", feeUsd: 0.31, reservedUsd: 0.62, bodyBytes: 48210 }], disclosedBytes: 48210, terminalCause: "labelled", profile: null,
       outcome: "accepted", gitSource: "row_written" });
     expect(result.labelling).toEqual({ version: 1, sha256: digest(bytes), outcome: "labelled", failure: null, secondRequest: null, envelopeLine: "synthetic_data", capUsd: 1,
@@ -469,7 +485,7 @@ describe("E0 registry modes: the labelling call", () => {
     const rejected = call({ httpStatus: 400, state: "rejected", failure: "labeller_rejected", usd: 0, countedUsd: 0, ...noTokens, errorType: "invalid_request_error",
       errorCode: "context_length_exceeded" });
     const rejectedLine = run(["--labelling-file", summaryFile([rejected], failed("labeller_rejected")).path], "rejected");
-    expect(JSON.parse(rejectedLine)).toMatchObject({ failedDispatches: 1, usd: 0, pinnedUsd: 0, disclosedBytes: 48210, cloudCalls: [{ status: "failed", feeUsd: 0 }] });
+    expect(JSON.parse(rejectedLine)).toMatchObject({ failedDispatches: 1, usd: 0, pinnedUsd: 0, disclosedBytes: 48210, cloudCalls: [{ status: "failed", feeUsd: null }] });
     expectAbsent(rejectedLine, "invalid_request_error", "context_length_exceeded");
     const unsent = call({ httpStatus: null, state: "not_sent", failure: "labeller_transport_failed", usd: 0, countedUsd: 0, ...noTokens });
     expect(row(["--labelling-file", summaryFile([unsent], failed("labeller_transport_failed")).path], "infra_invalid")).toMatchObject({ failedDispatches: 1, disclosedBytes: 0 });
@@ -478,10 +494,23 @@ describe("E0 registry modes: the labelling call", () => {
     expect(row(["--labelling-file", summaryFile([outside], failed("labeller_usage_outside_projection")).path], "rejected")).toMatchObject({ unknownDispatches: 1, usd: 0, pinnedUsd: 0.8,
       inputTokens: 12000, cloudCalls: [{ status: "unknown", feeUsd: null }] });
     // HARN-27 counts a body once, even if the same body were resent.
-    const resent = summaryFile([rejected, call({ call: 2 })], failed("labeller_rejected", { outcome: "labelled", failure: null, claims }));
+    const resent = summaryFile([rejected, call({ call: 2, kind: "plant_only" })], failed("labeller_rejected", { outcome: "labelled", failure: null, claims }));
     expect(row(["--labelling-file", resent.path], "accepted").disclosedBytes).toBe(48210);
     expect(refused(["--labelling-file", summaryFile(undefined, { outcome: "labelled_below_minimum", claims: { ...claims, belowMinimum: { contradicted: 2 } } }).path], "accepted"))
       .toContain("ended labelled_below_minimum");
+  }, 60_000);
+
+  it("refuses a summary while its labelling run holds the lock, and records no wall time for an interim summary", () => {
+    // The tool's layout: .soar/experiments/e0-judge/labelling-<time>/summary.json, with labelling.lock beside the run directories while a run is alive.
+    const root = scratch(), runDir = join(root, "labelling-2026-11-16T100000000Z"); mkdirSync(runDir);
+    const interim = summaryFile([call({ httpStatus: null, state: "unknown", failure: "labeller_interrupted", usd: null, countedUsd: 0.62, ...noTokens })],
+      failed("labeller_interrupted", { finishedUtc: "2026-11-16T10:00:05.000Z" }));
+    const path = join(runDir, "summary.json"); writeFileSync(path, readFileSync(interim.path));
+    writeFileSync(join(root, "labelling.lock"), "");
+    expect(refused(["--labelling-file", path], "incomplete")).toContain("holds labelling.lock");
+    rmSync(join(root, "labelling.lock"));
+    expect(row(["--labelling-file", path], "incomplete")).toMatchObject({ wallSeconds: null, terminalCause: "labeller_interrupted", unknownDispatches: 1, pinnedUsd: 0.62,
+      cloudCalls: [{ status: "unknown", feeUsd: null }] });
   }, 60_000);
 
   it("refuses any other key, free text where a code or model id belongs, totals that are not its calls' sums, and calls that break the tool's rules", () => {
@@ -520,8 +549,23 @@ describe("E0 registry modes: the labelling call", () => {
       [[call({ usd: 1e308, countedUsd: 1e308 })], {}, "amounts or counts"],
       [[call({ errorCode: "Context Length Exceeded for jane@example.com" })], {}, "a call's number, kind, state, codes"],
       [[call({ failure: "labeller_reply_was: the passage says" })], {}, "a call's number, kind, state, codes"],
-      [[call({}), call({ call: 2, bodyBytes: 7 })], {}, "one body digest with different sizes"],
-      [undefined, { claims: { ...claims, labelsSha256: null } }, "a labelled outcome records"],
+      [[call({}), call({ call: 2, kind: "plant_only", bodyBytes: 7 })], {}, "one body digest with different sizes"],
+      // The tool's own schema rules (LabellingSummarySchema): call order and count, a reply answered 200, a fee within its projection, no boolean for a
+      // number, nothing reported for a call without a reply, and an outcome that agrees with its failure and with what was written.
+      [[call({}), call({ call: 2 })], {}, "a call's number, kind"],
+      [[call({}), call({ call: 2, kind: "plant_only" }), call({ call: 3, kind: "plant_only" })], {}, "at most two"],
+      [[call({ state: ["settled"] })], {}, "a call's number, kind, state"],
+      [[call({ httpStatus: 201 })], {}, "the settled call's usd, countedUsd, status or tokens break"],
+      [[call({ usd: 0.7, countedUsd: 0.7 })], {}, "the settled call's usd, countedUsd, status or tokens break"],
+      [[call({ httpStatus: 400, state: "rejected", usd: false, countedUsd: 0, ...noTokens })], { usd: 0 }, "the rejected call's usd, countedUsd, status or tokens break"],
+      [[call({ httpStatus: 504, state: "outside_projection", usd: null, countedUsd: 0.8 })], {}, "the outside_projection call's usd, countedUsd, status or tokens break"],
+      [[call({ httpStatus: null, state: "unknown", usd: null, countedUsd: 0.62, ...noTokens, cacheWriteReported: true })], {}, "the unknown call's usd, countedUsd, status or tokens break"],
+      [undefined, { claims: { ...claims, labelsSha256: null } }, "outcome, failure and written files do not agree"],
+      [undefined, { claims: { ...claims, belowMinimum: { contradicted: 2 } } }, "outcome, failure and written files do not agree"],
+      [undefined, { failure: "labeller_reply_invalid" }, "outcome, failure and written files do not agree"],
+      [undefined, { outcome: "failed", claims: unlabelled }, "outcome, failure and written files do not agree"],
+      [undefined, { outcome: "failed", failure: "labeller_reply_invalid" }, "outcome, failure and written files do not agree"],
+      [undefined, { cloudApi: "openai" }, "cloudApi is not a request shape"],
       [undefined, { claims: { ...claims, plantedRejected: { made_up_reason: 1 } } }, "claims do not hold exactly"],
       [undefined, { claims: { ...claims, inputSha256: "input/claims.json" } }, "claims do not hold exactly"],
     ];

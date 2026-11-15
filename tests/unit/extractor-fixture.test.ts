@@ -8,22 +8,24 @@ import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, vllmCacheSalt } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
-import { EXTRACT_SYSTEM, OUTPUT_TOKENS, THINKING, assessResearchExtractionReply, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, OUTPUT_TOKENS, THINKING, assessResearchExtractionReply, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import type { RequestSettings } from "../../scripts/export-role-schemas";
-import { CONDITION_CALLS, EXTRACTOR_CONDITIONS, FIXTURE_JOB_ID, buildExtractorRequests, runExtractorFixture, verifyExtractorInputs,
-  type ExtractorFixtureInputs } from "../../scripts/extractor-fixture";
+import { CONDITION_CALLS, DEPLOYED_CONDITION, EXTRACTOR_CLASSES, EXTRACTOR_CONDITIONS, EXTRACTOR_SUMMARY_MANIFEST_FIELDS, buildExtractorRequests, fixtureJobId, numericUsage,
+  parseExtractorArguments, runExtractorFixture, verifyExtractorInputs, type ExtractorFixtureInputs } from "../../scripts/extractor-fixture";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
+import { researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
 const ROOT = resolve(__dirname, "..", "..");
 const EXPERIMENTS = join(ROOT, "docs", "experiments");
+const CORPUS = join(EXPERIMENTS, "e0-extractor-fixture-v1");
 const QUESTIONS = ["Q1", "Q2", "Q3", "Q4", "Q5"];
 const LEGACY: RequestSettings = { vllm: { model: "Synthetic" }, streamingEnabled: false };
 const STREAMED: RequestSettings = { vllm: { model: "Synthetic" }, streamingEnabled: true };
 const FLASH: RequestSettings = { vllm: { model: "Synthetic", localReplyContract: "flash_next_v1", localContextTokens: 262144 }, streamingEnabled: false };
-// Quotes copied from the committed sources, with the lines they sit on.
+// Quotes copied from the committed sources.
 const NOTICE_BUILT = "Between 3 March and 29 August 2033 the contractor built 140 metres of stepped concrete seawall with a recurved crest.";
 const NOTICE_COST = "The trial cost 2.6 million crowns.";
 const LOG_CALIBRATION = "G3 readings before that date may read about 15 per cent high.";
@@ -31,20 +33,20 @@ const REPORT_COST = "The Board's final account for the trial was 2.9 million cro
 
 /** The committed manifest and corpus, read as the command line reads them. */
 function committed(): ExtractorFixtureInputs {
-  const bytes = readFileSync(join(EXPERIMENTS, "e0-extractor-fixture-v1.json"));
-  return { manifest: JSON.parse(bytes.toString("utf8")), manifestSha256: digest(bytes), read: path => readFileSync(join(EXPERIMENTS, path)) };
+  return { manifest: JSON.parse(readFileSync(join(EXPERIMENTS, "e0-extractor-fixture-v1.json"), "utf8")), read: path => readFileSync(join(EXPERIMENTS, path)) };
 }
-/** The committed inputs with the manifest changed and some files replaced; the recorded digest follows the manifest. */
+/** The committed inputs with the manifest changed and some files replaced. */
 function inputsWith(mutate: (manifest: Record<string, any>) => void, files: Record<string, Buffer> = {}): ExtractorFixtureInputs {
   const base = committed(), manifest = structuredClone(base.manifest) as Record<string, any>;
   mutate(manifest);
-  return { manifest, manifestSha256: digest(canonical(manifest)), read: path => files[path] ?? base.read(path) };
+  return { manifest, read: path => files[path] ?? base.read(path) };
 }
 const extraction = (statuses: Record<string, string>, quotes: { quote: string; questionIds: string[]; note?: string }[] = [], ids = QUESTIONS) =>
   JSON.stringify({ questions: ids.map(id => ({ questionId: id, status: statuses[id] ?? "no_verified_evidence" })), quotes, conflicts: [] });
-const completion = (content: string, finish = "stop", message: Record<string, unknown> = {}) => ({ id: "x", object: "chat.completion", model: "Synthetic",
-  choices: [{ index: 0, message: { role: "assistant", content, ...message }, finish_reason: finish }],
-  usage: { prompt_tokens: 1500, completion_tokens: 90, prompt_tokens_details: { cached_tokens: 1024 }, completion_tokens_details: { reasoning_tokens: 0 } } });
+/** A plain reply; its usage carries a text field the summary must drop. */
+const completion = (content: string | undefined, finish = "stop", message: Record<string, unknown> = {}) => ({ id: "x", object: "chat.completion", model: "Synthetic",
+  choices: [{ index: 0, message: { role: "assistant", ...(content === undefined ? {} : { content }), ...message }, finish_reason: finish }],
+  usage: { prompt_tokens: 1500, completion_tokens: 90, prompt_tokens_details: { cached_tokens: 1024 }, completion_tokens_details: { reasoning_tokens: 0 }, server_note: "hidden usage text" } });
 /** A streamed reply as vLLM sends it: content deltas, the finish reason, the usage chunk, then [DONE] unless `cut`. */
 const sse = (content: string, finish = "stop", cut = false) => {
   const half = Math.floor(content.length / 2), chunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
@@ -53,7 +55,7 @@ const sse = (content: string, finish = "stop", cut = false) => {
     ...(cut ? [] : [chunk({ id: "x", model: "Synthetic", choices: [], usage: { prompt_tokens: 1500, completion_tokens: 90 } }), "data: [DONE]\n\n"])];
 };
 
-type Reply = { status?: number; raw?: string; json?: unknown; sse?: string[] };
+type Reply = { status?: number; raw?: string; json?: unknown; sse?: string[]; destroy?: boolean };
 /** A loopback fake of the chat-completions route: it answers a scripted reply per call and records every request. */
 async function fakeServer(script: (ordinal: number, body: Record<string, unknown>) => Reply) {
   const requests: { url: string; headers: IncomingHttpHeaders; raw: string; body: Record<string, unknown> }[] = [];
@@ -62,6 +64,7 @@ async function fakeServer(script: (ordinal: number, body: Record<string, unknown
     request.on("end", () => {
       const body = JSON.parse(data) as Record<string, unknown>; requests.push({ url: request.url ?? "", headers: request.headers, raw: data, body });
       const reply = script(requests.length, body);
+      if (reply.destroy) { request.socket.destroy(); return; }
       if (reply.sse) { response.writeHead(200, { "content-type": "text/event-stream" }); response.end(reply.sse.join("")); return; }
       response.writeHead(reply.status ?? 200, { "content-type": "application/json" }); response.end(reply.raw ?? JSON.stringify(reply.json));
     });
@@ -74,9 +77,11 @@ async function fakeServer(script: (ordinal: number, body: Record<string, unknown
 function tempDir() { const root = mkdtempSync(join(tmpdir(), "soar-extractor-fixture-")); cleanups.push(() => rmSync(root, { recursive: true, force: true })); return root; }
 
 describe("E0 extractor fixture: inputs and requests", () => {
-  it("verifies the committed corpus against its pinned manifest: five units, an accepted plan, and three single-chunk sources", () => {
-    const fixture = verifyExtractorInputs(committed());
-    expect(fixture.manifest).toMatchObject({ schemaVersion: 1, name: "e0-extractor-fixture-v1", status: "pinned", conditions: [...EXTRACTOR_CONDITIONS], repeats: 10 });
+  it("verifies the committed corpus against its pinned manifest: five units, an accepted plan, three single-chunk sources and four conditions", () => {
+    const inputs = committed(), fixture = verifyExtractorInputs(inputs);
+    expect(fixture.manifest).toMatchObject({ schemaVersion: 1, name: "e0-extractor-fixture-v1", status: "pinned", task: "e0-extractor-synthetic-v1", exposure: "fresh",
+      conditions: [...EXTRACTOR_CONDITIONS], repeats: 10 });
+    expect(fixture.manifestSha256).toBe(digest(canonical(inputs.manifest)));
     expect(fixture.units.map(unit => unit.id)).toEqual(["U1", "U2", "U3", "U4", "U5"]);
     expect(fixture.plan.questions.map(question => question.id)).toEqual(QUESTIONS); expect([...fixture.questions]).toEqual(QUESTIONS);
     expect(fixture.chunks.map(chunk => [chunk.chunkId, chunk.sourceId, chunk.bytes, chunk.startLine])).toEqual([
@@ -88,18 +93,20 @@ describe("E0 extractor fixture: inputs and requests", () => {
       expect(perChunk).toEqual({ chunk: { endByte: chunk.bytes, id: chunk.chunkId, startByte: 0, text: chunk.text }, repairReason: null, source: { id: chunk.sourceId, sha256: chunk.sourceSha256 } });
     }
     expect(fixture.chunks.map(chunk => Buffer.byteLength(chunk.userContent))).toEqual([5109, 66709, 10116]);
+    // The registry's copies are pinned to these runtime arrays.
+    expect(EXTRACTOR_CONDITIONS).toEqual(["thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384"]);
+    expect(EXTRACTOR_CLASSES).toEqual(["complete", "held", "needs_followup", "invalid", "truncated", "request_rejected", "malformed_reply", "transport_failed"]);
+    expect(EXTRACTOR_SUMMARY_MANIFEST_FIELDS).toEqual(["sha256", "name", "task", "exposure", "briefSha256", "planSha256", "unitCount", "sourceCount"]);
   });
 
   it("refuses every input that differs from the pin before any request is sent or any file is written", async () => {
     const server = await fakeServer(() => ({ json: completion(extraction({})) })), out = join(tempDir(), "run");
     const attempt = (inputs: ExtractorFixtureInputs, target = out) => runExtractorFixture({ endpoint: { baseUrl: server.baseUrl }, settings: LEGACY, inputs, out: target });
-    const notice = readFileSync(join(EXPERIMENTS, "e0-extractor-fixture-v1", "sources", "board-notice.md"));
-    await expect(attempt(inputsWith(m => { m.status = "template"; }))).rejects.toThrow("extractor_fixture_manifest_invalid");
-    await expect(attempt(inputsWith(m => { m.extra = true; }))).rejects.toThrow("extractor_fixture_manifest_invalid");
-    await expect(attempt(inputsWith(m => { m.conditions = ["thinking-off", "thinking-off"]; }))).rejects.toThrow("extractor_fixture_manifest_invalid");
-    await expect(attempt(inputsWith(m => { m.conditions = ["thinking-medium"]; }))).rejects.toThrow("extractor_fixture_manifest_invalid");
-    await expect(attempt(inputsWith(m => { m.corpus = "../e0-extractor-fixture-v1"; }))).rejects.toThrow("extractor_fixture_manifest_invalid");
-    await expect(attempt(inputsWith(m => { m.sources[0].file = "/etc/hosts"; }))).rejects.toThrow("extractor_fixture_manifest_invalid");
+    const invalid = [(m: Record<string, any>) => { m.status = "template"; }, (m: Record<string, any>) => { m.extra = true; },
+      (m: Record<string, any>) => { m.conditions = ["thinking-off", "thinking-off"]; }, (m: Record<string, any>) => { m.conditions = ["thinking-medium"]; },
+      (m: Record<string, any>) => { m.corpus = "../e0-extractor-fixture-v1"; }, (m: Record<string, any>) => { m.sources[0].file = "/etc/hosts"; },
+      (m: Record<string, any>) => { m.exposure = "synthetic"; }, (m: Record<string, any>) => { m.task = "E0 Extractor"; }, (m: Record<string, any>) => { delete m.task; }];
+    for (const mutate of invalid) await expect(attempt(inputsWith(mutate))).rejects.toThrow("extractor_fixture_manifest_invalid");
     await expect(attempt(inputsWith(m => { m.brief.sha256 = "0".repeat(64); }))).rejects.toThrow("extractor_fixture_brief_mismatch");
     await expect(attempt(inputsWith(m => { m.plan.bytes += 1; }))).rejects.toThrow("extractor_fixture_plan_mismatch");
     await expect(attempt(inputsWith(m => { m.sources[2].sha256 = "0".repeat(64); }))).rejects.toThrow("extractor_fixture_source_mismatch");
@@ -107,13 +114,13 @@ describe("E0 extractor fixture: inputs and requests", () => {
     await expect(attempt(inputsWith(m => { m.units = ["U1", "U2", "U3", "U4"]; }))).rejects.toThrow("extractor_fixture_units_mismatch");
     await expect(attempt(inputsWith(m => { m.sources[0].chunkId = "S2C1"; }))).rejects.toThrow("extractor_fixture_chunk_mismatch");
     // A plan the pipeline's plan assessor rejects (an unknown source id), pinned by its own hash.
-    const plan = JSON.parse(readFileSync(join(EXPERIMENTS, "e0-extractor-fixture-v1", "plan.json"), "utf8"));
+    const plan = JSON.parse(readFileSync(join(CORPUS, "plan.json"), "utf8"));
     plan.questions[0].sourceIds = ["input/corpus/unlisted.md"];
     const badPlan = Buffer.from(JSON.stringify(plan));
     await expect(attempt(inputsWith(m => { m.plan = { file: "plan-bad.json", sha256: digest(badPlan), bytes: badPlan.length }; },
       { "e0-extractor-fixture-v1/plan-bad.json": badPlan }))).rejects.toThrow("extractor_fixture_plan_rejected");
     // A source longer than one chunk (65,536 bytes), pinned by its own hash, is not one chunk.
-    const long = Buffer.concat([notice, Buffer.from(`${"Synthetic filler line for the chunk test.\n".repeat(1700)}`)]);
+    const long = Buffer.concat([readFileSync(join(CORPUS, "sources", "board-notice.md")), Buffer.from("Synthetic filler line for the chunk test.\n".repeat(1700))]);
     expect(long.length).toBeGreaterThan(65536);
     await expect(attempt(inputsWith(m => { m.sources[0] = { ...m.sources[0], file: "sources/long.md", sha256: digest(long), bytes: long.length }; },
       { "e0-extractor-fixture-v1/sources/long.md": long }))).rejects.toThrow("extractor_fixture_chunk_mismatch");
@@ -123,109 +130,148 @@ describe("E0 extractor fixture: inputs and requests", () => {
     expect(server.requests).toHaveLength(0); expect(existsSync(out)).toBe(false);
   });
 
-  it("sends the stage's own extraction request: thinking-off is byte for byte what the model layer sends for the stage's call", async () => {
-    // thinking-off is the stage's call because the stage's extraction thinking is disabled at OUTPUT_TOKENS.extract.
-    expect(THINKING.extract).toBe("disabled");
-    expect(CONDITION_CALLS).toEqual({ "thinking-off": { thinking: "disabled", maxOutputTokens: OUTPUT_TOKENS.extract }, "thinking-on": { maxOutputTokens: 2048 }, "thinking-on-8192": { maxOutputTokens: 8192 } });
-    const fixture = verifyExtractorInputs(committed());
-    for (const settings of [LEGACY, STREAMED, FLASH]) {
-      const requests = buildExtractorRequests(fixture, settings);
-      expect(requests.map(r => `${r.chunkId}/${r.condition}`)).toEqual(fixture.chunks.flatMap(c => EXTRACTOR_CONDITIONS.map(condition => `${c.chunkId}/${condition}`)));
-      for (const chunk of fixture.chunks) {
-        // The body the pipeline's call() makes for an extraction (its thinking override and cap), captured from PrivateAgentModel with a fake broker.
-        let captured = "";
-        const broker = { request: async (request: { body: string }, settle: (bytes: Buffer) => number) => { captured = request.body;
-          const bytes = Buffer.from(JSON.stringify(completion("{}"))); return { bytes, receipt: { feeMicrousd: settle(bytes) } }; } };
-        const config = buildLocalScreenModelConfig({ vllm: settings.vllm as never, streamingEnabled: settings.streamingEnabled }, COORDINATOR_PROFILES.heavy, true);
-        await new PrivateAgentModel(broker as unknown as PrivateAgentBroker, config, FIXTURE_JOB_ID, "reader").complete([{ role: "system", content: EXTRACT_SYSTEM },
-          { role: "user", content: chunk.userContent }], [], new AbortController().signal, { thinking: "disabled", maxOutputTokens: OUTPUT_TOKENS.extract, purpose: "research evidence extraction" });
-        const off = requests.find(r => r.chunkId === chunk.chunkId && r.condition === "thinking-off")!;
-        expect(off.body).toBe(captured); expect(off.bodySha256).toBe(digest(captured)); expect(off.streamed).toBe(settings.streamingEnabled);
-      }
+  it("names the deployed cell and builds every call's body through P10's builder, salted per (repeat, condition)", () => {
+    // thinking-off is the stage's call as deployed: its extraction thinking is disabled at OUTPUT_TOKENS.extract; 16,384 is the Heavy ceiling.
+    expect(THINKING.extract).toBe("disabled"); expect(DEPLOYED_CONDITION).toBe("thinking-off");
+    expect(CONDITION_CALLS).toEqual({ "thinking-off": { thinking: "disabled", maxOutputTokens: OUTPUT_TOKENS.extract }, "thinking-on": { maxOutputTokens: 2048 },
+      "thinking-on-8192": { maxOutputTokens: 8192 }, "thinking-on-16384": { maxOutputTokens: COORDINATOR_PROFILES.heavy.maxOutputTokens } });
+    const fixture = verifyExtractorInputs(committed()), requests = buildExtractorRequests(fixture, LEGACY);
+    expect(requests).toHaveLength(120);
+    expect(requests.slice(0, 7).map(r => `${r.repeat}/${r.condition}/${r.chunkId}`)).toEqual(["1/thinking-off/S1C1", "1/thinking-off/S2C1", "1/thinking-off/S3C1",
+      "1/thinking-on/S1C1", "1/thinking-on/S2C1", "1/thinking-on/S3C1", "1/thinking-on-8192/S1C1"]);
+    for (const request of requests) {
+      const body = JSON.parse(request.body);
+      expect(digest(request.body)).toBe(request.requestSha256); expect(body.cache_salt).toBe(vllmCacheSalt(fixtureJobId(request.repeat, request.condition)));
+      expect(body.max_tokens).toBe(CONDITION_CALLS[request.condition].maxOutputTokens);
     }
-    const legacy = Object.fromEntries(buildExtractorRequests(fixture, LEGACY).filter(r => r.chunkId === "S2C1").map(r => [r.condition, JSON.parse(r.body)]));
-    const salt = vllmCacheSalt(FIXTURE_JOB_ID);
-    expect(legacy["thinking-off"]).toMatchObject({ model: "Synthetic", stream: false, max_tokens: 2048, chat_template_kwargs: { enable_thinking: false }, cache_salt: salt });
-    expect(legacy["thinking-off"]).not.toHaveProperty("reasoning_effort");
-    expect(legacy["thinking-on"]).toMatchObject({ stream: false, max_tokens: 2048, reasoning_effort: "medium", temperature: 1, top_p: 0.95, top_k: 20, cache_salt: salt });
-    expect(legacy["thinking-on"]).not.toHaveProperty("chat_template_kwargs");
-    expect(legacy["thinking-on-8192"]).toMatchObject({ max_tokens: 8192, reasoning_effort: "medium", cache_salt: salt });
-    expect(legacy["thinking-off"].messages).toEqual([{ role: "system", content: EXTRACT_SYSTEM }, { role: "user", content: fixture.chunks[1]!.userContent }]);
-    const flash = buildExtractorRequests(fixture, FLASH).find(r => r.chunkId === "S1C1" && r.condition === "thinking-on")!;
+    const body = (repeat: number, condition: string, chunkId: string) => JSON.parse(requests.find(r => r.repeat === repeat && r.condition === condition && r.chunkId === chunkId)!.body);
+    const unsalted = ({ cache_salt: _salt, ...rest }: Record<string, unknown>) => rest;
+    // Repeats differ only in their salt; a (repeat, condition)'s chunks share it, as one job's calls do.
+    expect(unsalted(body(1, "thinking-off", "S2C1"))).toEqual(unsalted(body(10, "thinking-off", "S2C1")));
+    expect(body(1, "thinking-off", "S1C1").cache_salt).toBe(body(1, "thinking-off", "S3C1").cache_salt);
+    expect(body(1, "thinking-off", "S1C1").cache_salt).not.toBe(body(1, "thinking-on", "S1C1").cache_salt);
+    expect(body(1, "thinking-off", "S2C1")).toMatchObject({ model: "Synthetic", stream: false, max_tokens: 2048, chat_template_kwargs: { enable_thinking: false } });
+    expect(body(1, "thinking-off", "S2C1")).not.toHaveProperty("reasoning_effort");
+    expect(body(1, "thinking-on", "S2C1")).toMatchObject({ max_tokens: 2048, reasoning_effort: "medium", temperature: 1, top_p: 0.95, top_k: 20 });
+    expect(body(1, "thinking-on", "S2C1")).not.toHaveProperty("chat_template_kwargs");
+    expect(body(1, "thinking-on-16384", "S2C1")).toMatchObject({ max_tokens: 16384, reasoning_effort: "medium" });
+    expect(body(1, "thinking-off", "S2C1").messages).toEqual([{ role: "system", content: EXTRACT_SYSTEM }, { role: "user", content: fixture.chunks[1]!.userContent }]);
+    const flash = buildExtractorRequests(fixture, FLASH).find(r => r.condition === "thinking-on")!;
     expect(JSON.parse(flash.body)).toMatchObject({ chat_template_kwargs: { enable_thinking: true, preserve_thinking: false }, reasoning_effort: "medium" });
+  });
+
+  it("sends, as thinking-off, the bodies the extraction stage itself sends on the committed corpus, byte for byte", async () => {
+    const fixture = verifyExtractorInputs(committed()), plan = readFileSync(join(CORPUS, "plan.json"), "utf8");
+    const sources = fixture.chunks.map(chunk => ({ id: chunk.sourceId, path: chunk.sourceId, bytes: Buffer.from(chunk.text) }));
+    for (const settings of [LEGACY, STREAMED, FLASH]) {
+      const sent: string[] = [];
+      // The real pipeline on the committed brief and sources: a planner that returns plan.json, and the driver's model configuration
+      // under the fixture's first job, so its extraction calls carry the same salt as repeat 1's thinking-off bodies.
+      const request = async (input: { body: string }, settle: (bytes: Buffer) => number) => {
+        const body = JSON.parse(input.body), system = body.messages[0].content as string; sent.push(input.body);
+        const content = system.startsWith("You plan") ? plan : researchV4Reply(system, body.messages[1].content as string);
+        const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+        return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+      };
+      const config = buildLocalScreenModelConfig({ vllm: settings.vllm as never, streamingEnabled: settings.streamingEnabled }, COORDINATOR_PROFILES.heavy, true);
+      const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, fixtureJobId(1, "thinking-off"), "reader");
+      await runResearchPipeline({ brief: fixture.brief, sources, models: { reader: make(), planner: make(), synthesiser: make() }, signal: new AbortController().signal, record: () => {} });
+      const extractions = sent.filter(body => JSON.parse(body).messages[0].content === EXTRACT_SYSTEM).slice(0, 3);
+      expect(extractions).toHaveLength(3);
+      expect(extractions).toEqual(buildExtractorRequests(fixture, settings).filter(r => r.repeat === 1 && r.condition === "thinking-off").map(r => r.body));
+    }
   });
 });
 
 describe("E0 extractor fixture: a run against a loopback endpoint", () => {
-  it("runs repeat by repeat, judges each reply with the stage's own checks, retains raw replies 0600 and keeps codes and hashes only", async () => {
+  it("runs repeat, condition, chunk; judges each reply with the stage's own checks; retains raw replies 0600; and keeps codes, hashes and counts only", async () => {
     let out = "";
     const seen: number[] = [];
-    // Ordinals 1 to 9 are the first repeat: S1C1, S2C1 and S3C1, each under thinking-off, thinking-on and thinking-on-8192.
+    // Order: repeat, then condition (off, on, 8192), then chunk (S1C1, S2C1, S3C1); ordinals 10 to 18 are the second repeat.
     const script = (ordinal: number): Reply => {
       seen.push((JSON.parse(readFileSync(join(out, "summary.json"), "utf8")) as { calls: unknown[] }).calls.length);
       switch (ordinal) {
         case 1: return { json: completion(extraction({ Q1: "evidence_found", Q4: "evidence_found" }, [{ quote: NOTICE_BUILT, questionIds: ["Q1"] }, { quote: NOTICE_COST, questionIds: ["Q4"] }])) };
-        case 2: return { json: completion(extraction({ Q1: "evidence_found" }, [{ quote: NOTICE_BUILT, questionIds: ["Q1"] }, { quote: "The trial cost 3 million crowns.", questionIds: ["Q4"] }]),
+        case 2: return { json: completion(extraction({ Q5: "needs_followup" })) };
+        case 3: return { json: completion(extraction({}).slice(0, 40), "length") };
+        case 4: return { json: completion(extraction({ Q1: "evidence_found" }, [{ quote: NOTICE_BUILT, questionIds: ["Q1"] }, { quote: "The trial cost 3 million crowns.", questionIds: ["Q4"] }]),
           "stop", { reasoning_content: "hidden thoughts" }) };
-        case 3: return { json: completion(extraction({ Q4: "evidence_found" }, [{ quote: "The trial cost 3 million crowns.", questionIds: ["Q4"] }])) };
-        case 4: return { json: completion(extraction({ Q5: "needs_followup" })) };
         case 5: return { json: completion(extraction({}, [], ["Q1", "Q2", "Q3", "Q4"])) };
-        case 6: return { json: completion(extraction({ Q5: "evidence_found" }, [{ quote: LOG_CALIBRATION, questionIds: ["Q5"], note: "n".repeat(201) }])) };
-        case 7: return { json: completion(extraction({}).slice(0, 40), "length") };
-        case 8: return { status: 400, raw: "{\"error\":\"bad request\"}" };
+        case 6: return { status: 400, raw: "{\"error\":\"bad request\"}" };
+        case 7: return { json: completion(extraction({ Q4: "evidence_found" }, [{ quote: "The trial cost 3 million crowns.", questionIds: ["Q4"] }])) };
+        case 8: return { json: completion(extraction({ Q5: "evidence_found" }, [{ quote: LOG_CALIBRATION, questionIds: ["Q5"], note: "n".repeat(201) }])) };
         case 9: return { raw: "not json" };
-        default: return { json: completion(extraction(ordinal % 3 === 0 ? { Q4: "evidence_found" } : {}, ordinal % 3 === 0 && ordinal >= 16 ? [{ quote: REPORT_COST, questionIds: ["Q4"] }] : [])) };
+        case 10: return { destroy: true };
+        case 11: return { json: completion(undefined) };
+        case 12: return { json: completion(extraction({}), "Stopped by user!") };
+        case 18: return { json: completion(extraction({ Q4: "evidence_found" }, [{ quote: REPORT_COST, questionIds: ["Q4"] }])) };
+        default: return { json: completion(extraction({})) };
       }
     };
     const server = await fakeServer(script);
     out = join(tempDir(), "e0-extractor-fixture-test");
-    const inputs = inputsWith(m => { m.repeats = 2; });
+    const inputs = inputsWith(m => { m.conditions = ["thinking-off", "thinking-on", "thinking-on-8192"]; m.repeats = 2; });
     const summary = await runExtractorFixture({ endpoint: { baseUrl: server.baseUrl, apiKey: "test-key" }, settings: LEGACY, inputs, out });
-    const fixture = verifyExtractorInputs(inputs);
+    const fixture = verifyExtractorInputs(inputs), conditions = ["thinking-off", "thinking-on", "thinking-on-8192"] as const;
     expect(server.requests).toHaveLength(18); expect(seen).toEqual(Array.from({ length: 18 }, (_, i) => i));
     expect(server.requests.every(r => r.url === "/v1/chat/completions" && r.headers.authorization === "Bearer test-key")).toBe(true);
-    // Repeat-major order, each request's bytes exactly the built body.
-    const order = [1, 2].flatMap(repeat => fixture.chunks.flatMap(c => EXTRACTOR_CONDITIONS.map(condition => ({ repeat, chunkId: c.chunkId, condition }))));
-    expect(summary.calls.map(c => ({ repeat: c.repeat, chunkId: c.chunkId, condition: c.condition }))).toEqual(order);
-    server.requests.forEach((request, i) => expect(digest(request.raw)).toBe(summary.requests[order[i]!.chunkId]![order[i]!.condition]!.bodySha256));
+    // Run order, each request's bytes exactly the call's request, each salted for its (repeat, condition).
+    const order = [1, 2].flatMap(repeat => conditions.flatMap(condition => fixture.chunks.map(c => ({ repeat, condition, chunkId: c.chunkId }))));
+    expect(summary.calls.map(c => ({ repeat: c.repeat, condition: c.condition, chunkId: c.chunkId }))).toEqual(order);
+    server.requests.forEach((request, i) => {
+      expect(digest(request.raw)).toBe(summary.calls[i]!.requestSha256); expect(Buffer.byteLength(request.raw)).toBe(summary.calls[i]!.requestBytes);
+      expect(request.body.cache_salt).toBe(vllmCacheSalt(fixtureJobId(order[i]!.repeat, order[i]!.condition)));
+    });
     // Exporting the stage's checks moved no prompt, schema, budget or policy: the default protocol hash is the shared pin.
     expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
-    expect(summary).toMatchObject({ version: 1, dryRun: false, protocolSha256: RESEARCH_PROTOCOL_SHA256, conditions: [...EXTRACTOR_CONDITIONS], repeats: 2, order: "repeat_chunk_condition",
-      requestSettings: { model: "Synthetic", streaming: false, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
-      manifest: { name: "e0-extractor-fixture-v1", sha256: inputs.manifestSha256, corpus: "e0-extractor-fixture-v1", units: ["U1", "U2", "U3", "U4", "U5"] } });
-    const [kept, drops, held, followup, mismatch, tooBig, truncated, rejected, malformed] = summary.calls;
-    expect(kept).toMatchObject({ classification: "complete", keptWithDrops: false, reasons: [], quotes: { given: 2, kept: 2, dropped: 0 }, finishReason: "stop", status: 200,
-      usage: { promptTokens: 1500, completionTokens: 90, cachedTokens: 1024, reasoningTokens: 0 }, reasoningField: "none", reasoningBytes: 0, replyFile: "S1C1-thinking-off-01.json",
+    expect(summary).toMatchObject({ version: 1, model: "Synthetic", dryRun: false, protocolSha256: RESEARCH_PROTOCOL_SHA256, conditions: [...conditions], deployedCondition: "thinking-off",
+      repeats: 2, order: "repeat_condition_chunk", requestSettings: { model: "Synthetic", streaming: false, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
+      manifest: { sha256: digest(canonical(inputs.manifest)), name: "e0-extractor-fixture-v1", task: "e0-extractor-synthetic-v1", exposure: "fresh", unitCount: 5, sourceCount: 3 } });
+    expect(Object.keys(summary.manifest)).toEqual([...EXTRACTOR_SUMMARY_MANIFEST_FIELDS]);
+    for (const condition of conditions) {
+      const own = summary.calls.filter(call => call.condition === condition);
+      expect(summary.requests[condition]).toEqual({ requestSetSha256: digest(canonical(own.map(call => call.requestSha256))), requests: 6, requestBytes: own.reduce((n, call) => n + call.requestBytes, 0),
+        maxTokens: CONDITION_CALLS[condition].maxOutputTokens, thinking: condition === "thinking-off" ? "disabled" : "model", streamed: false });
+    }
+    const call = (ordinal: number) => summary.calls[ordinal - 1]!;
+    expect(call(1)).toMatchObject({ classification: "complete", keptWithDrops: false, reasons: [], quotes: { given: 2, located: 2, dropped: 0 }, finishReason: "stop", status: 200,
+      contentBytes: Buffer.byteLength(extraction({ Q1: "evidence_found", Q4: "evidence_found" }, [{ quote: NOTICE_BUILT, questionIds: ["Q1"] }, { quote: NOTICE_COST, questionIds: ["Q4"] }])),
+      usage: { prompt_tokens: 1500, completion_tokens: 90, prompt_tokens_details: { cached_tokens: 1024 }, completion_tokens_details: { reasoning_tokens: 0 } },
+      reasoningField: "none", reasoningBytes: 0, replyFile: "r01-thinking-off-S1C1.json",
       outcomes: { Q1: "evidence_retained", Q2: "no_verified_evidence", Q3: "no_verified_evidence", Q4: "evidence_retained", Q5: "no_verified_evidence" } });
-    expect(drops).toMatchObject({ classification: "complete", keptWithDrops: true, reasons: [{ code: "quote_not_located", path: ["quotes", 1, "quote"] }], quotes: { given: 2, kept: 1, dropped: 1 },
+    expect(call(1).usage).not.toHaveProperty("server_note");
+    expect(call(2)).toMatchObject({ classification: "needs_followup", reasons: [{ code: "needs_followup", path: ["questions", 4] }], outcomes: { Q5: "needs_followup" } });
+    expect(call(3)).toMatchObject({ classification: "truncated", finishReason: "length", reasons: [{ code: "truncated", path: [] }], contentBytes: 40 });
+    expect(call(4)).toMatchObject({ classification: "complete", keptWithDrops: true, reasons: [{ code: "quote_not_located", path: ["quotes", 1, "quote"] }], quotes: { given: 2, located: 1, dropped: 1 },
       reasoningField: "reasoning_content", reasoningBytes: Buffer.byteLength("hidden thoughts") });
-    expect(held).toMatchObject({ classification: "held", keptWithDrops: false, questionsDowngraded: 1, outcomes: { Q4: "no_verified_evidence" },
+    expect(call(5)).toMatchObject({ classification: "invalid", reasons: [{ code: "question_set_mismatch", path: ["questions"] }] });
+    expect(call(6)).toMatchObject({ classification: "request_rejected", status: 400, replyFile: "r01-thinking-on-S3C1.json" }); expect(call(6)).not.toHaveProperty("reasons");
+    expect(call(7)).toMatchObject({ classification: "held", keptWithDrops: false, questionsDowngraded: 1, outcomes: { Q4: "no_verified_evidence" },
       reasons: [{ code: "quote_not_located", path: ["quotes", 0, "quote"] }, { code: "evidence_found_without_quote", path: ["questions", 3] }] });
-    expect(followup).toMatchObject({ classification: "needs_followup", reasons: [{ code: "needs_followup", path: ["questions", 4] }], outcomes: { Q5: "needs_followup" } });
-    expect(mismatch).toMatchObject({ classification: "invalid", reasons: [{ code: "question_set_mismatch", path: ["questions"] }] });
-    expect(tooBig).toMatchObject({ classification: "invalid", reasons: [{ code: "schema_too_big", path: ["quotes", 0, "note"] }], quotes: { given: 0, kept: 0, dropped: 0 }, outcomes: {} });
-    expect(truncated).toMatchObject({ classification: "truncated", finishReason: "length", reasons: [{ code: "truncated", path: [] }] });
-    expect(rejected).toMatchObject({ classification: "request_rejected", status: 400, replyFile: "S3C1-thinking-on-01.json" }); expect(rejected).not.toHaveProperty("reasons");
-    expect(malformed).toMatchObject({ classification: "malformed_reply", status: 200 }); expect(malformed).not.toHaveProperty("reasons");
-    expect(summary.calls.slice(9).every(call => call.classification === "complete")).toBe(true);
-    expect(summary.calls[17]).toMatchObject({ chunkId: "S3C1", condition: "thinking-on-8192", quotes: { given: 1, kept: 1, dropped: 0 }, outcomes: { Q4: "evidence_retained" } });
-    expect(summary.counts.S1C1).toEqual({
-      "thinking-off": { calls: 2, classes: { complete: 2 }, keptWithDrops: 0, reasons: {} },
+    expect(call(8)).toMatchObject({ classification: "invalid", reasons: [{ code: "schema_too_big", path: ["quotes", 0, "note"] }], quotes: { given: 0, located: 0, dropped: 0 }, outcomes: {} });
+    expect(call(9)).toMatchObject({ classification: "malformed_reply", status: 200 }); expect(call(9)).not.toHaveProperty("reasons");
+    // A lost connection: the class and the error's name only, no reply file, and nothing of the address in the summary.
+    expect(call(10)).toMatchObject({ classification: "transport_failed", status: null, replyFile: null, bodySha256: null, bodyBytes: 0, transportError: "TypeError" });
+    // A reply without content reads as empty, as the model layer's decoder reads it, so the stage's checks give invalid_json.
+    expect(call(11)).toMatchObject({ classification: "invalid", contentBytes: 0, reasons: [{ code: "invalid_json", path: [] }] });
+    expect(call(12)).toMatchObject({ classification: "complete", finishReason: "other" });
+    expect(call(18)).toMatchObject({ chunkId: "S3C1", condition: "thinking-on-8192", quotes: { given: 1, located: 1, dropped: 0 }, outcomes: { Q4: "evidence_retained" } });
+    expect(summary.counts).toEqual({ "thinking-off": { complete: 2, needs_followup: 1, truncated: 1, transport_failed: 1, invalid: 1 },
+      "thinking-on": { complete: 4, invalid: 1, request_rejected: 1 }, "thinking-on-8192": { held: 1, invalid: 1, malformed_reply: 1, complete: 3 } });
+    expect(summary.cells.S1C1).toEqual({ "thinking-off": { calls: 2, classes: { complete: 1, transport_failed: 1 }, keptWithDrops: 0, reasons: {} },
       "thinking-on": { calls: 2, classes: { complete: 2 }, keptWithDrops: 1, reasons: { quote_not_located: 1 } },
-      // The second repeat marks Q4 evidence_found with no quote: kept, with the status corrected.
-      "thinking-on-8192": { calls: 2, classes: { held: 1, complete: 1 }, keptWithDrops: 1, reasons: { quote_not_located: 1, evidence_found_without_quote: 2 } } });
-    expect(summary.counts.S3C1!["thinking-on"]).toEqual({ calls: 2, classes: { request_rejected: 1, complete: 1 }, keptWithDrops: 0, reasons: {} });
+      "thinking-on-8192": { calls: 2, classes: { held: 1, complete: 1 }, keptWithDrops: 0, reasons: { quote_not_located: 1, evidence_found_without_quote: 1 } } });
     // Raw replies are retained whole and owner-readable only; the summary binds each by digest and is rewritten whole after every call.
-    expect(readdirSync(join(out, "replies"))).toHaveLength(18); expect(readdirSync(out).sort()).toEqual(["replies", "summary.json"]);
-    for (const call of summary.calls) {
-      const path = join(out, "replies", call.replyFile!);
-      expect(statSync(path).mode & 0o777).toBe(0o600); expect(digest(readFileSync(path))).toBe(call.replySha256);
+    expect(readdirSync(join(out, "replies"))).toHaveLength(17); expect(readdirSync(out).sort()).toEqual(["replies", "summary.json"]);
+    for (const record of summary.calls.filter(c => c.replyFile)) {
+      const path = join(out, "replies", record.replyFile!);
+      expect(statSync(path).mode & 0o777).toBe(0o600); expect(digest(readFileSync(path))).toBe(record.bodySha256); expect(readFileSync(path).length).toBe(record.bodyBytes);
     }
     expect(statSync(join(out, "summary.json")).mode & 0o777).toBe(0o600); expect(statSync(join(out, "replies")).mode & 0o777).toBe(0o700);
     expect(JSON.parse(readFileSync(join(out, "summary.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(summary)));
     const serialized = JSON.stringify(summary);
-    for (const secret of ["127.0.0.1", String(server.port), "test-key", "hidden thoughts", "Halverstrand", "2.6 million crowns", "stepped concrete", "bad request"])
-      expect(serialized).not.toContain(secret);
+    for (const secret of ["127.0.0.1", `:${server.port}`, "test-key", "hidden thoughts", "hidden usage text", "Halverstrand", "2.6 million crowns", "stepped concrete", "bad request",
+      "fetch failed", "socket", "Stopped by user"]) expect(serialized).not.toContain(secret);
   });
 
   it("reads a streamed reply through the broker's assembler, and records a cut stream as malformed", async () => {
@@ -236,30 +282,47 @@ describe("E0 extractor fixture: a run against a loopback endpoint", () => {
     expect(server.requests.map(r => r.body.stream)).toEqual([true, true, true]);
     expect(server.requests.every(r => r.headers.authorization === undefined)).toBe(true);
     expect(summary.calls.map(c => c.classification)).toEqual(["complete", "malformed_reply", "truncated"]);
-    expect(summary.calls[0]).toMatchObject({ replyFile: "S1C1-thinking-off-01.sse", quotes: { kept: 1 }, usage: { promptTokens: 1500, completionTokens: 90, cachedTokens: null, reasoningTokens: null } });
+    expect(summary.calls[0]).toMatchObject({ replyFile: "r01-thinking-off-S1C1.sse", quotes: { located: 1 }, usage: { prompt_tokens: 1500, completion_tokens: 90 } });
     expect(summary.calls[0]).not.toHaveProperty("reasoningField");
-    expect(summary.calls[1]).toMatchObject({ streamError: "sse_truncated" }); expect(summary.calls[2]).toMatchObject({ finishReason: "length" });
-    expect(readFileSync(join(out, "replies", "S1C1-thinking-off-01.sse"), "utf8")).toContain("data: [DONE]");
+    expect(summary.calls[1]).toMatchObject({ streamError: "sse_truncated" }); expect(summary.calls[2]).toMatchObject({ finishReason: "length", contentBytes: 30 });
+    expect(summary.requests["thinking-off"]).toMatchObject({ requests: 3, streamed: true });
+    expect(readFileSync(join(out, "replies", "r01-thinking-off-S1C1.sse"), "utf8")).toContain("data: [DONE]");
   });
 
-  it("dry-runs: builds and hashes every body, sends nothing and writes nothing", async () => {
+  it("dry-runs: builds and hashes all 120 bodies, sends nothing and writes nothing", async () => {
     const server = await fakeServer(() => ({ json: completion(extraction({})) })), out = join(tempDir(), "dry");
     const summary = await runExtractorFixture({ endpoint: { baseUrl: server.baseUrl }, settings: LEGACY, inputs: committed(), out, dryRun: true });
-    expect(summary).toMatchObject({ dryRun: true, calls: [], counts: {}, repeats: 10 });
-    expect(Object.keys(summary.requests)).toEqual(["S1C1", "S2C1", "S3C1"]);
-    expect(summary.requests.S2C1).toMatchObject({ "thinking-off": { maxTokens: 2048, thinking: "disabled", streamed: false }, "thinking-on": { maxTokens: 2048, thinking: "model" },
-      "thinking-on-8192": { maxTokens: 8192, thinking: "model" } });
+    expect(summary).toMatchObject({ dryRun: true, calls: [], cells: {}, repeats: 10, deployedCondition: "thinking-off" });
+    expect(summary.counts).toEqual({ "thinking-off": {}, "thinking-on": {}, "thinking-on-8192": {}, "thinking-on-16384": {} });
+    expect(Object.keys(summary.requests)).toEqual([...EXTRACTOR_CONDITIONS]);
+    expect(summary.requests["thinking-off"]).toMatchObject({ requests: 30, maxTokens: 2048, thinking: "disabled", streamed: false });
+    expect(summary.requests["thinking-on-16384"]).toMatchObject({ requests: 30, maxTokens: 16384, thinking: "model" });
     expect(server.requests).toHaveLength(0); expect(existsSync(out)).toBe(false);
   });
 
-  it("runs from the command line through loadConfig, prints no address, and refuses an out directory Git does not ignore", () => {
+  it("parses its command line strictly and keeps only the numeric fields of a reply's usage", () => {
+    expect(parseExtractorArguments([])).toEqual({ dryRun: false });
+    expect(parseExtractorArguments(["--dry-run", "--manifest", "m.json", "--out", ".soar/experiments/x"])).toEqual({ dryRun: true, manifest: "m.json", out: ".soar/experiments/x" });
+    for (const argv of [["--dry-runn"], ["--out"], ["--out", "--dry-run"], ["--dry-run", "--dry-run"], ["extra"], ["--manifest", "a", "--manifest", "b"]])
+      expect(parseExtractorArguments(argv)).toBeUndefined();
+    // Two levels of nesting, as vLLM's usage has (usage, then *_details), and numbers one level below; deeper objects are dropped.
+    expect(numericUsage({ prompt_tokens: 7, note: "text", prompt_tokens_details: { cached_tokens: 3, kind: "x" }, list: [1], "Bad Key": 2, deep: { a: { b: 1, c: { d: 1 } } } }))
+      .toEqual({ prompt_tokens: 7, prompt_tokens_details: { cached_tokens: 3 }, deep: { a: { b: 1 } } });
+    expect(numericUsage("text")).toBeUndefined(); expect(numericUsage(null)).toBeUndefined();
+  });
+
+  it("runs from the command line through loadConfig, prints no address, and refuses a stray flag or an out directory Git does not ignore", () => {
     const root = tempDir();
     const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1", SOAR_VLLM_MODEL: "Synthetic", SOAR_ENV_FILE: join(root, "none.env") };
+    const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "scripts/extractor-fixture.ts", ...args], { cwd: ROOT, encoding: "utf8", env });
     const stdout = execFileSync(process.execPath, ["--import", "tsx", "scripts/extractor-fixture.ts", "--dry-run"], { cwd: ROOT, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
     const printed = JSON.parse(stdout);
-    expect(printed).toMatchObject({ dryRun: true, conditions: [...EXTRACTOR_CONDITIONS], repeats: 10, chunks: ["S1C1", "S2C1", "S3C1"], retained: null });
+    expect(printed).toMatchObject({ dryRun: true, conditions: [...EXTRACTOR_CONDITIONS], deployedCondition: "thinking-off", repeats: 10, chunks: ["S1C1", "S2C1", "S3C1"], calls: 120, retained: null,
+      manifest: { task: "e0-extractor-synthetic-v1", exposure: "fresh", unitCount: 5, sourceCount: 3 } });
     expect(stdout).not.toContain("127.0.0.1");
-    const refused = spawnSync(process.execPath, ["--import", "tsx", "scripts/extractor-fixture.ts", "--out", join(root, "run")], { cwd: ROOT, encoding: "utf8", env });
+    const typo = run("--dry-runn");
+    expect(typo.status).toBe(2); expect(typo.stderr).toContain("usage: pnpm fixture:extractor"); expect(typo.stdout).toBe("");
+    const refused = run("--out", join(root, "run"));
     expect(refused.status).toBe(2); expect(refused.stderr.trim()).toBe("extractor_fixture_out_not_ignored"); expect(refused.stdout).toBe(""); expect(existsSync(join(root, "run"))).toBe(false);
   });
 });

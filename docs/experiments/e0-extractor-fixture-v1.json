@@ -2,7 +2,9 @@
  "schemaVersion": 1,
  "name": "e0-extractor-fixture-v1",
  "status": "pinned",
- "note": "Pinned at commit time: the corpus folder beside this file is committed, synthetic and public, and every file is bound by sha256 and byte count. Each source is exactly one chunk of the pipeline's chunking, with the chunk id given. scripts/extractor-fixture.ts refuses any mismatch, a plan the pipeline's plan assessor rejects, or a brief whose units differ, before any request. The three conditions and 10 repeats are the proposal of BL-20261115-2006-e0-extractor-fixture-design; the E0 card's amendment names the command before the fixture runs. Raw replies and the summary stay under the ignored .soar/experiments/.",
+ "note": "Pinned at commit time: the corpus folder beside this file is committed, synthetic and public, and every file is bound by sha256 and byte count. Each source is exactly one chunk of the pipeline's chunking, with the chunk id given; scripts/extractor-fixture.ts refuses any mismatch, a plan the pipeline's plan assessor rejects, or a brief whose units differ, before any request. Deployed cell: thinking-off is the extraction stage's call as deployed today (thinking disabled, 2,048 output tokens); thinking-on (2,048), thinking-on-8192 and thinking-on-16384 (the Heavy profile's ceiling) calibrate against it. Calls: 4 conditions x 3 chunks x 10 repeats = 120, each (repeat, condition) salted as one job. Endpoint time, at the 2026-11-04 qualification's ~154 decode tokens/s (BL-20261104-1419): a reply that runs to its cap decodes for about 13 s at 2,048 tokens, 53 s at 8,192 and 107 s at 16,384, plus about 20 s of prefill per (repeat, condition); so at most about an hour for the 30 calls of thinking-on-16384, and about 1 h 45 min for the run, less where replies stop early. The conditions and repeats are the proposal of BL-20261115-2006-e0-extractor-fixture-design, with the fourth condition its correction records; the E0 card's amendment names the command before the fixture runs. Raw replies and the summary stay under the ignored .soar/experiments/.",
+ "task": "e0-extractor-synthetic-v1",
+ "exposure": "fresh",
  "corpus": "e0-extractor-fixture-v1",
  "brief": { "file": "brief.md", "sha256": "a84e2c7689dc325a6e843f351646133d1177ca8adecc2457e070efa5b67667a4", "bytes": 406 },
  "units": ["U1", "U2", "U3", "U4", "U5"],
@@ -12,6 +14,6 @@
   { "id": "input/corpus/gauge-log.md", "file": "sources/gauge-log.md", "sha256": "ba92e4e9a20415a3a80e7df6bb87d7d1985e16f726fb9a35c1c3082045e3c3fe", "bytes": 62694, "chunkId": "S2C1" },
   { "id": "input/corpus/monitoring-report.md", "file": "sources/monitoring-report.md", "sha256": "03ef4f92d8fa2566f01955ab7911d0f7c48f641378fe213b250d09ae8e534ea3", "bytes": 6691, "chunkId": "S3C1" }
  ],
- "conditions": ["thinking-off", "thinking-on", "thinking-on-8192"],
+ "conditions": ["thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384"],
  "repeats": 10
 }

@@ -91,10 +91,11 @@ This folder holds the committed, sanitized record of live trials (see
   `pnpm fixture:extractor`). The corpus is a five-requirement brief, a plan the
   pipeline's plan assessor accepts, and three invented, public sources, each one chunk
   of the pipeline's chunking; the manifest binds every file by sha256 and byte count.
-  The fixture sends the extraction stage's own request under the manifest's three
-  thinking conditions and judges each reply with the stage's own checks
-  (`assessResearchExtractionReply`). It holds no gold: no reply is scored against an
-  expected answer.
+  The fixture sends the extraction stage's own request under the manifest's four
+  conditions: `thinking-off`, the stage's call as deployed today, and thinking on at
+  2,048, 8,192 and 16,384 output tokens. It judges each reply with the stage's own
+  checks (`assessResearchExtractionReply`). It holds no gold: no reply is scored
+  against an expected answer.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan

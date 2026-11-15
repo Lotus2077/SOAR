@@ -36,8 +36,14 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
     runs_differ), git, gitSource and gitDirty (the commit the row is written at). It refuses an unknown id, an id
     another row already supersedes, and a new id that already exists.
 
-Exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes is accepted. `--verdict-by` is `owner`,
-`agent_diagnostic` or `none`; `owner` requires --owner-minutes and --interventions (the receipt supplies them).
+E0 (BL-20261115-1954-e0-registry-modes-design): `--probe-dir DIR` rows a scripts/serving-probe.py run from its probe.json,
+`--fixture-dir DIR --fixture planner|judge` a role-fixture run from its summary.json (or, without one, from its replies/ listing),
+and `--labelling-file FILE` the labelling tool's summary. Each row holds digests, counts, USD amounts, booleans and closed codes
+only; the served alias, paths, file names, model or claim text and labels never reach it.
+
+Exactly one of --run-dir, --loop-dir, --verdict-file, --supersedes, --probe-dir, --fixture-dir and --labelling-file is
+accepted. `--verdict-by` is `owner`, `agent_diagnostic` or `none`; `owner` requires --owner-minutes and --interventions (the
+receipt supplies them).
 
 Plan 11.4: --run-dir and --loop-dir rows add reservedUsd, pinnedUsd, committedDispatches, cloudCalls, disclosedBytes, urls,
 domains, retainedBytes, actions, queries and researchFallback (docs/experiments/README.md). With --run-dir,
@@ -93,6 +99,10 @@ def main() -> int:
     parser.add_argument("--launcher-ledger", default=None, help="with --run-dir: the launcher.jsonl whose run_exited record says whether a signal was forwarded")
     parser.add_argument("--loop-dir", default=None, help="H4: a select-and-repair loop directory (loop.json) instead of one run")
     parser.add_argument("--verdict-file", default=None, help="a desktop verdict receipt (JSON) instead of a run directory")
+    parser.add_argument("--probe-dir", default=None, help="E0: a serving-probe run directory (probe.json from scripts/serving-probe.py)")
+    parser.add_argument("--fixture-dir", default=None, help="E0: a role-fixture run directory (summary.json); give --fixture too")
+    parser.add_argument("--fixture", default=None, choices=FIXTURE_KINDS, help="with --fixture-dir: the fixture that wrote it")
+    parser.add_argument("--labelling-file", default=None, help="E0: the labelling tool's summary JSON")
     parser.add_argument("--supersedes", default=None, metavar="ROW_ID", help="copy the registry row with this id and change only its verdict fields")
     parser.add_argument("--registry", default=DEFAULT_REGISTRY, help="the registry --supersedes reads (default: docs/experiments/registry.jsonl)")
     parser.add_argument("--critical-checks", default=None, help="passed/total, e.g. 26/30")
@@ -101,11 +111,14 @@ def main() -> int:
     parser.add_argument("--verdict-at", default=None, help="UTC ISO 8601 time of the verdict, e.g. 2026-11-07T08:30:00Z; default: now")
     args = parser.parse_args()
 
-    sources = [name for name, value in (("--run-dir", args.run_dir), ("--loop-dir", args.loop_dir), ("--verdict-file", args.verdict_file), ("--supersedes", args.supersedes)) if value is not None]
+    sources = [name for name, value in (("--run-dir", args.run_dir), ("--loop-dir", args.loop_dir), ("--verdict-file", args.verdict_file), ("--supersedes", args.supersedes),
+                                        ("--probe-dir", args.probe_dir), ("--fixture-dir", args.fixture_dir), ("--labelling-file", args.labelling_file)) if value is not None]
     if len(sources) != 1:
-        sys.exit("give exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes")
+        sys.exit("give exactly one of --run-dir, --loop-dir, --verdict-file, --supersedes, --probe-dir, --fixture-dir and --labelling-file")
     if args.launcher_ledger is not None and args.run_dir is None:
         sys.exit("--launcher-ledger goes with --run-dir only")
+    if (args.fixture is None) != (args.fixture_dir is None):
+        sys.exit("--fixture-dir and --fixture go together")
     required = [] if args.verdict_file is not None else ["--outcome"]
     if args.supersedes is None:
         required += ["--batch", "--task", "--family", "--exposure"] + ([] if args.verdict_file is not None else ["--arm"])
@@ -137,11 +150,15 @@ def main() -> int:
         check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
     elif args.verdict_file is not None:
         row = receipt_row(args)
+    elif args.probe_dir is not None or args.fixture_dir is not None or args.labelling_file is not None:
+        row = probe_row(args) if args.probe_dir is not None else fixture_row(args) if args.fixture_dir is not None else labelling_row(args)
+        check_e0_outcome(args.outcome, row)
     else:
         row = superseding_row(args)
         # A correction repeats the class checks against the copied run's class, when the copy carries one.
         check_outcome(args.outcome, row.get("runStatus"), row.get("runClass"))
         refuse_unselected_accept(args.outcome, row.get("loop"))
+        check_e0_outcome(args.outcome, row)
     row.update({"id": args.id, **row_provenance(args, row), "verdictBy": args.verdict_by, "lesson": args.lesson})
     for key, value in (("batch", args.batch), ("task", args.task), ("family", args.family), ("exposure", args.exposure), ("arm", args.arm), ("outcome", args.outcome)):
         if value is not None:
@@ -1390,6 +1407,425 @@ def run_counts(run_dir: str) -> dict:
         "wallSeconds": round((ended - started).total_seconds(), 1),
         **counts_of(events, dispatches),
     }
+
+
+# E0's producers (BL-20261115-1954-e0-registry-modes-design): a serving-probe run, a role-fixture run and the labelling call, each
+# rowed from the producer's own output. A row copies only 64-hex digests, counts, USD amounts, booleans, closed enums, exception
+# class names and the labelling model's id: the served alias, the request settings, paths, file names, model or claim text, labels
+# and error bodies never reach it, and the producers' free-text manifest fields are only compared.
+SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+EXCEPTION_CLASS = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+CLOUD_MODEL_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+CLOUD_APIS = ("openai", "openai_responses", "anthropic_messages")
+# scripts/serving-probe.py PROBES and PROBE_VERSION; a test pins this copy to the probe's.
+PROBE_NAMES = ("P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "adapter")
+PROBE_VERSION = 2
+P10_ROLES = ("plan", "extract", "synthesis")
+P10_MODES = ("on", "off")
+# The fixtures' closed sets; tests pin each copy to scripts/planner-fixture.ts and scripts/judge-fixture.ts.
+PLANNER_CONDITIONS = ("legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off")
+PLANNER_CLASSES = ("valid", "binding_invalid", "schema_invalid", "invalid_json", "truncated", "request_rejected", "transport_failed", "malformed_reply")
+JUDGE_CONDITIONS = ("j1-legacy", "j1-flash", "j1-legacy-reversed", "j1-flash-reversed")
+JUDGE_VERDICTS = ("supported", "partial", "unsupported", "contradicted")
+JUDGE_FAILURES = ("request_rejected", "transport_failed", "malformed_reply", "judge_reply_invalid")
+FIXTURE_KINDS = ("planner", "judge")
+# The labelling tool's summary, version 1 (decision (5)): exactly these keys.
+LABELLING_KEYS = frozenset(("kind", "version", "protocol", "startedUtc", "finishedUtc", "model", "api", "envelopeLine", "capUsd", "claimsSha256", "claimCount",
+                            "calls", "result", "outcome"))
+LABELLING_CALL_KEYS = frozenset(("purpose", "status", "bodySha256", "bodyBytes", "reservedUsd", "feeUsd", "inputTokens", "outputTokens", "cachedTokens"))
+LABELLING_RESULT_KEYS = frozenset(("claimsSha256", "labelsSha256", "claimCount", "plantedCount", "labelCounts"))
+LABELLING_PURPOSES = ("label", "plant")
+LABELLING_STATUSES = ("settled", "failed", "unknown")
+LABELLING_OUTCOMES = ("labelled", "cap_refused", "request_failed", "reply_invalid", "charge_unknown", "interrupted")
+# PLAN.md section 4's envelope lines a labelling call may be charged to: "Synthetic personas, mailboxes and documents (no owner seed)"
+# (BL-20261115-1937-owner-adopts-standing-defaults, (b)).
+ENVELOPE_LINES = ("synthetic_data",)
+
+
+def refuse(source: str, message: str):
+    sys.exit(f"{source}: {message}")
+
+
+def read_producer_json(path: str, source: str):
+    """A producer's file as (raw bytes, object). Refused: a symbolic link, a missing or irregular file, bytes that are not strict UTF-8
+    or start with a byte-order mark, and anything but one JSON object (NaN and the infinities are not JSON)."""
+    if os.path.islink(path) or not os.path.isfile(path):
+        refuse(source, f"{os.path.basename(path)} is missing or not a regular file")
+    with open(path, "rb") as handle:
+        raw = handle.read()
+    try:
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raise ValueError("byte-order mark")
+        value = json.loads(raw.decode("utf-8"), parse_constant=reject_constant)
+    except (UnicodeDecodeError, ValueError):
+        refuse(source, f"{os.path.basename(path)} is not strict UTF-8 JSON")
+    if not isinstance(value, dict):
+        refuse(source, f"{os.path.basename(path)} is not a JSON object")
+    return raw, value
+
+
+def recorded_instant(value, source: str, name: str) -> datetime.datetime:
+    """An instant a producer recorded, in UTC (Z or +00:00); anything else is refused."""
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.tzinfo is None or parsed.utcoffset() != datetime.timedelta(0):
+        refuse(source, f"{name} is not a UTC instant")
+    return parsed
+
+
+def recorded_span(started: datetime.datetime, finished, source: str):
+    """The run's recorded wall time in seconds, or None when it did not finish; an end before the start is refused."""
+    if finished is None:
+        return None
+    seconds = (finished - started).total_seconds()
+    if seconds < 0:
+        refuse(source, "the run's recorded end precedes its start")
+    return round(seconds, 1)
+
+
+def is_digest(value) -> bool:
+    return isinstance(value, str) and SHA256_HEX.fullmatch(value) is not None
+
+
+def canonical_sha256(value) -> str:
+    """sha256 of the canonical JSON (sorted keys, no spaces) of a structure of digests and counts, as contracts.ts canonical writes it."""
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def micro(value) -> int:
+    return round(value * 1_000_000)
+
+
+def local_spend() -> dict:
+    """The spend columns of a run that sent only to the owned endpoint, outside the broker: zero fee, no cloud call, and nothing
+    disclosed (HARN-27 counts nothing disclosed to a local model), so no call's charge can be unknown."""
+    return {"usd": 0.0, "reservedUsd": 0.0, "pinnedUsd": 0.0, "unknownDispatches": 0, "cloudCalls": [], "disclosedBytes": 0}
+
+
+def e0_row_base(started: datetime.datetime, finished, source: str) -> dict:
+    """The fields every E0 row shares (decision (2)): no coordinator profile, and the producer's recorded start and span."""
+    return {"date": started.date().isoformat(), "wallSeconds": recorded_span(started, finished, source), "profile": None, "thinking": None,
+            "maxOutputTokens": None, "cloudModel": None, "cloudApi": None}
+
+
+def answered_usage(record):
+    """(input, output) tokens of one probe request record that was answered and reports both as counts, else None."""
+    if isinstance(record, dict) and record.get("status") == 200 and is_count(record.get("prompt_tokens")) and is_count(record.get("completion_tokens")):
+        return record["prompt_tokens"], record["completion_tokens"]
+    return None
+
+
+def probe_requests(name: str, record) -> list:
+    """The chat-completion requests that one completed probe's record shows (scripts/serving-probe.py, probe version 2), each as its
+    record, or None where the record keeps nothing per request. /models, /version, /metrics, /openapi.json and /tokenize are not
+    model calls."""
+    if not isinstance(record, dict):
+        refuse("--probe-dir", f"{name}'s record is not an object")
+    records = lambda value: [item for item in value.values() if isinstance(item, dict)] if isinstance(value, dict) else []
+    if name == "P1":
+        return []
+    if name in ("P2", "P3", "P4"):
+        return records(record)
+    if name in ("P5", "P8", "P9"):
+        return [record]
+    if name == "P6":
+        return [record[key] for key in ("abort", "next_request") if isinstance(record.get(key), dict)]
+    if name == "P7":
+        return ([record["single"]] if isinstance(record.get("single"), dict) else []) + records(record.get("concurrent"))
+    if name == "P10":
+        requests = [check for role in records(record.get("acceptance")) for check in records(role)]
+        for cell in records(record.get("cells")):
+            calls = cell.get("calls")
+            requests += [call for call in calls if isinstance(call, dict)] if isinstance(calls, list) else []
+        return requests
+    if name == "P11":
+        layouts = record.get("cache_layouts")
+        requests = records(record.get("sizes"))
+        for layout in records(layouts.get("layouts") if isinstance(layouts, dict) else None):
+            rows = layout.get("requests")
+            requests += [item for item in rows if isinstance(item, dict)] if isinstance(rows, list) else []
+        for burst in records(record.get("k_streams")):
+            if not is_count(burst.get("streams")):
+                refuse("--probe-dir", "a P11 K burst does not record its number of streams")
+            # A burst keeps aggregates only, so its streams count as requests without a per-request record.
+            requests += [None] * burst["streams"]
+        return requests
+    # The adapter probe: its plain chat call is kept only as `chat_status` beside the /tokenize result.
+    tokenize = record.get("tokenize")
+    return ([None] if isinstance(tokenize, dict) and "chat_status" in tokenize else []) + [
+        record[key] for key in ("thinking_on_json", "thinking_on_sse", "thinking_off_json", "thinking_off_sse", "cache_salt") if isinstance(record.get(key), dict)]
+
+
+def probe_names(probe: dict, key: str) -> list:
+    value = probe.get(key)
+    if not isinstance(value, list) or not all(isinstance(name, str) and name in PROBE_NAMES for name in value) or len(set(value)) != len(value):
+        refuse("--probe-dir", f"{key} is not a list of probe names")
+    return value
+
+
+def probe_row(args) -> dict:
+    """Decision (3): one serving-probe run directory, from its probe.json."""
+    source = "--probe-dir"
+    raw, probe = read_producer_json(os.path.join(args.probe_dir, "probe.json"), source)
+    if probe.get("probe_version") != PROBE_VERSION:
+        refuse(source, "probe.json is not probe version 2")
+    if probe.get("transport_class") != "loopback" and probe.get("cost_policy") != "local_zero_cost":
+        refuse(source, "probe.json does not show the probe's zero-fee guard (a loopback endpoint, or SOAR_VLLM_COST_POLICY=local_zero_cost)")
+    started = recorded_instant(probe.get("started_utc"), source, "started_utc")
+    finished = recorded_instant(probe["finished_utc"], source, "finished_utc") if probe.get("finished_utc") is not None else None
+    selected, ran, skipped = (probe_names(probe, key) for key in ("probes_selected", "probes_run", "probes_skipped"))
+    failed = probe.get("probes_failed")
+    if not isinstance(failed, dict) or not all(name in PROBE_NAMES and isinstance(error, str) and EXCEPTION_CLASS.fullmatch(error) for name, error in failed.items()):
+        refuse(source, "probes_failed does not map probe names to exception class names")
+    if not set(ran) <= set(selected) or not set(failed) <= set(selected) or set(ran) & set(failed) or set(skipped) & set(selected):
+        refuse(source, "probes_run and probes_failed are not disjoint parts of probes_selected, or a skipped probe was selected")
+    calls, usage = {}, {"calls": 0, "inputTokens": 0, "outputTokens": 0}
+    for name in (name for name in PROBE_NAMES if name in ran):
+        requests = probe_requests(name, probe.get(name))
+        calls[name] = len(requests)
+        for tokens in filter(None, map(answered_usage, requests)):
+            usage["calls"] += 1
+            usage["inputTokens"] += tokens[0]
+            usage["outputTokens"] += tokens[1]
+    roles = probe.get("roles")
+    protocol = roles.get("protocol_sha256") if isinstance(roles, dict) else None
+    if protocol is not None and not is_digest(protocol):
+        refuse(source, "roles.protocol_sha256 is not a sha256")
+    assessed, input_sha256 = None, None
+    if "P10" in ran:
+        p10 = probe["P10"]
+        assessed = isinstance(p10.get("assessed"), dict)
+        cells = p10.get("cells")
+        names = {f"{role}/{mode}" for role in P10_ROLES for mode in P10_MODES}
+        if not isinstance(cells, dict) or not set(cells) <= names or not all(isinstance(cell, dict) and (cell.get("request_body_sha256") is None or is_digest(cell["request_body_sha256"]))
+                                                                               for cell in cells.values()):
+            refuse(source, "P10's cells are not role/thinking cells whose exported request body digest is a sha256 or null")
+        # The role export records each body's digest (scripts/export-role-schemas.ts); an export without them binds no input hash.
+        if cells and all(is_digest(cell.get("request_body_sha256")) for cell in cells.values()):
+            input_sha256 = canonical_sha256({name: cell["request_body_sha256"] for name, cell in cells.items()})
+    return {**e0_row_base(started, finished, source), "inputSha256": input_sha256, "modelCalls": sum(calls.values()),
+            # The probe keeps no usage for several of its calls (P5, P9, P10's acceptance checks, P11's K bursts, the adapter's plain and
+            # cache-salt calls), so the token columns stay null and `probe.usage` holds what it did record.
+            "inputTokens": None, "outputTokens": None, "cachedTokens": None, **local_spend(),
+            "terminalCause": "probe_finished" if finished is not None else "probe_unfinished",
+            "probe": {"version": PROBE_VERSION, "sha256": hashlib.sha256(raw).hexdigest(), "protocolSha256": protocol, "selected": selected, "run": ran,
+                      "skipped": skipped, "failed": dict(sorted(failed.items())), "finished": finished is not None, "assessed": assessed, "calls": calls,
+                      "usage": usage}}
+
+
+def fixture_usage(calls: list) -> dict:
+    """Token sums over the answered calls' own usage objects; `usageMissing` counts answered calls whose usage lacks a count."""
+    totals = {"inputTokens": 0, "outputTokens": 0, "cachedTokens": 0, "usageMissing": 0}
+    for call in calls:
+        if call.get("status") != 200:
+            continue
+        usage = call.get("usage")
+        if not isinstance(usage, dict) or not is_count(usage.get("prompt_tokens")) or not is_count(usage.get("completion_tokens")):
+            totals["usageMissing"] += 1
+            continue
+        details = usage.get("prompt_tokens_details")
+        totals["inputTokens"] += usage["prompt_tokens"]
+        totals["outputTokens"] += usage["completion_tokens"]
+        totals["cachedTokens"] += details["cached_tokens"] if isinstance(details, dict) and is_count(details.get("cached_tokens")) else 0
+    return totals
+
+
+def fixture_manifest(kind: str, manifest, source: str) -> dict:
+    """The fixture manifest's hashes and counts as the run recorded them, never its name, task or note."""
+    digests, counts = (("indexSha256", "briefSha256", "sourceIdsSha256"), ("sourceCount", "mandatorySourceChunks", "extractionCallBudget")) if kind == "planner" else \
+        (("sha256", "claimsSha256", "labelsSha256"), ("claimCount", "plantedCount", "minimumPerClass"))
+    if not isinstance(manifest, dict) or not all(is_digest(manifest.get(key)) for key in digests) or not all(is_count(manifest.get(key)) for key in counts):
+        refuse(source, "the summary's manifest does not record its hashes and counts")
+    kept = {key: manifest[key] for key in digests + counts}
+    if kind == "judge":
+        labels, agreement = manifest.get("labelCounts"), manifest.get("agreement")
+        if not isinstance(labels, dict) or set(labels) != set(JUDGE_VERDICTS) or not all(is_count(value) for value in labels.values()):
+            refuse(source, "the summary's manifest does not record its label counts")
+        if not isinstance(agreement, dict) or set(agreement) != {"measure", "level"} or agreement["measure"] not in ("exact", "established") \
+                or not is_amount(agreement["level"]) or agreement["level"] > 1:
+            refuse(source, "the summary's manifest does not record its agreement measure and level")
+        kept.update(labelCounts=dict(labels), agreement=dict(agreement))
+    return kept
+
+
+def call_class(kind: str, call: dict, source: str) -> str:
+    """A fixture call's class: the planner's classification, or the judge's verdict, or, for a call not judged, its failure."""
+    if kind == "planner":
+        value = call.get("classification")
+        if value not in PLANNER_CLASSES:
+            refuse(source, "a call's classification is not one the planner fixture writes")
+        return value
+    verdict, failure = call.get("verdict"), call.get("failure")
+    if verdict in JUDGE_VERDICTS and failure is None:
+        return verdict
+    if verdict == "not_judged" and failure in JUDGE_FAILURES:
+        return failure
+    refuse(source, "a call's verdict and failure are not ones the judge fixture writes")
+
+
+def judge_scores(summary: dict, conditions: list, repeats: int, source: str) -> dict:
+    """Per condition and repeat, the counts and the level check the judge run computed; the writer never reads the labels."""
+    metrics = summary.get("metrics")
+    scores = {}
+    for condition in conditions:
+        per = metrics.get(condition) if isinstance(metrics, dict) else None
+        if not isinstance(per, dict) or set(per) != {f"r{repeat}" for repeat in range(1, repeats + 1)}:
+            refuse(source, "the summary's metrics do not cover every condition and repeat")
+        scores[condition] = {}
+        for key, value in sorted(per.items(), key=lambda item: int(item[0][1:])):
+            if not isinstance(value, dict) or not all(is_count(value.get(name)) for name in ("claims", "judged", "exactCount", "establishedCount")) \
+                    or not isinstance(value.get("meetsLevel"), bool):
+                refuse(source, "a repeat's metrics do not record their counts and level check")
+            scores[condition][key] = {name: value[name] for name in ("claims", "judged", "exactCount", "establishedCount", "meetsLevel")}
+    return scores
+
+
+def unfinished_fixture_row(args, kind: str, source: str) -> dict:
+    """A fixture run that died before writing summary.json, rowed from its replies/ listing (decision (4)): one file per answered
+    request, so a lower bound; dated by the earliest reply. Only the listing is read, never a reply."""
+    replies = os.path.join(args.fixture_dir, "replies")
+    if os.path.islink(replies) or not os.path.isdir(replies):
+        refuse(source, "the directory holds neither summary.json nor a replies directory")
+    files = [entry for entry in os.scandir(replies) if entry.name.endswith(".json") and entry.is_file(follow_symlinks=False)]
+    if not files:
+        refuse(source, "the run left no summary.json and no reply, so nothing dates it")
+    first = datetime.datetime.fromtimestamp(min(entry.stat(follow_symlinks=False).st_mtime for entry in files), datetime.timezone.utc)
+    return {**e0_row_base(first, None, source), "inputSha256": None, "modelCalls": len(files), "inputTokens": None, "outputTokens": None, "cachedTokens": None,
+            **local_spend(), "terminalCause": "fixture_unfinished", "fixture": {"kind": kind, "finished": False, "replies": len(files)}}
+
+
+def fixture_row(args) -> dict:
+    """Decision (4): one role-fixture run directory, from its summary.json (scripts/planner-fixture.ts FixtureSummary, scripts/judge-fixture.ts
+    JudgeFixtureSummary)."""
+    source, kind = "--fixture-dir", args.fixture
+    path = os.path.join(args.fixture_dir, "summary.json")
+    if not os.path.lexists(path):
+        return unfinished_fixture_row(args, kind, source)
+    raw, summary = read_producer_json(path, source)
+    if summary.get("version") != 1 or summary.get("dryRun") is not False:
+        refuse(source, "summary.json is not a version 1 summary of a run that sent its requests")
+    started = recorded_instant(summary.get("startedUtc"), source, "startedUtc")
+    finished = recorded_instant(summary.get("finishedUtc"), source, "finishedUtc")
+    allowed = PLANNER_CONDITIONS if kind == "planner" else JUDGE_CONDITIONS
+    conditions, repeats = summary.get("conditions"), summary.get("repeats")
+    if not isinstance(conditions, list) or not conditions or not all(condition in allowed for condition in conditions) or len(set(conditions)) != len(conditions):
+        refuse(source, f"the summary's conditions are not {kind} fixture conditions")
+    if not is_count(repeats) or repeats < 1:
+        refuse(source, "the summary's repeats is not a positive count")
+    manifest = summary.get("manifest")
+    for flag, key, given in (("--task", "task", args.task), ("--exposure", "exposure", args.exposure)):
+        if not isinstance(manifest, dict) or manifest.get(key) != given:
+            refuse(source, f"{flag} must equal the fixture manifest's {key}")
+    kept = fixture_manifest(kind, manifest, source)
+    requests, digest = summary.get("requests"), "requestSha256" if kind == "planner" else "requestSetSha256"
+    if not isinstance(requests, dict) or set(requests) != set(conditions) or not all(isinstance(item, dict) and is_digest(item.get(digest)) for item in requests.values()):
+        refuse(source, "the summary's requests do not record a request digest per condition")
+    calls = summary.get("calls")
+    expected = len(conditions) * repeats * (kept["claimCount"] if kind == "judge" else 1)
+    if not isinstance(calls, list) or len(calls) != expected or not all(isinstance(call, dict) and call.get("condition") in conditions for call in calls):
+        refuse(source, f"the summary does not record its {expected} calls")
+    if not all(call.get("status") is None or (isinstance(call["status"], int) and not isinstance(call["status"], bool)) for call in calls):
+        refuse(source, "a call's status is not an HTTP status")
+    classes = {condition: {} for condition in conditions}
+    for call in calls:
+        name = call_class(kind, call, source)
+        classes[call["condition"]][name] = classes[call["condition"]].get(name, 0) + 1
+    if kind == "planner" and summary.get("counts") != classes:
+        refuse(source, "the summary's counts do not match its calls")
+    usage = fixture_usage(calls)
+    record = {"kind": kind, "finished": True, "version": 1, "sha256": hashlib.sha256(raw).hexdigest(), "conditions": conditions, "repeats": repeats,
+              "manifest": kept, "classes": {condition: dict(sorted(counts.items())) for condition, counts in classes.items()}, "usageMissing": usage["usageMissing"]}
+    if kind == "judge":
+        contract, activation = summary.get("replyContract"), summary.get("activationCondition")
+        if not is_count(summary.get("promptVersion")) or not is_digest(summary.get("promptSha256")) or (contract, activation) not in (("legacy", "j1-legacy"), ("flash_next_v1", "j1-flash")):
+            refuse(source, "the summary does not record the judge prompt, the reply contract and its activation cell")
+        record.update(promptVersion=summary["promptVersion"], promptSha256=summary["promptSha256"], replyContract=contract, activationCondition=activation,
+                      scores=judge_scores(summary, conditions, repeats, source))
+    return {**e0_row_base(started, finished, source), "inputSha256": canonical_sha256({condition: requests[condition][digest] for condition in conditions}),
+            "modelCalls": len(calls), "inputTokens": usage["inputTokens"], "outputTokens": usage["outputTokens"], "cachedTokens": usage["cachedTokens"],
+            **local_spend(), "terminalCause": "fixture_finished", "fixture": record}
+
+
+def labelling_call(call, source: str) -> dict:
+    if not isinstance(call, dict) or set(call) != LABELLING_CALL_KEYS:
+        refuse(source, "a call does not hold exactly the summary's call keys")
+    if call["purpose"] not in LABELLING_PURPOSES or call["status"] not in LABELLING_STATUSES or not is_digest(call["bodySha256"]) \
+            or not is_count(call["bodyBytes"]) or not is_amount(call["reservedUsd"]):
+        refuse(source, "a call's purpose, status, body or reservation is not one the summary admits")
+    settled = call["status"] == "settled"
+    priced = (is_amount(call["feeUsd"]) and all(is_count(call[key]) for key in ("inputTokens", "outputTokens", "cachedTokens"))) if settled else \
+        all(call[key] is None for key in ("feeUsd", "inputTokens", "outputTokens", "cachedTokens"))
+    if not priced:
+        refuse(source, "a settled call must record its fee and tokens, and any other call none")
+    return call
+
+
+def labelling_row(args) -> dict:
+    """Decision (5): the labelling tool's summary, version 1, holding exactly its keys."""
+    source = "--labelling-file"
+    raw, summary = read_producer_json(args.labelling_file, source)
+    if set(summary) != LABELLING_KEYS:
+        refuse(source, "the summary does not hold exactly the labelling summary's keys")
+    if summary["kind"] != "soar_labelling_summary" or summary["version"] != 1 or summary["protocol"] != "e0-judge-labelling-v1":
+        refuse(source, "the summary is not a version 1 labelling summary under protocol e0-judge-labelling-v1")
+    if not isinstance(summary["model"], str) or not CLOUD_MODEL_ID.fullmatch(summary["model"]) or summary["api"] not in CLOUD_APIS:
+        refuse(source, "the summary's model or api is not a model id and a request shape")
+    if summary["envelopeLine"] not in ENVELOPE_LINES or not is_amount(summary["capUsd"]) or not is_digest(summary["claimsSha256"]) or not is_count(summary["claimCount"]):
+        refuse(source, "the summary's envelope line, cap or claim set is not one the summary admits")
+    if summary["outcome"] not in LABELLING_OUTCOMES:
+        refuse(source, "the summary's outcome is not one of its codes")
+    result = summary["result"]
+    if (summary["outcome"] == "labelled") != (result is not None):
+        refuse(source, "a result is recorded with outcome labelled, and only then")
+    if result is not None:
+        labels = result.get("labelCounts") if isinstance(result, dict) else None
+        if not isinstance(result, dict) or set(result) != LABELLING_RESULT_KEYS or not is_digest(result["claimsSha256"]) or not is_digest(result["labelsSha256"]) \
+                or not is_count(result["claimCount"]) or not is_count(result["plantedCount"]) \
+                or not isinstance(labels, dict) or set(labels) != set(JUDGE_VERDICTS) or not all(is_count(value) for value in labels.values()):
+            refuse(source, "the summary's result does not hold exactly its hashes and counts")
+    started = recorded_instant(summary["startedUtc"], source, "startedUtc")
+    finished = recorded_instant(summary["finishedUtc"], source, "finishedUtc") if summary["finishedUtc"] is not None else None
+    if not isinstance(summary["calls"], list):
+        refuse(source, "the summary's calls are not a list")
+    calls = [labelling_call(call, source) for call in summary["calls"]]
+    bodies = {}
+    for call in calls:
+        if bodies.setdefault(call["bodySha256"], call["bodyBytes"]) != call["bodyBytes"]:
+            refuse(source, "two calls record one body digest with different sizes")
+    settled = [call for call in calls if call["status"] == "settled"]
+    return {**e0_row_base(started, finished, source), "inputSha256": summary["claimsSha256"], "cloudModel": summary["model"], "cloudApi": summary["api"],
+            "modelCalls": len(calls), "failedDispatches": sum(1 for call in calls if call["status"] == "failed"),
+            "unknownDispatches": sum(1 for call in calls if call["status"] == "unknown"),
+            "inputTokens": sum(call["inputTokens"] for call in settled), "outputTokens": sum(call["outputTokens"] for call in settled),
+            "cachedTokens": sum(call["cachedTokens"] for call in settled),
+            "usd": sum(micro(call["feeUsd"]) for call in settled) / 1_000_000, "reservedUsd": sum(micro(call["reservedUsd"]) for call in calls) / 1_000_000,
+            "pinnedUsd": sum(micro(call["reservedUsd"]) for call in calls if call["status"] == "unknown") / 1_000_000,
+            "cloudCalls": [{"purpose": call["purpose"], "status": call["status"], "feeUsd": call["feeUsd"], "reservedUsd": call["reservedUsd"], "bodyBytes": call["bodyBytes"]}
+                           for call in calls],
+            # HARN-27: a POST to a cloud model discloses its body, counted once per distinct body.
+            "disclosedBytes": sum(bodies.values()), "terminalCause": summary["outcome"],
+            "labelling": {"version": 1, "sha256": hashlib.sha256(raw).hexdigest(), "envelopeLine": summary["envelopeLine"], "capUsd": summary["capUsd"],
+                          "claimCount": summary["claimCount"], "result": result}}
+
+
+def check_e0_outcome(outcome, row: dict) -> None:
+    """The outcome refusals of decisions (3) to (5), read from the row's own fields, so that a --supersedes copy repeats them."""
+    if outcome is None:
+        return
+    probe, fixture, labelling = row.get("probe"), row.get("fixture"), row.get("labelling")
+    if isinstance(probe, dict) and outcome == "accepted":
+        if probe.get("finished") is not True:
+            sys.exit("the probe run did not finish (probe.json has no finished_utc): --outcome accepted is refused")
+        if probe.get("failed"):
+            sys.exit(f"probes failed ({', '.join(sorted(probe['failed']))}): --outcome accepted is refused")
+        if probe.get("assessed") is False:
+            sys.exit("P10 has not been assessed: run pnpm probe:assess on probe.json first, or record another outcome")
+    if isinstance(fixture, dict) and fixture.get("finished") is False and outcome not in ("incomplete", "infra_invalid"):
+        sys.exit("the fixture run left no summary.json, so it did not finish: record --outcome incomplete or infra_invalid")
+    if isinstance(labelling, dict) and outcome == "accepted" and row.get("terminalCause") != "labelled":
+        sys.exit(f"the labelling ended {row.get('terminalCause')}, not labelled: --outcome accepted is refused")
 
 
 if __name__ == "__main__":

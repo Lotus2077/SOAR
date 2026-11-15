@@ -41900,3 +41900,149 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation with unit tests on fixtures only, and its `Implemented` entry; S-e1's answer on the labelling summary and S-pipe's on the extractor summary; then one light review with privacy checked.
 
 References: PLAN.md §4; docs/PROJECT_REVIEW_2026-11-05.md §5.1 and §5.6 (E0); docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261114-1523-registry-columns-design; BL-20261115-1937-owner-adopts-standing-defaults (pull request #114); issue #57.
+
+### BL-20261115-2057-e0-registry-modes-implemented -- 2026-11-15 -- Implement E0's registry modes: probe, fixture (planner, judge, extractor) and labelling rows, on the summaries agreed with lanes S-e1 and S-pipe, with the light review's fixes
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261115-1954-e0-registry-modes-design. scripts/registry-row.py gains `--probe-dir`, `--fixture-dir --fixture planner|judge|extractor` and `--labelling-file`, documented in docs/experiments/README.md, "E0 rows". This entry records where the code departs from the design:
+- the labelling summary's final shape, which lane S-e1's tool writes;
+- the extractor kind, from lane S-pipe's contract;
+- the fixes from one light review with a privacy check.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) The labelling summary is the shape S-e1's tool writes.** This replaces the design's decision (5), a proposal. The tool is `pnpm label:judge`, scripts/judge-labeller.ts, in pull request #115 (head 2dd6ce7), which merges after #114.
+  - It was agreed with S-e1 on 2026-11-15, with three changes S-harn asked for:
+    - a top-level `envelopeLine` (`synthetic_data`);
+    - the closed sets exported as runtime arrays;
+    - the per-call rules stated.
+  - **Exactly these top-level keys:**
+    - `version` 1, `kind` `e0_judge_labelling`, `protocol` `e0-judge-labelling-v1`;
+    - `labeller`, `cloudModel`, `cloudApi`, `servedModel`, `envelopeLine` and `run`;
+    - `startedUtc`, `finishedUtc`, `outcome`, `failure` and `secondRequest`;
+    - `modelCalls`, `rejectedDispatches` and `unknownDispatches`;
+    - five token totals;
+    - `usd`, `reservedUnknownUsd`, `priorCountedUsd` and `capUsd`;
+    - `instructionsSha256` and `prices`;
+    - `calls` and `claims`.
+
+    Each call and `claims` also hold exactly their own keys.
+  - **Call states:**
+    - `settled` is written as the registry's `settled`;
+    - `rejected` and `not_sent` are written as `failed`;
+    - `unknown` and `outside_projection` are written as `unknown`.
+  - **Per-call rules:** `usd` is the fee when settled, 0 when rejected or not sent, and null otherwise. `countedUsd` is the fee, 0, the reservation, or at least the reservation outside the projection. Tokens are 0 unless a reply was read.
+  - **Zero cost:** a `rejected` call must carry one of the tool's `UNBILLED_STATUSES` (400, 401, 403, 404, 429), and a `not_sent` call no status. These are the only calls counted at zero, so no possibly billed call is under-counted. #115's review moved every other non-200 status to `unknown`, counted at its reservation.
+  - **Totals:** the summary's totals must equal its calls' sums, compared in micro-USD.
+  - **The row:**
+    - `usd`, `reservedUsd` (every `projectedUsd`) and `pinnedUsd` (`reservedUnknownUsd`, what the cap counts for unknown calls);
+    - `failedDispatches` and `unknownDispatches`;
+    - `cloudCalls`;
+    - `disclosedBytes`: each distinct `bodySha256`'s bytes once, over every call except `not_sent`, since that body never left the machine;
+    - `inputSha256`, the claim set before labelling;
+    - `terminalCause`, the failure code, else the outcome;
+    - a `labelling` object.
+  - **Checked, never copied:** `labeller`, `run`, `servedModel`, and each call's `servedModel`, `requestId`, `errorType`, `errorCode` and `failure`.
+  - **Refusals:**
+    - `cloudModel` must be an approved labelling model: `gpt-6-sol`, per BL-20261115-1937-owner-adopts-standing-defaults (b);
+    - a `labelled` summary must record when the tool finished;
+    - `accepted` is refused unless the outcome is `labelled`.
+  - **Pinning:** the writer's copies of the tool's closed sets are pinned by whichever of the two pull requests merges second. S-e1 agreed to add, if theirs merges second, a test that rows the real tool's output against its loopback fake.
+- **(2) The probe, after the review:**
+  - `probe.failed` keeps an exception class only when it is a built-in exception or one of the probe's library classes, and writes `other` otherwise. This replaces "the exception's class name" in the design's decisions (3) and (7): text shaped like an identifier could otherwise reach a row.
+  - A finished run must have run or failed every probe it selected.
+  - `inputSha256` binds what P10 sent: each cell's exported body digest, the roles' `schema_sha256` and each cell's `strict` variant. The design's decision (3) bound the exported bodies only.
+  - `probe.schemasProtocolMatch` copies the assessor's flag. `accepted` is refused when it is false: P10 was then assessed under another research protocol than its export's, which the card's decision rule excludes.
+  - The probe's NaN metrics readings are read past.
+  - P11's bursts are counted without building a list per stream.
+- **(3) The fixtures, after the review:**
+  - `cachedTokens` is null when any answered call's usage lacks the cached-token detail, and `fixture.cachedMissing` counts those calls. vLLM omits the detail without `--enable-prompt-tokens-details`, and unknown reuse is not measured zero. `usageMissing` keeps counting the prompt and completion counts only; the design's decision (4) had one counter for all three.
+  - The judge's activation cell must be among its conditions.
+  - A died run's `replies/` must hold only that fixture's own reply names, as regular files.
+- **(4) The extractor kind is added here,** not in a follow-up as the design's decision (4) planned. It follows lane S-pipe's contract of 2026-11-15, checked against scripts/extractor-fixture.ts in pull request #116 at 18b062e:
+  - the conditions `thinking-off`, `thinking-on`, `thinking-on-8192` and `thinking-on-16384`. The fourth came after the contract message, and the script has it;
+  - the classes `complete`, `held`, `needs_followup`, `invalid`, `truncated`, `request_rejected`, `malformed_reply` and `transport_failed`;
+  - the manifest's `sha256`, `briefSha256`, `planSha256`, `unitCount` and `sourceCount`;
+  - per condition, a judge-style `requestSetSha256`;
+  - one call per condition, repeat and chunk;
+  - `counts`, cross-checked against the calls as the planner's are.
+
+  Planner and extractor rows also copy the run's `protocolSha256`, and extractor rows its `deployedCondition`, the condition the pipeline sends. The extractor writes its summary before its first request and rewrites it after every call, so:
+  - a summary without `finishedUtc` is rowed as an interrupted run, from the calls made so far;
+  - a directory without a summary is refused.
+
+  The writer never copies `requestSettings`, `chunks` (whose source ids are paths), `order`, `cells`, or any per-call field but the classification and the usage counts.
+- **(5) Bounds, on every E0 row:**
+  - counts at most 2^53 - 1, which a JavaScript reader holds exactly and which cannot carry a long value;
+  - USD amounts at most 1,000,000;
+  - versions and call numbers must be integers, not booleans or floats.
+- **(6) Docs.** README's "E0 rows" lists, field by field:
+  - what is copied, checked, compared or refused;
+  - the `null` `cloudModel` and `cloudApi` on probe and fixture rows;
+  - the died run's `fixture` object.
+
+Changes:
+- scripts/registry-row.py: the three modes, `check_e0_outcome` and its use on `--supersedes`.
+- tests/unit/registry-row-e0.test.ts (19 tests).
+- tests/helpers/serving-probe-fake.py: a loopback fake that runs an unmodified copy of scripts/serving-probe.py in a temporary root.
+- docs/experiments/README.md.
+- docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **Tests and checks.** At 3662404, on Node 22.22.2 and Python 3.9.5, after `git fetch` (`origin/main` d92a3af):
+  - tests/unit/registry-row-e0.test.ts passes 19 of 19;
+  - the registry, fixture, probe and serving-card suites pass 267 of 267, in 16 files;
+  - `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **The real producers.**
+  - **The probe test** runs an unmodified copy of scripts/serving-probe.py against the loopback fake, with P6 skipped, then scripts/assess-probe-replies.ts on its probe.json. The row's `modelCalls` equals the chat requests the fake received.
+  - **The fixture tests** row summaries that `runPlannerFixture` and `runJudgeFixture` wrote against a loopback fake.
+  - **The extractor tests** row summaries built to the shape #116's script writes: a finished run and one interrupted mid-run.
+  - **The labelling tests** row the two summaries S-e1's tool wrote against its own fake (S-e1 commit 7a757ba):
+    - a `labelled` run: USD 0.029713 settled, USD 0.385111 reserved, 9,148 bytes disclosed;
+    - a `rejected` run: one failed call and 4,771 bytes disclosed, since the provider received the request.
+- **Mutants.** Every single-edit mutant failed at least one test:
+  - 16 of 16 on a4c835f's first version;
+  - 33 of 33 on the code after the review;
+  - 9 of 9 on the extractor and zero-cost rules.
+
+  The mutated rules are:
+  - **Probe:** call and usage counting, the zero-fee guard, failure classes, completeness, the protocol match, the input binding, versions and NaN reading.
+  - **Fixtures:** dry runs, task comparison, count cross-checks, usage from unanswered calls, alias copying, unfinished outcomes, missing cache detail, reply names and the activation cell.
+  - **Labelling:** pinned, disclosed and deduplicated bytes, strict keys, totals, the approved model, call rules, count bounds, labelled-without-finish, the state mapping, boolean call numbers and the zero-cost statuses.
+  - **Corrections:** the `--supersedes` check.
+  - **Extractor:** interrupted runs, counts, classes, the protocol hash, the overflow, chunks and the missing summary.
+- **The review.** One light review with a privacy check (verdict: needs fixes; full report kept outside Git).
+  - The major finding was that the labelling mode could not read the real tool's output. Decision (1) fixes it.
+  - Minor findings, fixed in decisions (1) to (3), (5) and (6):
+    - `cloudModel` accepted endpoint-like text;
+    - `probe.failed` copied identifier-shaped text;
+    - missing cache details read as zero;
+    - the probe's documented token coverage was incomplete;
+    - counts and amounts were unbounded;
+    - versions accepted `true` and 2.0;
+    - three inconsistent inputs were accepted;
+    - a duplicate constant.
+  - The reviewer's hand run of the real probe over all twelve probes gave 49 model calls, equal to the fake's count, with no alias, root, source id, version, address or run id in the row.
+
+Failures or blockers: The first implementation, a4c835f, read a labelling summary of the shape the design's decision (5) proposed. S-e1 had meanwhile built a tool writing another shape, and the review found that the mode refused it. The shapes were reconciled with S-e1 before this entry. a4c835f stays in the history as written.
+
+Limitations and non-claims:
+- Implemented and tested on fixtures and loopback fakes only. It is not `Verified`: no real E0 probe, fixture or labelling run has been rowed. The first E0 rows will show it.
+- The extractor kind matches #116's script as read at 18b062e, but no summary that script wrote has been rowed yet. Its sets are pinned once both pull requests are on `main`. S-pipe was asked for real example summaries.
+- The labelling closed sets match #115's exported arrays, checked by reading its head. A test pins them only once both pull requests are on `main`.
+- probe.json holds no complete token usage, so probe rows' token columns stay null.
+- A fixture row's counts are the producer's own records. The writer checks their types and closed sets, not that the calls happened.
+- `LABELLING_MODELS` and `ENVELOPE_LINES` rest on BL-20261115-1937-owner-adopts-standing-defaults, which is on pull request #114. This pull request merges after #114.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- Merge after #114, re-stamping after `main`'s tail if needed.
+- The pinning tests, each added by whichever pull request merges second:
+  - this one or #115, for the labelling sets;
+  - this one or S-pipe's extractor fixture, for the extractor sets.
+- The first E0 rows, which verify the modes.
+
+References: BL-20261115-1954-e0-registry-modes-design; BL-20261115-1937-owner-adopts-standing-defaults (pull request #114); BL-20261114-1523-registry-columns-design; docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md; PLAN.md §4; issue #57.

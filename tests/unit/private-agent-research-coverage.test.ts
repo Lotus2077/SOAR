@@ -100,7 +100,7 @@ describe("seven-file ready packet invariants", () => {
 });
 
 /**
- * Item 7b.2 (BL-20261114-1304-research-priority-trim-design): a real packet the trim cut. Two questions over twenty sources of twelve
+ * Item 7b.2 (BL-20261115-1939-research-priority-trim-design): a real packet the trim cut. Two questions over twenty sources of twelve
  * rows: each source answers Q1 with rows 0 to 5 and Q2 with rows 6 to 11, except the last, which marks Q2 no_verified_evidence. The
  * 234 quotes overflow the 64 KiB packet, so the packet holds outcomes of every kind: retained, trimmed and no_verified_evidence.
  */
@@ -127,7 +127,7 @@ const omit = (files: { path: string; bytes: Buffer }[], omission: Record<string,
   edit(files, RESEARCH_FILES.coverage, c => { c.omissions.push(omission); }); edit(files, RESEARCH_FILES.evidence, e => { e.counts.verified++; e.counts.leftByCap++; });
 };
 
-describe("item 7b.2: the ready gate accepts disclosed omissions (BL-20261114-1304-research-priority-trim-design)", () => {
+describe("item 7b.2: the ready gate accepts disclosed omissions (BL-20261115-1939-research-priority-trim-design)", () => {
   it("accepts a trimmed packet whose omissions are counted, unique and bound, with retained, trimmed and no-evidence outcomes", async () => {
     const files = await trimmedPacket(), ready = validateReadyResearchPacket(files, { brief: RESEARCH_V4_TEST_BRIEF, sources: TRIM_SOURCES() });
     const statuses = new Set(ready.coverage.chunks.flatMap(c => c.questions.map(q => q.status)));

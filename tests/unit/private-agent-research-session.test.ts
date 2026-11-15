@@ -195,7 +195,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
     expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 3, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
   });
-  it("7b.2: a packet the priority trim cut reaches the writer, with its omissions and trimmed outcomes in the presentation (BL-20261114-1304-research-priority-trim-design)", async () => {
+  it("7b.2: a packet the priority trim cut reaches the writer, with its omissions and trimmed outcomes in the presentation (BL-20261115-1939-research-priority-trim-design)", async () => {
     // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.
     const corpus = Array.from({ length: 20 }, (_, i) => ({ path: `input/corpus/trim-${String(i).padStart(2, "0")}.md`,
       bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));

@@ -54,7 +54,7 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged",
   // 7(c) (BL-20261113-0927-research-v5-design): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
   "fallback", "synthesisAttempts",
-  // 7b.2 (BL-20261114-1304-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
+  // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
   "questionsTrimmed", "quotesLeftByPresentation"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
@@ -106,7 +106,7 @@ describe("research v4 actual serialized stages", () => {
     const m = models(); const budget = { indexCalls: 24, extractionCalls: 40, plannerCalls: 2, unexpected: 2 } as unknown as typeof RESEARCH_PIPELINE_BUDGET;
     expect((await run(m, { budget })).reason).toBe("research_budget_invalid"); expect(m.request).not.toHaveBeenCalled();
   });
-  it("keeps the trim's first sixteen conflict notes, discloses the rest by hash, and hands the packet on (7b.2, BL-20261114-1304-research-priority-trim-design)", async () => {
+  it("keeps the trim's first sixteen conflict notes, discloses the rest by hash, and hands the packet on (7b.2, BL-20261115-1939-research-priority-trim-design)", async () => {
     const sources = Array.from({ length: 5 }, (_, i) => ({ id: `input/conflict-${i}`, path: `input/conflict-${i}`, bytes: Buffer.from(`The synthetic survey recorded twelve trees in location ${i}.`) }));
     const m = models((stage, input, n, system) => { const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "extract") reply.conflicts = Array.from({ length: 4 }, (_, i) => ({ questionIds: ["Q1"], note: `Unverified conflict ${n}-${i}` })); return JSON.stringify(reply); });
     const result = await run(m, { sources }), coverage = parsed(result, RESEARCH_FILES.coverage), evidence = parsed(result, RESEARCH_FILES.evidence);
@@ -1224,7 +1224,7 @@ describe("E1 recoverability: the reading stage's recoveries and pinned limits at
     const m = models((stage, input, n, system) => stage !== "extract" ? happy(stage, input, n, system) : JSON.stringify({ questions: input.plan.questions.map((q: any) => ({ questionId: q.id, status: "evidence_found" })),
       quotes: String(input.chunk.text).split("\n").filter((line: string) => !line.startsWith("#")).slice(0, 12).map((quote: string) => ({ quote, questionIds: ["Q1"], note })), conflicts: [] }));
     const result = await run(m, { sources }), row = result.summary.stages[2]!, coverage = parsed(result, RESEARCH_FILES.coverage);
-    // BL-20261114-1304-research-priority-trim-design: before 7b.2 this run ended research_packet_cap_omission with no synthesis call.
+    // BL-20261115-1939-research-priority-trim-design: before 7b.2 this run ended research_packet_cap_omission with no synthesis call.
     expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
     expect(row).toMatchObject({ stage: "extract", calls: 21, invalidReplies: 0, quotesDropped: 0, quotesVerified: 252, quotesLeftByPresentation: 0, questionsTrimmed: 0 });
     expect(row.quotesLeftByCap).toBeGreaterThan(0); expect(row.quotesInPacket! + row.quotesLeftByCap!).toBe(252); expect(row.packetBytes).toBeLessThanOrEqual(64 * 1024);
@@ -1235,7 +1235,7 @@ describe("E1 recoverability: the reading stage's recoveries and pinned limits at
 });
 
 /**
- * Item 7b.2 (BL-20261114-1304-research-priority-trim-design): which quotes the packet keeps, and the presentation guard. `rows` sources
+ * Item 7b.2 (BL-20261115-1939-research-priority-trim-design): which quotes the packet keeps, and the presentation guard. `rows` sources
  * of twelve rows each answer with every row as a quote with a 200-character note; `paths` sets each source path's length, which only
  * coverage.json carries, so it grows the writer's presentation without changing the packet.
  */
@@ -1247,7 +1247,7 @@ const everyRow = (questionIds: (row: number, source: string) => string[]) => (st
 const four = (result: Awaited<ReturnType<typeof runResearchPipeline>>) => result.files.filter(f => [RESEARCH_FILES.argument, RESEARCH_FILES.evidenceText, RESEARCH_FILES.plan, RESEARCH_FILES.coverage].includes(f.path as never));
 const longArgument = `The packet supports a bounded finding [E1]. ${"word ".repeat(24_000)}\n\n## Conflicting evidence\nNone noted.\n\n## Unanswered questions\nNone.`;
 
-describe("item 7b.2: the priority trim and the presentation guard (BL-20261114-1304-research-priority-trim-design)", () => {
+describe("item 7b.2: the priority trim and the presentation guard (BL-20261115-1939-research-priority-trim-design)", () => {
   it("keeps a prefix of the round-robin over the plan's questions, places a shared quote once, and leaves no question without a packet quote", async () => {
     // Three questions: rows 0 to 9 answer Q1, row 10 answers Q2, and row 11 answers Q2 and Q3 together, so in verification order Q1 would fill the packet first.
     const plan = (stage: Stage, input: any, n: number, system: string) => { const reply = JSON.parse(happy(stage, input, n, system));
@@ -1302,7 +1302,7 @@ describe("item 7b.2: the priority trim and the presentation guard (BL-20261114-1
   });
   it("assumes a synthesiser request cap of about 210 KB: with ids equal to paths, 40 dense sources pass the guard and the heavy profile's 640 KiB sends the request, while the 192 KiB default refuses it before any synthesis call", async () => {
     // As the session builds sources (id = path), 30-character ids. The guard bounds the writer's presentation, not the synthesis request,
-    // which also carries the evidence as JSON and the brief: about 201 KB here (BL-20261114-1304-research-priority-trim-design, review of #102).
+    // which also carries the evidence as JSON and the brief: about 201 KB here (BL-20261115-1939-research-priority-trim-design, review of #102).
     const sources = trimCorpus(40).map((source, i) => { const id = `input/${"p".repeat(18)}-${String(i).padStart(2, "0")}.md`; return { ...source, id, path: id }; });
     const small = models(everyRow(() => ["Q1"])), refused = await run(small, { sources });
     expect(refused).toMatchObject({ status: "incomplete", reason: "research_request_denied" });

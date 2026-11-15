@@ -20,7 +20,7 @@ const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_re
 const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["findings", "conflict", "unresolved"]), evidenceIds: z.array(eid).max(480) }).strict();
 /**
  * Version 2 since 7(c) (BL-20261113-0927-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`.
- * Version 3 since 7b.2 (BL-20261114-1304-research-priority-trim-design): an omission names its quote's chunks and locator, so (sourceId,
+ * Version 3 since 7b.2 (BL-20261115-1939-research-priority-trim-design): an omission names its quote's chunks and locator, so (sourceId,
  * locator, quoteSha256) is the pipeline's own identity of one verified quote; `presentation_cap` marks a quote only the presentation
  * guard left out; a chunk question may be `evidence_trimmed`. Omissions no longer make a packet incomplete.
  */
@@ -166,7 +166,7 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   // writer text the gate never saw (and the host plan's check below would not be byte for byte).
   for (const path of [RESEARCH_FILES.index, RESEARCH_FILES.plan, RESEARCH_FILES.evidence, RESEARCH_FILES.summary, RESEARCH_FILES.coverage])
     if (read(path) !== `${canonical(parse(path))}\n`) fail("json_form");
-  // 7b.2 (BL-20261114-1304-research-priority-trim-design): omissions and conflict omissions no longer make a packet incomplete; the
+  // 7b.2 (BL-20261115-1939-research-priority-trim-design): omissions and conflict omissions no longer make a packet incomplete; the
   // counts, identity and binding checks below accept only disclosed ones.
   if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
     coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");

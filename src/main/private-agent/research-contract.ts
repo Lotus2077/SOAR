@@ -16,7 +16,7 @@ export const RESEARCH_SLOT_POLICY = Object.freeze({ version: 1, plan: Object.fre
   assistPosition: "first_under_forced_split_else_after_every_stage_attempt", stageAfterAssist: "fresh_without_repair_context" });
 export interface ResearchSourceIdentity { id: string; path: string; sha256: string; bytes: number }
 /**
- * Version 2 since item 7b.2 (BL-20261114-1304-research-priority-trim-design, finding D4): a packet the priority trim cut is ready
+ * Version 2 since item 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): a packet the priority trim cut is ready
  * when every quote and conflict note it left out is disclosed in coverage.json, counted in evidence.json and bound to its chunks and
  * questions (research-coverage.ts); research-trim.ts says which ones it keeps.
  */

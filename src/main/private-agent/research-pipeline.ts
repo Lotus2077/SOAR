@@ -458,7 +458,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   }
   settleHeld(true);
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
-  // 7b.2 (BL-20261114-1304-research-priority-trim-design, finding D4): the packet keeps a prefix of the trim's priority
+  // 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): the packet keeps a prefix of the trim's priority
   // (research-trim.ts), conflict notes first because evidence.md renders the kept ones; coverage.json discloses every quote and note
   // left out, and the ready gate accepts the packet when those disclosures are counted, unique and bound.
   const questionOrder = plan.questions.map(q => q.id), conflictOrder = researchTrimOrder(questionOrder, conflicts), quoteOrder = researchTrimOrder(questionOrder, verified);

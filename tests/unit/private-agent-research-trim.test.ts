@@ -3,7 +3,7 @@ import { RESEARCH_TRIM_POLICY, researchLargestFitting, researchTrimOrder } from 
 
 const items = (...questionIds: string[][]) => questionIds.map(ids => ({ questionIds: ids }));
 
-describe("item 7b.2: the trim's priority and prefix search (BL-20261114-1304-research-priority-trim-design)", () => {
+describe("item 7b.2: the trim's priority and prefix search (BL-20261115-1939-research-priority-trim-design)", () => {
   it("goes round-robin over the questions in plan order, each in given order, and places a shared item once at its first turn", () => {
     // Q1 names 0, 1 and 3; Q2 names 2, 3 and 4. Round 0: 0, 2. Round 1: 1, 3. Round 2: Q1's 3 is placed already; Q2's 4.
     expect(researchTrimOrder(["Q1", "Q2"], items(["Q1"], ["Q1"], ["Q2"], ["Q1", "Q2"], ["Q2"]))).toEqual([0, 2, 1, 3, 4]);

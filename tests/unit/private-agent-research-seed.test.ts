@@ -327,7 +327,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(forcedProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", "unknown"], ["synthesise", "failed"]]);
     expect(loadResearchSeed(sourceRun({ base: forced, producer: () => forcedProducer }), task).seed.producer.receipts).toEqual(forcedProducer.receipts);
   });
-  it("7b.2: seeds a packet the priority trim cut, its omissions disclosed and bound (BL-20261114-1304-research-priority-trim-design)", async () => {
+  it("7b.2: seeds a packet the priority trim cut, its omissions disclosed and bound (BL-20261115-1939-research-priority-trim-design)", async () => {
     // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.
     const sources = Array.from({ length: 20 }, (_, i) => ({ id: `input/trim-${String(i).padStart(2, "0")}.md`, path: `input/trim-${String(i).padStart(2, "0")}.md`,
       bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));

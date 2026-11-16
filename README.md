@@ -129,6 +129,22 @@ the ignored `.soar/`, and no address is printed or stored):
 - `pnpm fixture:planner -- --index <index.json> --brief <brief> [--dry-run]`: the
   E0 planner fixture, checked against the hashes-only manifest
   `docs/experiments/e0-planner-fixture-v1.json`; raw replies stay under `.soar/`.
+- `pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> [--dry-run]`:
+  the E0 judge fixture. It runs today's entailment judgement on a claim set that a
+  cloud model labelled through its API, checked against the hashes-only manifest
+  `docs/experiments/e0-judge-fixture-v1.json`, and scores agreement. `pnpm fixture:judge --
+  harvest --runs <runDir> --task <name> --out <claims.json>` collects the claims to label;
+  [the labelling protocol](docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md) says how.
+  Claims, labels and raw replies stay under `.soar/`.
+- `scripts/with-cloud-key.sh pnpm --silent label:judge -- --claims .soar/experiments/e0-judge/claims.json --minimum-per-class <n> [--dry-run]`:
+  the E0 judge labelling, the protocol's one paid step. It sends the protocol's steps 2 and 3,
+  the per-class minimum and the harvested claims to `gpt-6-sol` under a USD 1.00 total cap,
+  and writes `claims.json` and `labels.json` beside the claim set. It runs only after the E0
+  card's amendment names it. A dry run needs no key, sends nothing and prints the projected fee.
+  `--silent` keeps pnpm's banner, which names the checkout's path, off the output. The total
+  holds through `.soar/experiments/e0-judge/labelling-ledger.jsonl`: keep it, and put a
+  relabelled set in a subdirectory. A killed run leaves `labelling.lock` there; remove it by
+  hand once no labelling runs (the ledger still counts the killed request).
 
 ## Commands
 
@@ -137,10 +153,11 @@ the ignored `.soar/`, and no address is printed or stored):
 | `pnpm dev` | Run the desktop app |
 | `pnpm check` | Readiness and build-log validation, typecheck, tests, build |
 | `pnpm test:e2e` | Electron end-to-end tests (after `pnpm build`) |
-| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
+| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint, the endpoint's identity (served alias, model root basename, engine version, context window) and its window against the profile, and, with the serving-card pair set, the adopted card compared field by field; `--write` records the image id and profile in the app's user-data settings |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
 | `pnpm probe:export-schemas` / `pnpm probe:assess` | Write the role schemas probe P10 sends; validate its retained replies with the real schemas |
-| `pnpm card:serving` / `pnpm fixture:planner` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner fixture against its manifest |
+| `scripts/with-cloud-key.sh pnpm --silent label:judge` | Label the E0 judge claim set and plant its negatives through `gpt-6-sol`, under the USD 1.00 total cap (paid; the E0 card's amendment names it first); `--dry-run` prints the projected fee and sends nothing |
+| `pnpm card:serving` / `pnpm fixture:planner` / `pnpm fixture:judge` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner and judge fixtures against their manifests (`fixture:judge -- harvest` collects verified claims for labelling) |
 | `pnpm setup:patch-pilot` / `pnpm dev:patch` | Coding pilot setup and cloud-only launch |
 | `pnpm check:release-head` | Release-only gate on a clean committed head |
 

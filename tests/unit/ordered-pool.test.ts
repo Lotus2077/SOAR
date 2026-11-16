@@ -18,7 +18,7 @@ function harness(count: number) {
 /** Lets every pending promise reaction run, so the pool reaches its next await. */
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 const denied = (outcome: PoolOutcome<string>) => outcome.status === "fulfilled" && outcome.value.startsWith("denied");
-/** The pipeline's rule (BL-20261114-1645 decision 2): a sibling stop is a `cancelled` reply applied with afterAbort, and nothing else. */
+/** The pipeline's rule (BL-20261116-1213 decision 2): a sibling stop is a `cancelled` reply applied with afterAbort, and nothing else. */
 const siblingStop = (outcome: PoolOutcome<string>, afterAbort: boolean) => afterAbort && outcome.status === "fulfilled" && outcome.value === "denied cancelled";
 
 describe("the ordered pool (backlog item 8)", () => {

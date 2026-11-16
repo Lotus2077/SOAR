@@ -14,7 +14,8 @@ import { diagnosticRetention, digest, restrictedContext } from "../../src/main/p
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
-import { researchV4Reply } from "../helpers/research-v4-fixture";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const done of cleanups.splice(0).reverse()) await done(); });
@@ -34,19 +35,25 @@ function phase(): SessionPhase {
  * `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any
  * reply, or "hold" to never answer. `delayMs` (8.2b) answers a stage's requests after a delay, and `flight` counts those in flight per stage.
  */
-async function fixture(options: { reply?: (system: string) => string | undefined; recoverable?: boolean; delayMs?: (system: string) => number } = {}) {
-  const bodies: { system: string; user: string }[] = [], flight = new Map<string, { live: number; peak: number }>();
+async function fixture(options: { reply?: (system: string, user: string) => string | undefined; recoverable?: boolean; delayMs?: (system: string) => number } = {}) {
+  // 7a.2's review: each request's output cap and thinking fields too, so a test can see a card's policy reach the bodies; item 9: its
+  // response_format, as [name, true for strict or "non_strict" when the key is absent].
+  const bodies: { system: string; user: string; maxTokens?: number; thinking: string; responseFormat?: [string, true | "non_strict"] }[] = [], flight = new Map<string, { live: number; peak: number }>();
   const hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" | "hold"; onCloud?: (response: http.ServerResponse) => void } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
       // The cloud destination (E1) never answers inside its timeout unless a test answers it itself.
       if (request.url?.startsWith("/cloud")) { hooks.onCloud?.(response); return; }
-      const body = JSON.parse(raw) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
-      bodies.push({ system, user });
+      const body = JSON.parse(raw) as { messages: { content: string }[]; max_tokens?: number; reasoning_effort?: string; chat_template_kwargs?: { enable_thinking?: boolean };
+        response_format?: { json_schema: { name: string; strict?: true } } },
+        system = body.messages[0]!.content, user = body.messages[1]!.content;
+      bodies.push({ system, user, ...(body.max_tokens !== undefined ? { maxTokens: body.max_tokens } : {}),
+        thinking: body.reasoning_effort ?? (body.chat_template_kwargs?.enable_thinking === false ? "off" : "model_default"),
+        ...(body.response_format ? { responseFormat: [body.response_format.json_schema.name, body.response_format.json_schema.strict ?? "non_strict"] as [string, true | "non_strict"] } : {}) });
       const decision = hooks.onRequest?.(system, request);
       if (decision === "destroy") { request.socket.destroy(); return; }
       if (decision === "hold") return;
-      const content = options.reply?.(system) ?? researchV4Reply(system, user);
+      const content = options.reply?.(system, user) ?? researchV4Reply(system, user);
       const answer = () => {
         response.setHeader("content-type", "application/json");
         response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
@@ -80,8 +87,8 @@ async function fixture(options: { reply?: (system: string) => string | undefined
 type Run = { files: string[]; goal: string; checks: string[]; required: string[]; restricted: boolean; initialEvidence?: string };
 /** The research stage events of a job as [stage, calls, denied]: every call the stage stops records one, even before its row is committed. */
 const stageEvents = (store: PrivateAgentStore, jobId: string) => store.events(jobId).filter(event => event.type === "research_stage").map(event => [event.stage, event.calls, event.denied]);
-function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Run[], destination = "model"): GeneralSessionOptions {
-  const privatePhase = phase(), checkpoints = new PrivateCheckpointStore(f.root, jobId);
+function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Run[], destination = "model", privatePhase = phase()): GeneralSessionOptions {
+  const checkpoints = new PrivateCheckpointStore(f.root, jobId);
   const config = (destinationId: string) => ({ destinationId, model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" as const });
   const model = (contextId: string, destinationId = destination) => new PrivateAgentModel(f.broker, config(destinationId), jobId, contextId);
   // The heavy profile's pool: the H2c guard refuses a pool that cannot hold the reader's 68 calls and the writer's 40.
@@ -146,7 +153,8 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const coverage = new PrivateCheckpointStore(f.root, "job-research-flags").load(transfer.snapshot).find(file => file.path === RESEARCH_FILES.coverage)!;
     const flags = events.filter(event => event.type === "host_flags");
     expect(flags).toEqual([expect.objectContaining({ contextId: start.privateContextId, packet: { coverageSha256: digest(coverage.bytes) },
-      misses: { briefUnits: 1, questionsWithoutEvidence: 0, unresolvedQuestions: 0, noEvidenceOutcomes: 0, extractionRetries: 0, droppedQuotes: 0, fetchFailures: 0, fetchLimitRefusals: 0 },
+      misses: { briefUnits: 1, questionsWithoutEvidence: 0, questionsTrimmed: 0, unresolvedQuestions: 0, noEvidenceOutcomes: 0, extractionRetries: 0, droppedQuotes: 0,
+        quotesLeftByCap: 0, conflictsLeftByCap: 0, fetchFailures: 0, fetchLimitRefusals: 0 },
       report: expect.objectContaining({ scanned: true, hits: [] }), argument: expect.objectContaining({ scanned: true, hits: [] }) })]);
     expect(flags[0]!.counts).toMatchObject({ briefSingleUnit: 1, reportAbsence: 0, argumentAbsence: 0 });
     // The resume reloads the packet from the transfer and records nothing more.
@@ -203,7 +211,64 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(evidence).toContain("Host fallback question: what does the corpus establish for brief requirement U1?");
     expect(evidence).toContain(RESEARCH_FALLBACK_POLICY.skeleton.opening);
     const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
-    expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 2, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
+    expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 3, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
+  });
+  it("7b.2: a packet the priority trim cut reaches the writer, with its omissions and trimmed outcomes in the presentation (BL-20261115-1939-research-priority-trim-design)", async () => {
+    // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.
+    const corpus = Array.from({ length: 20 }, (_, i) => ({ path: `input/corpus/trim-${String(i).padStart(2, "0")}.md`,
+      bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+    const base = phase(), trimmedPhase: SessionPhase = { ...base, files: [...corpus, ...base.files.filter(file => !file.path.startsWith("input/"))] };
+    const f = await fixture({ reply: (system, user) => { if (!system.startsWith("You extract")) return undefined; const input = parseResearchUserContent(user);
+      return JSON.stringify({ questions: input.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "evidence_found" })), conflicts: [],
+        quotes: String(input.chunk.text).split("\n").map(quote => ({ quote, questionIds: input.plan.questions.map((q: { id: string }) => q.id), note: "n".repeat(200) })) }); } });
+    const runs: Run[] = [];
+    expect(await new GeneralAgentSession(options(f, "job-trimmed", runs, "model", trimmedPhase)).run()).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    const extract = f.store.events("job-trimmed").find(event => event.type === "research_stage" && event.stage === "extract") as unknown as Record<string, number>;
+    expect(extract).toMatchObject({ quotesVerified: 240, quotesLeftByPresentation: 0, questionsTrimmed: 0 }); expect(extract.quotesLeftByCap).toBeGreaterThan(0);
+    const evidence = runs[0]!.initialEvidence!;
+    const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
+    const coverage = JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text);
+    expect(coverage.version).toBe(3); expect(coverage.omissions).toHaveLength(extract.quotesLeftByCap);
+    expect(coverage.chunks.some((chunk: { questions: { status: string }[] }) => chunk.questions.some(q => q.status === "evidence_trimmed"))).toBe(true);
+    // The writer's instructions say what a trimmed quote is.
+    expect(runs[0]!.goal).toContain("evidence_trimmed"); expect(runs[0]!.goal).toContain("are never absence");
+  });
+  it("7a.2: the identity binds a non-default role policy, so a resume under another card drifts; the default equals no card (BL-20261116-1203-research-role-policy-design)", async () => {
+    // Every cap fits the fixture's 4,096-token role models, so the policy is sent exactly.
+    const card = (extract: [number, number]): ResearchRolePolicy => { const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy;
+      roles.plan.maxOutputTokens = [4096, 4096]; roles.synthesis.maxOutputTokens = [4096, 4096]; roles.extract.maxOutputTokens = extract; return roles; };
+    const f = await fixture(), runs: Run[] = [], first = options(f, "job-card", runs); first.research = { ...first.research!, roles: card([1024, 2048]) };
+    expect(await new GeneralAgentSession(first).run()).toMatchObject({ status: "submitted" });
+    // The card's caps reach the request bodies through the session (#103's review): extract's attempt 1 sends 1,024 where the default
+    // sends 2,048; plan and synthesis send 4,096, the fixture model's own limit; every role of this 4,096-token fixture sends thinking off.
+    const sent = (prefix: string) => f.bodies.filter(body => body.system.startsWith(prefix)).map(body => [body.maxTokens, body.thinking]);
+    expect(sent("You index")).toEqual([[1536, "off"]]); expect(sent("You plan")).toEqual([[4096, "off"]]);
+    expect(sent("You extract")).toEqual([[1024, "off"]]); expect(sent("You write")).toEqual([[4096, "off"]]);
+    const other = options(f, "job-card", runs); other.research = { ...other.research!, roles: card([1536, 2048]) };
+    expect(await new GeneralAgentSession(other).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    const same = options(f, "job-card", runs); same.research = { ...same.research!, roles: card([1024, 2048]) };
+    expect(await new GeneralAgentSession(same).run()).toMatchObject({ status: "submitted" });
+    // Without a card and with an all-default card, the job is the same session.
+    const bare = options(f, "job-default", runs);
+    expect(await new GeneralAgentSession(bare).run()).toMatchObject({ status: "submitted" });
+    const defaulted = options(f, "job-default", runs); defaulted.research = { ...defaulted.research!, roles: structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy };
+    expect(await new GeneralAgentSession(defaulted).run()).toMatchObject({ status: "submitted" });
+  });
+  it("item 9: a card's structured-output flag reaches the request bodies through the session (BL-20261116-1208-research-structured-output-design)", async () => {
+    // Every cap fits the fixture's 4,096-token role models, whose own thinking is disabled: each call's effective mode is off, so the
+    // extract flag for that mode applies and the synthesis flag, for thinking on only, does not.
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy;
+    roles.plan.maxOutputTokens = [4096, 4096]; roles.synthesis.maxOutputTokens = [4096, 4096];
+    roles.extract.structuredOutput = { variant: "strict", thinkingOff: true, thinkingOn: false }; roles.synthesis.structuredOutput = { variant: "non_strict", thinkingOff: false, thinkingOn: true };
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-structured", runs); config.research = { ...config.research!, roles };
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
+    const sent = (prefix: string) => f.bodies.filter(body => body.system.startsWith(prefix)).map(body => body.responseFormat ?? null);
+    expect(sent("You index")).toEqual([null]); expect(sent("You plan")).toEqual([null]);
+    expect(sent("You extract")).toEqual([["research_extraction", true]]); expect(sent("You write")).toEqual([null]);
+    // The ledger's stage rows count the calls that carried it.
+    const stages = f.store.events("job-structured").filter(event => event.type === "research_stage") as { stage: string; structuredOutputCalls?: number }[];
+    expect(stages.map(stage => [stage.stage, stage.structuredOutputCalls])).toEqual([["index", undefined], ["plan", undefined], ["extract", 1], ["synthesise", undefined]]);
   });
   it("refuses a cloud-shaped planner on a private lineage at the broker, stops the stage with the denial code, and dispatches nothing to it", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-private", runs, "private-model");
@@ -594,7 +659,7 @@ describe("E1 recoverability: a research stage stopped mid-call on the real broke
       expect(runs).toHaveLength(0);
       expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
     }, 20_000);
-  // 8.2b (BL-20261114-1645 decision 6; #71's review): the cases above assume one dispatch in flight per job. Rerun with K = 2: a stage with
+  // 8.2b (BL-20261116-1213 decision 6; #71's review): the cases above assume one dispatch in flight per job. Rerun with K = 2: a stage with
   // one call in flight stops as before, and the extraction stage's two calls, both in flight, both resolve failed with code cancelled.
   it.each(stages.flatMap(stage => (["cancel", "external abort", "session deadline", "pause"] as const).map(mode => [stage[0], mode, stage] as const)))(
     "8.2b, K = 2, %s, %s: one call in flight stops as at K = 1, and a resume sends nothing again", async (name, mode, stage) => {
@@ -797,5 +862,30 @@ describe("backlog item 8.2b: the session's K reaches the reader's loops and the 
     expect(rows("job-k3")).toEqual(rows("job-serial"));
     const judged = (jobId: string) => f.store.events(jobId).filter(event => event.type === "claims_entailment").map(without);
     expect(judged("job-k3")).toEqual(judged("job-serial")); expect(judged("job-k3")).toMatchObject([{ entailmentCalls: 4, truncated: false, counts: { supported: 4 } }]);
+  }, 20_000);
+  it("with a card's caps and structured-output flag (7a.2, item 9), K = 3 sends the request bodies K = 1 sends, with the same stage rows", async () => {
+    const f = await fixture({ delayMs: system => system.startsWith("You index") || system.startsWith("You extract") ? 40 : 0 });
+    // Every cap fits the fixture's 4,096-token role models, whose own thinking is disabled, so the extract flag for thinking off applies.
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy;
+    roles.plan.maxOutputTokens = [4096, 4096]; roles.synthesis.maxOutputTokens = [4096, 4096]; roles.extract.maxOutputTokens = [1024, 2048];
+    roles.extract.structuredOutput = { variant: "strict", thinkingOff: true, thinkingOn: false };
+    const sent: Record<string, typeof f.bodies> = {}, peaks: Record<string, number[]> = {};
+    for (const [jobId, streams] of [["job-card-serial", undefined], ["job-card-k3", 3]] as const) {
+      const config = withSources(options(f, jobId, []), 4); config.research = { ...config.research!, roles };
+      if (streams !== undefined) config.localStreams = streams;
+      const from = f.bodies.length;
+      expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
+      sent[jobId] = f.bodies.slice(from); peaks[jobId] = [f.flight.get("index")!.peak, f.flight.get("extract")!.peak]; f.flight.clear();
+    }
+    expect(peaks).toEqual({ "job-card-serial": [1, 1], "job-card-k3": [2, 3] });
+    // The server records concurrent requests as they arrive, so the bodies are compared as sorted lists.
+    const sorted = (bodies: typeof f.bodies) => bodies.map(body => JSON.stringify(body)).sort();
+    expect(sorted(sent["job-card-k3"]!)).toEqual(sorted(sent["job-card-serial"]!));
+    expect(sent["job-card-k3"]!.filter(body => body.system.startsWith("You extract")).map(body => [body.maxTokens, body.responseFormat]))
+      .toEqual(Array.from({ length: 4 }, () => [1024, ["research_extraction", true]]));
+    const without = (event: Record<string, unknown>) => { const { contextId: _context, ...rest } = event; return rest; };
+    const stages = (jobId: string) => f.store.events(jobId).filter(event => event.type === "research_stage").map(without);
+    expect(stages("job-card-k3")).toEqual(stages("job-card-serial"));
+    expect(stages("job-card-k3").map(stage => [stage.stage, stage.structuredOutputCalls])).toEqual([["index", undefined], ["plan", undefined], ["extract", 4], ["synthesise", undefined]]);
   }, 20_000);
 });

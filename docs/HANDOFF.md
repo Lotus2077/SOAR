@@ -1,6 +1,6 @@
 # SOAR handoff
 
-## Start here (2026-11-14)
+## Start here (2026-11-15)
 
 This section is the entrypoint for the next session. It supersedes every earlier
 "next step" in this file; the rest of the file is the September 2026 record.
@@ -14,7 +14,7 @@ is in the git-ignored `.soar/next-milestones/plan.md` of the owner's checkout.
 
 ### 1. Get the work
 
-`main` is at 6c30bbf, the merge of #95; work from it. Select Node 22.22.2 and pnpm
+`main` is at b7c0431, the merge of #100; work from it. Select Node 22.22.2 and pnpm
 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
 `engine-strict=true`, so another Node major fails the install.
 
@@ -37,8 +37,13 @@ approves pushing reviewed work to public `main`).
 | 2026-11-13 | #94, train 2b | #88 (corrections for #66, #70 and #74), #84 E1-T2, #75 E1-T3 and #80 E1-J2 |
 | 2026-11-13 | #79, #93 | 10.a, the assist core; 7c, research pipeline v5 |
 | 2026-11-13 | #87, #95 | E0's card, docs/experiments/e0-card-2026-11-13.md; P10-align |
+| 2026-11-14 | #96 | This section, restated for `main` at 6c30bbf |
+| 2026-11-14 | #99, #98, #101, #104 | 7d.C; 11.5, the experiment launcher; 8.1; 11.4 |
+| 2026-11-14 | #107, #109, #112 | The racy-git test fix; E1-J2's decision 6, the claims check's six other slow patterns; long character references in the claims check |
+| 2026-11-14 | #91, #90, #106 | E0's judge fixture; the doctor; corrections to this section |
+| 2026-11-14 | #111, #97, #100 | The SC settings binding; E1-G; 6.4 |
 
-Since #93, `researchProtocolSha256()` is
+`researchProtocolSha256()` has not changed since #93. It is
 `505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92`, pinned in
 tests/helpers/research-protocol-pin.ts.
 
@@ -48,7 +53,7 @@ tests/helpers/research-protocol-pin.ts.
    (architecture v5), §5.6 (experiments E0-E7, their caps, rules and order), §5.7
    (the backlog) and §5.10 (owner decisions).
 2. [PLAN.md](PLAN.md): the owner-direction note in §1 and the envelope in §4.
-3. [BUILD_LOG.md](BUILD_LOG.md), by grepping these IDs (the file is about 38,000
+3. [BUILD_LOG.md](BUILD_LOG.md), by grepping these IDs (the file is about 42,000
    lines): BL-20261107-0650-owner-decisions-review-items-2-5 with its correction
    BL-20261107-0718-correction-owner-decisions-record (what is approved and what
    gates each experiment); BL-20261110-1506-merge-train-1-integration;
@@ -57,6 +62,16 @@ tests/helpers/research-protocol-pin.ts.
    BL-20261113-1003-e0-card-owner-answers and
    BL-20261113-1023-p10-align-implemented, with the E0 card and issue #57; and
    decision 2 of BL-20261113-0848-correction-e1-train-1-reviews (E1's gate).
+4. From 2026-11-14, in the same file:
+   BL-20261114-2306-e1-recoverability-gate-ci-verified with its correction
+   BL-20261114-2307-correction-e1-recoverability-gate-review (E1's gate and its
+   standing defaults); BL-20261114-2250-judge-fixture-implemented with its corrections
+   BL-20261114-2252-correction-judge-fixture-cloud-labeller and
+   BL-20261114-2253-correction-judge-fixture-review-fixes (the judge fixture);
+   BL-20261114-2255-doctor-endpoint-identity-implemented (the doctor);
+   BL-20261114-2302-serving-card-request-settings-implemented (the SC settings
+   binding); and BL-20261114-2254-correction-judge-fixture-second-restamp (the
+   owner's merge go of 2026-11-14).
 
 ### 3. Decided
 
@@ -95,6 +110,10 @@ tests/helpers/research-protocol-pin.ts.
     its claim set through its API, on public and synthetic material only, capped at
     USD 1.00 (the cap is the orchestrator's figure; the owner stated none).
   - Reasoning text is kept, and P10 is aligned with the pipeline's requests (#95).
+- **The merge go of 2026-11-14**
+  (BL-20261114-2254-correction-judge-fixture-second-restamp). The owner approved
+  merging #91, #90, #97, #100 and #106; #97 and #100 merged with the defaults they
+  state. The go answered none of the questions in §4.
 
 ### 4. Still open, and what each blocks
 
@@ -111,60 +130,202 @@ tests/helpers/research-protocol-pin.ts.
 | 13: the Phase 2 dashboard reconciliation; D20(b) | The uncached all-cloud baselines (USD 3.05-3.77); T3 and any coding on private source code |
 | 2, last part: whether the assist toggle starts on | The toggle's default for URL-backed public tasks (item 13), once E4 ships a cloud-assisted arm |
 
-- **Owner-only Docker-gated runs, none run yet:** #74's sandbox suite, #81's
-  document-review suite, #73's runtime freeze `git` assertion and #72's general-task
-  e2e assertion.
-- **Train 1's owner questions:** see the git-ignored
-  `.soar/next-milestones/reviews/train-1/owner-decisions-train-1.md`.
+- **Owner-only Docker-gated runs, none run yet:** #74's sandbox suite, which E1's gate
+  waits for (§5 step 3), #81's document-review suite, #73's runtime freeze `git`
+  assertion and #72's general-task e2e assertion.
+- **Compiled owner questions,** both git-ignored in the owner's checkout: train 1's in
+  `.soar/next-milestones/reviews/train-1/owner-decisions-train-1.md`, and the
+  owner-facing summary of 2026-11-15 in
+  `.soar/next-milestones/owner-questions-2026-11-15.md`, whose first item, the merge
+  go, is answered.
 - **Later owner questions**, each default standing until answered:
   - #89, question (b) of BL-20261113-0836-infra-resume-design: criterion 7 reads
     `activeSeconds` for a resumed loop. It amends E3's and E4's approved rules, so it
     needs the owner's own answer.
   - #92 (BL-20261110-1509-host-flags-event-design): D11 (#55) keeps the segmentation
     and flags single-unit briefs; "misses" means the run's own misses.
-  - #88 (decision 2 of BL-20261113-0848-correction-e1-train-1-reviews): when a fix
-    changes LIST_FILES, E1's gate waits for that fix's Docker run, recorded `Verified`.
-  - #80 (decision 6 of BL-20261113-0856-claims-trailing-strip-linear-design): the
-    claims check's other slow patterns go in one follow-up PR.
-- **Open drafts from another session:** #86 (the Rayline evaluation; it also edits
-  this section, so whichever merges second resolves the conflict), #90 (the doctor)
-  and #91 (the judge fixture).
+  - #97, decision 3 of BL-20261114-2306-e1-recoverability-gate-ci-verified: E1-1 (the
+    card entry is E1's card); E1-2 (clause 3 passes on injected rows and the
+    session-level emulation; 10.b must re-prove it end to end under the same describe
+    name, and E3's card must cite that test); E1-3 (the gate waits only for E1-R and
+    E1-L); and E1-6, which is #88's question: when a fix changes LIST_FILES, E1's gate
+    waits for that fix's Docker run, recorded `Verified` (decision 2 of
+    BL-20261113-0848-correction-e1-train-1-reviews). Whether E1's hold also covers
+    E0's r3 run is open. E1's card says E1 does not gate E0 (decision (7) of
+    BL-20261109-0351-e1-recoverability-card), because E0's probes and planner fixture
+    use no broker or session; the r3 run drives the broker, a session and the Docker
+    sandbox.
+  - #98, the launcher (11.5): HARN-26, the six batch rules (default: yes), and the
+    120 s wait before SIGKILL on an owner's stop with the cap of 4 re-invocations per
+    loop (default: these values), in BL-20261114-1344-experiment-launcher-design. On a
+    hangup, send the run SIGTERM, or treat it like the STOP file so the run in
+    progress continues unsupervised and nothing new starts (default: SIGTERM); and the
+    5 s window for a repeated signal (default: 5 s). Both are in
+    BL-20261114-1431-experiment-launcher-signals-design, as
+    BL-20261114-1503-correction-experiment-launcher-hangup corrects it: a hangup is
+    never taken as a second press, so a run that ignores the SIGTERM is killed only at
+    the 120 s bound.
+  - #101 (8.1) merged item 8's design,
+    BL-20261114-1505-concurrent-local-admission-design, whose decision (10) holds four
+    defaults. ASSIST-M1, the admission scope (one job, context and purpose, on
+    `local_model` only), governs 8.1. ASSIST-1 (a denial at K > 1 aborts the siblings
+    and drains), ASSIST-2 (a judge failure at K > 1 keeps the verdicts that arrive) and
+    ASSIST-M2 (K in freeze.json only for now, the registry column with item 11) govern
+    8.2b (#110).
+  - #104, 11.4 (BL-20261114-1523-registry-columns-design): HARN-27, the brief's
+    definitions or registrable domains through a public-suffix list (default: the
+    brief's); on a closed corpus, `domains` is 0 and E3 reads `urls` and
+    `actions.sourcesRead` (default: yes); the reading stage's `sourcesIndexed` is the
+    closed-corpus "read" until item 12 (default: yes).
+  - #100, 6.4 (BL-20261114-2309-revoke-reopens-budget-stop-design): should a Revoke
+    re-open a task that its approved consultation's budget stop ended? Default: yes,
+    as before 6.3. #100 merged with that default, but the question was not put on its
+    own (decision 2 of
+    BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp).
+- **Closed:** #80's question, decision 6 of
+  BL-20261113-0856-claims-trailing-strip-linear-design, went as its default of one
+  follow-up PR: #109 made the claims check's six other slow patterns linear with the
+  same results (BL-20261114-1724-claims-check-linear-strips-implemented). #112, a
+  separate follow-up to decision (10) of
+  BL-20261114-1711-claims-check-linear-strips-design, then read long decimal character
+  references as `html.unescape` would
+  (BL-20261114-1808-claims-check-long-char-refs-implemented).
+- **Open pull requests:**
+  - #102 (7b.2): ready; its merge is held for the owner's call on E0's timing (§5
+    step 2).
+  - #103 (7a.2), draft: merges after #102.
+  - #108 (item 9), draft, stacked on #103: it takes #111's settings binding when it
+    merges `main`.
+  - #110 (8.2b), draft: merges after item 9.
+  - #105 (scrub policy 5, for 10.b's scrubber gate), draft until the owner answers
+    its list of residues.
+  - #86 (the Rayline evaluation), draft: it also edits this section, so whichever
+    merges second resolves the conflict. §7 notes its entry.
+  - At b7c0431 every one of them conflicts with `main`; GitHub reports #108 mergeable
+    only against its base, #103's branch. Each merges `main` in, and re-stamps after
+    its tail, before it merges.
 
 ### 5. Act next, in this order
 
 Follow the order in review §5.6. Each step is done when its condition holds.
 
 1. **Backlog items 1-5 and item 10's assist-purpose exception.** Done on 2026-11-08.
-2. **E0** from the owner's Mac, at zero fee, per its card. Done: a serving card that
-   records the alias, engine version and context, never the address, with every stage
-   bound re-derived from it or, for the delta check, matched to 2026-11-04.
-   - Done: the card (#87) and P10-align (#95).
-   - The owner's remaining steps, in order:
-     1. Produce the current-format r3 research index with one zero-fee local research
-        run (the command is in #95's description; the r3 task directory is
+2. **E0** from the owner's Mac, at zero fee, per its card. Done when both hold:
+   - a serving card records the alias, engine version and context, never the address,
+     with every stage bound re-derived from it or, for the delta check, matched to
+     2026-11-04;
+   - #57's resolution records whether the judge reached its level.
+   - Done: the card (#87), P10-align (#95), the judge fixture (#91), the doctor (#90)
+     and the SC settings binding (#111). Since #111 a serving card records the request
+     settings P10's bodies were built under, and the reader refuses a structured-output
+     flag for a run under other settings.
+   - The remaining steps, in order:
+     1. `pnpm setup:general` first, before any step that uses the endpoint. The doctor
+        checks Docker, the qualified image, the endpoint's identity and its context
+        window against the profile, so a swapped model or too small a window fails at
+        setup rather than mid-run
+        (BL-20261114-2255-doctor-endpoint-identity-implemented). That entry asks for it
+        before E0's probes, and
+        BL-20261114-2256-correction-doctor-endpoint-identity-restamp recommends running
+        it first. No serving card is adopted yet; once E0's is, the doctor also compares
+        it field by field. It reads a `SOAR_STREAMING` value other than `true` or
+        `false` as off, though the app refuses that configuration
+        (BL-20261114-2305-correction-serving-card-request-settings-second-restamp).
+     2. After the owner answers whether E1's held gate covers this run (#97), and, if
+        it does, after the gate is released: produce the current-format r3 research
+        index with one zero-fee local research run (the command is in #95's
+        description; the r3 task directory is
         `.soar/experiments/phase2-v1/tasks/r3-grid-batteries` in the owner's
         checkout), then pin docs/experiments/e0-planner-fixture-v1.json. Which brief
         it pins is open (BL-20261113-1023-p10-align-implemented, (5)).
-     2. For the judge: #91 merges, then the cloud labelling.
-     3. The probes, per issue #57: P1 alone first, checked by hand; then P1, P10, P11
+     3. For the judge, per #91's protocol
+        (docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md):
+        - a labelling tool, which does not exist yet and must follow the protocol's
+          planting rules (BL-20261114-2253-correction-judge-fixture-review-fixes);
+        - an amendment to the card, committed before the first claim is sent, that
+          names the labelling and fixes the per-class minimum, the conditions and the
+          repeats (see "Open before E0" below);
+        - then the harvest, the cloud labelling inside its USD 1.00 cap, and the
+          manifest's pin, committed before any run
+          (BL-20261114-2252-correction-judge-fixture-cloud-labeller). The pin follows
+          E0's adapter probe unless it carries both J1 cells, since the activation cell
+          follows the reply contract.
+     4. The probes, per issue #57: P1 alone first, checked by hand; then P1, P10, P11
         and the adapter probe in one invocation after `pnpm probe:export-schemas`;
         then `pnpm probe:assess`; then the card writer with the `--compare-*` flags.
-   - No PR that changes `researchProtocolSha256()` may merge between the export and
-     the assessment; 7b.2, 7a.2 and item 9 will change it.
+   - The card and #57 also require steps this list leaves out:
+     - the planner fixture's run, after the r3 pin;
+     - an extractor fixture, which has no script yet; an amendment to the card must
+       name its command first;
+     - the judge fixture's run, after its pin;
+     - one registry row per run; registry-row.py has no mode for probe or fixture runs
+       yet;
+     - a `Verified` entry with the serving card.
+   - Open before E0, each the owner's to answer:
+     - when 7b.2 (#102) merges:
+       - before the export, and then the card's precondition hash is amended;
+       - or after the assessment, and then a structured-output card needs the full
+         re-probe below;
+     - for the labeller: the provider, the model, the public API host, the key's
+       variable name (never its value), the tool and the envelope line, and the
+       per-class minimum, the conditions and the repeats, all of which an amendment to
+       the card must fix before the first claim is sent (#91);
+     - which brief the planner fixture pins, and whether its pinned manifest is
+       committed before the planner run or with the results;
+     - the reply contract in `.env.local`; under `flash_next_v1`, every brokered call
+       needs the token-admission pair;
+     - whether the one probe invocation runs the four probes or P1 to P11;
+     - whether E1's held gate covers the r3 run (#97).
+   - No PR that changes the default value of `researchProtocolSha256()` may merge
+     between the export and the assessment.
+     - Of the pending items, only 7b.2 (#102) moves the default. Its pin moves the
+       hash to 7100b7a2…, and 7a.2's (#103) leaves 505c385a… unchanged.
+     - The rest is by the lane plan (plan.md §0 change 11) and the designs, not yet by
+       code:
+       - item 9 is to move the hash only through a non-default serving card, as 7a.2
+         does;
+       - 7b.3 only when a card is set;
+       - 10.b only when an assist is configured;
+       - 8.2b never.
+     - If a default-hash change lands after the assessment, a structured-output card needs a full
+       re-probe: a new export, then P1, P10, P11 and the adapter probe in one
+       invocation, then the assessment and a new card. Re-running P10 alone is not
+       enough.
+     - A PR that changes how the model layer builds the owned vLLM body,
+       `COORDINATOR_PROFILES.heavy` or `buildLocalScreenModelConfig` moves neither the
+       hash nor a setting the card records, and no check catches it; a reviewer must.
+       Such a PR must state that it invalidates earlier cards' structured-output
+       evidence, as SC requires of a protocol-hash change (decision (1) of
+       BL-20261114-2301-serving-card-request-settings-design; decision (2) of
+       BL-20261114-2304-correction-serving-card-request-settings-review).
 3. **E1**, the recoverability tests with no live model. Every E1 test and fix PR is
-   merged. Next is E1-G, the `Verified` entry that maps the gate clauses to tests.
-   Under #88's default, E1-G records the CI clauses `Verified` and holds the gate, with
-   no E2 to E6 live run, until the owner's Docker run of E1-L's sandbox suite is
-   recorded `Verified`. Done: its gate in review §5.6 passes.
+   merged, and so is E1-G (#97): BL-20261114-2306-e1-recoverability-gate-ci-verified
+   records the four gate clauses `Verified` in CI and maps each one to named tests.
+   Under #88's default the gate stays held, with no E2 to E6 live run and no harness
+   loop, until the owner's Docker run of E1-L's sandbox suite
+   (tests/integration/private-agent-sandbox.test.ts; the command and image are in that
+   entry) is recorded `Verified`. That run releases the gate only while the four
+   defaults in §4 stand (decision 3 of
+   BL-20261114-2307-correction-e1-recoverability-gate-review). Whether the hold also
+   covers E0's r3 run (step 2) is an open owner question. Done: its gate in review
+   §5.6 passes.
 4. **E5** on the existing local routes in the owner's desktop build, with item 2's
    verdict capture. Not started. Ask the owner about the P11 interim (decision 9) and
    the box checklist (PLAN.md D5); both gate labelled work only.
 5. **E2 and E6** (cards #62 and #54), backlog items 6-11, and the start of item 12.
-   - Done: 6.1, 6.2, 6.3, 7a.1, 7b.1, 7c, 7d.A, 7d.B, 8.2a, 10.a, 11.1, 11.2, 11.3a
-     and 11.3b.
-   - Remaining, as the entries name them: 7a.2, 7b.2, 7b.3, 7d.C, 8.1, 8.2b, item 9,
-     10.b, 11.4, the part 5 launcher (11.5) and RA (the assist receipt fields). The
-     lane plan puts item 9 last in S-pipe's sequence, after 7b.2 and 7a.2.
+   - Done: 6.1, 6.2, 6.3, 6.4, 7a.1, 7b.1, 7c, 7d.A, 7d.B, 7d.C, 8.1, 8.2a, 10.a,
+     11.1, 11.2, 11.3a, 11.3b, 11.4 and 11.5.
+   - Remaining, as the entries name them: 7a.2 (#103), 7b.2 (#102), 7b.3, 8.2b
+     (#110), item 9 (#108), 10.b and RA (the assist receipt fields). The lane plan
+     puts item 9 last in S-pipe's sequence, after 7b.2 and 7a.2, and RA in one PR
+     with 11.6 after 10.b. It leaves 11.7a/b (after decision 8 and item 12) and 11.8
+     (after decision 5's open part) out of E3's "items 6-11" condition.
+   - Merge order, as the orchestrating session decided on 2026-11-14 (not the owner):
+     - While 10.b waits on the scrubber gate of
+       BL-20261113-0925-correction-assist-core-rereview, 7a.2 and then item 9 may merge
+       before 10.b. 10.b merges `main` in afterwards.
+     - serving-card-flags.ts keeps the order 7a.2, 9, 8.2b, 7b.3.
+     - 7c's fallback column moved from RA into 11.4 and merged with it (#104).
    - E2 and E6 have not run, and item 12 has not started.
 6. **E3** waits as before: items 6-11 done (10.b and item 11 among them), decisions 6
    and 11 made, and its card (#63) committed, naming the provider and D's call
@@ -200,17 +361,39 @@ Follow the order in review §5.6. Each step is done when its condition holds.
     with a merge, never a rebase that needs one.
   - When several branches are ready, the lanes re-stamp into reserved, ascending
     minute blocks and one integration PR lands them with one CI run.
+- Practice of 2026-11-14, also not an owner decision:
+  - Later that day the orchestrating session began asking the owner before it merges
+    a PR that is not a lane PR, or one that states an open owner default. #91, #90,
+    #97, #100 and #106 merged on the owner's own go
+    (BL-20261114-2254-correction-judge-fixture-second-restamp). Earlier that day #98,
+    #101 and #104, lane PRs that state open defaults, merged under the standing
+    go-ahead. Either way the defaults stand as §4 lists them.
+  - Ready PRs merged one at a time: each branch merged `main` in after the previous
+    merge and re-stamped after its tail. PRs that must land in sequence can each merge
+    the previous PR's head instead of `main`, so their CI runs at once; they then
+    merge strictly in that order.
 
 ### 7. Known limits
 
-- Nothing merged since 2026-11-07 is `Verified`; the last `Verified` entry is
+- Of the work merged since 2026-11-07, only E1's gate clauses are `Verified`, and only
+  in CI (BL-20261114-2306-e1-recoverability-gate-ci-verified); E1's gate itself is
+  held. The last `Verified` entry before it, and the last Docker-verified one, is
   BL-20261107-1111-stop-bricking-tasks-docker-suite-verified. No live, Docker or paid
   run has happened since 2026-11-07, and the approved cloud labelling has not run.
 - The harness source-freeze digest moved with every code merge from #85 to #93 (#87
-  and #95 leave it unchanged): recompute `--runtime-sha256` before any loop or E-run.
+  and #95 leave it unchanged), and on 2026-11-14 with #101, #104, #109, #112 and
+  #111: recompute `--runtime-sha256` before any loop or E-run.
 - The research protocol hash changed with train 1 and again with #93: a research run
   directory from before #93 no longer seeds, and a research session paused before it
   resumes as `session_contract_drift`.
+- Entries of #90, #91 and #104 on `main` cite
+  BL-20261113-0730-rayline-evaluation-plan-adjustments, the plan entry on draft #86,
+  which is not on `main`. Until #86 merges, those references point outside `main`'s
+  log; its re-stamp correction will record the ID they cite.
+- The electron-e2e job failed three times on 2026-11-14, each time with the Git-review
+  test (tests/e2e/electron.spec.ts:510): on #104 at 7eb5499, with no rerun; on #111 at
+  379d230, with three more tests; and on #97 at d78c208, alone. Both reruns passed.
+  Rerun a failed electron-e2e job once before treating the failure as a regression.
 - Five adversarial checks of the 2026-11-05 review converged, but each check after
   the first covered only the previous revision's changes.
 

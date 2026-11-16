@@ -47730,3 +47730,90 @@ Next gate:
 4. A later entry says whether these two runs are verified (the amendment's item 8).
 
 References: docs/experiments/e0-card-2026-11-13.md (Amendment 4); docs/experiments/e0-planner-fixture-v2.json; docs/experiments/e0-extractor-fixture-v2.json; docs/experiments/serving-card-2026-11-16.json; scripts/planner-fixture.ts; scripts/extractor-fixture.ts; scripts/registry-row.py; BL-20261116-1441-e0-card-amendment-4; BL-20261116-1357-e0-verified; BL-20261116-1356-e0-extractor-fixture-result; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1253-e0-planner-structured-condition-design; BL-20261116-1256-e0-extractor-structured-condition-design; BL-20261116-1330-e0-structured-conditions-implemented; pull requests #125, #128, #129 and #130.
+
+### BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution -- 2026-11-16 -- Correction to BL-20261116-1539-correction-e0-planner-fixture-salt-pin: the two facts it states about Amendment 4's planner run came from the orchestrating session's report, and BL-20261116-1546-e0-structured-fixtures-result records them
+
+Status: `Implemented`
+
+Scope or hypothesis: The orchestrating session's light review of pull request #130 found that BL-20261116-1539-correction-e0-planner-fixture-salt-pin states two facts about Amendment 4's planner run that no committed record held at that entry's time. This entry says where they come from. That entry stays as written, and nothing in it changes.
+
+Decisions:
+1. **The two sentences.** Its Scope says the amendment's planner run "passed the flag". Its Limitations say the 300 s cut "did not bite E0's run, whose longest call took 155 s".
+2. **Their source.** Both came from a message the orchestrating session sent lane S-pipe at about 15:35 UTC, after the run ended and before its record was committed.
+3. **Their record.** BL-20261116-1546-e0-structured-fixtures-result, committed at 15:47 UTC, holds both.
+   - The run's three request digests equal the salted digests that Amendment 4's item 6 fixes, which is how the flag is shown to have been passed. The planner's summary does not record the flag itself.
+   - The run's longest call took 155.0 s, and no call was cut at the client's limit.
+4. **Three smaller points from the same review,** left as written:
+   - 1539's decision (3) lists where the short form "the card's call" remains, and the list is incomplete. It is also at scripts/planner-fixture.ts lines 17 to 19 and 43, and in two more titles of tests/unit/planner-fixture.test.ts.
+   - 1539's References cite Amendment 4 only as pull request #129. Its entry is BL-20261116-1441-e0-card-amendment-4.
+   - The literal of `FIXTURE_JOB_ID` is not pinned by a test: changing the string passes all eleven. Amendment 4's fixed digests guarded the run. Lane S-pipe has the three points.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The review** was one read-only reviewer on #130 at 008c056, with privacy checked. It found no blocker and no major issue.
+  - It applied the seven mutants 1539 names, each against the test file with and without the two new tests, and got 1539's result: seven of seven killed with them, and six of seven surviving without.
+  - Seven further edits of its own were all killed.
+  - It ran the test file: eleven of eleven passed.
+- **#130 merged** as b2e1d1e at 15:55:16 UTC, at head 0cbe727, with both CI jobs green.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The reviewer read #130 at 008c056. It compared that head with 0cbe727 through GitHub and found the test file, the README and the fixture script byte-identical. It did not review #129's card amendment, which 0cbe727 also carries and which had its own review (BL-20261116-1441-e0-card-amendment-4).
+
+Paid exposure: None.
+
+Next gate: None for this correction.
+
+References: BL-20261116-1539-correction-e0-planner-fixture-salt-pin; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1441-e0-card-amendment-4; scripts/planner-fixture.ts; tests/unit/planner-fixture.test.ts; pull requests #129, #130 and #131.
+
+### BL-20261116-1600-handoff-start-here-restated -- 2026-11-16 -- Handoff: docs/HANDOFF.md "Start here" restated for `main` at 7ef19ea, with the merges of 2026-11-15 and 2026-11-16, E0's close-out and Amendment 4's two runs, and the owner questions that gate what comes next
+
+Status: `Implemented`
+
+Scope or hypothesis: Replace "Start here (2026-11-15)", which described `main` at b7c0431, with "Start here (2026-11-16)", so that the next session starts from `main` at 7ef19ea, the merge of #131. The Next gate of BL-20261116-1357-e0-verified asked for this restatement. Twenty-three pull requests merged since b7c0431. The section keeps its seven subsections and gains a short "In brief" at its top. The "September 2026 record" and everything below it are unchanged.
+
+This entry records what the section now says. It makes one decision, which BL-20261116-1357-e0-verified left to the restatement: how the handoff reads E0's first done condition.
+
+Decisions:
+1. **The reading of E0's first done condition** (§5, step 2). This is the orchestrating session's reading, and the owner may replace it.
+   - For the order of work, step 2 is complete: every step of E0's card has run, and issue #57 carries its resolution.
+   - The condition stays recorded as not met as worded. No bound in the code had a 2026-11-04 figure to match, and the serving card derives no writer, judge, critique or repair bound.
+   - What is left of E0 is the serving card's adoption, which waits for the owner. Drafting the next cards does not wait on it.
+2. **The rest restates** what other entries and the pull requests record:
+   - **In brief** is new: the state, what to do first, second and third, and what is not done without the owner.
+   - **1. Get the work.** `main` is at 7ef19ea. The merge table gains nine rows, from #113 to #131. The research protocol hash paragraph gives 7100b7a2…, in force since #102, with what moves it and what does not.
+   - **2. Read.** The entry list is replaced. It is led by BL-20261116-1357-e0-verified, BL-20261116-1441-e0-card-amendment-4 and BL-20261116-1546-e0-structured-fixtures-result.
+   - **3. Decided.** It adds the owner's blanket answer of 2026-11-15 and its three answers for E0, the merge go of 2026-11-16, and the two directions of 2026-11-16, each with its scope and what it does not lift. It adds what E0's runs settle under its card's rules, as the session's readings, and what they do not.
+   - **4. Still open.** The decision table drops what the blanket answer settled by default. It lists the twelve owner questions of 2026-11-16 by topic, with what each blocks, and the three added after the two runs. One of four Docker-gated runs has run. The open pull requests are #105 and #86.
+   - **5. Act next.** Step 2 gives E0's state, the two runs' results and what the closing entry's Next gate still leaves. Step 3 says E1's gate is released. Steps 4 to 7 say which owner answers each experiment waits for. The long lists of E0's remaining steps and open questions are gone, and a short account of when a re-probe is needed replaces the hash rule.
+   - **6. Rules.** It adds the steps before any request to the owned endpoint, the owner's process choices of 2026-11-16, and the session's practices of that day, marked as the session's.
+   - **7. Known limits.** It restates what is `Verified` and how, the one paid run, the source-freeze digest at this `main`, the protocol hash's change with #102, the electron-e2e record, and E0's limits that later experiments inherit.
+3. **Three facts of 2026-11-16 that no entry held yet** are recorded here and stated in the section:
+   - **#129 has no merge commit of its own.** Its commit daab44e reached `main` in #130's merge, b2e1d1e. #129's own electron-e2e job waited 15 minutes for a macOS runner and was cancelled by its timeout, with no step run, on each of its first two attempts. A third was still queued when #130 merged. #130's head contains daab44e, and both of #130's CI jobs were green.
+   - **The same runner wait** cancelled the electron-e2e job of `main`'s push run at 100e00a, #127's merge. It was not re-run. `main`'s later runs at a7a21f3 and da30c9d were green.
+   - **The source-freeze digest** at this `main` is e4c29bf0c08d95df95f80a52b470e96596e0158ee2526fbc5e602137627a4dca over 61 files, the output of `localScreenSourceFreeze()` at da30c9d's code. #129, #130 and #131 change no hashed file.
+
+Changes: docs/HANDOFF.md, the "Start here" section only. docs/BUILD_LOG.md, this entry and the Correction before it.
+
+Evidence:
+- **The facts** were gathered read-only at `main` 2e2d75c by five readers, one per part of the section, and a critic that verified the eight facts a next session relies on most and settled the readers' contradictions.
+- **The draft** was written by one writer from those facts, the old section and BL-20261116-1357-e0-verified, and then reviewed by two read-only reviewers: one for accuracy against the log, the repository and GitHub, and one for a new session's use of it.
+  - They made thirty findings, three of them major. Two majors were one fact: lane S-harn's follow-up was open as #128, not in preparation. The third was that the draft read as if the card's adoption had already been put to the owner.
+  - All thirty were applied.
+- **After the review** the session filled in what was still pending: the merges of #126 to #131, the two runs' results from BL-20261116-1546-e0-structured-fixtures-result, and the source-freeze digest. Those passages were not reviewed again, apart from the checks below.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0. Every entry ID the section names exists in the log, apart from BL-20261113-0730, which is on draft #86 and which the section says is not on `main`. The section holds no address, key, local path or account name.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **A restatement, not a source.** Where the section and an entry differ, the entry governs.
+- **The owner questions' wording** is the git-ignored summary's, which the log does not hold. Decision 5 of BL-20261116-1131-owner-directions-merge-and-continue lists the first twelve topics. The three added after the two runs are listed in the section only.
+- **Unverified carry-overs.** The lane plan's placements of 11.6, 11.7a/b and 11.8, and the two git-ignored paths the section names, are carried forward from the earlier section.
+- **This pull request is not covered by a merge go.** It is neither a lane pull request nor an E0 record. The session asks the owner before merging it.
+
+Paid exposure: None.
+
+Next gate: The owner's go for this pull request. Then the owner's answers to the questions the section lists, which gate E5, E2, E6, E3 and the serving card's adoption.
+
+References: docs/HANDOFF.md; BL-20261115-1112-handoff-start-here-restated; BL-20261116-1357-e0-verified; BL-20261116-1356-e0-extractor-fixture-result; BL-20261116-1441-e0-card-amendment-4; BL-20261116-1546-e0-structured-fixtures-result; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0812-correction-owner-defaults-review; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-1331-correction-local-fanout-skeptic-followups; BL-20261116-1431-correction-run-row-card-and-doctor-sources-restamp; BL-20261116-1539-correction-e0-planner-fixture-salt-pin; pull requests #113 to #131.

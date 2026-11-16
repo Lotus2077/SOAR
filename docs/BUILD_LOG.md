@@ -46365,3 +46365,256 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on this head, then the orchestrator's merge after #108, under the standing go-ahead.
 
 References: BL-20261116-1213-local-fanout-design; BL-20261116-1214-local-fanout-implemented; BL-20261116-1215-correction-local-fanout-review; BL-20261116-1212-correction-research-structured-output-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1505-concurrent-local-admission-design; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0939-e0-probes-serving-card; BL-20261116-1020-e0-judge-fixture-result.
+
+### BL-20261116-1217-serving-probe-direct-transport-design -- 2026-11-16 -- The serving probe connects directly whatever the proxy settings, a P10 stream that ends early gets its own class, and a probe row is not accepted when its records show a transport failure
+
+Status: `Proposed`
+
+Scope or hypothesis: E0's serving-probe runs 1 and 2 dropped partway (BL-20261116-0939 and its correction BL-20261116-1017, on #121).
+- **The path.** Both runs inherited the shell's proxy variables, and E0's endpoint is outside the shell's `no_proxy`. scripts/serving-probe.py opens its requests with urllib's `urlopen`, which takes a proxy from the environment, or on macOS from the system settings. So its requests went through the shell's loopback proxy.
+- **The cause is an inference, not shown.** That the proxy caused the drops is inferred from the failures below and from run 3.
+- **The failures.**
+  - In both runs, the first sign of failure was an open stream that ended early with no finish reason. The probe counted it `invalid_json`, since it has no class for a stream that ends early.
+  - After it, every request raised URLError in 0.0 s.
+  - Run 2's P8 was cut at 120.9 s (RemoteDisconnected), a separate earlier failure.
+- **Run 3** ran with `NO_PROXY='*'` for the probe process only. It completed every probe, and its 120 P10 replies all ran to a finish reason.
+- **The app** opens its own requests from Node, which takes no proxy; those never failed.
+- **Approval.** The coordinator approved this change on 2026-11-16, to start once #117 had merged and E0's probe window had closed. Both hold.
+
+Decisions:
+- **(1) The probe connects directly.**
+  - Every request goes through `urllib.request.build_opener(urllib.request.ProxyHandler({}))` instead of `urlopen`, at the four call sites: `Endpoint.get`, `post`, `post_stream` and `stream`.
+  - Only the proxy choice changes. `urlopen` itself opens through a default opener, so every request, status and exception is as before.
+  - A refused or unreachable endpoint records exactly as today. A GET's status is -1. A POST's status is -1, with `transport_error` set to the exception class (URLError for a refused connection). A stream's `error` is that class.
+  - No run depends on the caller's `NO_PROXY` any more.
+- **(2) `stream_ended_early`.**
+  - A P10 reply that was streamed, answered 200 and ended with no finish reason is classed `stream_ended_early`, where it was `invalid_json`. The class comes after `request_rejected` in the probe's order, and before `truncated`.
+  - The probe and scripts/assess-probe-replies.ts apply the same rule, so assessing a probe keeps the class. Both class lists gain it, and a test keeps them equal.
+  - A reply that was not streamed is classed as before. A stream cut by an exception still records status -1 with its `transport_error`, and is classed `request_rejected` as today.
+- **(3) The probe version stays 2.**
+  - **The direct connection** changes no field and no field's meaning.
+  - **The new class** adds one value a call's `classification` can take, and one key to each cell's `counts`. Every reader is in this repository and changes with it. The assessor, the card writer and the registry writer read version 2 with or without that key.
+  - **Old records.** A record never says which code wrote it, so a version-2 `invalid_json` written before this change may be an early-ended stream; runs 1 and 2 hold one each. The new assessor reclasses such a call if the probe is assessed again, since the rule reads the call's recorded status and finish reason and the cell's `streamed` flag.
+  - **Why not 3.** A new version would make every reader accept both 2 and 3 for E0's run 3, and no reader needs to tell them apart.
+- **(4) The card writer refuses a probe in which a P10 stream ended early.**
+  - Such a call measured the transport, not the server.
+  - The card's format does not change. ServingCardV1, whose reader holds seven class counts per cell, stays as it is, and so does the app's reader.
+  - **A card written from run 3 is unchanged.** None of its 120 P10 replies ended early, so none is `stream_ended_early`. The card writer recounts the classes from the calls, so the new key in each cell's `counts` changes nothing on the card.
+  - A P10 call that failed at transport with status -1 is still counted as `requestRejected`, as before.
+- **(5) The registry writer's transport-failure guard.**
+  - **The gap #117 shipped with.** `--outcome accepted` for a probe row was refused only for an unfinished run, a failed probe, an unassessed P10 or a protocol mismatch. The probe catches a transport failure per request, so a run whose requests all failed at transport could be rowed accepted. A local test run on 2026-11-16 was: none of its 47 requests reached the test's fake (BL-20261116-0900, decision (4)).
+  - **The guard.** A probe row records `probe.transportFailures`, the probes whose records show a transport failure, in the probe order. `--outcome accepted` is refused when it is not empty.
+  - **A transport failure** is any of:
+    - a `transport_error`, recorded with status -1 by a POST;
+    - a stream's `error` naming an exception class. A stream's HTTP error code is the server's answer, not a transport failure.
+    - a status of -1, as a GET records: P1's `models_status` and `version_status`, and the adapter's `/openapi.json` status and `chat_status`;
+    - a status naming an exception class, as a P11 cache-layout row records;
+    - a P11 K burst whose `errors` count is above 0;
+    - a stream that answered 200 and ended with no finish reason: a P10 call classed `stream_ended_early`, or a stream's own record.
+  - **P6 and P8, after checking their record shapes.**
+    - P6's deliberate abort is recorded as `aborted_after_s`, never as an error, so it needs no exception. P6's other stream is checked like any other.
+    - P8's record is excepted. Its long request ending in a cut connection (status -1 with `transport_error`) is what P8 measures.
+- **(6) Tests.**
+  - The P10-align test's environment gets dead-port proxies (`http_proxy`, `https_proxy` and their upper-case forms), so every request must still reach its loopback fake.
+  - **Each request path** reaches a loopback server with dead-port proxies set. A refused endpoint records as today, with and without them.
+  - **`stream_ended_early`:**
+    - the classifier's order;
+    - a P10 run whose loopback server ends a stream early;
+    - the assessor keeping the class;
+    - the two class lists equal.
+  - **The card writer:** its refusal, and an unchanged card when each cell's counts carry the new key.
+  - **The guard:** case by case, with P6's and P8's shapes included.
+  - tests/helpers/serving-probe-fake.py runs its probe copy with dead-port proxies, in place of `no_proxy=*`.
+
+Changes: None yet. This entry precedes the code.
+
+Evidence: The record shapes and readers are read from 6a96098:
+- scripts/serving-probe.py: `Endpoint`, `post_record`, `reassemble_stream`, `classify_reply`, `summarize_cell`, `aggregate_streams` and `inspect_sse`, and the P1, P6, P8, P10, P11 and adapter probes;
+- the readers: scripts/assess-probe-replies.ts, scripts/serving-card.py, src/main/private-agent/serving-card.ts and scripts/registry-row.py.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- That the proxy caused runs 1 and 2 to drop is an inference, not shown.
+- **P11's cache-layout rows** keep no finish reason. So a layout stream that ends early without an error shows only as missing usage, and the guard cannot see it.
+- **Old rows.** Rows that #117's writer wrote carry no `transportFailures`, so `--supersedes` cannot repeat the new refusal for them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, a light review with privacy checked, then the pull request. The entries are re-stamped once at merge, after #121.
+
+References: BL-20261116-0839-e0-registry-modes-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.
+
+### BL-20261116-1218-serving-probe-direct-transport-implemented -- 2026-11-16 -- The serving probe connects directly, a P10 stream whose connection closed with no finish reason is `stream_ended_early`, and a probe row is not accepted when its records show a transport failure: implemented, with changes from the design after its tests and a light review
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261116-1217-serving-probe-direct-transport-design, which stays as written.
+- **Held as designed:** decisions (1) and (4).
+- **Changed:** decisions (2), (3) and (5), after the tests and one light review, as recorded below.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) As designed.**
+  - **The direct connection.** scripts/serving-probe.py opens every request through `DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))`, at its four call sites. The review confirmed that only the proxy choice changes. The HTTPS handler, the one opener shared by P7's and P11's threads, and every status and exception are as before.
+  - **The card writer** refuses a probe in which a P10 call is `stream_ended_early`. It refuses at its entry, before either the Markdown or the `--policy-out` card is rendered.
+- **(2) Changed: how a stream ended (the review's finding 2).**
+  - **The problem.** vLLM ends a stream that failed inside the server with an error event and then `[DONE]`, under HTTP 200, with no finish reason. The design's rule would have classed that server failure `stream_ended_early`. The card writer would then have refused the run as a transport failure, again on every rerun if the fault repeats.
+  - **What the probe records now:** `stream_end`, on every streamed record. It is:
+    - `done` at `[DONE]`;
+    - `error` after an error event (`{"error": ...}` or `{"object": "error", ...}`);
+    - `eof` when the connection closed first.
+
+    P10's streamed calls carry it. So do the stream records of P2, P3 and P4, P6's next request, P7, P11's sizes and the adapter's streamed replies.
+  - **The class.** `stream_ended_early` is now a streamed reply that answered 200 with no finish reason and `stream_end` `eof`. A server's error event is read as before: `invalid_json` when its content does not parse.
+- **(3) Changed: each P11 K burst records `transport_errors` (the tests' finding).**
+  - **The problem.** The design read a burst's `errors` count. That count also counts a stream without usage, or one whose elapsed time rounds to 0 s. The test's fake answers at once, so the guard listed P11 for a clean run.
+  - **The new count.** `transport_errors` counts the burst's streams that raised, or that ended with no finish reason and `stream_end` `eof`.
+- **(4) Changed: the version stays 2, but every reader decides from what a record holds (the review's finding 3).**
+  - **The challenge.** A reader built for the new records misreads a record written before this change, and a reader from before this change misreads a new record. Nothing refuses either.
+  - **New readers on old records.** E0's run 3 is a version 2 record written before this change. The readers now read such a record by what it holds:
+    - **The assessor** applies the new class only to a call that records `stream_end` `eof`, so an old record is classed as before.
+    - **The registry writer's guard** counts a streamed reply that answered 200 with no finish reason unless its `stream_end` says the server ended it. So such a reply in an old record counts.
+    - **Bursts.** A burst without `transport_errors` is read by its `errors` count.
+
+    Both readings are conservative.
+  - **Old readers on new records.** An assessor or card writer from before this change, run from an older checkout on a new probe file, reads `stream_ended_early` as an unknown class.
+    - The old assessor reclasses it `invalid_json` and leaves the probe's own counts summing past the total.
+    - The old card writer then counts it as `invalidJson`.
+
+    That is the reading from before this change, not a new error. Reading a probe with the tools of the checkout that ran it avoids it.
+  - **Why not version 3.** The machine-readable card records `probeVersion` 2, and the app's reader pins it to 2 (src/main/private-agent/serving-card.ts, ServingCardV1). A version 3 would change the app's persisted card contract, for a risk limited to reading a new probe with an older checkout's tools. That change is left to a decision of its own.
+  - **A card written from run 3 is unchanged.** Its records hold no `stream_ended_early`, the card writer recounts the classes from the calls, and the card's format does not change.
+- **(5) Changed: P8's exception is narrower (the review's finding 1).**
+  - **Listed:** a P8 whose `transport_error` is `URLError`. urllib raises URLError only when it cannot connect or send, so that request never reached the server.
+  - **Excepted:** a connection cut after the request was sent (RemoteDisconnected, a timeout, a reset). That remains P8's measured finding.
+- **(6) The registry writer's guard, as implemented** (`transport_failed` in scripts/registry-row.py, and docs/experiments/README.md). A transport failure is any of:
+  - a POST's `transport_error`;
+  - a stream's `error` naming an exception class;
+  - a status of -1, or one naming an exception class: a GET's, the adapter's `chat_status`, or a P11 cache-layout row's;
+  - a burst's `transport_errors`, or its `errors` where it has no `transport_errors`;
+  - a streamed reply that answered 200 with no finish reason, unless its `stream_end` says the server ended it;
+  - a P10 call classed `stream_ended_early`.
+
+  P6's abort is recorded as `aborted_after_s`, and is none of these.
+- **(7) The review's nits:**
+  - the README lists the refusals in the order the code applies them, and names the adapter's `chat_status` as a chat call's status, not a GET's;
+  - the card writer's second refusal, which no caller reached, is removed;
+  - the probe's comment calls the proxy's part an inference;
+  - the probe tests await their servers' close.
+- **(8) The tests, and what each shows.**
+  - **tests/unit/serving-probe-helpers.test.ts:**
+    - **Each request path** reaches a loopback server, both with dead-port proxies set and with no proxy variable at all.
+      - A stream the server ended with an error event records `stream_end` `error`.
+      - A refused endpoint records a GET's -1; a POST's and a streamed POST's -1 with `transport_error` URLError; and a stream's `error` URLError.
+    - **The P10-align tests'** `python()` sets dead-port proxies in every form urllib reads.
+    - **The helpers:**
+      - the classifier with `streamed` and `stream_end`;
+      - reassembly's `done`, `error` (both shapes) and `eof`;
+      - a burst's `transport_errors` beside its `errors`;
+      - `summarize_cell`'s new key;
+      - the probe's class list, equal to the assessor's.
+    - **A P10 run with two bad streams.** The loopback server closes the first streamed reply after one chunk: `stream_ended_early`, with `eof`. It ends the second with an error event: `invalid_json`, with `error`. Assessing the probe keeps both.
+  - **tests/unit/assess-probe-replies.test.ts:**
+    - the rule applies before the content is read;
+    - a server's error event, `done`, and a record without `stream_end` are read as before;
+    - the counts include the class.
+  - **tests/unit/serving-card-writer.test.ts:**
+    - the refusal for both outputs, with no `--policy-out` file left;
+    - with every cell's counts carrying the new key at 0, the Markdown keeps W1's pinned digest, and the machine-readable card is equal but for the probe file's digest.
+  - **tests/unit/registry-row-e0.test.ts:** the guard, case by case.
+    - **Listed:**
+      - a P8 that never reached the server;
+      - records from before this change: a stream with no `stream_end`, a P10 streamed call, and a burst with `errors` only;
+      - a stream whose connection closed (`eof`).
+    - **Not listed:**
+      - P8's cut after sending;
+      - P6's abort;
+      - a stream's HTTP error;
+      - a server's error event;
+      - a burst's `errors` beside its `transport_errors`.
+  - **tests/helpers/serving-probe-fake.py** runs its probe copy with dead-port proxies, so the real-probe row test shows every request reaching the fake.
+
+Changes:
+- scripts/serving-probe.py, scripts/assess-probe-replies.ts, scripts/serving-card.py and scripts/registry-row.py;
+- docs/experiments/README.md ("E0 rows");
+- the tests above, and tests/helpers/serving-probe-fake.py;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref 6a96098` exits 0 (672 entries, append-only against this branch's base). `main` has since moved to 42b36e7 with #121, so the merge re-stamps these entries after its tail. `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On Node 22.22.2 and pnpm 10.12.4, the registry-row, fixture, probe, serving-card and labelling-tool suites pass 323 of 323, in 20 files.
+- **Mutants.** Single-edit mutants, each run against the tests that cover it: 33 of 33 fail them at this code. At c9085a1, before the review's fixes, 21 of 21 failed them, one only after a case was added for it. The 33 cover the opener and its four call sites; the early-end rule, its `stream_end` condition, and how P10 records and passes `stream_end`; how reassembly and streams record `[DONE]` and both error-event shapes; the burst count; the assessor's rule and its cell flag; the card writer's refusal; each guard rule and its readings of older records; and P8's exception.
+- **Today's record of a refused endpoint, on 6a96098.** The same driver as the new test was run against a loopback port nothing listens on.
+  - **With `no_proxy='*'`,** that probe records:
+    - a GET's -1;
+    - a POST's and a streamed POST's -1, with `transport_error` URLError;
+    - a stream's `error` URLError.
+
+    The fixed probe records the same values with dead-port proxies set and with none.
+  - **With no proxy variable at all,** on the machine that ran these checks, that probe went through the macOS system proxy, which answered the refused port with HTTP 503. So a refused endpoint read as a server error. The fixed probe never takes that path.
+- **The light review.** One reviewer, with privacy checked. Its verdict: needs fixes, with four minor findings and some nits, and no blocker or major. Decisions (2), (4), (5) and (7) address the findings and nits, and this entry is the fourth finding's record. Privacy was clean.
+
+Failures or blockers: The design was wrong in three places. Its burst rule listed P11 for a clean run of the test's fake (decision (3)). Its early-end rule would have classed a server's in-band error as a transport failure (decision (2)). Its P8 exception would have accepted a P8 that never reached the server (decision (5)).
+
+Limitations and non-claims:
+- **Not `Verified`.** Tested on loopback fakes only. No probe ran against a real endpoint.
+- **The cause is still an inference.** That the proxy caused runs 1 and 2 to drop is not shown.
+- **Old records are read conservatively.** A burst whose `errors` count is above 0, or a streamed reply with no finish reason, lists its probe even where the transport was not the cause. So before E0's run 3 is rowed `accepted`, its `P11.k_streams[*].errors` should be 0 and its streamed replies should carry finish reasons. Otherwise the writer refuses `accepted`.
+- **What the guard cannot see:**
+  - a P11 cache-layout stream that ended early without an error, since those rows keep no finish reason;
+  - rows that #117's writer wrote, which carry no `transportFailures`.
+- **Old readers.** An older checkout's assessor or card writer reads a new record as it did before this change (decision (4)).
+- **Optional, from the review.** The card writer still counts a P10 call that failed at transport with status -1 as `requestRejected`, and shows a P11 size stream that ended early as answered.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the pull request. The entries are re-stamped once at merge, after #121, and the coordinator merges under the standing go-ahead.
+
+References: BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.
+
+### BL-20261116-1230-correction-serving-probe-direct-transport-restamp -- 2026-11-16 -- Correction: #123's two entries are re-stamped after #110's tail, now that #123 is chained on #110; their original IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinator chained #123 on #110, which merges first. This branch merged #110's head 5aaeb0a at 6bd268d, with no force-push. #110's last ID is BL-20261116-1216-correction-local-fanout-restamp. So this branch's two entries move after it, under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates).
+
+Each entry, with its original ID and authoring time, both on 2026-11-16 UTC:
+- **The design entry.** Authored at 10:33 as BL-20261116-1033. It is now BL-20261116-1217-serving-probe-direct-transport-design.
+- **The implemented entry.** Authored at 11:28 as BL-20261116-1128. It is now BL-20261116-1218-serving-probe-direct-transport-implemented.
+
+Decisions:
+- **(1) The re-stamp.**
+  - **What changes.** Only the two headings' IDs change, with the references to them: two in the implemented entry's body, and 15 in comments, test titles and the README.
+  - **The 15 references** are across 10 files: scripts/serving-probe.py, scripts/assess-probe-replies.ts, scripts/serving-card.py, scripts/registry-row.py, docs/experiments/README.md, tests/helpers/serving-probe-fake.py and four test files.
+  - **The log.** No entry before them cites the original IDs. #110's log is kept whole, as a byte prefix of this branch's.
+- **(2) The chain merge.**
+  - **The conflict.** Only docs/BUILD_LOG.md conflicted. It is resolved by appending: #110's log whole, then this branch's two entries.
+  - **The merged tree** differs from #110's head only in this branch's 11 files. Compared line by line, each carries exactly this branch's edits from 6a96098 to 0ff0a83.
+- **(3) The shared rerere cache.** The coordinator reported a git rerere cache shared in this repository from 11:23 to 12:23 UTC. This branch made no merge before this one, and this merge ran with `rerere.enabled=false`. Its output shows no reused resolution.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, their references, and this entry.
+- The files that cite the entries, as listed in decision (1).
+
+No behaviour changes.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref 5aaeb0a` exits 0 (706 entries, append-only against #110's head). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On the merged tree, on Node 22.22.2 and pnpm 10.12.4, the registry-row, fixture, probe, serving-card and labelling-tool suites pass 341 of 341, in 21 files.
+- **The re-stamp.** With the two new IDs mapped back, the log before this entry is byte-identical to the merge commit's. `git grep` finds the original IDs only in this entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- If #110 or #108 changes before it merges, this branch merges the new head and re-stamps again, under the same rule.
+- Commit messages and #123's earlier description keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #123, then the merge after #110 under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1216-correction-local-fanout-restamp; BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-1218-serving-probe-direct-transport-implemented; pull requests #110 and #123.

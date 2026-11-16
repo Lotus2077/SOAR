@@ -44,6 +44,27 @@ describe("P10 assessor", () => {
     expect(() => classifyRetainedReply("plan", Buffer.from("x"), { ...r.call, body_sha256: digest("x") }, binding)).toThrow("p10_reply_body_not_json");
   });
 
+  it("classes a streamed reply whose connection closed with no finish reason stream_ended_early, before its content is read (BL-20261116-1217-serving-probe-direct-transport-design)", () => {
+    const cut = '{"version":2,"quest', body = Buffer.from(JSON.stringify({ model: "Synthetic", choices: [{ message: { content: cut }, finish_reason: null }] }));
+    const call: P10Call = { ordinal: 1, status: 200, finish_reason: null, stream_end: "eof", classification: "unassessed", reply_file: "x.json", body_sha256: digest(body),
+      content_sha256: digest(cut) };
+    expect(classifyRetainedReply("plan", body, call, binding, true)).toEqual({ classification: "stream_ended_early", codes: ["stream_ended_early"] });
+    // Not streamed, the same reply is read as before.
+    expect(classifyRetainedReply("plan", body, call, binding)).toEqual({ classification: "invalid_json", codes: ["invalid_json"] });
+    // A server's error event, and a record from before stream_end, are read as before too.
+    for (const streamEnd of ["error", "done", undefined]) {
+      expect(classifyRetainedReply("plan", body, { ...call, stream_end: streamEnd }, binding, true)).toEqual({ classification: "invalid_json", codes: ["invalid_json"] });
+    }
+    // A streamed reply that ended before any content ended early too; it had been invalid_json with no_content.
+    const empty = Buffer.from(JSON.stringify({ model: "Synthetic", choices: [{ message: { content: null }, finish_reason: null }] }));
+    expect(classifyRetainedReply("plan", empty, { ...call, body_sha256: digest(empty), content_sha256: null }, binding, true).classification).toBe("stream_ended_early");
+    // A streamed reply that ran to its finish reason is assessed as before, and the body's digest is still checked first.
+    const finished = retained(plan(["input/corpus/alpha.md"]));
+    expect(classifyRetainedReply("plan", finished.body, finished.call, binding, true)).toEqual({ classification: "valid", codes: [] });
+    expect(() => classifyRetainedReply("plan", Buffer.from("{}"), call, binding, true)).toThrow("p10_reply_body_digest_mismatch");
+    expect(countClasses([{ ...call, classification: "stream_ended_early" }])).toMatchObject({ stream_ended_early: 1, invalid_json: 0, total: 1 });
+  });
+
   it("rewrites the probe JSON with every cell assessed, counts per class, and the protocol match", () => {
     const run = mkdtempSync(join(tmpdir(), "soar-assess-")); cleanups.push(() => rmSync(run, { recursive: true, force: true }));
     mkdirSync(join(run, "p10"));
@@ -59,7 +80,7 @@ describe("P10 assessor", () => {
     const path = join(run, "probe.json"); writeFileSync(path, JSON.stringify(probe));
     const summary = assessProbeFile(path, "2026-11-08T12:00:00.000Z");
     expect(summary).toEqual({ assessedUtc: "2026-11-08T12:00:00.000Z", schemasProtocolMatch: true,
-      cells: { "plan/on": { request_rejected: 1, truncated: 1, invalid_json: 0, schema_invalid: 0, binding_invalid: 1, valid: 1, unassessed: 0, total: 4 }, "extract/off": { request_rejected: 0, truncated: 0, invalid_json: 1, schema_invalid: 0, binding_invalid: 0, valid: 1, unassessed: 0, total: 2 } } });
+      cells: { "plan/on": { request_rejected: 1, stream_ended_early: 0, truncated: 1, invalid_json: 0, schema_invalid: 0, binding_invalid: 1, valid: 1, unassessed: 0, total: 4 }, "extract/off": { request_rejected: 0, stream_ended_early: 0, truncated: 0, invalid_json: 1, schema_invalid: 0, binding_invalid: 0, valid: 1, unassessed: 0, total: 2 } } });
     const written = JSON.parse(readFileSync(path, "utf8"));
     expect(written.P10.cells["plan/on"].calls.map((c: P10Call) => c.classification)).toEqual(["valid", "binding_invalid", "truncated", "request_rejected"]);
     expect(written.P10.cells["plan/on"].calls[1].codes).toEqual(["unknown_source_id"]);

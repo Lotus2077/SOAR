@@ -4,13 +4,15 @@ the fake received (BL-20261116-0839-e0-registry-modes-design's test of the probe
     python3 -I tests/helpers/serving-probe-fake.py <repository root> <empty work directory> <research protocol sha256>
 
 The copy runs from <work>/scripts, so its run directory lands under <work>/.soar/experiments; nothing is written to the repository and no
-address but 127.0.0.1 is contacted. Its environment sets no_proxy, since on macOS urllib otherwise follows the system proxy, which need not
-exempt 127.0.0.1. P6 is skipped: its ten one-second load samples only slow the test, and its record's shape is covered
+address but 127.0.0.1 is contacted. Its environment names proxies on a loopback port nothing listens on, in every form urllib reads: the
+probe connects directly whatever they say (BL-20261116-1217-serving-probe-direct-transport-design), so a request that took a proxy would
+never reach the fake. P6 is skipped: its ten one-second load samples only slow the test, and its record's shape is covered
 by the synthetic probe. Every string the fake serves that a registry row must never carry is in LEAKS."""
 import hashlib
 import json
 import os
 import shutil
+import socket
 import socketserver
 import subprocess
 import sys
@@ -94,7 +96,12 @@ def main() -> None:
     with open(os.path.join(WORK, "role-schemas.json"), "w", encoding="utf-8") as handle:
         json.dump(export, handle)
     open(os.path.join(WORK, "empty.env"), "w").close()
-    environment = {"PATH": "/usr/bin:/bin", "no_proxy": "*", "SOAR_VLLM_BASE_URL": f"http://127.0.0.1:{server.server_address[1]}/v1", "SOAR_VLLM_MODEL": ALIAS}
+    dead = socket.socket()
+    dead.bind(("127.0.0.1", 0))
+    proxy = f"http://127.0.0.1:{dead.getsockname()[1]}"
+    dead.close()
+    environment = {"PATH": "/usr/bin:/bin", "http_proxy": proxy, "https_proxy": proxy, "HTTP_PROXY": proxy, "HTTPS_PROXY": proxy,
+                   "SOAR_VLLM_BASE_URL": f"http://127.0.0.1:{server.server_address[1]}/v1", "SOAR_VLLM_MODEL": ALIAS}
     probe = subprocess.run(["python3", "-I", os.path.join(WORK, "scripts", "serving-probe.py"), "--schemas", os.path.join(WORK, "role-schemas.json"),
                             "--env-file", os.path.join(WORK, "empty.env"), "--skip", "P6", "--p10-calls", "2", "--p11-sizes", "50", "--p11-ks", "1,2"],
                            env=environment, capture_output=True, text=True, timeout=240)

@@ -46678,3 +46678,96 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: the implementation with its tests, a light review with privacy checked, then the pull request.
 
 References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-2301-serving-card-request-settings-design; BL-20261116-1203-research-role-policy-design; BL-20261116-1208-research-structured-output-design; pull requests #108 and #123.
+
+### BL-20261116-1405-run-row-card-and-doctor-sources-implemented -- 2026-11-16 -- A run's registry row records its research protocol hash, the serving card the driver loaded and its K, and the doctor checks a card through the headless driver's own loader: implemented, with the light review's fixes
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261116-1327-run-row-card-and-doctor-sources-design.
+- **Held as designed:** decision (1), the row fields.
+- **Tightened after the light review:** decision (2), the doctor.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) Run rows, as designed.**
+  - **Where.** scripts/registry-row.py's `card_fields(freeze)` sits beside `cloud_fields`. Both row builders call it: `run_counts` for a run, and so for a loop's selected run; and `freeze_fields` for a loop's stopped stage.
+  - **The fields:**
+    - `researchProtocolSha256` is `freeze.pipeline.protocolSha256`, or null without one.
+    - `servingCard` is `{sha256, entry}` from `freeze.servingCard`, or null without a card. The card's version, date and path are never copied.
+    - `localStreams` is the card's K, or 1 when the freeze records none: without a card, or with a card recorded before 8.2b gave it a K.
+    - **A stopped loop whose stage froze nothing** records all three as null, K included, since nothing recorded it. This is the review's finding 1.
+  - **Refused:**
+    - a protocol hash that is not a sha256;
+    - a card record without a sha256, or without an entry in the card reader's pattern;
+    - a K that is not a whole number from 1 to the reader's `MAX_LOCAL_STREAMS` (8). A bool and a float are refused.
+
+    The refusal names the field, never its value.
+  - **The README** gains one table row for the three fields.
+- **(2) The doctor runs the headless driver's own loader** (the review's findings 2 and 3).
+  - **What changed from the design.** The design read the driver's sources by hand. The card check now calls `loadConfig()` with no user-data path, as the driver does. So the driver's defaults (`http://localhost:8000/v1` and `RM-01 VLM`), its endpoint policy and its validation of the card pair apply as they do for the driver.
+  - **A refused setting.** A setting the loader refuses is `refused`, with code `driver_settings_refused`. The loader's message, which can echo a value, never leaves.
+  - **The expectation** is the driver's own `servingCardExpectation(config, true)`. The doctor's hand-written copy is removed.
+  - **The pair.** It comes from the driver's sources, which `loadConfig()` validates. The doctor never reads the config's descriptor, which only the driver's builder may read (the card reader's R10 test).
+  - **The endpoint comparison** uses effective values. The driver's base URL and alias, its defaults included, are compared with the app's as the same loader resolves them.
+    - The reason says when the driver uses its default.
+    - It also says that setting `SOAR_ENV_FILE` to the user-data `.env.local` gives the driver the app's settings.
+    - One key reads "differs", two read "differ".
+  - **The report:**
+    - `sources: "headless_driver"` is always given, and `cacheSalt: "assumed_on"` once a pair is set.
+    - `appDiffers` is given only when either side sets a card pair. The endpoint policy keys (`SOAR_VLLM_COST_POLICY` and `SOAR_ALLOW_INSECURE_VLLM_HTTP`) join the compared keys.
+    - **A changed meaning.** A pair that only the user-data file sets now reports `configured: false` where it was `true`, since the driver does not read that file.
+  - **Docs updated:** the root README's doctor line, serving-card.ts's comment on K, and the doctor's docstring.
+- **(3) The tests, and what each shows.**
+  - **tests/unit/registry-row-columns.test.ts:**
+    - a run with a card and a research pipeline gives the three fields, with the card as `{sha256, entry}` only;
+    - a run without either gives null, null and 1;
+    - a card recorded before 8.2b gives K 1;
+    - K at `MAX_LOCAL_STREAMS` is copied, and twelve malformed values are each refused, naming the field and never printing the value;
+    - the writer's K bound equals the reader's, and its entry pattern agrees with the reader's schema on ten edge strings: a trailing newline, upper case, doubled and trailing dashes, wrong digit counts and non-ASCII digits.
+  - **tests/unit/registry-row-loop.test.ts:** a loop row takes the three from its selected run, whose protocol hash differs from the other runs'.
+  - **tests/unit/registry-row-resume.test.ts:**
+    - a stopped loop takes them from the stopped stage's freeze;
+    - one whose stage left no directory records them as null.
+  - **tests/unit/setup-general.test.ts:**
+    - **Streaming.** Where the user-data and repository files disagree on `SOAR_STREAMING`, in either direction, the card check follows the repository's.
+    - **The pair.** A pair only in the user-data file is not the driver's. With no pair on either side, nothing is listed.
+    - **The endpoint.** Another app alias, or another base URL, leaves the card unchecked. So does an endpoint set only in the user-data file, where the driver's default applies.
+    - **The policy.** A remote plaintext endpoint acknowledged only in the user-data file is `driver_settings_refused`, and not ready.
+    - **No leaks.** No report carries a value, the endpoint or the card's path.
+
+Changes:
+- scripts/registry-row.py, scripts/setup-general.ts, docs/experiments/README.md, README.md, and src/main/private-agent/serving-card.ts (a comment only);
+- tests/unit/registry-row-columns.test.ts, tests/unit/registry-row-loop.test.ts, tests/unit/registry-row-resume.test.ts and tests/unit/setup-general.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref 2e2d75c` exits 0 (708 entries, append-only against this branch's base). `main` has since moved to 7e75a47 with #125, so the merge brings it in and re-stamps these entries if its tail is later. `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.**
+  - At bd8016a, on Node 22.22.2 and pnpm 10.12.4, the registry-row, doctor, serving-card, probe, fixture, labelling-tool and config suites pass 404 of 404, in 26 files.
+  - At the first code commit, e2108ac, a full `pnpm exec vitest run` passed 3,855 tests, skipped 86 and failed 1. The failure was tests/unit/with-claude-key.test.ts, which timed out at its 5 s limit under the full suite's load. That file is unchanged here, and it passes alone.
+- **Mutants.** 25 single-edit mutants of the final code, each run against the tests that cover it, all fail them. They cover:
+  - each row builder's call, a loop that loses its selected run's card, and a stopped loop that leaves the fields out;
+  - each validation: the protocol hash, the sha256, the entry (unchecked, or matched by prefix), and K (above 8, 0, a bool or a float);
+  - K's two defaults, and a copied date;
+  - the doctor's sources, a driver loader that reads user data, an unchecked endpoint policy, and the cache salt;
+  - `appDiffers`, both missing and given without a pair;
+  - the other-endpoint rule and its default note, `sources`, `cacheSalt`, and the singular "differs".
+- **The light review.** One reviewer, with privacy checked. Its verdict: needs fixes, with three minor findings and some nits, and no blocker or major.
+  - Decision (1)'s stopped loop answers finding 1, and decision (2) answers findings 2 and 3.
+  - The nits are addressed in the tests and docs above.
+  - Privacy was clean.
+
+Failures or blockers: The commit that applied the review's fixes, 3bb9284, read the config's card descriptor in the doctor. The card reader's R10 test forbids that outside the driver's builder, and 3bb9284 was committed with that test failing, because the commit was not gated on the suite's exit. bd8016a fixed it before any push.
+
+Limitations and non-claims:
+- **Not `Verified`.** Implemented and tested on synthetic run directories and loopback fakes. No real run has been rowed with the new fields.
+- **Old rows.** Rows written before this change lack the three fields.
+- **What K means.** `localStreams` is the K the driver gave the session. The session runs K calls at a time only on a zero-risk local model, and the row does not say whether a run's model was one.
+- **The doctor's limits.** The doctor still probes the app's endpoint, and it does not run the driver.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the pull request, then the merge under the standing go-ahead.
+
+References: BL-20261116-1327-run-row-card-and-doctor-sources-design; BL-20261114-1505-concurrent-local-admission-design; pull requests #108 and #123.

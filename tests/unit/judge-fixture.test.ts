@@ -11,7 +11,7 @@ import { PrivateAgentModel, vllmCacheSalt } from "../../src/main/private-agent/m
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
-import { FIXTURE_JOB_ID, buildJudgeBody, buildJudgeMessages, commandArguments, flipRate, harvestClaims, meetsAgreementLevel, originSidecarPath, parseJudgeReply, reversedSystemPrompt,
+import { FIXTURE_JOB_ID, JudgeFixtureManifestSchema, buildJudgeBody, buildJudgeMessages, commandArguments, flipRate, harvestClaims, meetsAgreementLevel, originSidecarPath, parseJudgeReply, reversedSystemPrompt,
   runJudgeFixture, scoreVerdicts, verifyJudgeFixtureInputs, type FixtureClaim, type JudgeCondition } from "../../scripts/judge-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -117,8 +117,13 @@ describe("judge fixture requests", () => {
 describe("judge fixture inputs", () => {
   it("refuses the committed template and every mismatch before any request", async () => {
     const server = await fakeServer(() => verdictReply("supported")), out = tempDir();
-    const template = JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "e0-judge-fixture-v1.json"), "utf8"));
-    expect(template).toMatchObject({ status: "template", promptVersion: ENTAILMENT_PROMPT_VERSION, claimsSha256: null, labelsSha256: null, agreement: null, conditions: ["j1-legacy"] });
+    // E0 card Amendment 2 pins the committed manifest, so the template is that manifest with its pinned fields cleared.
+    const committed = JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "e0-judge-fixture-v1.json"), "utf8"));
+    expect(JudgeFixtureManifestSchema.parse(committed)).toMatchObject({ status: "pinned", promptVersion: ENTAILMENT_PROMPT_VERSION, claimCount: expect.any(Number), plantedCount: expect.any(Number),
+      labelCounts: { supported: expect.any(Number), partial: expect.any(Number), unsupported: expect.any(Number), contradicted: expect.any(Number) },
+      minimumPerClass: 10, agreement: { measure: "exact", level: 0.95 }, conditions: ["j1-legacy"], repeats: 1 });
+    for (const key of ["claimsSha256", "labelsSha256"]) expect(committed[key]).toMatch(/^[a-f0-9]{64}$/u);
+    const template = { ...committed, status: "template", claimsSha256: null, labelsSha256: null, claimCount: null, labelCounts: null, plantedCount: null, agreement: null };
     const good = inputs();
     const attempt = (changes: { claims?: Buffer; labels?: Buffer; manifest?: unknown }) => runJudgeFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: { ...good, ...changes }, out: join(out, "run") });
     await expect(attempt({ manifest: template })).rejects.toThrow("judge_fixture_manifest_template");

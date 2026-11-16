@@ -43584,3 +43584,84 @@ Next gate:
 5. The judge fixture.
 
 References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/e0-judge-fixture-v1.json; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0939-e0-probes-serving-card; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261115-1956-e0-judge-labeller-design; BL-20261115-2044-e0-judge-labeller-implemented; BL-20261115-2049-correction-e0-judge-labeller-duplicate-plants; pull requests #115 and #120.
+
+### BL-20261116-1013-e0-judge-labelling-and-pin -- 2026-11-16 -- E0's judge labelling ran (one request, USD 0.067876 of the USD 1.00 cap): 40 harvested claims labelled and 20 negatives planted, every class at the minimum; the judge manifest pinned before its run
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records two things:
+- the paid labelling step of E0's judge fixture, run under the card's Amendment 2 (BL-20261116-0941-e0-card-amendment-2);
+- the pin of docs/experiments/e0-judge-fixture-v1.json, committed before the judge fixture sends a request.
+
+The authority for the labelling:
+- **The approval:** BL-20261113-1003-e0-card-owner-answers approved the step, with its USD 1.00 cap.
+- **The labeller:** decision 2(b) of BL-20261115-1937-owner-adopts-standing-defaults named it.
+- **The go:** on 2026-11-16, at about 09:50 UTC, the owner stored a working key and answered "Key stored, go ahead" in the orchestrating session's chat.
+
+`Implemented` covers the labelling having run and the manifest being pinned. Nothing about the judge is measured or verified here.
+
+Decisions:
+1. **The labelled set is taken for the pin.** The tool's outcome is `labelled`, and every class is at or above Amendment 2's minimum of 10.
+2. **The manifest is pinned with Amendment 2's design:** a minimum of 10, the condition `["j1-legacy"]`, 1 repeat, and agreement `{"measure": "exact", "level": 0.95}`.
+   - The minimum, the condition and the repeats are the orchestrating session's choice of the manifest template's values. The owner did not choose them one by one; the session reads the owner's blanket answer as covering them.
+   - The owner may add conditions or repeats later through a further amendment and a new manifest. This labelled set stays usable for that.
+3. **The judge fixture reads the committed manifest.** The run passes `--manifest` a copy of this commit's blob. The main checkout's working tree still holds the template, and a committed blob shows which bytes the run used.
+4. **The template test.** tests/unit/judge-fixture.test.ts asserted that the committed manifest was still a template, as the planner's test had. It now parses the committed manifest with `JudgeFixtureManifestSchema`, asserts that it is pinned with Amendment 2's four design values, and builds its template from that manifest with the pinned fields cleared. The refusal checks are unchanged.
+
+Changes:
+- docs/experiments/e0-judge-fixture-v1.json: pinned.
+- tests/unit/judge-fixture.test.ts: the template test, as decision 4 says.
+- docs/experiments/registry.jsonl: the labelling's row, `e0-judge-labelling-2026-11-16`.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The key.**
+  - The first check, at 09:42:06 UTC, was rejected with HTTP 401, and nothing else had been sent.
+  - After the owner stored a new key, `scripts/with-cloud-key.sh --check` returned HTTP 200 at 09:51:29 UTC.
+  - A free read of the provider's model list over the tool's own transport (Node's https client, no proxy) returned HTTP 200 at 09:51:52 UTC. The session made that check because the tool counts a request that fails after its TLS handshake at its full reservation.
+- **The dry run,** at 09:42:32 UTC, sent nothing. It printed:
+  - 40 claims;
+  - `inputSha256` c1b630b3fd737a29aef8629b20e58466fe38a687036e6c9267b4d4727a402739;
+  - `instructionsSha256` 0184b561b5cee866c56fcda7321095a719a522d529b5a46158856d6fa2d3f9d2, the value Amendment 2 names;
+  - a 63,658-byte request body;
+  - a projected fee of USD 0.476585.
+- **The run,** from 09:52:10 to 09:52:33 UTC, from the main checkout at a355074 with a clean tracked tree. Amendment 2 had been committed at 09:41:37 UTC.
+  - **One request** (`label_and_plant`): HTTP 200, settled in 22.3 s, served model `gpt-6-sol`. No second request was needed (`secondRequest` null).
+  - **Usage:** 14,631 input tokens, none read from cache and 14,628 written to it; 3,130 output tokens, 875 of them reasoning. The reply reported its cache writes, and none at the 12-hour tier, which the tool would have refused to price.
+  - **The fee:** USD 0.067876 at the tool's price constants. The ledger holds the reservation and then the settlement. No earlier call was counted, and nothing is reserved as unknown.
+  - **The result:** 40 harvested claims, 20 planted, none rejected and no note shortened. The labels are 21 supported, 19 partial, 10 unsupported and 10 contradicted. The planted claims are 10 unsupported and 10 contradicted, so the labeller called the 40 harvested claims 21 supported and 19 partial.
+- **The integrity checks** before the pin, which print digests and counts only:
+  - no lock file and no temporary file;
+  - 60 claims and 60 labels, with no duplicate id, no claim without a label and no label without a claim;
+  - every label is one of the four, and no planted claim is labelled supported;
+  - every claim carries only its four keys;
+  - the two files' sha256 agree in three places (the tool's summary, a recomputation, and `shasum`): claims.json 28ac6e6dcdeecbd2173b119d32bbb235c4a3e8baef388b657b770e7c3daee328 and labels.json c643fc60864a2ad7f55322c17eb0f02ddcde053c1de5e073250a65c11fa28af1.
+- **The pin.** A script wrote the manifest from the two files, with no digit typed by hand.
+  - `claimCount` 60, `plantedCount` 20, and the label counts above.
+  - The manifest's canonical sha256 is 2d5b505db708e5d80dae0bed03113cf1d8d143ecb9c2c2bc55afcdb7509f44cb, which the fixture prints as `manifestSha256`.
+  - A check that replicates the fixture's comparisons passed on every field.
+- **The price recheck,** made after the run. At about 10:10 UTC the session read OpenAI's published pricing page through a fetch tool. For `gpt-6-sol`, per million tokens, it lists:
+  - 2.00 input, 0.20 cached input, 2.50 for a 30-minute cache write and 10.00 output;
+  - 4.00, 0.40, 5.00 and 15.00 above 272K input tokens.
+
+  These equal the tool's constants.
+- **The row** was written by `scripts/registry-row.py --labelling-file`: USD 0.067876, reserved USD 0.476585, 63,658 disclosed bytes, one settled cloud call, and no text.
+- **Checks on this branch:**
+  - the judge-fixture, judge-labeller and E0 registry-row suites: 3 files, 67 tests passed;
+  - `pnpm typecheck` passed;
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm --silent validate:readiness` passed.
+
+Failures or blockers: The key stored before 2026-11-16 was rejected (HTTP 401). The owner replaced it.
+
+Limitations and non-claims:
+- **The labels are one cloud model's reading, not ground truth.** The labeller called 19 of the 40 host-verified harvested claims partial. This entry does not assess that.
+- **The fee is the tool's computation** at the published prices. The provider's bill is not visible to the tool or to this session; the owner's provider dashboard is the reconciliation.
+- **The price recheck followed the run.** PLAN.md asks for it on the day of use, and the tool's entries placed it before the labelling.
+- **Digests and counts only.** The claim set, the labels, the reply and the summary stay git-ignored on the owner's Mac, and this log holds no claim or label text.
+- **What the design leaves unmeasured.** With one condition and one repeat, the fixture measures no consistency between repeats, no order effect, and nothing on the `flash_next_v1` shape.
+
+Paid exposure: USD 0.067876, as the tool computes it, on PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)", inside the USD 1.00 cap of BL-20261113-1003-e0-card-owner-answers. One request body of 63,658 bytes went to the labeller at `api.openai.com`. It held the protocol's instructions, the tool's fixed framing, and the 40 harvested claims with their quotes and context windows, all public or synthetic material.
+
+Next gate: The judge fixture, reading this commit's manifest: `--dry-run` first, then the run. The dry run must print `manifestSha256` 2d5b505d….
+
+References: docs/experiments/e0-judge-fixture-v1.json; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/e0-card-2026-11-13.md; BL-20261116-0941-e0-card-amendment-2; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261115-1956-e0-judge-labeller-design; BL-20261115-2044-e0-judge-labeller-implemented; BL-20261116-0839-e0-registry-modes-design; pull requests #115, #117 and #121.

@@ -1626,7 +1626,7 @@ def counted(value) -> bool:
 
 
 def transport_failed(value) -> bool:
-    """Whether a probe record shows a transport failure anywhere in it (BL-20261116-1033-serving-probe-direct-transport-design, decision (5), as
+    """Whether a probe record shows a transport failure anywhere in it (BL-20261116-1217-serving-probe-direct-transport-design, decision (5), as
     implemented). It decides from what each record holds, so a record written before this change is read conservatively:
     - a POST's transport_error (status -1), or a stream's error naming an exception class (an HTTP error code is the server's answer);
     - a status of -1, or one naming an exception class: a GET's, the adapter's chat_status, a P11 cache-layout row's;

@@ -77,7 +77,7 @@ describe("serving-card writer", () => {
     expect(card(syntheticProbe(), COMPARE).stdout).toBe(text);
   });
 
-  it("refuses a probe whose P10 stream ended before its finish reason, and writes the same card when the counts carry that class at 0 (BL-20261116-1033-serving-probe-direct-transport-design)", () => {
+  it("refuses a probe whose P10 stream ended before its finish reason, and writes the same card when the counts carry that class at 0 (BL-20261116-1217-serving-probe-direct-transport-design)", () => {
     // A probe written or assessed after this change carries stream_ended_early in every cell's counts; the writer recounts from the calls,
     // so the card keeps W1's digest: a card from E0's run 3, none of whose replies ended early, is unchanged.
     const counted = syntheticProbe();

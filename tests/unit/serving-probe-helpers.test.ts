@@ -60,7 +60,7 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
       { fn: "classify_reply", args: [200, "stop", "{}", "schema_invalid"] }, { fn: "classify_reply", args: [200, "stop", "{}", "binding_invalid"] }, { fn: "classify_reply", args: [200, "stop", "{}", "valid"] },
       { fn: "classify_reply", args: [200, "length", "{}", "valid"] }, { fn: "classify_reply", args: [500, "stop", "{}", "valid"] },
     ])).toEqual(["request_rejected", "request_rejected", "truncated", "truncated", "invalid_json", "invalid_json", "invalid_json", "unassessed", "schema_invalid", "binding_invalid", "valid", "truncated", "request_rejected"]);
-    // BL-20261116-1033-serving-probe-direct-transport-design (2), as implemented: a streamed reply answered 200 with no finish reason whose
+    // BL-20261116-1217-serving-probe-direct-transport-design (2), as implemented: a streamed reply answered 200 with no finish reason whose
     // connection closed with no [DONE] and no error event (stream_end eof) ended early, whatever its content. A server's error event, a
     // record without stream_end, a reply cut by an exception (request_rejected) and one that was not streamed are read as before.
     expect(values([
@@ -250,7 +250,7 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
 
 describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-align-design)", () => {
   const exported = (streamingEnabled: boolean) => buildRoleSchemaExport("2026-11-13T00:00:00.000Z", { vllm: { model: "Synthetic" }, streamingEnabled });
-  /** Dead-port proxies in every form urllib reads (BL-20261116-1033-serving-probe-direct-transport-design (6)): a request that took one would be refused. */
+  /** Dead-port proxies in every form urllib reads (BL-20261116-1217-serving-probe-direct-transport-design (6)): a request that took one would be refused. */
   let proxies: Record<string, string> = {};
   beforeAll(async () => { const url = `http://127.0.0.1:${await deadPort()}`; proxies = { http_proxy: url, https_proxy: url, HTTP_PROXY: url, HTTPS_PROXY: url }; });
   /** python3 -I without blocking the event loop, so a loopback server in this process can answer the probe; the proxies are set. */
@@ -298,7 +298,7 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
     expect(other.status).toBe(2); expect(other.stderr).toContain("another model");
   });
 
-  it("connects directly on every request path whatever the proxy settings, and records a refused endpoint as before (BL-20261116-1033-serving-probe-direct-transport-design)", async () => {
+  it("connects directly on every request path whatever the proxy settings, and records a refused endpoint as before (BL-20261116-1217-serving-probe-direct-transport-design)", async () => {
     let received = 0;
     const server = http.createServer((request, response) => {
       let raw = ""; request.on("data", piece => { raw += piece; }); request.on("end", () => {
@@ -345,7 +345,7 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
     } finally { await new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }); }
   });
 
-  it("classes a P10 stream whose connection closed with no finish reason stream_ended_early, a server's error event as before, and the assessor keeps both (BL-20261116-1033-serving-probe-direct-transport-design)", async () => {
+  it("classes a P10 stream whose connection closed with no finish reason stream_ended_early, a server's error event as before, and the assessor keeps both (BL-20261116-1217-serving-probe-direct-transport-design)", async () => {
     const data = exported(true), dir = mkdtempSync(join(root, "p10-early-")), schemasPath = join(dir, "role-schemas.json");
     writeFileSync(schemasPath, JSON.stringify(data));
     let streamed = 0;

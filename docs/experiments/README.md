@@ -311,7 +311,7 @@ after `pnpm probe:assess`.
   - `assessed`, and `schemasProtocolMatch` from the assessment, both null without P10;
   - `calls` per probe, and `usage`;
   - `transportFailures`: the probes, in the probe order, whose records show a transport
-    failure (BL-20261116-1033-serving-probe-direct-transport-design, as implemented). The writer decides from
+    failure (BL-20261116-1217-serving-probe-direct-transport-design, as implemented). The writer decides from
     what each record holds, so a record written before this change is read conservatively:
     - a POST's `transport_error`, recorded with status -1;
     - a stream's `error` naming an exception class (a stream's HTTP error code is the

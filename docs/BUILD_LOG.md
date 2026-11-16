@@ -46366,7 +46366,7 @@ Next gate: CI on this head, then the orchestrator's merge after #108, under the 
 
 References: BL-20261116-1213-local-fanout-design; BL-20261116-1214-local-fanout-implemented; BL-20261116-1215-correction-local-fanout-review; BL-20261116-1212-correction-research-structured-output-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1505-concurrent-local-admission-design; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0939-e0-probes-serving-card; BL-20261116-1020-e0-judge-fixture-result.
 
-### BL-20261116-1033-serving-probe-direct-transport-design -- 2026-11-16 -- The serving probe connects directly whatever the proxy settings, a P10 stream that ends early gets its own class, and a probe row is not accepted when its records show a transport failure
+### BL-20261116-1217-serving-probe-direct-transport-design -- 2026-11-16 -- The serving probe connects directly whatever the proxy settings, a P10 stream that ends early gets its own class, and a probe row is not accepted when its records show a transport failure
 
 Status: `Proposed`
 
@@ -46446,11 +46446,11 @@ Next gate: the implementation with its tests, a light review with privacy checke
 
 References: BL-20261116-0839-e0-registry-modes-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.
 
-### BL-20261116-1128-serving-probe-direct-transport-implemented -- 2026-11-16 -- The serving probe connects directly, a P10 stream whose connection closed with no finish reason is `stream_ended_early`, and a probe row is not accepted when its records show a transport failure: implemented, with changes from the design after its tests and a light review
+### BL-20261116-1218-serving-probe-direct-transport-implemented -- 2026-11-16 -- The serving probe connects directly, a P10 stream whose connection closed with no finish reason is `stream_ended_early`, and a probe row is not accepted when its records show a transport failure: implemented, with changes from the design after its tests and a light review
 
 Status: `Implemented`
 
-Scope or hypothesis: This implements BL-20261116-1033-serving-probe-direct-transport-design, which stays as written.
+Scope or hypothesis: This implements BL-20261116-1217-serving-probe-direct-transport-design, which stays as written.
 - **Held as designed:** decisions (1) and (4).
 - **Changed:** decisions (2), (3) and (5), after the tests and one light review, as recorded below.
 
@@ -46573,4 +46573,48 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: the pull request. The entries are re-stamped once at merge, after #121, and the coordinator merges under the standing go-ahead.
 
-References: BL-20261116-1033-serving-probe-direct-transport-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.
+References: BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.
+
+### BL-20261116-1230-correction-serving-probe-direct-transport-restamp -- 2026-11-16 -- Correction: #123's two entries are re-stamped after #110's tail, now that #123 is chained on #110; their original IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinator chained #123 on #110, which merges first. This branch merged #110's head 5aaeb0a at 6bd268d, with no force-push. #110's last ID is BL-20261116-1216-correction-local-fanout-restamp. So this branch's two entries move after it, under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates).
+
+Each entry, with its original ID and authoring time, both on 2026-11-16 UTC:
+- **The design entry.** Authored at 10:33 as BL-20261116-1033. It is now BL-20261116-1217-serving-probe-direct-transport-design.
+- **The implemented entry.** Authored at 11:28 as BL-20261116-1128. It is now BL-20261116-1218-serving-probe-direct-transport-implemented.
+
+Decisions:
+- **(1) The re-stamp.**
+  - **What changes.** Only the two headings' IDs change, with the references to them: two in the implemented entry's body, and 15 in comments, test titles and the README.
+  - **The 15 references** are across 10 files: scripts/serving-probe.py, scripts/assess-probe-replies.ts, scripts/serving-card.py, scripts/registry-row.py, docs/experiments/README.md, tests/helpers/serving-probe-fake.py and four test files.
+  - **The log.** No entry before them cites the original IDs. #110's log is kept whole, as a byte prefix of this branch's.
+- **(2) The chain merge.**
+  - **The conflict.** Only docs/BUILD_LOG.md conflicted. It is resolved by appending: #110's log whole, then this branch's two entries.
+  - **The merged tree** differs from #110's head only in this branch's 11 files. Compared line by line, each carries exactly this branch's edits from 6a96098 to 0ff0a83.
+- **(3) The shared rerere cache.** The coordinator reported a git rerere cache shared in this repository from 11:23 to 12:23 UTC. This branch made no merge before this one, and this merge ran with `rerere.enabled=false`. Its output shows no reused resolution.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, their references, and this entry.
+- The files that cite the entries, as listed in decision (1).
+
+No behaviour changes.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref 5aaeb0a` exits 0 (706 entries, append-only against #110's head). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On the merged tree, on Node 22.22.2 and pnpm 10.12.4, the registry-row, fixture, probe, serving-card and labelling-tool suites pass 341 of 341, in 21 files.
+- **The re-stamp.** With the two new IDs mapped back, the log before this entry is byte-identical to the merge commit's. `git grep` finds the original IDs only in this entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- If #110 or #108 changes before it merges, this branch merges the new head and re-stamps again, under the same rule.
+- Commit messages and #123's earlier description keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #123, then the merge after #110 under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1216-correction-local-fanout-restamp; BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-1218-serving-probe-direct-transport-implemented; pull requests #110 and #123.

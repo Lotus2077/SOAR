@@ -154,7 +154,7 @@ def looks_like_path(text: str) -> bool:
 
 
 def refuse_ended_streams(probe: Dict[str, Any]) -> None:
-    """BL-20261116-1033-serving-probe-direct-transport-design (4): a P10 stream that ended before its finish reason measured the transport,
+    """BL-20261116-1217-serving-probe-direct-transport-design (4): a P10 stream that ended before its finish reason measured the transport,
     not the server, and the card has no class for it, so neither the Markdown card nor --policy-out's is written from that run.
     The message names a fixed path only."""
     p10 = probe.get("P10")

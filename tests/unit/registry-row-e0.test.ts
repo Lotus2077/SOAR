@@ -144,7 +144,7 @@ describe("E0 registry modes: serving-probe runs", () => {
     expect(refused(["--probe-dir", scratch()], "rejected")).toContain("probe.json is missing");
   }, 60_000);
 
-  it("refuses accepted when a probe's records show a transport failure, except P8's measured cut and P6's deliberate abort (BL-20261116-1033-serving-probe-direct-transport-design)", () => {
+  it("refuses accepted when a probe's records show a transport failure, except P8's measured cut and P6's deliberate abort (BL-20261116-1217-serving-probe-direct-transport-design)", () => {
     const ranToo = (probe: Record<string, any>, name: string, record: unknown) => {
       probe.probes_selected = [...new Set([...probe.probes_selected, name])]; probe.probes_skipped = probe.probes_skipped.filter((other: string) => other !== name);
       delete probe.probes_failed[name]; probe.probes_run = [...new Set([...probe.probes_run, name])]; probe[name] = record;

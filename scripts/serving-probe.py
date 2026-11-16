@@ -60,7 +60,7 @@ P10_MODES = ("on", "off")
 # P10-align (BL-20261113-1011-p10-align-design): the export version that carries the pipeline's request bodies.
 P10_EXPORT_VERSION = 2
 P10_SCHEMA_NAMES = {"plan": "research_plan", "extract": "research_extraction", "synthesis": "research_synthesis"}
-# BL-20261116-1033-serving-probe-direct-transport-design (2): a streamed reply that ended with no finish reason is stream_ended_early, not invalid_json.
+# BL-20261116-1217-serving-probe-direct-transport-design (2): a streamed reply that ended with no finish reason is stream_ended_early, not invalid_json.
 P10_CLASSES = ("request_rejected", "stream_ended_early", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed")
 P11_SIZES = (20_000, 60_000, 120_000)
 P11_MAX_TOKENS = 300
@@ -354,7 +354,7 @@ def summarize_cell(calls: List[Dict[str, Any]], thinking: str) -> Dict[str, Any]
 def aggregate_streams(results: Sequence[Dict[str, Any]], running_samples: Sequence[Optional[float]]) -> Dict[str, Any]:
     """Per-K view of a burst: per-stream decode, aggregate tokens/s over the burst's wall time, load during it. `errors` counts every
     stream without usage or elapsed time; `transport_errors` only those that failed at transport: an exception, or a stream whose
-    connection closed with no finish reason, no [DONE] and no error event (stream_end "eof", BL-20261116-1033-serving-probe-direct-transport-design)."""
+    connection closed with no finish reason, no [DONE] and no error event (stream_end "eof", BL-20261116-1217-serving-probe-direct-transport-design)."""
     ok = [r for r in results if "error" not in r and r.get("completion_tokens") and r.get("total_s")]
     decode = [r["decode_tok_s"] for r in ok if r.get("decode_tok_s") is not None]
     ttft = [r["ttft_s"] for r in ok if r.get("ttft_s") is not None]
@@ -496,7 +496,7 @@ def strip_reasoning_fields(raw: bytes) -> bytes:
 
 # --- endpoint access (the only place the address is used; never returned or printed) ---------------------------
 
-# Every request goes straight to the endpoint (BL-20261116-1033-serving-probe-direct-transport-design). urlopen's default opener would take a proxy from the environment's
+# Every request goes straight to the endpoint (BL-20261116-1217-serving-probe-direct-transport-design). urlopen's default opener would take a proxy from the environment's
 # *_proxy variables or, on macOS, from the system settings: a hop the app's own requests never take, and the path two of E0's
 # probe runs took when they dropped partway (the proxy as their cause is an inference, not shown). Only the proxy choice differs
 # from urlopen: every request, status and exception is as before.

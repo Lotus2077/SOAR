@@ -44,7 +44,7 @@ describe("P10 assessor", () => {
     expect(() => classifyRetainedReply("plan", Buffer.from("x"), { ...r.call, body_sha256: digest("x") }, binding)).toThrow("p10_reply_body_not_json");
   });
 
-  it("classes a streamed reply whose connection closed with no finish reason stream_ended_early, before its content is read (BL-20261116-1033-serving-probe-direct-transport-design)", () => {
+  it("classes a streamed reply whose connection closed with no finish reason stream_ended_early, before its content is read (BL-20261116-1217-serving-probe-direct-transport-design)", () => {
     const cut = '{"version":2,"quest', body = Buffer.from(JSON.stringify({ model: "Synthetic", choices: [{ message: { content: cut }, finish_reason: null }] }));
     const call: P10Call = { ordinal: 1, status: 200, finish_reason: null, stream_end: "eof", classification: "unassessed", reply_file: "x.json", body_sha256: digest(body),
       content_sha256: digest(cut) };

@@ -5,7 +5,7 @@ the fake received (BL-20261116-0839-e0-registry-modes-design's test of the probe
 
 The copy runs from <work>/scripts, so its run directory lands under <work>/.soar/experiments; nothing is written to the repository and no
 address but 127.0.0.1 is contacted. Its environment names proxies on a loopback port nothing listens on, in every form urllib reads: the
-probe connects directly whatever they say (BL-20261116-1033-serving-probe-direct-transport-design), so a request that took a proxy would
+probe connects directly whatever they say (BL-20261116-1217-serving-probe-direct-transport-design), so a request that took a proxy would
 never reach the fake. P6 is skipped: its ten one-second load samples only slow the test, and its record's shape is covered
 by the synthetic probe. Every string the fake serves that a registry row must never carry is in LEAKS."""
 import hashlib

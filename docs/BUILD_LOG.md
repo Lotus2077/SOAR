@@ -46074,3 +46074,39 @@ References:
 - BL-20261116-1253-e0-planner-structured-condition-design;
 - BL-20261116-1123-e0-extractor-fixture-design;
 - BL-20261116-1208-research-structured-output-design.
+
+### BL-20261116-1307-correction-research-structured-output-doctor-test -- 2026-11-16 -- Correction to BL-20261116-1212-correction-research-structured-output-restamp: what the doctor test's failure was, and what changed
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261116-1212-correction-research-structured-output-restamp, which is not edited. That entry names the trial review's one blocker only as "the doctor test". The coordinating session's skeptic check of #108's final head asked that the log say what failed and what changed.
+
+Decisions:
+(1) **What failed.**
+- On the trial merge of #108 onto `main`'s line, one case in tests/unit/setup-general.test.ts failed: "gives the reader the run's request settings for a flagged card, as the headless driver does".
+- Under the run's settings, it expected the doctor to refuse the writer's flagged card with `serving_card_parameter_unconsumed`.
+- Item 9 consumes structured-output flags, so the card resolved instead: the doctor reported `matches`, with `ready` true.
+(2) **What changed.**
+- Under the run's settings, the case now expects `matches` and `ready` true. That holds with the app's default streaming and with `SOAR_STREAMING=true`.
+- The refusals the test exists for are unchanged. With `SOAR_STREAMING=false`, and under flash_next_v1 at the card's own context, the doctor still refuses with `serving_card_p10_settings_drift`.
+- The coordinating session reported its check: `main`'s earlier version of the test fails that one case against the merged code. The adjusted test passes 14 of 14, and four single-edit mutants of the doctor's `cardExpectation` each fail it.
+
+Changes:
+- docs/BUILD_LOG.md: this entry. No code or test change.
+
+Evidence:
+- The test's text at 860ec58, #108's merge on `main`.
+- The coordinating session's skeptic-check report of 2026-11-16.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only.
+
+Paid exposure: None.
+
+Next gate: None.
+
+References:
+- BL-20261116-1212-correction-research-structured-output-restamp (corrected);
+- BL-20261116-1208-research-structured-output-design.

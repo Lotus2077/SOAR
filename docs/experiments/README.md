@@ -404,8 +404,9 @@ scripts/extractor-fixture.ts, pull request #116).
   - Planner and extractor rows add `protocolSha256`, the research protocol hash their request
     bodies were built under.
   - An extractor row's manifest is its `sha256`, `briefSha256`, `planSha256`, `unitCount` and
-    `sourceCount`. Its conditions are `thinking-off`, `thinking-on`, `thinking-on-8192` and
-    `thinking-on-16384`, and the row adds `deployedCondition`, the one the pipeline sends. A
+    `sourceCount`. Its conditions are `thinking-off`, `thinking-on`, `thinking-on-8192`,
+    `thinking-on-16384` and `thinking-off-structured` (the serving card's extract call), and the
+    row adds `deployedCondition`, the one the pipeline sends. A
     finished run holds one call per condition, repeat and chunk. The writer
     never copies its `requestSettings`, its `chunks` (whose source ids are paths), its `order`,
     its `cells`, or any per-call field but the classification and the usage counts.

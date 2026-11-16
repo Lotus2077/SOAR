@@ -1299,7 +1299,7 @@ HOST_FLAG_SECTIONS = ("report_failed", "argument_failed", "misses_failed", "revi
 HOST_FLAG_COUNTS = ("reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded", "briefSingleUnit",
                     "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
                     "numericUnaddressed")
-# 7d.D (BL-20261116-0821-host-flags-trimmed-counts-design) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap; an older event's
+# 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap; an older event's
 # misses lack them, which means not recorded, never zero.
 HOST_FLAG_MISSES = ("briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries", "droppedQuotes",
                     "quotesLeftByCap", "conflictsLeftByCap", "fetchFailures", "fetchLimitRefusals")

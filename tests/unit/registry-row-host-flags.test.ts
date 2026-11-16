@@ -111,7 +111,7 @@ describe("the hostFlags registry column (backlog item 7(d), part C)", { timeout:
       expect(refused(["--run-dir", runDirectory(root, name, { events: [event] })]), name).toContain("holds a host_flags event the registry cannot read");
     }
   });
-  it("keeps its count and miss names equal to the event schema's, which 7d.D extends (BL-20261116-0821-host-flags-trimmed-counts-design)", () => {
+  it("keeps its count and miss names equal to the event schema's, which 7d.D extends (BL-20261116-1200-host-flags-trimmed-counts-design)", () => {
     const load = "import importlib.util, json, sys\nspec = importlib.util.spec_from_file_location('registry_row', sys.argv[1])\nmodule = importlib.util.module_from_spec(spec)\n" +
       "spec.loader.exec_module(module)\nprint(json.dumps({'counts': list(module.HOST_FLAG_COUNTS), 'misses': list(module.HOST_FLAG_MISSES)}))";
     const names = JSON.parse(execFileSync("python3", ["-I", "-c", load, SCRIPT], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as { counts: string[]; misses: string[] };

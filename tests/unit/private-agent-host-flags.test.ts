@@ -292,7 +292,7 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1509)", ()
       const numbered = hostFlagsEvent(harness({ files: await packet("1. Describe the alpha observations.\n2. Describe the beta observations.\n") }).run({ "output/report.md": "x" }))!;
       expect(numbered.misses!.briefUnits).toBe(2); expect(numbered.counts.briefSingleUnit).toBe(0);
     }, 30_000);
-    /** 7d.D (BL-20261116-0821-host-flags-trimmed-counts-design): twenty sources of twelve rows, every row a verified quote for Q1 and every chunk one
+    /** 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design): twenty sources of twelve rows, every row a verified quote for Q1 and every chunk one
      * conflict note, so 7b.2's trim leaves quotes and notes out of the packet, as in its own pipeline test. */
     const trimmedPacket = async () => {
       const sources = Array.from({ length: 20 }, (_, i) => ({ id: `input/t-${String(i).padStart(2, "0")}.md`, path: `input/t-${i}.md`,

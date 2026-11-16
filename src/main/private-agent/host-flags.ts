@@ -222,7 +222,7 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
         const retained = outcome("evidence_retained"), trimmed = outcome("evidence_trimmed");
         misses.briefUnits = coverage.units.length;
         misses.questionsWithoutEvidence = coverage.synthesis.questions.filter(question => !retained.has(question.questionId)).length;
-        // 7d.D (BL-20261116-0821-host-flags-trimmed-counts-design): of those, the questions whose verified quotes 7b.2's trim all left out
+        // 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design): of those, the questions whose verified quotes 7b.2's trim all left out
         // of the packet, and the packet's omissions. Computed whenever coverage is read, so an older event's missing count reads "not recorded".
         misses.questionsTrimmed = coverage.synthesis.questions.filter(question => !retained.has(question.questionId) && trimmed.has(question.questionId)).length;
         misses.unresolvedQuestions = coverage.synthesis.questions.filter(question => question.disposition === "unresolved").length;

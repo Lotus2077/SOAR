@@ -185,7 +185,7 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
   }
   const misses = flags.misses ?? {};
   if (misses.questionsWithoutEvidence) {
-    // 7d.D (BL-20261116-0821-host-flags-trimmed-counts-design): the questions whose verified quotes the packet's caps all left out are among
+    // 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design): the questions whose verified quotes the packet's caps all left out are among
     // them. An event recorded before 7d.D has no such count, and its line reads as before.
     const total = misses.questionsWithoutEvidence, trimmed = misses.questionsTrimmed ?? 0;
     const why = trimmed ? `; ${trimmed === total ? (total === 1 ? "it" : "each") : `${trimmed} of them`} had verified evidence, all left out of the packet at its caps` : "";

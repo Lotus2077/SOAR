@@ -44,12 +44,17 @@ describe("P10 assessor", () => {
     expect(() => classifyRetainedReply("plan", Buffer.from("x"), { ...r.call, body_sha256: digest("x") }, binding)).toThrow("p10_reply_body_not_json");
   });
 
-  it("classes a streamed reply answered 200 with no finish reason stream_ended_early, before its content is read (BL-20261116-1033-serving-probe-direct-transport-design)", () => {
+  it("classes a streamed reply whose connection closed with no finish reason stream_ended_early, before its content is read (BL-20261116-1033-serving-probe-direct-transport-design)", () => {
     const cut = '{"version":2,"quest', body = Buffer.from(JSON.stringify({ model: "Synthetic", choices: [{ message: { content: cut }, finish_reason: null }] }));
-    const call: P10Call = { ordinal: 1, status: 200, finish_reason: null, classification: "unassessed", reply_file: "x.json", body_sha256: digest(body), content_sha256: digest(cut) };
+    const call: P10Call = { ordinal: 1, status: 200, finish_reason: null, stream_end: "eof", classification: "unassessed", reply_file: "x.json", body_sha256: digest(body),
+      content_sha256: digest(cut) };
     expect(classifyRetainedReply("plan", body, call, binding, true)).toEqual({ classification: "stream_ended_early", codes: ["stream_ended_early"] });
     // Not streamed, the same reply is read as before.
     expect(classifyRetainedReply("plan", body, call, binding)).toEqual({ classification: "invalid_json", codes: ["invalid_json"] });
+    // A server's error event, and a record from before stream_end, are read as before too.
+    for (const streamEnd of ["error", "done", undefined]) {
+      expect(classifyRetainedReply("plan", body, { ...call, stream_end: streamEnd }, binding, true)).toEqual({ classification: "invalid_json", codes: ["invalid_json"] });
+    }
     // A streamed reply that ended before any content ended early too; it had been invalid_json with no_content.
     const empty = Buffer.from(JSON.stringify({ model: "Synthetic", choices: [{ message: { content: null }, finish_reason: null }] }));
     expect(classifyRetainedReply("plan", empty, { ...call, body_sha256: digest(empty), content_sha256: null }, binding, true).classification).toBe("stream_ended_early");

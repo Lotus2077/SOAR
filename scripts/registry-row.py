@@ -1618,13 +1618,21 @@ def probe_requests(name: str, record):
         (1 if isinstance(tokenize, dict) and "chat_status" in tokenize else 0)
 
 
+def counted(value) -> bool:
+    """A count above 0; a bool is not a count."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def transport_failed(value) -> bool:
-    """Whether a probe record shows a transport failure anywhere in it (BL-20261116-1033-serving-probe-direct-transport-design, decision (5)): a POST's
-    transport_error (status -1), a stream's error naming an exception class (an HTTP error code is the server's answer), a status of -1 or
-    one naming an exception class (a GET's, or a P11 cache-layout row's), a P11 K burst whose transport_errors count is above 0 (its
-    errors count also counts a stream that reported no usage or no elapsed time, so it is not read), or a stream that
-    answered 200 and ended with no finish reason (a P10 call classed stream_ended_early, or a stream's own record). P6's deliberate abort
-    is recorded as aborted_after_s and is none of these."""
+    """Whether a probe record shows a transport failure anywhere in it (BL-20261116-1033-serving-probe-direct-transport-design, decision (5), as
+    implemented). It decides from what each record holds, so a record written before this change is read conservatively:
+    - a POST's transport_error (status -1), or a stream's error naming an exception class (an HTTP error code is the server's answer);
+    - a status of -1, or one naming an exception class: a GET's, the adapter's chat_status, a P11 cache-layout row's;
+    - a P11 K burst counting a stream that failed at transport: its transport_errors, or, in a record from before that count, its
+      errors count, which also counts a stream without usage or elapsed time;
+    - a streamed reply that answered 200 with no finish reason, unless its stream_end says the server ended it ("done" or "error");
+      a record from before stream_end has none, so it counts. A P10 call classed stream_ended_early is one.
+    P6's deliberate abort is recorded as aborted_after_s and is none of these."""
     if isinstance(value, list):
         return any(transport_failed(item) for item in value)
     if not isinstance(value, dict):
@@ -1633,9 +1641,10 @@ def transport_failed(value) -> bool:
         return True
     if any((key == "status" or key.endswith("_status")) and not isinstance(item, bool) and (item == -1 or isinstance(item, str)) for key, item in value.items()):
         return True
-    if isinstance(value.get("transport_errors"), int) and not isinstance(value["transport_errors"], bool) and value["transport_errors"] > 0:
+    if "streams" in value and "errors" in value and counted(value.get("transport_errors", value.get("errors"))):
         return True
-    if "chunks" in value and value.get("status") == 200 and "finish_reason" in value and value["finish_reason"] is None:
+    if ("chunks" in value or "stream_chunks" in value) and value.get("status") == 200 and "finish_reason" in value and value["finish_reason"] is None \
+            and value.get("stream_end", "eof") == "eof":
         return True
     return any(transport_failed(item) for item in value.values())
 
@@ -1675,8 +1684,11 @@ def probe_row(args) -> dict:
             usage["calls"] += 1
             usage["inputTokens"] += tokens[0]
             usage["outputTokens"] += tokens[1]
-    # P8 measures whether a long non-streaming request survives, so its own cut connection is its finding, not a transport failure.
-    transport = [name for name in PROBE_NAMES if name in ran and name != "P8" and transport_failed(probe.get(name))]
+    # P8 measures whether a long non-streaming request survives, so a connection cut after the request was sent (RemoteDisconnected, a
+    # timeout, a reset) is its finding. urllib raises URLError only when it cannot connect or send, so a P8 whose transport_error is
+    # URLError never reached the server, and that is a transport failure.
+    sent_then_cut = lambda record: isinstance(record, dict) and record.get("transport_error") != "URLError"
+    transport = [name for name in PROBE_NAMES if name in ran and transport_failed(probe.get(name)) and not (name == "P8" and sent_then_cut(probe.get(name)))]
     roles = probe.get("roles")
     protocol = roles.get("protocol_sha256") if isinstance(roles, dict) else None
     if protocol is not None and not is_digest(protocol):

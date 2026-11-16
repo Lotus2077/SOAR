@@ -82,11 +82,15 @@ describe("serving-card writer", () => {
     // so the card keeps W1's digest: a card from E0's run 3, none of whose replies ended early, is unchanged.
     const counted = syntheticProbe();
     for (const cell of Object.values(counted.P10.cells) as { counts: Record<string, unknown> }[]) cell.counts.stream_ended_early = 0;
-    const same = card(counted, COMPARE);
+    const same = card(counted, COMPARE), base = runCardWriter(syntheticProbe()), countedPolicy = runCardWriter(counted);
     expect(same.status).toBe(0); expect(digest(same.stdout)).toBe("5cf363caa1c6d62bc2719501979a9056569f21c394afaac806f86ba12536f426");
-    expect(runCardWriter(counted).status).toBe(0);
-    const ended = syntheticProbe(); ended.P10.cells["synthesis/off"].calls[3].classification = "stream_ended_early";
-    for (const result of [card(ended, COMPARE), runCardWriter(ended)]) {
+    // The machine-readable card is the same too, but for the digest of the probe file it was written from.
+    const withoutDigest = (policy?: Buffer) => { const parsed = JSON.parse(policy!.toString("utf8")); delete parsed.probe.sha256; return parsed; };
+    expect(countedPolicy.status).toBe(0); expect(withoutDigest(countedPolicy.policy)).toEqual(withoutDigest(base.policy));
+    const ended = syntheticProbe(); Object.assign(ended.P10.cells["synthesis/off"].calls[3], { classification: "stream_ended_early", finish_reason: null, stream_end: "eof" });
+    const policyRun = runCardWriter(ended);
+    expect(policyRun.policy).toBeUndefined();
+    for (const result of [card(ended, COMPARE), policyRun]) {
       expect(result.status).toBe(2); expect(result.stdout).toBe("");
       expect(result.stderr).toContain("refused: a P10 stream at $.P10.cells ended before its finish reason");
     }

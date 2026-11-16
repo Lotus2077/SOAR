@@ -159,7 +159,12 @@ describe("E0 registry modes: serving-probe runs", () => {
       ["a cache-layout row's exception", probe => { probe.P11.cache_layouts.layouts.sorted_keys.requests[0].status = "URLError"; }, ["P11"]],
       ["a K burst's transport error", probe => { probe.P11.k_streams["2"].transport_errors = 1; }, ["P11"]],
       ["a P10 stream that ended early", probe => { probe.P10.cells["plan/on"].calls[0].classification = "stream_ended_early"; }, ["P10"]],
-      ["a stream that ended with no finish reason", probe => { probe.P3.prose_no_think.finish_reason = null; }, ["P3"]],
+      ["a P10 streamed call from before stream_end that ended with no finish reason", probe => {
+        Object.assign(probe.P10.cells["plan/on"].calls[0], { finish_reason: null, stream_chunks: 3, classification: "invalid_json" }); }, ["P10"]],
+      ["a stream from before stream_end that ended with no finish reason", probe => { probe.P3.prose_no_think.finish_reason = null; }, ["P3"]],
+      ["a stream whose connection closed first", probe => { Object.assign(probe.P3.prose_no_think, { finish_reason: null, stream_end: "eof" }); }, ["P3"]],
+      ["a K burst from before transport_errors that counts errors", probe => { probe.P11.k_streams["4"].errors = 2; }, ["P11"]],
+      ["a P8 that never reached the server", probe => ranToo(probe, "P8", { status: -1, elapsed_s: 0, transport_error: "URLError", completion_tokens: null }), ["P8"]],
       ["P6's next request", probe => ranToo(probe, "P6", p6({ error: "RemoteDisconnected", elapsed_s: 1 })), ["P6"]],
       ["two probes, in the probe order", probe => { probe.adapter.openapi.status = -1; probe.P2.thinking_disabled = { error: "timeout", elapsed_s: 600 }; }, ["P2", "adapter"]],
     ];
@@ -168,13 +173,14 @@ describe("E0 registry modes: serving-probe runs", () => {
       expect(row(["--probe-dir", dir], "infra_invalid").probe.transportFailures, name).toEqual(expected);
       expect(refused(["--probe-dir", dir], "accepted"), name).toContain(`probe records show a transport failure (${expected.join(", ")})`);
     }
-    // P8 measures whether a long request survives, so its cut is its finding; P6's abort is recorded as aborted_after_s; a stream's HTTP
-    // error and a burst's errors count (which also counts a stream with no elapsed time) are not transport failures.
+    // P8 measures whether a long request survives, so a cut after it was sent is its finding; P6's abort is recorded as aborted_after_s; a
+    // stream's HTTP error, a server's error event, and a burst's errors count beside its transport_errors are not transport failures.
     const measured = probeDir(probe => {
       complete(probe);
       ranToo(probe, "P8", { status: -1, elapsed_s: 120.9, transport_error: "RemoteDisconnected", completion_tokens: null });
       ranToo(probe, "P6", p6(syntheticStream(20, 2, 0.1, 30)));
-      probe.P2.kwargs_low = { error: 500, error_bytes: 10, error_sha256: h("a"), elapsed_s: 1 }; probe.P11.k_streams["4"].errors = 2;
+      probe.P2.kwargs_low = { error: 500, error_bytes: 10, error_sha256: h("a"), elapsed_s: 1 }; Object.assign(probe.P11.k_streams["4"], { errors: 2, transport_errors: 0 });
+      Object.assign(probe.P3.prose_no_think, { finish_reason: null, stream_end: "error" });
     });
     expect(row(["--probe-dir", measured.dir], "accepted").probe).toMatchObject({ transportFailures: [], run: expect.arrayContaining(["P6", "P8"]) });
   }, 60_000);

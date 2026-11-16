@@ -59,13 +59,16 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
       { fn: "classify_reply", args: [200, "stop", "{}", "schema_invalid"] }, { fn: "classify_reply", args: [200, "stop", "{}", "binding_invalid"] }, { fn: "classify_reply", args: [200, "stop", "{}", "valid"] },
       { fn: "classify_reply", args: [200, "length", "{}", "valid"] }, { fn: "classify_reply", args: [500, "stop", "{}", "valid"] },
     ])).toEqual(["request_rejected", "request_rejected", "truncated", "truncated", "invalid_json", "invalid_json", "invalid_json", "unassessed", "schema_invalid", "binding_invalid", "valid", "truncated", "request_rejected"]);
-    // BL-20261116-1033-serving-probe-direct-transport-design (2): a streamed reply answered 200 with no finish reason ended early, whatever its
-    // content; one cut by an exception is still request_rejected, and a reply that was not streamed is read as before.
+    // BL-20261116-1033-serving-probe-direct-transport-design (2), as implemented: a streamed reply answered 200 with no finish reason whose
+    // connection closed with no [DONE] and no error event (stream_end eof) ended early, whatever its content. A server's error event, a
+    // record without stream_end, a reply cut by an exception (request_rejected) and one that was not streamed are read as before.
     expect(values([
-      { fn: "classify_reply", args: [200, null, cut], kwargs: { streamed: true } }, { fn: "classify_reply", args: [200, null, '{"a": 1}'], kwargs: { streamed: true } },
-      { fn: "classify_reply", args: [-1, null, null], kwargs: { streamed: true } }, { fn: "classify_reply", args: [200, "length", cut], kwargs: { streamed: true } },
-      { fn: "classify_reply", args: [200, "stop", "{}", "valid"], kwargs: { streamed: true } }, { fn: "classify_reply", args: [200, null, "{}"] },
-    ])).toEqual(["stream_ended_early", "stream_ended_early", "request_rejected", "truncated", "valid", "unassessed"]);
+      { fn: "classify_reply", args: [200, null, cut], kwargs: { streamed: true, stream_end: "eof" } },
+      { fn: "classify_reply", args: [200, null, '{"a": 1}'], kwargs: { streamed: true, stream_end: "eof" } },
+      { fn: "classify_reply", args: [-1, null, null], kwargs: { streamed: true } }, { fn: "classify_reply", args: [200, "length", cut], kwargs: { streamed: true, stream_end: "done" } },
+      { fn: "classify_reply", args: [200, "stop", "{}", "valid"], kwargs: { streamed: true, stream_end: "done" } }, { fn: "classify_reply", args: [200, null, "{}"] },
+      { fn: "classify_reply", args: [200, null, null], kwargs: { streamed: true, stream_end: "error" } }, { fn: "classify_reply", args: [200, null, "{}"], kwargs: { streamed: true } },
+    ])).toEqual(["stream_ended_early", "stream_ended_early", "request_rejected", "truncated", "valid", "unassessed", "invalid_json", "unassessed"]);
     expect(one("classify_reply", 200, "stop", "{}", "bogus")).toMatchObject({ ok: false, error: "ValueError" });
     expect(values([{ fn: "parse_json_reply", args: ['Reply: {"a": {"b": 2}} tail'] }, { fn: "parse_json_reply", args: ["}{"] }, { fn: "parse_json_reply", args: [null] }])).toEqual([{ a: { b: 2 } }, null, null]);
   });
@@ -144,10 +147,12 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
     const streams = [{ completion_tokens: 900, total_s: 26, decode_tok_s: 35, ttft_s: 0.13 }, { completion_tokens: 900, total_s: 25.5, decode_tok_s: 33.5, ttft_s: 0.2 }, { error: "URLError", elapsed_s: 1 }];
     expect(values([{ fn: "aggregate_streams", args: [streams, [1, 2, null, 2]] }])[0]).toMatchObject({ streams: 3, errors: 1, transport_errors: 1, per_stream_decode_tok_s: [35, 33.5], median_decode_tok_s: 34.25, aggregate_tok_s: 69.23, max_ttft_s: 0.2, max_total_s: 26, running_max: 2 });
     expect(values([{ fn: "aggregate_streams", args: [[{ error: "x" }], []] }])[0]).toMatchObject({ streams: 1, errors: 1, aggregate_tok_s: null, running_max: null });
-    // `errors` also counts a stream with no elapsed time and a stream's HTTP error; `transport_errors` counts only the stream that ended
-    // with no finish reason or raised.
-    const mixed = [{ status: 200, finish_reason: "stop", completion_tokens: 900, total_s: 0 }, { status: 200, finish_reason: null, completion_tokens: 0, total_s: 3 }, { error: 500, elapsed_s: 1 }];
-    expect(values([{ fn: "aggregate_streams", args: [mixed, []] }])[0]).toMatchObject({ streams: 3, errors: 3, transport_errors: 1 });
+    // `errors` also counts a stream with no elapsed time, a server's error event and an HTTP error; `transport_errors` counts only a
+    // stream that raised, or whose connection closed with no finish reason, [DONE] or error event.
+    const mixed = [{ status: 200, finish_reason: "stop", stream_end: "done", completion_tokens: 900, total_s: 0 },
+      { status: 200, finish_reason: null, stream_end: "eof", completion_tokens: 0, total_s: 3 }, { status: 200, finish_reason: null, stream_end: "error", completion_tokens: 0, total_s: 2 },
+      { error: 500, elapsed_s: 1 }];
+    expect(values([{ fn: "aggregate_streams", args: [mixed, []] }])[0]).toMatchObject({ streams: 4, errors: 4, transport_errors: 1 });
   });
 
   it("redacts server error bodies to length and digest, and the card-safe post view never carries the body", () => {
@@ -231,9 +236,9 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
   let proxies: Record<string, string> = {};
   beforeAll(async () => { const url = `http://127.0.0.1:${await deadPort()}`; proxies = { http_proxy: url, https_proxy: url, HTTP_PROXY: url, HTTPS_PROXY: url }; });
   /** python3 -I without blocking the event loop, so a loopback server in this process can answer the probe; the proxies are set. */
-  function python(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  function python(args: string[], environment?: Record<string, string>): Promise<{ code: number | null; stdout: string; stderr: string }> {
     return new Promise((done, fail) => {
-      const child = spawn("python3", ["-I", ...args], { env: { PATH: process.env.PATH ?? "", ...proxies } });
+      const child = spawn("python3", ["-I", ...args], { env: { PATH: process.env.PATH ?? "", ...(environment ?? proxies) } });
       let stdout = "", stderr = ""; child.stdout.on("data", chunk => { stdout += chunk; }); child.stderr.on("data", chunk => { stderr += chunk; });
       child.on("error", fail); child.on("close", code => done({ code, stdout, stderr })); child.stdin.end();
     });
@@ -256,8 +261,11 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
     const chunk = (delta: object, extra: object = {}) => `data: ${JSON.stringify({ model: "Synthetic", choices: [{ index: 0, delta, ...extra }] })}`;
     const lines = [": keep-alive", chunk({ role: "assistant" }), chunk({ reasoning_content: "thinking " }), chunk({ reasoning_content: "more" }), chunk({ content: "{\"version\":" }),
       chunk({ content: "2}" }, { finish_reason: "stop" }), `data: ${JSON.stringify({ model: "Synthetic", choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } })}`, "data: [DONE]", chunk({ content: "after DONE" })];
-    const [[reply, chunks]] = values([{ fn: "reassemble_stream", args: [lines] }]);
-    expect(chunks).toBe(6);
+    const [[reply, chunks, ended]] = values([{ fn: "reassemble_stream", args: [lines] }]);
+    expect([chunks, ended]).toEqual([6, "done"]);
+    // How a stream ended: eof when its connection closed first, error after a server's error event (in either shape vLLM sends), [DONE] or not.
+    expect(values([{ fn: "reassemble_stream", args: [lines.slice(0, 6)] }, { fn: "reassemble_stream", args: [[...lines.slice(0, 5), 'data: {"error": {"message": "m", "code": 500}}', "data: [DONE]"]] },
+      { fn: "reassemble_stream", args: [[...lines.slice(0, 5), 'data: {"object": "error", "message": "m"}']] }]).map(result => result[2])).toEqual(["eof", "error", "error"]);
     expect(reply).toEqual({ object: "chat.completion", model: "Synthetic", usage: { prompt_tokens: 11, completion_tokens: 7 },
       choices: [{ index: 0, message: { role: "assistant", content: "{\"version\":2}", reasoning_content: "thinking more" }, finish_reason: "stop" }] });
     expect(run([{ fn: "reassemble_stream", args: [["data: {not json"]] }])[0]).toMatchObject({ ok: false, error: "JSONDecodeError" });
@@ -278,8 +286,11 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
       let raw = ""; request.on("data", piece => { raw += piece; }); request.on("end", () => {
         received++;
         if (request.method === "GET") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "Synthetic" }] })); return; }
-        if ((JSON.parse(raw) as { stream?: boolean }).stream) {
+        const body = JSON.parse(raw) as { stream?: boolean; messages?: { content?: string }[] };
+        if (body.stream) {
           response.setHeader("content-type", "text/event-stream");
+          // A failure inside the server, ended the way vLLM ends such a stream: an error event, then [DONE].
+          if (body.messages?.[0]?.content === "fail") { response.write(`data: ${JSON.stringify({ error: { message: "synthetic failure", code: 500 } })}\n\n`); response.end("data: [DONE]\n\n"); return; }
           response.write(`data: ${JSON.stringify({ model: "Synthetic", choices: [{ index: 0, delta: { content: "ready" }, finish_reason: "stop" }] })}\n\n`);
           response.end("data: [DONE]\n\n"); return;
         }
@@ -297,21 +308,26 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
         "    body = {'model': 'Synthetic', 'messages': [{'role': 'user', 'content': 'u'}], 'max_tokens': 4}",
         "    status, _ = ep.get('/models')",
         "    post, streamed = m.post_record(ep.post('/chat/completions', body, timeout=10)), m.post_record(ep.post_stream('/chat/completions', {**body, 'stream': True}, timeout=10))",
-        "    stream = ep.stream(body['messages'], 4, {}, timeout=10)",
+        "    stream, failed = ep.stream(body['messages'], 4, {}, timeout=10), ep.stream([{'role': 'user', 'content': 'fail'}], 4, {}, timeout=10)",
         "    pick = lambda record, keys: {key: record.get(key) for key in keys}",
         "    out[name] = {'get': status, 'post': pick(post, ('status', 'transport_error')), 'post_stream': pick(streamed, ('status', 'transport_error')),",
-        "                 'stream': pick(stream, ('status', 'error', 'finish_reason'))}",
+        "                 'stream': pick(stream, ('status', 'error', 'finish_reason', 'stream_end')), 'failed': pick(failed, ('status', 'error', 'finish_reason', 'stream_end'))}",
         "print(json.dumps(out))"].join("\n");
-      const result = await python(["-c", driver, SCRIPT, String((server.address() as AddressInfo).port), String(await deadPort())]);
-      expect(result.code, result.stderr).toBe(0);
-      expect(received).toBe(4);
-      expect(JSON.parse(result.stdout)).toEqual({
-        live: { get: 200, post: { status: 200, transport_error: null }, post_stream: { status: 200, transport_error: null }, stream: { status: 200, error: null, finish_reason: "stop" } },
-        refused: { get: -1, post: { status: -1, transport_error: "URLError" }, post_stream: { status: -1, transport_error: "URLError" }, stream: { status: null, error: "URLError", finish_reason: null } } });
-    } finally { server.close(); }
+      // With the dead-port proxies (python()'s default) and without any proxy variable.
+      for (const environment of [undefined, {}]) {
+        const result = await python(["-c", driver, SCRIPT, String((server.address() as AddressInfo).port), String(await deadPort())], environment);
+        expect(result.code, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toEqual({
+          live: { get: 200, post: { status: 200, transport_error: null }, post_stream: { status: 200, transport_error: null },
+            stream: { status: 200, error: null, finish_reason: "stop", stream_end: "done" }, failed: { status: 200, error: null, finish_reason: null, stream_end: "error" } },
+          refused: { get: -1, post: { status: -1, transport_error: "URLError" }, post_stream: { status: -1, transport_error: "URLError" },
+            stream: { status: null, error: "URLError", finish_reason: null, stream_end: null }, failed: { status: null, error: "URLError", finish_reason: null, stream_end: null } } });
+      }
+      expect(received).toBe(10);
+    } finally { await new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }); }
   });
 
-  it("classes a P10 stream that ended with no finish reason stream_ended_early, and the assessor keeps the class (BL-20261116-1033-serving-probe-direct-transport-design)", async () => {
+  it("classes a P10 stream whose connection closed with no finish reason stream_ended_early, a server's error event as before, and the assessor keeps both (BL-20261116-1033-serving-probe-direct-transport-design)", async () => {
     const data = exported(true), dir = mkdtempSync(join(root, "p10-early-")), schemasPath = join(dir, "role-schemas.json");
     writeFileSync(schemasPath, JSON.stringify(data));
     let streamed = 0;
@@ -323,6 +339,8 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
           response.setHeader("content-type", "text/event-stream");
           // The first streamed call's connection closes cleanly after one chunk: no finish reason, no usage and no [DONE].
           if (++streamed === 1) { response.end(`data: ${JSON.stringify({ model: "Synthetic", choices: [{ index: 0, delta: { content: content.slice(0, 5) } }] })}\n\n`); return; }
+          // The second ends the way vLLM ends a stream that failed in the server: an error event, then [DONE].
+          if (streamed === 2) { response.write(`data: ${JSON.stringify({ error: { message: "synthetic failure", code: 500 } })}\n\n`); response.end("data: [DONE]\n\n"); return; }
           for (const piece of [{ choices: [{ index: 0, delta: { content }, finish_reason: "stop" }] }, { choices: [], usage: { prompt_tokens: 9, completion_tokens: 4 } }])
             response.write(`data: ${JSON.stringify({ model: "Synthetic", ...piece })}\n\n`);
           response.end("data: [DONE]\n\n");
@@ -342,8 +360,10 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
       expect(result.code, result.stderr).toBe(0);
       const p10 = JSON.parse(result.stdout);
       expect(Object.values(p10.cells).flatMap((cell: any) => cell.calls.map((call: { classification: string }) => call.classification)))
-        .toEqual(["stream_ended_early", "unassessed", "unassessed", "unassessed", "unassessed", "unassessed"]);
-      expect(p10.cells["plan/on"].calls[0]).toMatchObject({ status: 200, finish_reason: null });
+        .toEqual(["stream_ended_early", "invalid_json", "unassessed", "unassessed", "unassessed", "unassessed"]);
+      expect(p10.cells["plan/on"].calls[0]).toMatchObject({ status: 200, finish_reason: null, stream_end: "eof" });
+      expect(p10.cells["plan/off"].calls[0]).toMatchObject({ status: 200, finish_reason: null, stream_end: "error" });
+      expect(p10.cells["extract/on"].calls[0]).toMatchObject({ status: 200, finish_reason: "stop", stream_end: "done" });
       expect(p10.cells["plan/on"].counts).toMatchObject({ stream_ended_early: 1, invalid_json: 0, total: 1 });
       // The assessor reads the cell's streamed flag and the call's missing finish reason, so assessing the probe keeps the class.
       const probePath = join(dir, "probe.json");
@@ -351,7 +371,8 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
       assessProbeFile(probePath, "2026-11-16T10:00:00.000Z");
       const assessed = JSON.parse(readFileSync(probePath, "utf8")).P10.cells["plan/on"];
       expect([assessed.calls[0].classification, assessed.counts.stream_ended_early, assessed.counts.invalid_json]).toEqual(["stream_ended_early", 1, 0]);
-    } finally { server.close(); }
+      expect(JSON.parse(readFileSync(probePath, "utf8")).P10.cells["plan/off"].calls[0].classification).toBe("invalid_json");
+    } finally { await new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }); }
   });
 
   it("sends each cell the exported body plus response_format on a loopback server, streamed or not, and retains replies the assessor reads", async () => {

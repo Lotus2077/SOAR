@@ -613,11 +613,6 @@ def p10_cell_evidence(cell: Any, path: str = "$.P10.cells") -> Dict[str, Any]:
         if not isinstance(call, dict):
             raise malformed(path)
         classification = call.get("classification", "unassessed")
-        # BL-20261116-1033-serving-probe-direct-transport-design (4): a stream that ended before its finish reason measured the transport, not the
-        # server, and the card has no class for it, so no card is written from that run.
-        if classification == "stream_ended_early":
-            raise Refusal(f"refused: a P10 stream at {path} ended before its finish reason, so that call measured the transport, "
-                          "not the server; run the probe again (the card was not written)")
         if not isinstance(classification, str) or classification not in counts:
             raise malformed(path)
         counts[classification] += 1

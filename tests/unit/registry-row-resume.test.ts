@@ -143,7 +143,10 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     expect(refused(["--loop-dir", billing], "infra_invalid")).toContain("did not end on infrastructure");
     // An integrity stop, with no directory left for the stage.
     const missing = stoppedLoop(() => undefined, { stage: "a", failure: "loop_stage_missing" });
-    expect(row(["--loop-dir", missing], "infra_invalid")).toMatchObject({ runClass: infra("loop_stage_missing"), modelCalls: 0 });
+    const missingRow = row(["--loop-dir", missing], "infra_invalid");
+    expect(missingRow).toMatchObject({ runClass: infra("loop_stage_missing"), modelCalls: 0 });
+    // BL-20261116-1327-run-row-card-and-doctor-sources-design: with no stage freeze, the protocol hash, the card and K are unknown, never left out.
+    expect([missingRow.researchProtocolSha256, missingRow.servingCard, missingRow.localStreams]).toEqual([null, null, null]);
   });
   it("classifies a version-2 critique_failed or repair_failed loop by its draft, or by the stop's recorded cause when the draft did not submit", () => {
     const ending = (draft: Record<string, unknown>, final: Record<string, unknown>) => {

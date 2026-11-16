@@ -1295,7 +1295,8 @@ def loop_row(args) -> dict:
         path = os.path.join(loop_dir, stage) if stage else None
         fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": task["jobSha256"], "profile": None, "maxOutputTokens": None,
                   "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None,
-                  "hostFlags": None}
+                  # BL-20261116-1327-run-row-card-and-doctor-sources-design: without a stage freeze, the protocol hash, the card and K are unknown.
+                  "hostFlags": None, "researchProtocolSha256": None, "servingCard": None, "localStreams": None}
         evidence = {"kind": "none"}
         if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):
             # What the stopped stage left, as phase4-loop.ts closeLoop reads it: a readable result; else its ledger, when its freeze is

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
 import { canonical } from "../../src/main/private-agent/contracts";
 import { PROMPT_LAYOUT_VERSIONS, promptProtocol, type PromptProtocolOptions } from "../../src/main/private-agent/runner";
+import { MAX_LOCAL_STREAMS, ServingCardV1Schema } from "../../src/main/private-agent/serving-card";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 /**
@@ -73,6 +74,16 @@ describe("registry columns (plan 11.4)", () => {
       ...[0, 9, 4.5, true, "4"].map(value => [{ servingCard: { ...card, localStreams: value } }, "localStreams is not a whole number from 1 to 8"] as [Record<string, unknown>, string]),
       [{ pipeline: { ...pipeline, protocolSha256: "/Users/someone/protocol" } }, "pipeline.protocolSha256 is not a sha256"],
     ];
+    // The writer's copies of the card reader's K bound and entry pattern equal the reader's: K at the bound is copied, one above refused,
+    // and the two patterns agree on edge strings.
+    expect(row(["--run-dir", runDirectory(root, "bound", { freeze: { servingCard: { ...card, localStreams: MAX_LOCAL_STREAMS } } })], "accepted").localStreams).toBe(MAX_LOCAL_STREAMS);
+    cases.push([{ servingCard: { ...card, localStreams: MAX_LOCAL_STREAMS + 1 } }, `localStreams is not a whole number from 1 to ${MAX_LOCAL_STREAMS}`]);
+    const entries = [card.entry, `${card.entry}\n`, card.entry.toUpperCase(), "BL-20261116-1203-a--b", "BL-20261116-1203-a-", "BL-2026111-1203-a", "BL-20261116-120-a",
+      `BL-${String.fromCharCode(0xff12)}0261116-1203-a`, "BL-20261116-1203-", "BL-20261116-1203-a1-b2-c3"];
+    const python = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('row', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+      "print(json.dumps({'max': m.MAX_LOCAL_STREAMS, 'entries': [m.CARD_ENTRY.fullmatch(e) is not None for e in json.loads(sys.argv[2])]}))"].join("\n");
+    const mirrored = JSON.parse(execFileSync("python3", ["-I", "-c", python, SCRIPT, JSON.stringify(entries)], { encoding: "utf8" }));
+    expect(mirrored).toEqual({ max: MAX_LOCAL_STREAMS, entries: entries.map(entry => ServingCardV1Schema.shape.decision.shape.entry.safeParse(entry).success) });
     cases.forEach(([freeze, message], index) => {
       const stderr = refused(["--run-dir", runDirectory(root, `bad-${index}`, { freeze })], "accepted");
       expect(stderr, message).toContain(message); expect(stderr).not.toContain("/Users/someone");

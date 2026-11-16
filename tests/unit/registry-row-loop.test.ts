@@ -43,7 +43,7 @@ describe("registry row of an H4 loop", () => {
     const pipeline = { name: "research", version: 3, protocolSha256: h("7"), budget: { indexCalls: 24, extractionCalls: 40, plannerCalls: 2, synthesisCalls: 2 }, planner: "cloud", writer: "local" };
     run(root, "a", { calls: 3, tokens: 100, fee: 120_000, status: "submitted", startedAt: "2026-10-26T10:00:00.000Z", finishedAt: "2026-10-26T10:10:00.000Z", pipeline, entailment: { supported: 20, partial: 1, unsupported: 0, contradicted: 0, not_judged: 0 }, research: [{ calls: 2, truncatedReplies: 2 }, { calls: 1 }] });
     run(root, "b", { calls: 2, tokens: 200, fee: 0, status: "incomplete", startedAt: "2026-10-26T10:10:00.000Z", finishedAt: "2026-10-26T10:17:00.000Z", pipeline: { ...pipeline, seededFrom: "job-a" } });
-    run(root, "repair", { calls: 4, tokens: 50, fee: 0, status: "submitted", startedAt: "2026-10-26T10:20:00.000Z", finishedAt: "2026-10-26T10:26:00.000Z", pipeline: { ...pipeline, seededFrom: "job-a" },
+    run(root, "repair", { calls: 4, tokens: 50, fee: 0, status: "submitted", startedAt: "2026-10-26T10:20:00.000Z", finishedAt: "2026-10-26T10:26:00.000Z", pipeline: { ...pipeline, seededFrom: "job-a", protocolSha256: h("8") },
       servingCard: { sha256: h("c"), version: 1, date: "2026-10-26", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 2 }, entailment: { supported: 25, partial: 2, unsupported: 1, contradicted: 0, not_judged: 2 } });
     const candidate = (status: string, reason: string) => ({ status, reason });
     mkdirSync(join(root, "critique"));
@@ -54,7 +54,7 @@ describe("registry row of an H4 loop", () => {
       selected: { stage1: { candidate: "a", step: "submitted" }, final: { candidate: "repair", step: "entailment" } } })}\n`);
     const loop = row(["--loop-dir", root]);
     // BL-20261116-1327-run-row-card-and-doctor-sources-design: the protocol hash, the card and K come from the selected run (repair), as its other run fields do.
-    expect([loop.researchProtocolSha256, loop.servingCard, loop.localStreams]).toEqual([h("7"), { sha256: h("c"), entry: "BL-20261116-1203-research-role-policy-design" }, 2]);
+    expect([loop.researchProtocolSha256, loop.servingCard, loop.localStreams]).toEqual([h("8"), { sha256: h("c"), entry: "BL-20261116-1203-research-role-policy-design" }, 2]);
     // The three runs' counts plus the critique's one call; every sample's own ending stays in the row.
     expect(loop).toMatchObject({ modelCalls: 13, toolCalls: 3, inputTokens: 3 * 100 + 2 * 200 + 4 * 50 + 700 + 100, outputTokens: 160, cachedTokens: 95, cacheWriteTokens: 20, lengthStops: 6, usd: 0.12, retriedDispatches: 3, failedDispatches: 0, unknownDispatches: 0, assistSkippedDispatches: 3, assistFailedDispatches: 3,
       wallSeconds: 1650, runStatus: "submitted", terminalCause: "independent_acceptance_pending", date: "2026-10-26", taskJobSha256: h("1"), pipeline: "research", pipelinePlanner: "cloud", profile: "heavy",

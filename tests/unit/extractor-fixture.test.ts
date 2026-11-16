@@ -6,9 +6,9 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
-import { PrivateAgentModel, vllmCacheSalt } from "../../src/main/private-agent/model";
+import { PrivateAgentModel, jsonSchemaResponseFormat, vllmCacheSalt } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
-import { EXTRACT_SYSTEM, OUTPUT_TOKENS, THINKING, assessResearchExtractionReply, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, OUTPUT_TOKENS, RESEARCH_ROLE_SCHEMAS, THINKING, assessResearchExtractionReply, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import type { RequestSettings } from "../../scripts/export-role-schemas";
 import { CONDITION_CALLS, DEPLOYED_CONDITION, EXTRACTOR_CLASSES, EXTRACTOR_CONDITIONS, EXTRACTOR_SUMMARY_MANIFEST_FIELDS, buildExtractorRequests, fixtureJobId, numericUsage,
   parseExtractorArguments, runExtractorFixture, verifyExtractorInputs, type ExtractorFixtureInputs } from "../../scripts/extractor-fixture";
@@ -22,6 +22,8 @@ const ROOT = resolve(__dirname, "..", "..");
 const EXPERIMENTS = join(ROOT, "docs", "experiments");
 const CORPUS = join(EXPERIMENTS, "e0-extractor-fixture-v1");
 const QUESTIONS = ["Q1", "Q2", "Q3", "Q4", "Q5"];
+/** Manifest v1's four conditions; EXTRACTOR_CONDITIONS also holds v2's structured cell (BL-20261116-1256-e0-extractor-structured-condition-design). */
+const V1_CONDITIONS = ["thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384"];
 const LEGACY: RequestSettings = { vllm: { model: "Synthetic" }, streamingEnabled: false };
 const STREAMED: RequestSettings = { vllm: { model: "Synthetic" }, streamingEnabled: true };
 const FLASH: RequestSettings = { vllm: { model: "Synthetic", localReplyContract: "flash_next_v1", localContextTokens: 262144 }, streamingEnabled: false };
@@ -80,7 +82,7 @@ describe("E0 extractor fixture: inputs and requests", () => {
   it("verifies the committed corpus against its pinned manifest: five units, an accepted plan, three single-chunk sources and four conditions", () => {
     const inputs = committed(), fixture = verifyExtractorInputs(inputs);
     expect(fixture.manifest).toMatchObject({ schemaVersion: 1, name: "e0-extractor-fixture-v1", status: "pinned", task: "e0-extractor-synthetic-v1", exposure: "fresh",
-      conditions: [...EXTRACTOR_CONDITIONS], repeats: 10 });
+      conditions: V1_CONDITIONS, repeats: 10 });
     expect(fixture.manifestSha256).toBe(digest(canonical(inputs.manifest)));
     expect(fixture.units.map(unit => unit.id)).toEqual(["U1", "U2", "U3", "U4", "U5"]);
     expect(fixture.plan.questions.map(question => question.id)).toEqual(QUESTIONS); expect([...fixture.questions]).toEqual(QUESTIONS);
@@ -94,7 +96,7 @@ describe("E0 extractor fixture: inputs and requests", () => {
     }
     expect(fixture.chunks.map(chunk => Buffer.byteLength(chunk.userContent))).toEqual([5109, 66709, 10116]);
     // The registry's copies are pinned to these runtime arrays.
-    expect(EXTRACTOR_CONDITIONS).toEqual(["thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384"]);
+    expect(EXTRACTOR_CONDITIONS).toEqual([...V1_CONDITIONS, "thinking-off-structured"]);
     expect(EXTRACTOR_CLASSES).toEqual(["complete", "held", "needs_followup", "invalid", "truncated", "request_rejected", "malformed_reply", "transport_failed"]);
     expect(EXTRACTOR_SUMMARY_MANIFEST_FIELDS).toEqual(["sha256", "name", "task", "exposure", "briefSha256", "planSha256", "unitCount", "sourceCount"]);
   });
@@ -134,7 +136,8 @@ describe("E0 extractor fixture: inputs and requests", () => {
     // thinking-off is the stage's call as deployed: its extraction thinking is disabled at OUTPUT_TOKENS.extract; 16,384 is the Heavy ceiling.
     expect(THINKING.extract).toBe("disabled"); expect(DEPLOYED_CONDITION).toBe("thinking-off");
     expect(CONDITION_CALLS).toEqual({ "thinking-off": { thinking: "disabled", maxOutputTokens: OUTPUT_TOKENS.extract }, "thinking-on": { maxOutputTokens: 2048 },
-      "thinking-on-8192": { maxOutputTokens: 8192 }, "thinking-on-16384": { maxOutputTokens: COORDINATOR_PROFILES.heavy.maxOutputTokens } });
+      "thinking-on-8192": { maxOutputTokens: 8192 }, "thinking-on-16384": { maxOutputTokens: COORDINATOR_PROFILES.heavy.maxOutputTokens },
+      "thinking-off-structured": { thinking: "disabled", maxOutputTokens: OUTPUT_TOKENS.extract, responseFormat: { ...RESEARCH_ROLE_SCHEMAS.extract, strict: true } } });
     const fixture = verifyExtractorInputs(committed()), requests = buildExtractorRequests(fixture, LEGACY);
     expect(requests).toHaveLength(120);
     expect(requests.slice(0, 7).map(r => `${r.repeat}/${r.condition}/${r.chunkId}`)).toEqual(["1/thinking-off/S1C1", "1/thinking-off/S2C1", "1/thinking-off/S3C1",
@@ -308,7 +311,7 @@ describe("E0 extractor fixture: a run against a loopback endpoint", () => {
     const summary = await runExtractorFixture({ endpoint: { baseUrl: server.baseUrl }, settings: LEGACY, inputs: committed(), out, dryRun: true });
     expect(summary).toMatchObject({ dryRun: true, calls: [], cells: {}, repeats: 10, deployedCondition: "thinking-off" });
     expect(summary.counts).toEqual({ "thinking-off": {}, "thinking-on": {}, "thinking-on-8192": {}, "thinking-on-16384": {} });
-    expect(Object.keys(summary.requests)).toEqual([...EXTRACTOR_CONDITIONS]);
+    expect(Object.keys(summary.requests)).toEqual(V1_CONDITIONS);
     expect(summary.requests["thinking-off"]).toMatchObject({ requests: 30, maxTokens: 2048, thinking: "disabled", streamed: false });
     expect(summary.requests["thinking-on-16384"]).toMatchObject({ requests: 30, maxTokens: 16384, thinking: "model" });
     expect(server.requests).toHaveLength(0); expect(existsSync(out)).toBe(false);
@@ -331,13 +334,58 @@ describe("E0 extractor fixture: a run against a loopback endpoint", () => {
     const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "scripts/extractor-fixture.ts", ...args], { cwd: ROOT, encoding: "utf8", env });
     const stdout = execFileSync(process.execPath, ["--import", "tsx", "scripts/extractor-fixture.ts", "--dry-run"], { cwd: ROOT, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
     const printed = JSON.parse(stdout);
-    expect(printed).toMatchObject({ dryRun: true, conditions: [...EXTRACTOR_CONDITIONS], deployedCondition: "thinking-off", repeats: 10, chunks: ["S1C1", "S2C1", "S3C1"], calls: 120, retained: null,
+    expect(printed).toMatchObject({ dryRun: true, conditions: V1_CONDITIONS, deployedCondition: "thinking-off", repeats: 10, chunks: ["S1C1", "S2C1", "S3C1"], calls: 120, retained: null,
       manifest: { task: "e0-extractor-synthetic-v1", exposure: "fresh", unitCount: 5, sourceCount: 3 } });
     expect(stdout).not.toContain("127.0.0.1");
     const typo = run("--dry-runn");
     expect(typo.status).toBe(2); expect(typo.stderr).toContain("usage: pnpm fixture:extractor"); expect(typo.stdout).toBe("");
     const refused = run("--out", join(root, "run"));
     expect(refused.status).toBe(2); expect(refused.stderr.trim()).toBe("extractor_fixture_out_not_ignored"); expect(refused.stdout).toBe(""); expect(existsSync(join(root, "run"))).toBe(false);
+  });
+});
+
+describe("E0 extractor fixture: the serving card's extract call (manifest v2, BL-20261116-1256-e0-extractor-structured-condition-design)", () => {
+  const committedV2 = (): ExtractorFixtureInputs => ({ manifest: JSON.parse(readFileSync(join(EXPERIMENTS, "e0-extractor-fixture-v2.json"), "utf8")), read: path => readFileSync(join(EXPERIMENTS, path)) });
+  /** The committed serving card's roles (docs/experiments/serving-card-2026-11-16.json), as the reader would return them once adopted; its decision is still proposed. */
+  const cardRoles = () => JSON.parse(readFileSync(join(EXPERIMENTS, "serving-card-2026-11-16.json"), "utf8")).roles;
+
+  it("pins v1's corpus with the deployed call and the card's call beside it, and sends the deployed call's bodies exactly as v1 does", () => {
+    const v1 = verifyExtractorInputs(committed()), v2 = verifyExtractorInputs(committedV2());
+    const pins = (m: Record<string, any>) => { const { name: _n, note: _o, exposure: _e, conditions: _c, ...rest } = m; return rest; };
+    expect(pins(v2.manifest)).toEqual(pins(v1.manifest));
+    expect(v2.manifest).toMatchObject({ name: "e0-extractor-fixture-v2", exposure: "exposed", conditions: ["thinking-off", "thinking-off-structured"], repeats: 10 });
+    for (const settings of [LEGACY, STREAMED]) {
+      const requests = buildExtractorRequests(v2, settings), first = requests.find(r => r.condition === "thinking-off-structured")!;
+      expect(requests).toHaveLength(60);
+      // The control: each (repeat, chunk) sends v1's thinking-off body byte for byte, salt included.
+      const control = (list: typeof requests) => list.filter(r => r.condition === "thinking-off").map(r => r.body);
+      expect(control(requests)).toEqual(control(buildExtractorRequests(v1, settings)));
+      expect(JSON.parse(first.body)).toMatchObject({ max_tokens: 2048, chat_template_kwargs: { enable_thinking: false },
+        response_format: jsonSchemaResponseFormat({ ...RESEARCH_ROLE_SCHEMAS.extract, strict: true }) });
+      expect(first.body.includes('"response_format"')).toBe(true); expect(requests.filter(r => r.condition === "thinking-off").every(r => !r.body.includes("response_format"))).toBe(true);
+    }
+  });
+
+  it("sends, as thinking-off-structured, the extraction bodies the pipeline itself sends under the committed card, byte for byte", async () => {
+    const fixture = verifyExtractorInputs(committedV2()), plan = readFileSync(join(CORPUS, "plan.json"), "utf8");
+    const sources = fixture.chunks.map(chunk => ({ id: chunk.sourceId, path: chunk.sourceId, bytes: Buffer.from(chunk.text) }));
+    for (const settings of [LEGACY, STREAMED]) {
+      const sent: string[] = [];
+      const request = async (input: { body: string }, settle: (bytes: Buffer) => number) => {
+        const body = JSON.parse(input.body), system = body.messages[0].content as string; sent.push(input.body);
+        const content = system.startsWith("You plan") ? plan : researchV4Reply(system, body.messages[1].content as string);
+        const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+        return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+      };
+      const config = buildLocalScreenModelConfig({ vllm: settings.vllm as never, streamingEnabled: settings.streamingEnabled }, COORDINATOR_PROFILES.heavy, true);
+      const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, fixtureJobId(1, "thinking-off-structured"), "reader");
+      const outcome = await runResearchPipeline({ brief: fixture.brief, sources, models: { reader: make(), planner: make(), synthesiser: make() }, signal: new AbortController().signal,
+        record: () => {}, roles: cardRoles() });
+      expect(outcome.reason).not.toBe("research_role_policy_invalid");
+      const extractions = sent.filter(body => JSON.parse(body).messages[0].content === EXTRACT_SYSTEM).slice(0, 3);
+      expect(extractions).toHaveLength(3);
+      expect(extractions).toEqual(buildExtractorRequests(fixture, settings).filter(r => r.repeat === 1 && r.condition === "thinking-off-structured").map(r => r.body));
+    }
   });
 });
 

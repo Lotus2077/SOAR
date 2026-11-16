@@ -46029,3 +46029,48 @@ References:
 - BL-20261116-1019-e0-planner-fixture-result;
 - BL-20261116-1049-correction-e0-planner-fixture-null-content;
 - BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused.
+
+### BL-20261116-1256-e0-extractor-structured-condition-design -- 2026-11-16 -- E0 extractor fixture designed for the serving card's extract call: strict `response_format` with thinking off at 2,048 tokens, in a v2 manifest beside the deployed call
+
+Status: `Proposed`
+
+Scope or hypothesis: The coordinating session asked for this cell in the same pull request as the planner's (BL-20261116-1253-e0-planner-structured-condition-design). It follows E0's extractor fixture run on 2026-11-16, 120 calls on manifest 4ae19cd4… (the coordinating session's report).
+- **What that run found.** At the deployed call, thinking off at 2,048 tokens, 10 of 30 first attempts were complete. Every `invalid` reply failed on `schema_too_big`: a note or a quote over the reply schema's size limits.
+- **The card's extract call** (item 9, BL-20261116-1208-research-structured-output-design, and the committed card) carries a strict `response_format` with the `research_extraction` schema, with thinking off, at 2,048 tokens.
+- **The question:** does strict structured output remove `schema_too_big` on these chunks, and what does it do to the other classes?
+
+Decisions:
+(1) **A new condition in scripts/extractor-fixture.ts:** `thinking-off-structured`. It is the deployed call plus the `response_format` that model.ts builds from `RESEARCH_ROLE_SCHEMAS.extract`, strict.
+- The body is built through `buildRoleRequest`, so through `PrivateAgentModel.requestBody`, as the pipeline builds it, streaming and cache salt included.
+- `buildRoleRequest` gains an optional `responseFormat` override. No existing body changes, the P10 export's included.
+- A test checks the pipeline's own first three extraction calls under the committed card, byte for byte.
+(2) **A new manifest: docs/experiments/e0-extractor-fixture-v2.json.**
+- **The corpus pins are v1's.** Conditions `thinking-off` (the deployed call, the control within the run) and `thinking-off-structured`, with 10 repeats: 60 calls.
+- **The exposure is `exposed`.** v1's run has now seen the corpus, although no prompt was tuned on it.
+- **v1 is not edited,** so its run record stays readable.
+(3) **The summary keeps its shape.** No class or field is added. The new condition joins `EXTRACTOR_CONDITIONS`, and its `requests` record carries the condition's own request-set digest. `DEPLOYED_CONDITION` stays `thinking-off`.
+(4) **Lane S-harn's registry copy.** registry-row.py's `EXTRACTOR_CONDITIONS` gains the name. The extractor fixture's own test pins that copy to the export.
+(5) **Endpoint time.** v1's thinking-off calls took about 5 to 19 s each, so the 60 calls take about 10 to 15 minutes.
+
+Changes: This entry only. The implementation follows in the same pull request.
+
+Evidence: None yet; this is a design.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **What the cell cannot settle:** whether the server's structured-output decoding enforces the schema's size limits. It measures the replies only.
+- **Coverage.** Initial attempts only, on three synthetic chunks.
+
+Paid exposure: None. The run, when the coordinating session makes it, is 60 zero-fee local calls.
+
+Next gate:
+- the implementation and a light review in this pull request;
+- the coordinating session's card amendment;
+- the run.
+
+References:
+- BL-20261116-1253-e0-planner-structured-condition-design;
+- BL-20261116-1123-e0-extractor-fixture-design;
+- BL-20261116-1208-research-structured-output-design.

@@ -134,7 +134,7 @@ export const RESEARCH_SYNTHESIS_LENGTH_POLICY = Object.freeze({ version: 1, sour
    */
   thinkingCeilingWords: 1200,
   /**
-   * The smallest cap ever sent. Since 7a.2 (BL-20261114-1346-research-role-policy-design) the pipeline refuses, before any
+   * The smallest cap ever sent. Since 7a.2 (BL-20261116-1203-research-role-policy-design) the pipeline refuses, before any
    * request, a non-default role policy whose ceiling on either synthesis attempt falls below it (research_role_policy_invalid). A
    * stated limit below it is a part's length (a heading, a label), never the argument's, and is ignored.
    */

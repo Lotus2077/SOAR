@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // R3 (SC), part way: the state each consumer PR creates, here the one after 7a.2's caps and thinking and item 9's structured output
-// (BL-20261114-1650-research-structured-output-design). Only those flags are true, by mocking the flags module; every later value must
+// (BL-20261116-1208-research-structured-output-design). Only those flags are true, by mocking the flags module; every later value must
 // still be refused.
 vi.mock("../../src/main/private-agent/serving-card-flags", async importOriginal => {
   const original = await importOriginal<typeof import("../../src/main/private-agent/serving-card-flags")>();
@@ -13,6 +13,7 @@ vi.mock("../../src/main/private-agent/serving-card-flags", async importOriginal 
 
 import { SERVING_CARD_CONSUMED, ServingCardError, loadServingCard, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
+import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
@@ -23,7 +24,7 @@ function card(edit: (card: any) => void): ServingCardV1 {
 }
 function load(value: ServingCardV1) {
   const root = mkdtempSync(join(tmpdir(), "soar-card-partial-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-  return loadServingCard(writeCard(root, value), { model: "RM-01 VLM" });
+  return loadServingCard(writeCard(root, value), { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } });
 }
 function refusal(value: ServingCardV1): ServingCardError {
   try { load(value); } catch (error) { if (error instanceof ServingCardError) return error; throw error; }

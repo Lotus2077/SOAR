@@ -84,8 +84,8 @@ export const HostFlagsEventSchema = z.object({
   rules: z.object({ absence: z.literal(1).optional(), review: z.literal(1).optional() }).strict(),
   packet: z.object({ coverageSha256: sha256Schema }).strict().optional(),
   report: scanSchema.optional(), argument: scanSchema.optional(),
-  misses: z.object(optionalCounts(["briefUnits", "questionsWithoutEvidence", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries", "droppedQuotes",
-    "fetchFailures", "fetchLimitRefusals"])).strict().optional(),
+  misses: z.object(optionalCounts(["briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries",
+    "droppedQuotes", "quotesLeftByCap", "conflictsLeftByCap", "fetchFailures", "fetchLimitRefusals"])).strict().optional(),
   review: reviewSchema.optional(),
   counts: z.object(optionalCounts(["reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded",
     "briefSingleUnit", "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
@@ -218,12 +218,18 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
       let packet: { coverageSha256: string; singleUnit: number } | undefined;
       if (coverageFile) {
         const coverage = ResearchCoverageSchema.parse(JSON.parse(coverageFile.bytes.toString("utf8")));
-        const retained = new Set(coverage.chunks.flatMap(chunk => chunk.questions.filter(question => question.status === "evidence_retained").map(question => question.questionId)));
+        const outcome = (status: string) => new Set(coverage.chunks.flatMap(chunk => chunk.questions.filter(question => question.status === status).map(question => question.questionId)));
+        const retained = outcome("evidence_retained"), trimmed = outcome("evidence_trimmed");
         misses.briefUnits = coverage.units.length;
         misses.questionsWithoutEvidence = coverage.synthesis.questions.filter(question => !retained.has(question.questionId)).length;
+        // 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design): of those, the questions whose verified quotes 7b.2's trim all left out
+        // of the packet, and the packet's omissions. Computed whenever coverage is read, so an older event's missing count reads "not recorded".
+        misses.questionsTrimmed = coverage.synthesis.questions.filter(question => !retained.has(question.questionId) && trimmed.has(question.questionId)).length;
         misses.unresolvedQuestions = coverage.synthesis.questions.filter(question => question.disposition === "unresolved").length;
         misses.noEvidenceOutcomes = coverage.chunks.reduce((sum, chunk) => sum + chunk.questions.filter(question => question.status === "no_verified_evidence").length, 0);
         misses.extractionRetries = coverage.chunks.reduce((sum, chunk) => sum + Math.max(0, chunk.attempts.length - 1), 0);
+        misses.quotesLeftByCap = coverage.omissions.length;
+        misses.conflictsLeftByCap = coverage.conflictOmissions.length;
         const evidenceFile = input.phase.files.find(file => file.path === RESEARCH_FILES.evidence);
         if (evidenceFile) misses.droppedQuotes = ResearchEvidenceSchema.parse(JSON.parse(evidenceFile.bytes.toString("utf8"))).counts.droppedUnverifiedOrDuplicate;
         packet = { coverageSha256: digest(coverageFile.bytes), singleUnit: coverage.units.length === 1 ? 1 : 0 };

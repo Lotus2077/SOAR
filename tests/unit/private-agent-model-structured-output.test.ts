@@ -5,7 +5,7 @@ import { PrivateAgentModel, jsonSchemaResponseFormat, type GeneralToolDefinition
 import { RESEARCH_ROLE_SCHEMAS } from "../../src/main/private-agent/research-pipeline";
 import { REVIEW_RESULT_V1_JSON_SCHEMA, REVIEW_RESULT_V1_JSON_SCHEMA_NAME, reviewResultV1ResponseFormat } from "../../src/shared/review-result-contract";
 
-// Item 9 (BL-20261114-1650-research-structured-output-design): the model layer's reply-format override. It adds `response_format` to the
+// Item 9 (BL-20261116-1208-research-structured-output-design): the model layer's reply-format override. It adds `response_format` to the
 // owned vLLM body and nothing else, and every other shape, a call with tools and a malformed format are refused before any broker call.
 const messages = [{ role: "system" as const, content: "You return one JSON object." }, { role: "user" as const, content: "{\"brief\":\"synthetic\"}" }];
 const BASE: PrivateModelConfig = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" };
@@ -21,7 +21,7 @@ const LOOSE: ModelResponseFormat = { ...RESEARCH_ROLE_SCHEMAS.plan, strict: fals
 const body = (m: PrivateAgentModel, overrides?: ModelCallOverrides, tools: GeneralToolDefinition[] = []) => JSON.parse(m.requestBody(messages, tools, overrides).body) as Record<string, unknown>;
 const TOOL: GeneralToolDefinition = { type: "function", function: { name: "read_file", description: "Read a file.", parameters: { type: "object", properties: {} } } };
 
-describe("item 9: the model layer's response_format override (BL-20261114-1650-research-structured-output-design)", () => {
+describe("item 9: the model layer's response_format override (BL-20261116-1208-research-structured-output-design)", () => {
   it("adds only response_format to the owned vLLM body, for both variants, both thinking modes and every setting that shapes the body", () => {
     const settings: Partial<PrivateModelConfig>[] = [{}, { api: "vllm" }, { streaming: true }, { promptCaching: "vllm_job_salt_v1" },
       { localReplyContract: "flash_next_v1", localContextTokens: 65_536 }, { sampling: { temperature: 0.6, top_p: 0.95, top_k: 20 } }, { thinking: "disabled" }];

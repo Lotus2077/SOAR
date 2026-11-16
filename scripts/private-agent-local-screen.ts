@@ -232,10 +232,12 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
 /**
  * SC: the adopted serving card the operator's env pair selects, read and checked before any run directory, database or
  * request exists; undefined without the pair. A refusal throws ServingCardError. Since 7a.2 and item 9 the research stage reads its
- * role policy (the caps, thinking and structured-output flags); nothing reads K or admission yet.
+ * role policy (the caps, thinking and structured-output flags); nothing reads K or admission yet. The run's request settings,
+ * `--cache-salt` included, are part of the expectation: a structured-output flag needs P10's to equal them
+ * (BL-20261114-2301-serving-card-request-settings-design).
  */
-export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): LoadedServingCard | undefined {
-  return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
+export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm" | "streamingEnabled">, cacheSalt = true): LoadedServingCard | undefined {
+  return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config, cacheSalt)) : undefined;
 }
 /**
  * The session's research option (H2b/H2c): the local reader, and the planner and synthesiser on the local configuration or, under the
@@ -250,7 +252,7 @@ export function localScreenResearchOption(broker: PrivateAgentBroker, jobId: str
 }
 /**
  * freeze.json's pipeline block for a run with the reading stage: the protocol under the card's role policy, which the block names
- * only when it is not the default (7a.2, BL-20261114-1346-research-role-policy-design), so a run without a card records what it did.
+ * only when it is not the default (7a.2, BL-20261116-1203-research-role-policy-design), so a run without a card records what it did.
  */
 export function researchPipelineFreeze(planner: "cloud" | "local", roles?: ResearchRolePolicy) {
   return { name: "research" as const, version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles), budget: RESEARCH_PIPELINE_BUDGET,
@@ -411,8 +413,8 @@ configOptions?: LoadConfigOptions) {
   const config = loadConfig(configOptions);
   if (config.providerMode !== "local" || config.vllm.costPolicy !== "local_zero_cost") throw new Error("local_screen_provider_not_admitted");
   // SC: a refused card stops the run before the output directory, the database or any request exists, so a loop stays resumable.
-  const servingCard = buildLocalScreenServingCard(config);
-  // 7a.2 (BL-20261114-1346-research-role-policy-design): the card's role policy reaches the reading stage and, when it is not the
+  const servingCard = buildLocalScreenServingCard(config, input.cacheSalt !== false);
+  // 7a.2 (BL-20261116-1203-research-role-policy-design): the card's role policy reaches the reading stage and, when it is not the
   // default, the freeze's pipeline block. A seeded run writes from a packet read under a policy, so its source must have read under
   // this run's policy (the default without a card); refused, like the card, before anything is created.
   const roles = servingCard?.policy.roles;

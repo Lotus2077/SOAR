@@ -172,7 +172,7 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
       .toEqual([true, true, true, false, false, false]);
   });
 
-  it("item 9: the pipeline sends the probe's response_format for each role and variant, under P10's names (BL-20261114-1650-research-structured-output-design)", () => {
+  it("item 9: the pipeline sends the probe's response_format for each role and variant, under P10's names (BL-20261116-1208-research-structured-output-design)", () => {
     const cases = P10_ROLES.flatMap(role => [true, false].map(strict => ({ role, strict })));
     const probed = values(cases.map(({ role, strict }) => ({ fn: "response_format", args: [role, RESEARCH_ROLE_SCHEMAS[role].schema, strict] })));
     cases.forEach(({ role, strict }, index) => {

@@ -125,7 +125,7 @@ export interface GeneralToolDefinition {
 /** Backlog item 10 (BL-20261113-0920-assist-wrapper-design, decision 1): the only cache mode an assist may carry. */
 export const ASSIST_CACHE_MODE = "assist_no_cache_write_v1" as const;
 /**
- * Item 9 (BL-20261114-1650-research-structured-output-design): a JSON-schema reply format for one call. `strict` true sends
+ * Item 9 (BL-20261116-1208-research-structured-output-design): a JSON-schema reply format for one call. `strict` true sends
  * `strict: true`; false omits the key, as probe P10's non-strict variant does.
  */
 export interface ModelResponseFormat { name: string; schema: Record<string, unknown>; strict: boolean }

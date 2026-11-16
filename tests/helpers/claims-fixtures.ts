@@ -31,5 +31,14 @@ open(target, 'wb').write(out)`;
   finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** Builds a DOCX whose word/document.xml is exactly `xml`, deflated, using only the python stdlib: for document XML buildBinarySource cannot shape. */
+export function buildDocxFromXml(xml: string): Buffer {
+  const dir = mkdtempSync(join(tmpdir(), "soar-claims-fixture-")), target = join(dir, "source.docx");
+  try {
+    execFileSync("python3", ["-c", "import sys, zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as z: z.writestr('word/document.xml', sys.stdin.read())", target], { input: xml });
+    return readFileSync(target);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 /** The check runs under `python3 -I`, so pypdf must be importable in isolated mode (true in the sandbox image, usually not on a workstation). */
 export function hasIsolatedPypdf(): boolean { return spawnSync("python3", ["-I", "-c", "import pypdf"]).status === 0; }

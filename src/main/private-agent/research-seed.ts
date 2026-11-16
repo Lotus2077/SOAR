@@ -30,7 +30,7 @@ export const ResearchSeedSchema = z.object({
 export type ResearchSeed = z.infer<typeof ResearchSeedSchema>;
 /**
  * The source run's pipeline block, carried into the seeded run's freeze so a registry row still names the pipeline and its planner.
- * 7a.2 (BL-20261114-1346-research-role-policy-design): `roles` is the role policy a non-default serving card set, present only then;
+ * 7a.2 (BL-20261116-1203-research-role-policy-design): `roles` is the role policy a non-default serving card set, present only then;
  * the block's protocolSha256 is computed with it.
  */
 export const PipelineFreezeSchema = z.object({ name: z.literal("research"), version: z.number().int().positive(), protocolSha256: sha256Schema,
@@ -151,7 +151,7 @@ export function researchTransferSnapshot(runDirectory: string): string | null { 
 export function researchTransferPresent(runDirectory: string): boolean { return researchTransferSnapshot(runDirectory) !== null; }
 
 /**
- * 7a.2 (BL-20261114-1346-research-role-policy-design): a seeded run writes from a packet read under a role policy, which is part of the
+ * 7a.2 (BL-20261116-1203-research-role-policy-design): a seeded run writes from a packet read under a role policy, which is part of the
  * protocol, so the seeding run's own policy (the default without a card) must equal the one its source recorded (the default when absent).
  */
 export function assertSeedRolePolicy(pipeline: Pick<PipelineFreeze, "roles">, roles: ResearchRolePolicy | undefined): void {

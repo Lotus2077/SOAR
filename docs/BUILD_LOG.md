@@ -45952,3 +45952,80 @@ References:
 - BL-20261114-2258-correction-handoff-hash-line-e0-steps;
 - BL-20261113-0937-owner-decision-restamp-unmerged-entries;
 - BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261116-1253-e0-planner-structured-condition-design -- 2026-11-16 -- E0 planner fixture designed for the serving card's plan call: `response_format` with thinking on, at 8,192 and 16,384 tokens, in a v2 manifest beside the call without a card
+
+Status: `Proposed`
+
+Scope or hypothesis: The coordinating session asked for one more measurement: the serving card's plan call itself, on the real r3 index, before the card's structured-output proposal is switched on. It also asked for a 16,384-token cell beside it, as the extractor fixture has.
+- **The card's plan call.** Under item 9 (BL-20261116-1208-research-structured-output-design) and the committed card (docs/experiments/serving-card-2026-11-16.json, adopted as written), both plan attempts carry a `response_format`. That is the `research_plan` JSON schema, strict, with thinking on, at 8,192 tokens, under the legacy reply contract.
+- **Why it needs measuring.** E0's planner fixture (BL-20261116-1019-e0-planner-fixture-result) ran the plan call without `response_format`, and some replies spent the whole 8,192-token cap on reasoning with no content (BL-20261116-1049-correction-e0-planner-fixture-null-content).
+  - The card's review correction (BL-20261116-1017-correction-e0-probes-serving-card-review) records that `response_format` does not rule this out: 1 of 52 P10 plan replies with it did the same, on synthetic input.
+  - P10's plan cells measured synthetic input only.
+- **The hypothesis, for the run to decide.** On the real index, the card's plan call returns a valid plan at least as often as the call without a card, and runs out its cap with no content no more often. At 16,384 tokens, that empty truncation is rarer still.
+
+Decisions:
+(1) **Two new conditions in scripts/planner-fixture.ts.**
+- **`legacy-thinking-structured`** is the card's plan call:
+  - the legacy contract;
+  - thinking on (`reasoning_effort` medium, with the Heavy profile's sampling);
+  - `max_tokens` 8,192;
+  - `response_format` built by model.ts's own `jsonSchemaResponseFormat` from `RESEARCH_ROLE_SCHEMAS.plan`, strict.
+- **`legacy-thinking-structured-16384`** is the same call at 16,384 tokens, the Heavy profile's ceiling.
+  - It is a calibration cell. The card reader refuses a flagged plan attempt at a cap P10 did not measure (`serving_card_structured_output_cap_unmeasured`), so no card can send it until P10 measures plan at 16,384.
+- **The bodies** equal model.ts's body for the plan call, apart from the fixture's transport, as for its other conditions:
+  - they do not stream (the card's run streams);
+  - they carry the fixture's one cache salt.
+  - A test checks them against the pipeline's own first plan call under the committed card, byte for byte.
+
+(2) **A new manifest: docs/experiments/e0-planner-fixture-v2.json.**
+- v1's pins are unchanged: run-5's r3 index, the stage brief, the source ids, the counts, the task and the exposure.
+- Conditions `legacy-thinking`, `legacy-thinking-structured` and `legacy-thinking-structured-16384`, with 10 repeats: 30 calls.
+- `legacy-thinking` is the control within the same run: the plan call without a card.
+- v1 is not edited, so its run record stays readable as it is.
+
+(3) **The command line reads the design from the manifest.**
+- Until now it took the built-in default (v1's three conditions) and 10 repeats, whatever the manifest pinned. So running v2 without flags would silently run v1's design.
+- It now takes the conditions and repeats from the manifest when `--conditions` and `--repeats` are absent. Explicit flags still override, as before.
+- For v1 the two coincide, so its command does not change.
+
+(4) **The summary records each condition's own cap,** 8,192 or 16,384, as `requests[condition].maxTokens`. It always said 8,192.
+
+(5) **Lane S-harn's registry copy.** scripts/registry-row.py's `PLANNER_CONDITIONS` gains the two names, in the fixture's order. Its test pins the copy to `FIXTURE_CONDITIONS`, and the reply-file pattern follows from it.
+
+(6) **Endpoint time.** The estimate uses the ~154 decode tokens/s of the 2026-11-04 qualification (BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused).
+- A plan reply that runs to its cap decodes for about 53 s at 8,192 tokens and about 107 s at 16,384.
+- The plan prompt, about 25,000 tokens of index, is prefilled once per condition when the fixture's salt lets the server reuse it.
+- So the 30 calls take at most about 45 minutes, and less where replies stop early.
+
+(7) **What does not change:**
+- the classes and the summary's other fields;
+- `researchProtocolSha256()`, still 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5;
+- the harness source freeze, since no file of src/main/private-agent/ changes;
+- the v1 manifest and its record.
+
+Changes: This entry only. The implementation follows in the same pull request.
+
+Evidence: None yet; this is a design.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **Initial attempts only.** The card also sends `response_format` on the repair attempt, and the fixture sends no repair.
+- **Transport and coverage.** The fixture does not stream. It runs one exposed index (run-5's), so it makes no claim about research quality.
+
+Paid exposure: None. The run, when the coordinating session makes it, is 30 zero-fee local calls.
+
+Next gate:
+- the implementation and a light review in this pull request;
+- the coordinating session's card amendment, which names the v2 command;
+- the run.
+
+References:
+- BL-20261108-0911-probe-extensions-implemented (the planner fixture);
+- BL-20261116-1208-research-structured-output-design;
+- BL-20261116-1017-correction-e0-probes-serving-card-review;
+- BL-20261116-1019-e0-planner-fixture-result;
+- BL-20261116-1049-correction-e0-planner-fixture-null-content;
+- BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused.

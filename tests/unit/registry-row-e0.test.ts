@@ -163,7 +163,7 @@ describe("E0 registry modes: role-fixture runs", () => {
   const ALIAS = "Synthetic-Served-Alias";
   const USAGE = { prompt_tokens: 1200, completion_tokens: 80, prompt_tokens_details: { cached_tokens: 256 } };
   /** A loopback chat-completions fake: each call gets the scripted reply of its ordinal, or a dropped connection. */
-  async function fakeServer(script: (ordinal: number) => { status?: number; content?: string; finish?: string; drop?: boolean }, usage: Record<string, unknown> = USAGE) {
+  async function fakeServer(script: (ordinal: number) => { status?: number; content?: unknown; finish?: string; drop?: boolean }, usage: Record<string, unknown> = USAGE) {
     let ordinal = 0;
     const server: Server = createServer((request, response) => {
       let data = ""; request.on("data", chunk => { data += chunk; });
@@ -215,13 +215,14 @@ describe("E0 registry modes: role-fixture runs", () => {
   }
 
   it("rows a planner run from the summary the fixture wrote: its calls, usage, classes, manifest hashes and request digests, and no alias or path", async () => {
-    // Per condition, two repeats: valid and truncated, rejected and valid, a dropped connection and a reply without content.
-    const baseUrl = await fakeServer(ordinal => [{ content: plan }, { content: plan.slice(0, 40), finish: "length" }, { status: 500, content: "" }, { content: plan }, { drop: true }, {}][ordinal - 1]!);
+    // Per condition, two repeats: valid and truncated, rejected and valid, a dropped connection and a reply whose content is a parts array,
+    // which the model layer rejects (a reply without content reads as empty text, as the model layer reads it).
+    const baseUrl = await fakeServer(ordinal => [{ content: plan }, { content: plan.slice(0, 40), finish: "length" }, { status: 500, content: "" }, { content: plan }, { drop: true }, { content: [{ type: "text", text: "parts" }] }][ordinal - 1]!);
     const out = join(scratch(), "e0-planner-fixture-20261115T200000000Z"), inputs = plannerInputs();
     await runPlannerFixture({ endpoint: { baseUrl, model: ALIAS }, inputs, out, repeats: 2, conditions: DEFAULT_CONDITIONS });
     const bytes = readFileSync(join(out, "summary.json")), summary = JSON.parse(bytes.toString("utf8"));
     const line = run(["--fixture-dir", out, "--fixture", "planner"], "accepted"), result = JSON.parse(line);
-    // The reply without content reported no usage, so the run's tokens and its cache reuse are unknown, not that call's zero.
+    // The malformed reply's usage is never read, so the run's tokens and its cache reuse are unknown, not that call's zero.
     expect(result).toMatchObject({ modelCalls: 6, inputTokens: null, outputTokens: null, cachedTokens: null, usd: 0, reservedUsd: 0, pinnedUsd: 0, unknownDispatches: 0,
       cloudCalls: [], disclosedBytes: 0, terminalCause: "fixture_finished", date: summary.startedUtc.slice(0, 10), outcome: "accepted", cloudModel: null, profile: null });
     expect(result.fixture).toEqual({ kind: "planner", finished: true, version: 1, sha256: digest(bytes), conditions: [...DEFAULT_CONDITIONS], repeats: 2, usageMissing: 1, cachedMissing: 1,

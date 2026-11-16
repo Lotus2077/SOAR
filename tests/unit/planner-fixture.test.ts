@@ -33,7 +33,7 @@ function fixtureInputs() {
 const plan = (sourceIds: string[]) => JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What do the surveys establish?", requirementIds: ["U1", "U2"], sourceIds, lookFor: [] }], conflictsToCheck: [], deliverableNotes: "" });
 
 /** A loopback fake of the chat-completions route that answers a scripted reply per call and records every request. */
-async function fakeServer(script: (ordinal: number) => { content: string; finish: string; status?: number }) {
+async function fakeServer(script: (ordinal: number) => { content?: unknown; finish: string; status?: number }) {
   const requests: { url: string; headers: Record<string, string | string[] | undefined>; body: any }[] = [];
   const server: Server = createServer((request, response) => {
     let data = ""; request.on("data", chunk => { data += chunk; });
@@ -41,7 +41,7 @@ async function fakeServer(script: (ordinal: number) => { content: string; finish
       requests.push({ url: request.url ?? "", headers: request.headers, body: JSON.parse(data) });
       const reply = script(requests.length);
       response.writeHead(reply.status ?? 200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ id: "x", model: "Synthetic", choices: [{ index: 0, message: { role: "assistant", content: reply.content, reasoning_content: "hidden thoughts" }, finish_reason: reply.finish }],
+      response.end(JSON.stringify({ id: "x", model: "Synthetic", choices: [{ index: 0, message: { role: "assistant", ...(reply.content === undefined ? {} : { content: reply.content }), reasoning_content: "hidden thoughts" }, finish_reason: reply.finish }],
         usage: { prompt_tokens: 1200, completion_tokens: 80, completion_tokens_details: { reasoning_tokens: 40 } } }));
     });
   });
@@ -141,6 +141,20 @@ describe("planner fixture request builder", () => {
     expect(dry).toMatchObject({ dryRun: true, calls: [], counts: {} }); expect(Object.keys(dry.requests)).toEqual([...DEFAULT_CONDITIONS]); expect(server.requests).toHaveLength(4); expect(existsSync(join(out, "dry"))).toBe(false);
   });
 
+  it("reads a missing or null content as the model layer does: a reply whose thinking spent the cap is truncated, and only content that is neither text nor null is malformed", async () => {
+    // The shape E0's planner fixture recorded on the r3 index: content null and finish_reason "length", the reasoning having used the whole cap.
+    const f = fixtureInputs();
+    const server = await fakeServer(ordinal => [{ content: null, finish: "length" }, { content: null, finish: "stop" }, { finish: "length" },
+      { content: [{ type: "text", text: "parts" }], finish: "stop" }][ordinal - 1]!);
+    const summary = await runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: { index: f.index, brief: f.briefBytes, manifest: f.manifest },
+      out: join(outDir(), "null-content"), repeats: 4, conditions: ["legacy-thinking"] });
+    expect(summary.calls.map(c => c.classification)).toEqual(["truncated", "invalid_json", "truncated", "malformed_reply"]);
+    // The attempt records no reply bytes, which tells a cap spent on thinking from an answer cut off midway; the reasoning is counted, never kept.
+    expect(summary.calls[0]).toMatchObject({ finishReason: "length", reasoningField: "reasoning_content", reasoningBytes: Buffer.byteLength("hidden thoughts"),
+      usage: { completion_tokens: 80 }, attempt: { truncated: true, replyBytes: 0, accepted: false, errors: [{ code: "truncated", path: [] }] } });
+    expect(summary.calls[3]).not.toHaveProperty("attempt");
+    expect(summary.counts).toEqual({ "legacy-thinking": { truncated: 2, invalid_json: 1, malformed_reply: 1 } });
+  });
   it("runs from the command line through loadConfig with a dry run that prints no address", () => {
     const f = fixtureInputs(), root = outDir();
     writeFileSync(join(root, "index.json"), f.index); writeFileSync(join(root, "brief.md"), f.briefBytes); writeFileSync(join(root, "manifest.json"), JSON.stringify(f.manifest));

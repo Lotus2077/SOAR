@@ -133,7 +133,12 @@ export async function runPlannerFixture(options: FixtureRunOptions): Promise<Fix
         if (response.status !== 200) { record.classification = "request_rejected"; summary.calls.push(record); continue; }
         let reply: { choices?: { message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[]; usage?: unknown };
         try { reply = JSON.parse(bytes.toString("utf8")); } catch { record.classification = "malformed_reply"; summary.calls.push(record); continue; }
-        const choice = reply.choices?.[0], message = choice?.message, content = typeof message?.content === "string" ? message.content : undefined;
+        // As the model layer reads a reply (model.ts), a missing or null content is empty text, so a reply whose thinking spent the output
+        // cap and left no content is the pipeline's truncated attempt. Only a reply without a message, or whose content is neither text nor
+        // null, is malformed.
+        const choice = reply.choices?.[0], message = choice?.message;
+        const content = message === null || typeof message !== "object" ? undefined
+          : message.content === undefined || message.content === null ? "" : typeof message.content === "string" ? message.content : undefined;
         if (content === undefined) { record.classification = "malformed_reply"; summary.calls.push(record); continue; }
         const fields = (["reasoning", "reasoning_content"] as const).filter(field => typeof message?.[field] === "string" && (message[field] as string).length);
         record.finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null; record.usage = reply.usage ?? null;

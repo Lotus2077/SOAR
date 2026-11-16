@@ -43456,3 +43456,57 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #117, then the coordinator's squash-merge with `--match-head-commit`.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-0839-e0-registry-modes-design; BL-20261116-0840-e0-registry-modes-implemented; BL-20261116-0841-correction-e0-registry-modes-skeptic; BL-20261115-2044-e0-judge-labeller-implemented; pull requests #115 and #117.
+
+### BL-20261116-1005-correction-e0-planner-fixture-null-content -- 2026-11-16 -- Correction to BL-20261108-0911-probe-extensions-implemented: E0's planner fixture reads a missing or null reply content as empty text, as the model layer does, so a reply whose thinking spent the output cap is a truncated attempt, not `malformed_reply`
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of the planner fixture that BL-20261108-0911-probe-extensions-implemented added (scripts/planner-fixture.ts). That entry is not edited.
+- **The run.** The coordinating session ran E0's planner fixture on the pinned r3 index and stage brief: 30 calls, at the 8,192-token plan cap.
+- **What it found.** Six calls, three each under `legacy-thinking` and `flash-thinking`, came back with `content: null`, `finish_reason: "length"`, `completion_tokens: 8192` and 22–26 KB of reasoning. The reasoning used the whole output cap and left no content.
+- **The gap.** The fixture read only string content, so it classed those six `malformed_reply`. The pipeline's model layer (src/main/private-agent/model.ts) reads a missing or null content as empty text. The plan stage then records a truncated attempt with 0 reply bytes. That is the "truncated, 0 bytes" first planner attempt E0's r3 runs logged.
+
+Decisions:
+(1) **The fixture reads the content as the model layer does.**
+- A missing or null content is empty text, and text is kept.
+- A reply without a message object, or whose content is anything else (a parts array, a number), is still `malformed_reply`. So is a reply body that is not JSON.
+- So a reply that stopped at the cap with no content is a `truncated` attempt with `replyBytes` 0. One that stopped for another reason with no content is `invalid_json`, as the stage would record it.
+(2) **The summary's shape is unchanged.** No class, condition or field is added or removed.
+- The attempt's `replyBytes` already tells a cap spent on thinking (0) from an answer cut off midway.
+- The call's `reasoningBytes` and its usage record how much reasoning the cap held.
+(3) **The recorded run is not rewritten.** Under this reading, its six `malformed_reply` calls are truncated attempts with 0 reply bytes. A rerun on the pinned inputs would class them so.
+(4) **Lane S-harn's registry test changes in one call.** tests/unit/registry-row-e0.test.ts used a reply without content as the planner run's malformed reply. That reply now reads as empty text, so the test uses a reply whose content is a parts array, which the model layer rejects. The test keeps its malformed call, and with it the unknown usage it checks.
+(5) **The extractor fixture already reads content this way** (lane S-pipe's pull request #116, its light review's finding 4). A null content that stopped at the cap is `truncated` there, and its `contentBytes` is 0.
+
+Changes:
+- scripts/planner-fixture.ts: the content reading of decision (1).
+- tests/unit/planner-fixture.test.ts: one test. It covers a null content at the cap, a null content that stopped, a missing content at the cap, and a parts array. The loopback fake can now omit the content or send any value.
+- tests/unit/registry-row-e0.test.ts: the planner run's malformed reply, two comments, and the fake's content type.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On `main` at 6a96098:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The two test files** pass: 29 tests, against loopback fakes only.
+- **The full suite,** `pnpm exec vitest run`: 190 files passed and 13 skipped; 3,765 tests passed and 86 skipped. None failed.
+- **Mutants.** Three single edits of the content reading each fail a test:
+  - the old string-only reading;
+  - null left out of the empty reading;
+  - a parts array read as empty text.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called, and the recorded run was not rerun.
+- **The judge fixture** (scripts/judge-fixture.ts) reads content the way this fixture did. It is not changed here.
+- **No structured output.** The fixture still sends no `response_format`. Whether the planner's structured output holds on the real r3 index is not measured here.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- A light review, and CI green.
+- The coordinating session merges, under the standing go-ahead. If another entry reaches `main` first, this entry is re-stamped.
+
+References:
+- BL-20261108-0911-probe-extensions-implemented (corrected);
+- BL-20261116-0840-e0-registry-modes-implemented (lane S-harn's registry modes, whose test changes here);
+- the extractor fixture's light review, on pull request #116 (finding 4).

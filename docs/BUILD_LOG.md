@@ -44844,3 +44844,101 @@ Paid exposure: None. The fixture's requests are zero-fee and go to the owned end
 Next gate: #116 on `main`; then `pnpm setup:general`, the dry run and the run; then the row.
 
 References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-extractor-fixture-v1.json; scripts/extractor-fixture.ts; BL-20261116-1123-e0-extractor-fixture-design; BL-20261116-1124-e0-extractor-fixture-implemented; BL-20261116-1125-correction-e0-extractor-fixture-review; BL-20261116-1127-correction-e0-extractor-fixture-restamp; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0839-e0-registry-modes-design; pull request #116.
+
+### BL-20261116-1159-correction-e0-amendment-3-pre-run-review -- 2026-11-16 -- Correction to BL-20261116-1131-owner-directions-merge-and-continue and BL-20261116-1132-e0-card-amendment-3: the review made before the extractor fixture runs; the amendment's section completed in place, and the two entries corrected
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the review of pull request #124 at 14a855b, made before the extractor fixture runs, and its fixes.
+
+The review was a workflow of two reviewers: one checked the amendment against the fixture's code, the other the directions entry against the log rules. A skeptic then tried to refute the two most serious findings of each. It found no blocker, no major issue and no privacy issue. It made minor findings and nits, which fall into two groups:
+- **The card's Amendment 3 section** is rewritten in place. It was not on `main`, and it is not frozen until the fixture's first request.
+- **The two entries** stay as written, and where this entry differs from either, this entry governs.
+
+`Implemented` covers the corrected text. Nothing has run under the amendment at this entry's time, apart from the doctor and a dry run that sent nothing.
+
+Decisions:
+1. **The Amendment 3 section, as rewritten before the run.** What changed, by item:
+   - **The intro** says the amendment also names the fixture among the sources of the card's "Decision rule".
+   - **Item 1** cites the fixture's two Correction entries, which hold the design the amendment fixes, and says the command takes no `--out`.
+   - **Item 2:**
+     - it gives the three sources' sizes and the exposure;
+     - it says that thinking on is the Heavy profile's, with its sampling, so the thinking-on cells differ from `thinking-off` in sampling too;
+     - it says whose choice each value is.
+   - **Item 3:**
+     - it adds the fixture to two bullets of "Decision rule", which named it nowhere;
+     - it separates the three classes set before any stage check from the five the stage's checks give;
+     - it lists what the design does not measure.
+   - **Item 4:**
+     - it says how the doctor runs and what it must report;
+     - it says what the dry run must print;
+     - it fixes the research protocol hash the run's summary must record;
+     - it says where the run writes.
+   - **Item 5** gives the whole outcome rule:
+     - `accepted` only when the run finished with every call answered with HTTP 200;
+     - `infra_invalid` when the run finished with a call that failed at transport, was rejected, or was cut mid-stream;
+     - `incomplete` or `infra_invalid` when the run stopped early.
+
+     The row writer checks only the last of these.
+2. **BL-20261116-1132-e0-card-amendment-3, corrected.**
+   - **Scope.** The run's conditions and the row's outcome rule, items 4 and 5, are the orchestrating session's procedural choices. The fixture's design entry stays `Proposed`. A zero-fee run on synthetic input within the Heavy caps needs no approval entry (PLAN.md §4(c)).
+   - **Decision 3.** Item 3 adds the fixture to two bullets of the card's "Decision rule": the thinking policy, and the stage bounds. No pass level is set.
+   - **Decision 4, the fourth condition.**
+     - **When.** The session asked for `thinking-on-16384` on 2026-11-15, after the planner's first reply in E0's r3 runs came back truncated with no content.
+     - **What the r3 entry shows.** BL-20261116-0813-e0-r3-runs-index-and-harvest says those empty replies fit reasoning that fills the cap, and that it does not show it.
+     - **What showed it.** The planner fixture, afterwards: six replies with no content, finish reason `length`, 8,192 completion tokens and 22 to 26 KB of reasoning (BL-20261116-1019-e0-planner-fixture-result).
+   - **Decision 5** is replaced by item 5's rule, as decision 1 gives it.
+   - **Limitations, "Three small synthetic chunks".** One of the three is near full size: the sources are 1,745, 6,691 and 62,694 bytes, against a chunk size of 65,536. What the design does not measure is in the amendment's item 3.
+   - **Limitations, "The time bound".** The manifest's estimate of at most about 1 h 45 min uses the 2026-11-04 decode rate of about 154 tokens per second. E0's probes of 2026-11-16 measured 81 to 144 on a single stream, so a run whose replies reach their caps could take about 3 h. No stop rule depends on the estimate.
+   - **Next gate.** The doctor runs without `--write`.
+3. **BL-20261116-1131-owner-directions-merge-and-continue, corrected.**
+   - **Scope.** The log already held the first direction as a quote, in the Next gate of BL-20261116-1048-correction-e0-records-final-review. It did not hold the second. Decision 4 of that entry restates limits already in force, and decision 5 lists questions that stay open.
+   - **Decision 2, the queue.** The pull requests merge one at a time, in the session's order. Each merges once its light review is clean and CI is green, not on green CI alone. #103, #108 and #110 were drafts at that entry's time.
+   - **Decision 2, the chain.** Only the first three were chained at that entry's time: #116 held #122's head, and the pull request holding that entry was chained on #116's head. The five after it were not: each merges the head ahead of it, or `main`, and re-stamps before it merges.
+   - **Decision 2, under whose go.**
+     - Lane pull requests keep the standing go-ahead of 2026-11-13.
+     - The pull request that holds that entry is not a lane pull request. It is the session's E0 record, which the owner's merge go of 2026-11-16, at about 08:08 UTC, covers once its review is clean and CI is green (decision 3 of BL-20261116-0814-e0-card-amendment-1).
+   - **Decision 3.** Zero-fee local runs need no approval entry only within the Heavy caps, as PLAN.md §4(c) says.
+   - **Decision 5.**
+     - A topic that already has an adopted default keeps it until the owner's answer is recorded. The incomplete-chunk rule is one.
+     - The cloud-claim-verification question follows from BL-20261116-1020-e0-judge-fixture-result, under which the judge stays evidence-only. E0's `Verified` entry is still to come.
+   - **Evidence, "What can run next".** The research pass found that no run in E2, E6, E5, E3 or E4 is pre-registered. That none can start without an owner answer holds under decision 3's narrower reading.
+   - **References.** They also include docs/HANDOFF.md "Start here" §6, BL-20261116-1020-e0-judge-fixture-result, and pull requests #103, #108 and #110.
+4. **What ran before this entry.** Both steps came after the amendment's first commit, at 11:33:12 UTC, and before this correction. The dry run is repeated after this entry's commit, at the commit the run uses.
+   - **The doctor,** at 11:40 UTC on fe0ceb0, read-only and without `--write`. It reported the model listed and its one-token completion answered, and the same endpoint identity as on 2026-11-15.
+   - **A dry run,** at 11:40 UTC on fe0ceb0. It sent nothing and wrote nothing. It printed:
+     - the manifest digest 4ae19cd4…;
+     - 120 calls;
+     - `streamed` true under every condition;
+     - request settings with streaming on, no reply contract, the Heavy profile and the cache salt on.
+
+Changes: docs/experiments/e0-card-2026-11-13.md, the Amendment 3 section only, rewritten before the run; nothing above it changes. docs/BUILD_LOG.md, this entry.
+
+Evidence:
+- **The workflow** ran six agents, read-only: two reviewers and four skeptics. None ran the fixture.
+- **What the skeptics confirmed,** each against the code at 14a855b:
+  - the outcome rule was incomplete, and the row writer does not enforce it. A skeptic chose the HTTP-200 reading of "answered" over the reviewer's, because the fixture classes every other status `request_rejected`, a 5xx included;
+  - item 3 extended the card's "Decision rule" while the intro said the amendment only named a command, and its classes sentence was broader than the tool;
+  - the chain sentence held for three of eight pull requests;
+  - the queue sentence listed the session's own pull request as a lane pull request, and gave green CI as the only condition.
+- **What the session checked itself** in scripts/extractor-fixture.ts and its neighbours at 72006f0:
+  - the summary records the research protocol hash;
+  - the default output directory, the refusal of an existing or unignored directory, and mode 0600;
+  - a call's class is `transport_failed` by default, `request_rejected` on any status other than 200, and `malformed_reply` when the shared reader rejects the reply;
+  - the Heavy profile's sampling values;
+  - tests/helpers/research-protocol-pin.ts pins 7100b7a2…;
+  - a call record keeps no finish reason for a `malformed_reply`, which is why item 5 has the operator read those replies.
+- **The merges so far.** `gh` reports #122 merged at 11:33:40 UTC as 5bc5088, and #116 at 11:39:53 UTC as fe0ceb0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Not every finding had a skeptic.** The skeptics covered two findings per reviewer. The rest are applied on the reviewers' evidence and the session's own check.
+- **The outcome rule is the session's.** The owner did not choose it.
+- **Nothing is measured here.** The fixture has not run.
+
+Paid exposure: None.
+
+Next gate: The dry run again at the run's commit, then the extractor fixture's run, then its row.
+
+References: BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-1132-e0-card-amendment-3; BL-20261116-1123-e0-extractor-fixture-design; BL-20261116-1124-e0-extractor-fixture-implemented; BL-20261116-1125-correction-e0-extractor-fixture-review; BL-20261116-1127-correction-e0-extractor-fixture-restamp; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1020-e0-judge-fixture-result; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1048-correction-e0-records-final-review; docs/experiments/e0-card-2026-11-13.md; scripts/extractor-fixture.ts; scripts/registry-row.py; pull requests #103, #108, #110, #116, #119, #122, #123 and #124.

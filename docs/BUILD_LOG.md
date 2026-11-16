@@ -41758,3 +41758,194 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green, and the owner's go to merge, since this is not a lane pull request. The next handoff note updates this section after E0 runs, 7b.2 lands or E1's gate is released.
 
 References: docs/HANDOFF.md "Start here"; BL-20261114-1119-handoff-start-here; BL-20261114-2300-correction-handoff-hash-line-restamp; BL-20261114-2254-correction-judge-fixture-second-restamp; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2307-correction-e1-recoverability-gate-review; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261114-2255-doctor-endpoint-identity-implemented; BL-20261114-2256-correction-doctor-endpoint-identity-restamp; BL-20261114-2301-serving-card-request-settings-design; BL-20261114-2302-serving-card-request-settings-implemented; BL-20261114-2304-correction-serving-card-request-settings-review; BL-20261114-2305-correction-serving-card-request-settings-second-restamp; BL-20261109-0351-e1-recoverability-card; BL-20261114-1344-experiment-launcher-design; BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1523-registry-columns-design; BL-20261114-1526-registry-columns-review-design; BL-20261114-2309-revoke-reopens-budget-stop-design; BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; BL-20261114-1808-claims-check-long-char-refs-implemented; pull requests #37 to #112 as the section lists them; issues #46 and #57.
+
+### BL-20261115-1937-owner-adopts-standing-defaults -- 2026-11-15 -- The owner adopts every standing default, answers E0's three open questions, and directs the experiments to start
+
+Status: `Approved`
+
+Scope or hypothesis: On 2026-11-15, at about 19:05 UTC, the owner answered in the orchestrating session's chat: "all go by default; start the experiments asap". The questions answered are the open owner questions of docs/HANDOFF.md "Start here" §4 and §5 step 2, and the git-ignored owner-facing summary of 2026-11-15.
+
+This entry records that answer the way BL-20261022-0941-privacy-filter-v2-approved recorded a blanket one: each question with a stated default takes that default, and the owner may replace any of them with a recorded answer at any time.
+
+PLAN.md §5 bounds what a default can do: "Defaults apply only to non-gated planning. They never authorize live, paid, private or publication actions." So the session put the three E0 questions with no default to the owner as separate questions at about 19:35 UTC, and decision 2 records the owner's choices. Decision 3 lists what stays open. "Start the experiments asap" is the owner's own direction, not a default; decision 5 records what it starts.
+
+Decisions:
+
+1. **Defaults adopted.** Each stands as its source states it.
+   - **#98, 11.5, the launcher.**
+     - HARN-26's six batch rules: yes.
+     - On an owner's stop, the wait before SIGKILL is 120 s, with a cap of 4 re-invocations per loop (BL-20261114-1344-experiment-launcher-design).
+     - A hangup sends the run SIGTERM.
+     - The window for a repeated signal is 5 s.
+
+     The last two come from BL-20261114-1431-experiment-launcher-signals-design, as BL-20261114-1503-correction-experiment-launcher-hangup corrects it: a hangup is never taken as a second press. All of these merged with #98.
+   - **#101 and #110, items 8.1 and 8.2b.** ASSIST-M1, ASSIST-1, ASSIST-2 and ASSIST-M2, from decision (10) of BL-20261114-1505-concurrent-local-admission-design. At K > 1, the class of a run that hits a denial can come out either way, as BL-20261114-1508-correction-concurrent-local-admission-review records. ASSIST-M2's registry column needs a later part of item 11, because 11.4 did not add it.
+   - **#104, 11.4** (BL-20261114-1523-registry-columns-design):
+     - HARN-27 takes the brief's definitions.
+     - On a closed corpus, `domains` is 0, and E3 reads `urls` and `actions.sourcesRead`.
+     - `sourcesIndexed` is the closed-corpus "read" until item 12.
+   - **#100, 6.4.** A Revoke re-opens a task that its approved consultation's budget stop ended (BL-20261114-2309-revoke-reopens-budget-stop-design).
+   - **#97, E1-G.** E1-1, E1-2, E1-3 and E1-6, from decision 3 of BL-20261114-2306-e1-recoverability-gate-ci-verified. E1-2 carries two obligations: 10.b re-proves clause 3 end to end under the same describe name, and E3's card cites that test.
+   - **#92, 7d.B** (BL-20261110-1509-host-flags-event-design). D11 keeps the segmentation and flags single-unit briefs, and "misses" means the run's own misses.
+   - **#89, question (b) of BL-20261113-0836-infra-resume-design.** Criterion 7 reads `activeSeconds` for a loop with resumes or void starts, and `wallSeconds` otherwise.
+     - This amends the decision rules that BL-20261107-0650-owner-decisions-review-items-2-5 approved for E3 and E4, and their cards state it. No cap, provider or money changes.
+     - The same answer adopts that entry's other defaults, (a) and (c) to (f).
+   - **7b.2's D4 incomplete-chunk clause:** an incomplete chunk still ends `research_extraction_incomplete`. This is decision 8 of #102's design entry; #102 is unmerged, and its re-stamp will move its IDs.
+   - **Review §5.10** (docs/PROJECT_REVIEW_2026-11-05.md):
+     - Decision 5's reallocation: none. E4 starts only if the harness line's balance after E3 covers E4's cap, the admission condition BL-20261107-0650-owner-decisions-review-items-2-5 applies.
+     - Decision 7: no thinking-off writer arm. E2's card leaves it out.
+     - Decision 11: proxy grades are provisional (PLAN.md D9). Its open parts are under decision 3.
+     - Decision 12's first part: keep the segmentation and flag single-unit briefs, with the one-question host fallback plan for unnumbered briefs (BL-20261113-0927-research-v5-design).
+     - Decision 13's D20(b): private source code is regime-tagged, as BL-20261022-0941-privacy-filter-v2-approved approved. T3 and coding on private source code stay blocked.
+     - Decision 2's last part: the assist toggle starts off.
+   - **Defaults of BL-20261113-0920-assist-wrapper-design that bear on dispatch.** These include ASSIST-6, which accepts a stated limit for public and synthetic tasks on E3's and E4's approved arms only, and ASSIST-8. They stand only as defaults and take effect only when 10.b dispatches, which decision 3 keeps blocked. Under PLAN.md §5 they accept no private exposure. The owner's explicit answer on #105, which 10.b needs anyway, is where they are confirmed or replaced.
+
+2. **The owner's answers to E0's three questions that have no default.**
+   - **(a) 7b.2 (#102) merges before E0's schema export.**
+     - #102 merges `main` in, re-stamps its entries and merges.
+     - Then an amendment to docs/experiments/e0-card-2026-11-13.md moves the card's precondition hash to `7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5`. It is committed once #102 is on `main` and before `pnpm probe:export-schemas`.
+     - E0 then measures 7b.2's request bodies.
+     - The r3 run, the planner pin and the judge's harvest do not depend on this: coverage v3 keeps `chunks` and `briefSha256`.
+   - **(b) The labeller is `gpt-6-sol`.**
+     - It runs at the public API host `api.openai.com`.
+     - Its key variable is `SOAR_PHASE2_CLOUD_API_KEY`, which scripts/with-cloud-key.sh reads from the owner's Keychain at launch. The key never enters a file, log or commit.
+     - The USD 1.00 cap of BL-20261113-1003-e0-card-owner-answers is charged to PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)" (USD 20). The Phase 4 harness track line stays whole for E3 and E4.
+     - The material is public and synthetic only, as before.
+     - The labelling tool does not exist yet. The card amendment that names it, with the per-class minimum, the conditions and the repeats, is committed before the first claim is sent.
+   - **(c) The planner fixture pins the stage brief.** The stage brief is `brief.md` with the claims-ledger instructions appended, exactly the planner's input in the pipeline.
+     - It is written to a git-ignored file.
+     - Its sha256 and byte length must equal the r3 run's `coverage.json` `briefSha256` and `briefBytes`.
+
+3. **No default, so still open.** Each still blocks what it blocked before.
+   - **#105, scrub policy 5.** The owner was offered three choices: accept the 13 residues listed in decision 2 of #105's last design entry; close named items first; or keep 10.b blocked.
+     - **No source states a default.** The defaults that bear on it amount to keeping 10.b blocked:
+       - BL-20261113-0925-correction-assist-core-rereview closes L1 to L4 and L7 by rule.
+       - The train-1 owner-question list says 10.b stays blocked, and #105 stays a draft, until the owner answers.
+       - #105's rules are frozen, so no further rule will come.
+     - **Accepting is a privacy exposure.** Credentials, passwords among them, and query tokens in model-written packet text would reach a paid cloud provider on public and synthetic arms, and the list may not be complete. Only the owner's explicit answer can accept that (PLAN.md §5).
+     - **So #105 stays a draft, and 10.b stays blocked.** Neither gates E0 or E1.
+   - **Owner decisions in review §5.10 with no default:**
+     - Decision 5's LiveDRBench grader judge model: a paid model on the key JAT, which E4's card proposes.
+     - Decision 6: the provider of the assists and of E3's arm D, a paid provider and key.
+     - Decision 8: SearXNG or a keyed search API. Either is a new egress destination.
+     - Decision 10: the Manus product baseline, which means spend outside the envelope.
+     - Decision 12's second part: disclosing the public brief from the desktop.
+     - Decision 13's dashboard reconciliation.
+     - Decision 9's sub-questions (#52) and the box checklist (PLAN.md D5).
+     - Decision 11's open parts (#53): the sample the owner grades, the second-verdict policy, `verdictBy`, and what E5 records.
+
+     These gate E3, E4, E5's labelled work and item 13. None gates E0 or E1.
+   - **Whether E1's held gate covers E0's r3 run:** no default. The question is moot: BL-20261115-1938-e1-l-sandbox-suite-docker-verified records E1-L's Docker run, and under decision 1's E1 defaults that run releases the gate.
+
+4. **The orchestrating session's procedural choices for E0.** These are not the owner's decisions. Each holds unless the owner replaces it, and the probe choice can be replaced before the export.
+   - **The reply contract.** The configuration sets no `SOAR_VLLM_REPLY_CONTRACT`, which is the legacy shape, as review §5.9 recommends during E0. It stays that way for the export, the probes and every later run that uses E0's card. So do `SOAR_STREAMING`, which is unset and so true, and the driver's default cache salt.
+   - **The probe invocation** runs `python3 scripts/serving-probe.py` with no `--only`. That is all twelve probes, P1 to P11 and the adapter probe, in one invocation. It satisfies both the card's Arms and its Order; the card's Order names P1, P10, P11 and the adapter probe in one invocation. P1 alone runs first, as the Order says.
+   - **The planner manifest** is filled locally before the planner run and committed with the results. That is where the card's Records, the Next gate of BL-20261113-0936-e0-card and #57 put it.
+   - **No OpenRouter call.** Every E0 command sets `SOAR_OPENROUTER_ENABLED=false` in its own environment.
+
+5. **What "start the experiments asap" starts.**
+   - **E1.** The Docker run of E1-L's sandbox suite, recorded in BL-20261115-1938-e1-l-sandbox-suite-docker-verified, releases E1's gate.
+   - **E0,** per its card, from the owner's Mac and at zero fee, except the labelling.
+     - **Done or under way:**
+       - The doctor has run (Evidence).
+       - The r3 run started at 19:31:07 UTC on d92a3af with `--arm local` and no cloud flag.
+     - **Next, in order:**
+       - The stage brief and the planner pin.
+       - #102's merge and the precondition-hash amendment.
+       - P1 alone, then the export, the twelve probes, `pnpm probe:assess`, and the card writer with the `--compare-*` flags.
+       - For the judge: its tool, its amendment, the harvest, the labelling, the pin and the run.
+       - The planner fixture, then the extractor fixture, whose command an amendment names first.
+       - The registry rows, then the `Verified` entry.
+     - **Zero-fee local runs** on public or synthetic inputs need no approval entry (PLAN.md §4(c)). This entry records the owner's direction anyway.
+   - **The endpoint configuration E0 reads.**
+     - **Where it comes from.** The owner chose the `.env.local` of another of the owner's checkouts, and it is linked into this repository's root, where git ignores it. E0's scripts read that file; the doctor reads it after the app's user-data `.env.local`. The user-data file sets four endpoint keys, and the linked file sets the same four to the same values.
+     - **What the linked file adds.** `SOAR_VLLM_COST_POLICY=local_zero_cost`, the image setting, and OpenRouter and paid-cap settings, with OpenRouter enabled. Decision 4 turns OpenRouter off for E0.
+     - **What this log records.** No address, key or path. It records key names, and only the non-secret values named here.
+   - **The tools E0 still lacks** are built in reviewed lane pull requests, each with its own entries:
+     - the labelling tool;
+     - the extractor fixture;
+     - registry-row.py modes for probe runs, fixture runs and the labelling call.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The owner's words** are quoted from the orchestrating session's chat. The blanket answer came at about 19:05 UTC; the three answers of decision 2 at about 19:35 UTC, as the choices the session marked recommended.
+- **The sources of each default** were read on `main` at d92a3af, and on the branches of #102, #105 and #110 for their unmerged entries:
+  - the entries cited above;
+  - PLAN.md §4, §5 and D9;
+  - docs/PROJECT_REVIEW_2026-11-05.md §5.9 and §5.10;
+  - docs/experiments/e0-card-2026-11-13.md;
+  - #95's and #102's descriptions, and issue #57;
+  - the git-ignored train-1 owner-question list and the owner-facing summary of 2026-11-15.
+- **The endpoint.** The doctor ran at 19:12 UTC, read-only and without `--write`. It is `pnpm setup:general`, at d92a3af. It reported `ready: true`:
+  - Node 22.22.2;
+  - Docker reachable;
+  - the qualified image `sha256:e5c7075f…` installed and configured;
+  - the model listed, and a one-token completion in 218 ms;
+  - the identity: served alias RM-01 VLM, model-root basename Qwen3.8-Flash-Next-NVFP4, engine vLLM 0.33.0rc1.dev617+g821038729, context 262,144 tokens;
+  - the window covering the Heavy profile's 234,838 tokens;
+  - no serving card configured.
+
+  That identity is the one BL-20261104-0701-new-endpoint-metadata-and-deployment-drift recorded, so E0 stays the delta check of decision 1 of BL-20261113-1003-e0-card-owner-answers. The report's settings path and endpoint digest are left out here.
+- **The configuration** was compared by key name only, with the app's own loader, `loadEnvironmentFiles`. Its values were never printed, apart from the non-secret ones named in decision 5.
+
+Failures or blockers: None in recording. Decision 3's questions stay open.
+
+Limitations and non-claims:
+- **A blanket answer.** It adopts defaults as their sources state them, and the owner did not read each one in this chat. Any of them can be replaced by a recorded answer.
+- **The sources govern.** Where this entry and a cited source differ, the source governs.
+- **The doctor run** proves the endpoint's identity at 19:12 UTC only. It does not prove the probes' results, which E0 measures.
+- **The envelope line** for the labelling is the owner's choice. Its balance is tracked in the registry, and this entry does not re-check it.
+- **Approximate times.** The times of the owner's answers are approximate.
+
+Paid exposure: None in this entry. The labelling's USD 1.00 is approved but unspent. It runs only after its tool exists and its amendment is committed. Zero SOAR model requests here beyond the doctor's one-token completion on the owned endpoint, which costs nothing.
+
+Next gate: The steps of decision 5, in the card's order. Decision 3's questions, whenever the owner answers them.
+
+References: docs/HANDOFF.md "Start here" §4 and §5; PLAN.md §4, §5 and D9; docs/PROJECT_REVIEW_2026-11-05.md §5.9 and §5.10; docs/experiments/e0-card-2026-11-13.md; BL-20261022-0941-privacy-filter-v2-approved; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261107-0650-owner-decisions-review-items-2-5; BL-20261107-0718-correction-owner-decisions-record; BL-20261110-1509-host-flags-event-design; BL-20261113-0836-infra-resume-design; BL-20261113-0920-assist-wrapper-design; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261114-1344-experiment-launcher-design; BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261114-1523-registry-columns-design; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2309-revoke-reopens-budget-stop-design; pull requests #89, #92, #95, #97, #98, #100, #101, #102, #104, #105 and #110; issues #52, #53 and #57.
+
+### BL-20261115-1938-e1-l-sandbox-suite-docker-verified -- 2026-11-15 -- E1-L verified against Docker on the owner's Mac: the sandbox integration suite passes on `main` at d92a3af, which releases E1's gate
+
+Status: `Verified`
+
+Scope or hypothesis: This is the Docker-gated run that E1's gate waits for: decision 2 of BL-20261114-2306-e1-recoverability-gate-ci-verified, under #88's default (decision 2 of BL-20261113-0848-correction-e1-train-1-reviews). The suite is tests/integration/private-agent-sandbox.test.ts, run under `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true` against the real Docker daemon and the pinned image. It ran at a commit that contains E1-L (#74) and every later merge. Hypothesis: E1-L's container half holds inside the container, and so do the suite's earlier contracts. E1-L's container half is that the lister lists the host's pinned paths first, past a bulky directory that sorts first, and never follows a pinned link. The orchestrating session ran it on the owner's Mac after the owner's direction of 2026-11-15 to start the experiments (BL-20261115-1937-owner-adopts-standing-defaults).
+
+Decisions: None of its own.
+- **E1's gate is released.** Decision 2 of BL-20261114-2306-e1-recoverability-gate-ci-verified names this run, recorded `Verified`, as the gate's release. Decision 3 of BL-20261114-2307-correction-e1-recoverability-gate-review holds that release only while the defaults E1-1, E1-2, E1-3 and E1-6 stand. BL-20261115-1937-owner-adopts-standing-defaults records the owner's adoption of them.
+- **What the release does not do.** It lifts E1's hold on E2 to E6's live runs and on harness loops. Each of those still needs its own card, cap and gates.
+
+Changes: None; this entry records runs only.
+
+Evidence:
+- **Setup.** The run was on 2026-11-15, on the owner's Mac (Darwin 25.5.0), with Docker Engine 29.8.2. The pinned image `sha256:95be0fdf09ef20ff31c5f605108f068422a58edb93b35834c5cfaf45312d3071` was present locally, tagged `soar-patch-fixture:1` and `soar-patch-python:1`. The suite never pulls or builds it.
+- **The command.** `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-sandbox.test.ts --maxWorkers=1 --testTimeout=120000 --reporter=verbose` ran at d92a3af with a clean tree. This is decision 2's command plus the verbose reporter.
+- **The result.** 1 file and 18 tests passed, 0 failed, in 25.82 s, from 19:07:18 to 19:07:45 UTC.
+- **E1-L's case.** The 18 include "lists the host's pinned paths first inside the container, past a bulky directory that sorts first, never following a pinned link (E1-L)".
+- **The other 17.**
+  - The four omission cases: a file symlink, a directory symlink, a FIFO and a hard link.
+  - The name that is not valid UTF-8.
+  - The bounded output.
+  - Cancellation and timeout, each with descendants.
+  - The overlong command.
+  - Recovery of the exact owned context.
+  - The forged-namespace cleanup that fails closed.
+  - PID1 expiry independent of the host timer.
+  - The write, append and replace protocol.
+  - The lifetime ceiling.
+  - The credential, network and proxy isolation cases.
+- **The containers.** After the run, the containers labelled `soar.private-job-id` were the same four that BL-20261107-1111-stop-bricking-tasks-docker-suite-verified found. They were created on 2026-10-07 and 2026-10-14 from image e5c7075fac7a and exited weeks ago. The run created none; the suite removed its own containers, as its cleanup assertions require.
+
+Failures or blockers: None. The four stale containers predate this work and were left as they were.
+
+Limitations and non-claims:
+- **Scope of the run.** One machine, one daemon version and one image, outside CI, where the suite is skipped.
+- **What it verifies.** It verifies the sandbox contract inside a container. It does not verify the runner's recovery paths against Docker, the owned model, the desktop or product quality. No model request, endpoint or paid call ran.
+- **E1's other clauses** remain `Verified` in CI only (BL-20261114-2306-e1-recoverability-gate-ci-verified).
+- **Other Docker-gated suites have still not run:** #81's document-review suite, #73's runtime-freeze `git` assertion and #72's general-task e2e assertion.
+- **Not released.** Nothing in the product is `Released`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: E0 continues per its card (HANDOFF "Start here" §5 step 2). E2 to E6 each wait for their own conditions.
+
+References: BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2307-correction-e1-recoverability-gate-review; BL-20261113-0848-correction-e1-train-1-reviews; BL-20261109-0351-e1-recoverability-card; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; BL-20261115-1937-owner-adopts-standing-defaults; tests/integration/private-agent-sandbox.test.ts; pull request #74.

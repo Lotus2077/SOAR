@@ -17,9 +17,10 @@
  * The serving card's plan call (BL-20261116-1253-e0-planner-structured-condition-design): `legacy-thinking-structured` adds the
  * strict `research_plan` response_format item 9 sends (model.ts's jsonSchemaResponseFormat over RESEARCH_ROLE_SCHEMAS.plan) at the
  * plan cap, and `legacy-thinking-structured-16384` the same call at the Heavy profile's ceiling. Manifest v2 pins them beside
- * `legacy-thinking`, and the command line takes the conditions and repeats from the manifest unless --conditions or --repeats is given:
+ * `legacy-thinking`. Each of the conditions and the repeats comes from the manifest unless its own flag is given, and each repeat
+ * runs every condition in turn. With --cache-salt every body carries the fixture's one salt, as a run under the card carries one:
  *
- *   pnpm fixture:planner -- --index <run-5 index.json> --brief <stage brief> --manifest docs/experiments/e0-planner-fixture-v2.json
+ *   pnpm fixture:planner -- --index <run-5 index.json> --brief <stage brief> --manifest docs/experiments/e0-planner-fixture-v2.json [--cache-salt]
  */
 import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -137,8 +138,10 @@ export async function runPlannerFixture(options: FixtureRunOptions): Promise<Fix
   mkdirSync(replies, { recursive: true, mode: 0o700 });
   const headers: Record<string, string> = { "content-type": "application/json", ...(options.endpoint.apiKey ? { authorization: `Bearer ${options.endpoint.apiKey}` } : {}) };
   const timeoutMs = options.endpoint.timeoutMs ?? COORDINATOR_PROFILES.heavy.requestTimeoutMs, sources = fixture.sourceIds.map(id => ({ id }));
-  for (const condition of conditions) {
-    for (let ordinal = 1; ordinal <= options.repeats; ordinal++) {
+  // Each repeat runs every condition in turn (BL-20261116-1253-e0-planner-structured-condition-design, review), so drift at the
+  // endpoint over the run falls on every condition alike, as the extractor fixture orders its calls.
+  for (let ordinal = 1; ordinal <= options.repeats; ordinal++) {
+    for (const condition of conditions) {
       const started = performance.now();
       const record: FixtureCallRecord = { condition, ordinal, status: null, elapsedMs: 0, replyFile: null, bodySha256: null, bodyBytes: 0, classification: "transport_failed" };
       try {

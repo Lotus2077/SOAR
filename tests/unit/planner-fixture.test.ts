@@ -214,6 +214,7 @@ describe("planner fixture: the serving card's plan call (manifest v2, BL-2026111
     // The driver's model configuration, unstreamed as the fixture sends, under the fixture's job: the same salt as its --cache-salt bodies.
     const config = buildLocalScreenModelConfig({ vllm: { model: "Synthetic" } as never, streamingEnabled: false }, COORDINATOR_PROFILES.heavy, true);
     const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, FIXTURE_JOB_ID, "reader");
+    // The committed card is still proposed: its roles go to the pipeline as the reader would return them once it is adopted.
     const roles = JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "serving-card-2026-11-16.json"), "utf8")).roles;
     const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: make(), planner: make(), synthesiser: make() },
       signal: new AbortController().signal, record: () => {}, roles });
@@ -226,6 +227,16 @@ describe("planner fixture: the serving card's plan call (manifest v2, BL-2026111
       extractionCallBudget: payload.extractionCallBudget, conditions: ["legacy-thinking-structured"], repeats: 1 };
     const messages = buildPlannerMessages(verifyFixtureInputs({ index, brief, manifest }));
     expect(planCall).toBe(buildPlannerBody("legacy-thinking-structured", "Synthetic", messages, { cacheSalt: vllmCacheSalt(FIXTURE_JOB_ID) }));
+  });
+
+  it("runs every condition in turn within each repeat, so drift at the endpoint falls on every condition alike", async () => {
+    const f = fixtureInputs(), server = await fakeServer(() => ({ content: plan(["input/corpus/alpha.md"]), finish: "stop" }));
+    const summary = await runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: { index: f.index, brief: f.briefBytes, manifest: f.manifest },
+      out: join(outDir(), "order"), repeats: 2, conditions: ["legacy-thinking", ...STRUCTURED] });
+    expect(summary.calls.map(c => `${c.ordinal}/${c.condition}`)).toEqual(["1/legacy-thinking", "1/legacy-thinking-structured", "1/legacy-thinking-structured-16384",
+      "2/legacy-thinking", "2/legacy-thinking-structured", "2/legacy-thinking-structured-16384"]);
+    expect(server.requests.map(r => r.body.max_tokens)).toEqual([8192, 8192, 16384, 8192, 8192, 16384]);
+    expect(server.requests.map(r => "response_format" in r.body)).toEqual([false, true, true, false, true, true]);
   });
 
   it("pins v1's index and brief with the card's call beside the call without a card, and the command line takes that design from the manifest", () => {

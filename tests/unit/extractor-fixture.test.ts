@@ -346,7 +346,7 @@ describe("E0 extractor fixture: a run against a loopback endpoint", () => {
 
 describe("E0 extractor fixture: the serving card's extract call (manifest v2, BL-20261116-1256-e0-extractor-structured-condition-design)", () => {
   const committedV2 = (): ExtractorFixtureInputs => ({ manifest: JSON.parse(readFileSync(join(EXPERIMENTS, "e0-extractor-fixture-v2.json"), "utf8")), read: path => readFileSync(join(EXPERIMENTS, path)) });
-  /** The committed serving card's role policy (docs/experiments/serving-card-2026-11-16.json), as a run under the adopted card reads it. */
+  /** The committed serving card's roles (docs/experiments/serving-card-2026-11-16.json), as the reader would return them once adopted; its decision is still proposed. */
   const cardRoles = () => JSON.parse(readFileSync(join(EXPERIMENTS, "serving-card-2026-11-16.json"), "utf8")).roles;
 
   it("pins v1's corpus with the deployed call and the card's call beside it, and sends the deployed call's bodies exactly as v1 does", () => {

@@ -216,8 +216,10 @@ describe("E0 registry modes: role-fixture runs", () => {
 
   it("rows a planner run from the summary the fixture wrote: its calls, usage, classes, manifest hashes and request digests, and no alias or path", async () => {
     // Per condition, two repeats: valid and truncated, rejected and valid, a dropped connection and a reply whose content is a parts array,
-    // which the model layer rejects (a reply without content reads as empty text, as the model layer reads it).
-    const baseUrl = await fakeServer(ordinal => [{ content: plan }, { content: plan.slice(0, 40), finish: "length" }, { status: 500, content: "" }, { content: plan }, { drop: true }, { content: [{ type: "text", text: "parts" }] }][ordinal - 1]!);
+    // which the model layer rejects (a reply without content reads as empty text, as the model layer reads it). The fixture runs each
+    // repeat's conditions in turn, so the script lists repeat 1's three replies, then repeat 2's.
+    const baseUrl = await fakeServer(ordinal => [{ content: plan }, { status: 500, content: "" }, { drop: true }, { content: plan.slice(0, 40), finish: "length" }, { content: plan },
+      { content: [{ type: "text", text: "parts" }] }][ordinal - 1]!);
     const out = join(scratch(), "e0-planner-fixture-20261115T200000000Z"), inputs = plannerInputs();
     await runPlannerFixture({ endpoint: { baseUrl, model: ALIAS }, inputs, out, repeats: 2, conditions: DEFAULT_CONDITIONS });
     const bytes = readFileSync(join(out, "summary.json")), summary = JSON.parse(bytes.toString("utf8"));

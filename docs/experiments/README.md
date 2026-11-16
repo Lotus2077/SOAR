@@ -106,8 +106,9 @@ This folder holds the committed, sanitized record of live trials (see
   `legacy-thinking-structured`, the strict `research_plan` response_format item 9
   sends, with thinking on, at 8,192 tokens; and the same call at 16,384. That makes
   10 repeats and 30 calls (BL-20261116-1253-e0-planner-structured-condition-design).
-  The command line takes a manifest's conditions and repeats unless `--conditions`
-  or `--repeats` is given.
+  Each of the conditions and the repeats comes from the manifest unless its own flag
+  (`--conditions`, `--repeats`) is given, and each repeat runs every condition in
+  turn.
 - `e0-judge-fixture-v1.json`: the hashes-only manifest of the E0 judge fixture
   (`scripts/judge-fixture.ts`). It holds the claim set's and the labels' sha256, the
   claim, class and planted counts, the card's agreement measure and level, and the

@@ -296,6 +296,14 @@ after `pnpm probe:assess`.
     P8 is listed only when its `transport_error` is `URLError`: urllib raises that only when
     it cannot connect or send, and a connection cut after the request was sent is what P8
     measures. P6's deliberate abort is recorded as `aborted_after_s`, which is none of these.
+
+    **Older records.** A probe.json written before these records existed has no
+    `stream_end` on its streamed records and no `transport_errors` on its K bursts, so the
+    writer reads it conservatively. Such a run can be refused `accepted` where a newer run
+    would not be: a burst whose `errors` count is above 0, or a streamed reply that
+    answered 200 with no finish reason, lists its probe even when the transport was not the
+    cause. Rerunning the probe with the current scripts/serving-probe.py records what tells
+    the two apart.
 - **`terminalCause`:** `probe_finished`, or `probe_unfinished` when probe.json has no
   `finished_utc`.
 - **Outcome:** `--outcome accepted` is refused when:

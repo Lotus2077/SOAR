@@ -1711,7 +1711,7 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
     expect(serial.events.find(e => e.stage === "extract")).toMatchObject({ calls: 8, repairCalls: 1, structuredOutputCalls: 7 });
   });
 
-  it("aborts both held siblings when an index batch is denied at K = 3: each index launch carries its own signal (#110's skeptic check)", async () => {
+  it("aborts both held siblings when an index batch is denied at K = 3: each first-pass index launch carries its own signal (#110's skeptic check)", async () => {
     // The three index batches launch together; batch 1 is refused at once while batches 0 and 2 are held.
     const script: Script = (stage, input, n, system) => stage === "index" && n === 1 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
     const three = fanned(script, (stage, n) => stage === "index" && n !== 1 ? 500 : 0), result = await observe(three, { localStreams: 3 });
@@ -1719,5 +1719,21 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
     expect(three.calls.map(c => [c.stage, c.n, c.signal.aborted])).toEqual([["index", 0, true], ["index", 1, false], ["index", 2, true]]);
     // The aborted siblings answer cancelled after the pool's abort: sibling stops, never the stage's denial.
     expect(result.events.at(-1)).toMatchObject({ stage: "index", calls: 0, denied: "budget_denied" });
+  });
+
+  it("aborts a held repair when another repair is denied, in the index and the extraction repair passes at K = 4 (#110's skeptic check, its follow-up's review)", async () => {
+    // Index batches 0 and 1 list titles only, so the repair pass holds two calls: n = 3 is refused at once while n = 4 is held.
+    const titles = (input: any) => JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) });
+    const indexScript: Script = (stage, input, n, system) => stage === "index" && n < 2 ? titles(input) : stage === "index" && n === 3 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const index = fanned(indexScript, (stage, n) => stage === "index" && n === 4 ? 500 : 0), indexed = await observe(index, { localStreams: 4 });
+    expect(indexed.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(index.calls.filter(c => c.stage === "index").map(c => [c.n, c.signal.aborted])).toEqual([[0, false], [1, false], [2, false], [3, false], [4, true]]);
+    expect(indexed.events.at(-1)).toMatchObject({ stage: "index", calls: 3, repairCalls: 0, denied: "budget_denied" });
+    // Extraction chunks 0 and 1 reply invalid JSON, so the repair pass holds two calls: n = 7 is refused at once while n = 8 is held.
+    const extractScript: Script = (stage, input, n, system) => stage === "extract" && n < 2 ? "bad JSON" : stage === "extract" && n === 7 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const extract = fanned(extractScript, (stage, n) => stage === "extract" && n === 8 ? 500 : 0), extracted = await observe(extract, { localStreams: 4 });
+    expect(extracted.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(extract.calls.filter(c => c.stage === "extract" && c.n >= 7).map(c => [c.n, c.signal.aborted])).toEqual([[7, false], [8, true]]);
+    expect(extracted.events.at(-1)).toMatchObject({ stage: "extract", calls: 7, repairCalls: 0, denied: "budget_denied" });
   });
 });

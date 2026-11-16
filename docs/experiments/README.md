@@ -72,12 +72,18 @@ This folder holds the committed, sanitized record of live trials (see
   - **K is read since 8.2b** (BL-20261116-1213-local-fanout-design). The research
     index and extraction loops and the claims judge run K calls at a time when
     their model is zero-risk local (every rate zero, on a `local_model`), and one
-    at a time otherwise. Replies are applied in item order, so a stage's counts,
-    files and request bodies are the serial loop's. The reader accepts K from 1 to
-    8, and refuses a K above 1 without a P11 burst at that K with no errors
+    at a time otherwise. Replies are applied in item order, so while no call is
+    denied or fails, a stage's counts, files and request bodies are the serial
+    loop's. When one is, K above 1 may already have sent calls the serial loop
+    would not, may end the stage on another call's denial, and keeps the judge's
+    verdicts from calls already in flight. The reader accepts K from 1 to 8, and
+    refuses a K above 1 without a P11 burst at that K with no errors
     (`serving_card_streams_unproven`). K stays out of the research protocol hash
     and the session identity, and freeze.json records it. P11's bursts carry no
-    `response_format`, so a structured-output flag at K above 1 is unmeasured.
+    `response_format`, so a structured-output flag at K above 1 is unmeasured. The
+    owner's zero-fee run that verifies K above 1 (ASSIST-S4) therefore uses a card
+    that flags extract for its extraction calls' thinking mode, so that the
+    extract row's `structuredOutputCalls` is above 0.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and

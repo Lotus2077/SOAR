@@ -232,7 +232,8 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
 /**
  * SC: the adopted serving card the operator's env pair selects, read and checked before any run directory, database or
  * request exists; undefined without the pair. A refusal throws ServingCardError. Since 7a.2 and item 9 the research stage reads its
- * role policy (the caps, thinking and structured-output flags); nothing reads K or admission yet. The run's request settings,
+ * role policy (the caps, thinking and structured-output flags), and since 8.2b the research loops and the claims judge read K
+ * (localScreenStreams); nothing reads admission yet. The run's request settings,
  * `--cache-salt` included, are part of the expectation: a structured-output flag needs P10's to equal them
  * (BL-20261114-2301-serving-card-request-settings-design).
  */
@@ -518,7 +519,7 @@ configOptions?: LoadConfigOptions) {
       // H4: a seeded run carries the source's pipeline block (so rows keep the pipeline columns) and names its seed; a deck task records the check it ran under.
       ...(seed ? { researchFrom: seed.seed, pipeline: seededPipelineFreeze(seed.pipeline, seed.seed) } : {}),
       ...(deckArtifacts(modePhase).length ? { deckCheck: { version: DECK_CHECK_VERSION, paths: deckArtifacts(modePhase) } } : {}),
-      // SC: {sha256, version, date, entry} only when the pair selects a card; never the path, never inside `pipeline`.
+      // SC: {sha256, version, date, entry, localStreams} only when the pair selects a card; never the path, never inside `pipeline`.
       ...servingCardFreeze(servingCard),
       // Backlog item 11, part 2: {commit, dirty} or null; never a path.
       git,

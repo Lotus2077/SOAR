@@ -45,9 +45,9 @@ This folder holds the committed, sanitized record of live trials (see
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
   - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 8 for K and 7(b) for
-    admission. Until then, adopt a card that keeps those values at their defaults,
-    or leave the pair unset.
+    refused until the backlog item that uses it merges: 7(b) for admission. Until
+    then, adopt a card that keeps admission at its default, or leave the pair
+    unset.
   - **Caps and thinking are read since 7a.2** (BL-20261116-1203-research-role-policy-design).
     The research stage sends each local role's attempts the card's caps and
     thinking: attempt 1 is a role's first call, attempt 2 its repair or second
@@ -69,6 +69,21 @@ This folder holds the committed, sanitized record of live trials (see
     also changes the session identity and freeze.json's pipeline block, and a stage
     row counts the calls that carried it (`structuredOutputCalls`). Without a card,
     nothing changes.
+  - **K is read since 8.2b** (BL-20261116-1213-local-fanout-design). The research
+    index and extraction loops and the claims judge run K calls at a time when
+    their model is zero-risk local (every rate zero, on a `local_model`), and one
+    at a time otherwise. Replies are applied in item order, so while no call is
+    denied or fails, a stage's counts, files and request bodies are the serial
+    loop's. When one is, K above 1 may already have sent calls the serial loop
+    would not, may end the stage on another call's denial, and keeps the judge's
+    verdicts from calls already in flight. The reader accepts K from 1 to 8, and
+    refuses a K above 1 without a P11 burst at that K with no errors
+    (`serving_card_streams_unproven`). K stays out of the research protocol hash
+    and the session identity, and freeze.json records it. P11's bursts carry no
+    `response_format`, so a structured-output flag at K above 1 is unmeasured. The
+    owner's zero-fee run that verifies K above 1 (ASSIST-S4) therefore uses a card
+    that flags extract for its extraction calls' thinking mode, so that the
+    extract row's `structuredOutputCalls` is above 0.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and
@@ -91,10 +106,10 @@ This folder holds the committed, sanitized record of live trials (see
     only profile research runs under. The K bursts use a one-sentence prompt and
     show decode concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
-    entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
-    no run directory. The driver's and the loop's failure lines, and the loop's
-    `log.txt` and `errors.txt`, name the refusal's code and, except for a file-level
-    refusal, its key path.
+    entry, localStreams}`, and the run directory keeps `serving-card.json`. A
+    refused card leaves no run directory. The driver's and the loop's failure
+    lines, and the loop's `log.txt` and `errors.txt`, name the refusal's code and,
+    except for a file-level refusal, its key path.
 - `e0-planner-fixture-v1.json`: the hashes-only manifest of the E0 planner fixture
   (`scripts/planner-fixture.ts`): the exposed r3 index, its brief and source ids by
   sha256, the chunk count and the proposed 3 x 10 design. It was a template until

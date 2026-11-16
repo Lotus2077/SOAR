@@ -278,7 +278,7 @@ describe.skipIf(!enabled)("general loop through real broker and isolated Docker 
     const result = await runLocalArtifactScreen(options, operatorConfig(f, { SOAR_SERVING_CARD_FILE: card.path, SOAR_SERVING_CARD_SHA256: card.sha256 }));
     expect(result).toMatchObject({ status: "submitted", artifactAccepted: null, requests: 2 });
     const freezeText = readFileSync(join(output, "freeze.json"), "utf8"), freeze = JSON.parse(freezeText), resultText = readFileSync(join(output, "result.json"), "utf8");
-    expect(freeze.servingCard).toEqual({ sha256: card.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY });
+    expect(freeze.servingCard).toEqual({ sha256: card.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 1 });
     // Backlog item 11, part 2: the run's own commit, read at its start; its tree state is whatever the checkout held then.
     expect(freeze.git).toEqual({ commit: (await exec("git", ["rev-parse", "HEAD"], { timeout: 5000 })).stdout.trim(), dirty: expect.any(Boolean) });
     expect(freeze).not.toHaveProperty("pipeline");

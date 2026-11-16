@@ -1,5 +1,5 @@
 """Run an unmodified copy of scripts/serving-probe.py against a loopback fake of a vLLM endpoint served by this process, and print what
-the fake received (BL-20261115-1954-e0-registry-modes-design's test of the probe mode against the probe's real output).
+the fake received (BL-20261116-0839-e0-registry-modes-design's test of the probe mode against the probe's real output).
 
     python3 -I tests/helpers/serving-probe-fake.py <repository root> <empty work directory> <research protocol sha256>
 

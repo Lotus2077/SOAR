@@ -17,7 +17,7 @@ import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, runPlannerFixture } from "../..
 import { syntheticProbe } from "../helpers/serving-probe-fixture";
 
 /**
- * E0's registry modes (BL-20261115-1954-e0-registry-modes-design): a serving-probe run from its probe.json, the real probe's included; a
+ * E0's registry modes (BL-20261116-0839-e0-registry-modes-design): a serving-probe run from its probe.json, the real probe's included; a
  * planner or judge fixture run from the summary.json the real fixture writes against a loopback fake, or, when it died, from its replies
  * listing; and the labelling call from the summary lane S-e1's labelling tool writes. Nothing here reaches a real endpoint, a cloud model
  * or Docker.

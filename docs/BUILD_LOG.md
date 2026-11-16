@@ -43025,7 +43025,7 @@ Next gate: None of its own. The E0 steps of BL-20261116-0814-e0-card-amendment-1
 
 References: BL-20261116-0812-correction-owner-defaults-review; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261115-1937-owner-adopts-standing-defaults; scripts/registry-row.py; docs/experiments/README.md; pull requests #117 and #118.
 
-### BL-20261115-1954-e0-registry-modes-design -- 2026-11-15 -- Decide registry-row.py's three E0 modes: a serving-probe run, a role-fixture run and the labelling call each get one sanitized row from the producer's own output
+### BL-20261116-0839-e0-registry-modes-design -- 2026-11-16 -- Decide registry-row.py's three E0 modes: a serving-probe run, a role-fixture run and the labelling call each get one sanitized row from the producer's own output
 
 Status: `Proposed`
 
@@ -43167,11 +43167,11 @@ Next gate: The implementation with unit tests on fixtures only, and its `Impleme
 
 References: PLAN.md §4; docs/PROJECT_REVIEW_2026-11-05.md §5.1 and §5.6 (E0); docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261114-1523-registry-columns-design; BL-20261115-1937-owner-adopts-standing-defaults (pull request #114); issue #57.
 
-### BL-20261115-2057-e0-registry-modes-implemented -- 2026-11-15 -- Implement E0's registry modes: probe, fixture (planner, judge, extractor) and labelling rows, on the summaries agreed with lanes S-e1 and S-pipe, with the light review's fixes
+### BL-20261116-0840-e0-registry-modes-implemented -- 2026-11-16 -- Implement E0's registry modes: probe, fixture (planner, judge, extractor) and labelling rows, on the summaries agreed with lanes S-e1 and S-pipe, with the light review's fixes
 
 Status: `Implemented`
 
-Scope or hypothesis: Implement BL-20261115-1954-e0-registry-modes-design. scripts/registry-row.py gains `--probe-dir`, `--fixture-dir --fixture planner|judge|extractor` and `--labelling-file`, documented in docs/experiments/README.md, "E0 rows". This entry records where the code departs from the design:
+Scope or hypothesis: Implement BL-20261116-0839-e0-registry-modes-design. scripts/registry-row.py gains `--probe-dir`, `--fixture-dir --fixture planner|judge|extractor` and `--labelling-file`, documented in docs/experiments/README.md, "E0 rows". This entry records where the code departs from the design:
 - the labelling summary's final shape, which lane S-e1's tool writes;
 - the extractor kind, from lane S-pipe's contract;
 - the fixes from one light review with a privacy check.
@@ -43311,9 +43311,9 @@ Next gate:
   - this one or S-pipe's extractor fixture, for the extractor sets.
 - The first E0 rows, which verify the modes.
 
-References: BL-20261115-1954-e0-registry-modes-design; BL-20261115-1937-owner-adopts-standing-defaults (pull request #114); BL-20261114-1523-registry-columns-design; docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md; PLAN.md §4; issue #57.
+References: BL-20261116-0839-e0-registry-modes-design; BL-20261115-1937-owner-adopts-standing-defaults (pull request #114); BL-20261114-1523-registry-columns-design; docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md; PLAN.md §4; issue #57.
 
-### BL-20261115-2135-correction-e0-registry-modes-skeptic -- 2026-11-15 -- Correction: E0's registry modes after the skeptic pass on #117. A local account name is removed from the tests, unknown token totals become null, the labelling tool's schema rules are mirrored, fixture calls are checked per cell, sums are bounded, and a running labelling is refused
+### BL-20261116-0841-correction-e0-registry-modes-skeptic -- 2026-11-16 -- Correction: E0's registry modes after the skeptic pass on #117. A local account name is removed from the tests, unknown token totals become null, the labelling tool's schema rules are mirrored, fixture calls are checked per cell, sums are bounded, and a running labelling is refused
 
 Status: `Implemented`
 
@@ -43325,7 +43325,7 @@ The pass found these hold:
 - The USD accounting is right.
 - No row field leaks text.
 
-This entry corrects BL-20261115-2057-e0-registry-modes-implemented and BL-20261115-1954-e0-registry-modes-design without editing either. Nothing here runs a model, an endpoint, Docker or a paid call.
+This entry corrects BL-20261116-0840-e0-registry-modes-implemented and BL-20261116-0839-e0-registry-modes-design without editing either. Nothing here runs a model, an endpoint, Docker or a paid call.
 
 Decisions:
 - **(1) Privacy (item 5).** Three test strings carried the owner's local account name. They had been copied from a review probe into tests/unit/registry-row-e0.test.ts as a probe failure, an expected-absent string and a labelling model id. bd24b3e replaces them with neutral placeholders. Commit 3662404's tree still holds them. Whether #117 is squash-merged or its history rewritten is the coordinator's decision.
@@ -43395,4 +43395,64 @@ Next gate:
 - The coordinator's choice on 3662404's history.
 - The merge after #115 and the coordinator's E0 follow-up, with the re-stamp and the labelling pin test.
 
-References: BL-20261115-1954-e0-registry-modes-design; BL-20261115-2057-e0-registry-modes-implemented; pull requests #114, #115, #116 and #117.
+References: BL-20261116-0839-e0-registry-modes-design; BL-20261116-0840-e0-registry-modes-implemented; pull requests #114, #115, #116 and #117.
+
+### BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin -- 2026-11-16 -- Correction: E0's registry entries are re-stamped after `main`'s tail, the labelling mode is pinned to the merged labelling tool, a running labelling whose claims sit below `e0-judge` is refused, and the probe test's fake is kept off the system proxy
+
+Status: `Implemented`
+
+Scope or hypothesis: #115 (the labelling tool, merged as 30002a7) and #118 (E0 card Amendment 1, the r3 runs record and #114's review correction) reached `main` before this branch, and `main`'s last ID is now BL-20261116-0838-correction-e0-amendment-1-review. This branch merged `main` at 7cec296, with no force-push. Its three entries carried earlier IDs, so they move after the new tail under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). #117 merges after #115, so this branch also adds the test that pins the labelling mode to the tool, as BL-20261116-0841-correction-e0-registry-modes-skeptic said it would. That test found one gap, and this merge's checks found another in a test helper. Both are fixed here.
+
+Each entry, with its original ID and authoring time, all on 2026-11-15 UTC:
+- **The design entry.** Authored at 19:54 as BL-20261115-1954. It is now BL-20261116-0839-e0-registry-modes-design.
+- **The implemented entry.** Authored at 20:57 as BL-20261115-2057. It is now BL-20261116-0840-e0-registry-modes-implemented.
+- **The skeptic pass's correction.** Authored at 21:35 as BL-20261115-2135. It is now BL-20261116-0841-correction-e0-registry-modes-skeptic.
+
+Decisions:
+- **(1) The re-stamp.**
+  - Only the three headings' IDs and dates change, with the references to those IDs: six in the three entries' bodies, and six in comments and README lines in scripts/registry-row.py, docs/experiments/README.md, tests/unit/registry-row-e0.test.ts and tests/helpers/serving-probe-fake.py.
+  - No entry on `main` cites the original IDs. `main`'s log is kept whole, as a byte prefix of this branch's.
+- **(2) The labelling pin test.** tests/unit/registry-row-e0.test.ts gains four tests against scripts/judge-labeller.ts as merged:
+  - **The closed sets** equal the tool's exported arrays: the outcomes, call kinds, call states, second-request values, plant rejections, failures, envelope line, model, `UNBILLED_STATUSES`, token fields and `LOCK_NAME`.
+  - **The key sets** equal the keys of `LabellingSummarySchema`, `CallRecordSchema`, and the nested `claims`, `prices` and `longContext` objects.
+  - **Real summaries are rowed.** The real `runLabelling`, run against a loopback fake of the Responses endpoint, writes summaries for a labelled run, a rejected request and a timed-out one. Each is rowed with every field the summary determines. The labelled and rejected rows are also checked to carry none of the claims', reply's or error's text.
+  - **The interim summary is refused.** The summary the tool writes before its request is refused while the tool runs, then rowed once it ends.
+- **(3) A running labelling whose claims sit below `e0-judge`, found by the pin test.**
+  - **The flaw.** The tool holds `labelling.lock` in its `e0-judge` directory, but writes its run directory beside `claims.json`, which it admits anywhere below that directory. The writer looked for the lock only beside the run directory. With the claims in a folder below `e0-judge`, the summary written before a request was rowed while the tool still ran.
+  - **The fix.** The writer looks for the lock in every directory above the run directory.
+- **(4) The probe test's fake, kept off the system proxy (found by this merge's checks).**
+  - **The flaw.** tests/helpers/serving-probe-fake.py runs the probe copy in a minimal environment that names no proxy. On macOS, urllib then follows the system proxy, which need not exempt 127.0.0.1. On the machine that ran these checks it did not. So the copy's requests went to the local proxy instead of the fake, the fake received none of them, and the test failed.
+  - **The fix.** The helper sets `no_proxy=*` for the copy, so it connects to the fake directly.
+  - **Scope.** CI's runners set no system proxy, so the test passed there before the fix. The requests carried only the helper's synthetic strings, and no key.
+
+Changes:
+- docs/BUILD_LOG.md: the three headings, their references, and this entry.
+- scripts/registry-row.py: the lock check, and the IDs in two comments.
+- tests/unit/registry-row-e0.test.ts: the four pin tests, and the ID in one comment.
+- docs/experiments/README.md: the lock rule in "E0 rows", and two references.
+- tests/helpers/serving-probe-fake.py: `no_proxy` for the probe copy, and the ID in one comment.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (670 entries, append-only against `main` at a355074). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On Node 22.22.2 and pnpm 10.12.4: tests/unit/registry-row-e0.test.ts passes 24 of 24, and tests/unit/judge-labeller.test.ts 29 of 29. With them, the registry-row, fixture, probe, serving-card and labelling-tool suites pass 317 of 317, in 20 files.
+- **Mutants.** Six single-edit mutants of the writer, each run against the pin tests, all fail them: an added unbilled status 408, another lock name, the lock check stopping at the first directory, `rejected` written as unknown, a dropped price key and a dropped call key.
+- **Before the fixes:**
+  - The pin test's case with the claims below `e0-judge` failed: the interim summary was rowed while the tool held its lock.
+  - On the machine that ran these checks, the probe test failed: the probe recorded 47 chat requests, and the fake received none.
+- **The re-stamp.** With the three new IDs mapped back, the log before this entry is byte-identical to the merge commit's. `git grep` finds the original IDs only in this entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Not `Verified`.** Implemented and tested on loopback fakes only; nothing ran a model, an endpoint, Docker or a paid call. No real E0 run has been rowed.
+- **The cross-checks are not pinned.** The pin test pins the closed sets and key sets, and that real summaries are rowed. It does not pin every cross-check `LabellingSummarySchema` applies, so a change to those still needs the writer changed by hand.
+- **Locks.** A lock in any directory above the run directory refuses the row:
+  - while one labelling runs, an ended run's summary below the same `e0-judge` directory is refused until the running one ends;
+  - a lock a killed run left is removed by hand.
+- **Old IDs elsewhere.** Commit messages and #117's earlier descriptions keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #117, then the coordinator's squash-merge with `--match-head-commit`.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-0839-e0-registry-modes-design; BL-20261116-0840-e0-registry-modes-implemented; BL-20261116-0841-correction-e0-registry-modes-skeptic; BL-20261115-2044-e0-judge-labeller-implemented; pull requests #115 and #117.

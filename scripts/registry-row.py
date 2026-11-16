@@ -36,7 +36,7 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
     runs_differ), git, gitSource and gitDirty (the commit the row is written at). It refuses an unknown id, an id
     another row already supersedes, and a new id that already exists.
 
-E0 (BL-20261115-1954-e0-registry-modes-design): `--probe-dir DIR` rows a scripts/serving-probe.py run from its probe.json,
+E0 (BL-20261116-0839-e0-registry-modes-design): `--probe-dir DIR` rows a scripts/serving-probe.py run from its probe.json,
 `--fixture-dir DIR --fixture planner|judge|extractor` a role-fixture run from its summary.json (or, for a planner or judge run that
 died without one, from its replies/ listing), and `--labelling-file FILE` the summary of one scripts/judge-labeller.ts invocation.
 Each row holds digests, bounded counts and USD amounts, booleans and closed codes only; the served alias, paths, file names, model
@@ -1411,7 +1411,7 @@ def run_counts(run_dir: str) -> dict:
     }
 
 
-# E0's producers (BL-20261115-1954-e0-registry-modes-design): a serving-probe run, a role-fixture run and the labelling call, each
+# E0's producers (BL-20261116-0839-e0-registry-modes-design): a serving-probe run, a role-fixture run and the labelling call, each
 # rowed from the producer's own output. A row copies only 64-hex digests, counts, USD amounts, booleans, closed enums, exception
 # class names and the labelling model's id: the served alias, the request settings, paths, file names, model or claim text, labels
 # and error bodies never reach it, and the producers' free-text manifest fields are only compared.

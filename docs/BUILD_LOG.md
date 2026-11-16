@@ -43456,3 +43456,88 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #117, then the coordinator's squash-merge with `--match-head-commit`.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-0839-e0-registry-modes-design; BL-20261116-0840-e0-registry-modes-implemented; BL-20261116-0841-correction-e0-registry-modes-skeptic; BL-20261115-2044-e0-judge-labeller-implemented; pull requests #115 and #117.
+
+### BL-20261116-0939-e0-probes-serving-card -- 2026-11-16 -- E0's probes: P1 checked by hand, the export, three runs of all twelve probes (two lost the endpoint through this Mac's loopback proxy, the third completed), the assessment, and the serving card of 2026-11-16 proposed
+
+Status: `Implemented`
+
+Scope or hypothesis: E0's probe step, under the card as Amendment 1 amends it (BL-20261116-0814-e0-card-amendment-1). The step is, in order:
+1. P1 alone, checked by hand.
+2. `pnpm probe:export-schemas`.
+3. All twelve probes in one invocation.
+4. `pnpm probe:assess`.
+5. The card writer, with the `--compare-*` flags of the 2026-11-04 qualification.
+
+Hypothesis: the endpoint still serves the qualified model, and one complete probe run yields a serving card whose identity matches 2026-11-04.
+
+Decisions:
+1. **The card is proposed on probe run 3.** The serving card of 2026-11-16 is docs/experiments/serving-card-2026-11-16.md and .json.
+   - Its JSON status is `proposed`, with no adopting entry.
+   - The card's "Records" section says it is adopted by a later reviewed commit, once E0's entry ID is final on `main`.
+   - The orchestrating session wrote the card's "Consequences for the plan" section, as proposals.
+2. **Probe runs 1 and 2 are not card evidence.** Their rows are `infra_invalid`.
+3. **Run 3 bypassed the proxy for the probe process only.**
+   - It ran with `NO_PROXY='*'` in the probe's environment. That makes the probe's Python client connect directly, as the app's own Node requests do. Nothing else about the run changed.
+   - A lane fix that makes the probe ignore proxy settings is planned.
+4. **The probe window.** It opened with the export at 08:16:21 UTC and closed with the assessment at 09:34 UTC.
+   - #115 and #118 merged inside it.
+   - Neither changes `researchProtocolSha256()`: their files are documentation, tests and the separate labelling script.
+5. **Outcomes chosen by hand.** The four probe rows' outcomes were chosen by the session. The row writer does not yet refuse `accepted` for a run whose requests failed at transport; a lane fix adds that guard.
+
+Changes:
+- docs/experiments/serving-card-2026-11-16.md and docs/experiments/serving-card-2026-11-16.json: new, written by scripts/serving-card.py. Only the Markdown file's author section was added by hand.
+- docs/experiments/registry.jsonl: four rows, batch `e0-2026-11-16`.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **P1 alone,** at 08:10:39 UTC, matched the 2026-11-04 identity (BL-20261116-0814-e0-card-amendment-1).
+- **The export,** at 08:16:21 UTC on b487f75, printed `protocolSha256` 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. Its request settings were the alias, streaming on, no reply contract, the Heavy profile and cache salt on.
+- **Run 1, 08:16:46 to 08:29:24 UTC.**
+  - P1 to P9 completed.
+  - P10's first cell (plan, thinking on) got 13 of 20 replies.
+  - From then on, every request failed at once at transport: the rest of P10, P11, the adapter probe and the closing load reading.
+  - The doctor found the endpoint ready at 08:29:54 UTC.
+- **Run 2, 08:31:24 to 08:57:40 UTC.**
+  - P8's single long request was cut off after 120.9 s (`RemoteDisconnected`).
+  - P10's plan and extract cells got all 80 replies. Synthesis with thinking on got 10 of 20.
+  - Every later request failed at once at transport.
+- **Why runs 1 and 2 failed.**
+  - **The probe went through a proxy.** This Mac's shell exports `HTTP_PROXY` and `HTTPS_PROXY` pointing to a loopback proxy. The probe's Python client honors them for this endpoint: `urllib.request.proxy_bypass` returned False for it, and True under `NO_PROXY='*'`.
+  - **The Node clients connect directly.** The research driver made 291 dispatches across the five r3 runs with no transport failure, and the doctor uses the same direct path.
+  - **The endpoint answered directly.** Direct reads between 08:56 and 09:05 UTC answered: `/v1/models`, `/version`, `/openapi.json` and `/metrics` with 200, and `/tokenize` with 405 to a GET. The endpoint's address is not recorded.
+- **Run 3, 08:58:52 to 09:33:41 UTC,** with `NO_PROXY='*'`: every probe completed.
+  - P8 produced 20,000 tokens in 137.8 s.
+  - P10 got all 120 replies.
+  - P11 completed its three prompt sizes and K at 1, 2, 4 and 8 with no errors.
+  - The adapter found `/tokenize` parity, and an OpenAPI schema digest (`ec22d0f4…`) equal to the one 2026-11-04 recorded.
+- **The assessment,** at 09:34 UTC, recorded `schemasProtocolMatch` true on 7100b7a2….
+  - Valid replies per cell: plan 20 of 20 with thinking on and off; extract 18 of 20 on and 20 of 20 off; synthesis 17 of 20 on and 19 of 20 off.
+  - Every invalid reply was truncated at its output cap. None was invalid JSON, broke its schema or failed its binding.
+- **The card writer** accepted run 3, with exit 0.
+  - The card's identity matches 2026-11-04 in model root, engine version and context.
+  - Its JSON proposes structured output for plan (thinking on and off), extract (off) and synthesis (off), one local stream, and admission basis `none`.
+  - A scan of both card files for URLs, IP addresses, host:port forms and paths found none.
+- **The rows** were written by `scripts/registry-row.py --probe-dir` at 6a96098.
+  - P1 alone and run 3 are `accepted`, with verdict `agent_diagnostic`.
+  - Runs 1 and 2 are `infra_invalid`, with verdict `none`.
+  - All four record USD 0 and hold no alias, address or path.
+
+Failures or blockers: Two probe runs lost the endpoint partway, through the loopback proxy. Both are recorded, and neither is used.
+
+Limitations and non-claims:
+- **One run.** One accepted probe run, on one day. Its latencies and throughputs are one-shot measurements.
+- **Proposed, not adopted.** Nothing in the app reads the card yet.
+- **The proxy finding** concerns this Mac's shell settings, not the endpoint. This entry does not show what the proxy did to the failed requests.
+- **Not shown:** identical weights, product quality, and anything about a cloud route.
+- **E0 is not `Verified`.** The planner, judge and extractor fixtures remain.
+
+Paid exposure: None. Every request went to the owned endpoint, at zero fee.
+
+Next gate:
+1. The planner fixture, already running.
+2. Amendment 2 and the labelling.
+3. The judge fixture.
+4. The extractor fixture, after #116.
+5. E0's `Verified` entry, and the card's adoption.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/serving-card-2026-11-16.md; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261113-1003-e0-card-owner-answers; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0839-e0-registry-modes-design; pull requests #115, #117 and #118; issue #57.

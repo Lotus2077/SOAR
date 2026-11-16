@@ -44070,3 +44070,200 @@ Paid exposure: None.
 Next gate: Pull request #121 merges on green CI, under the owner's direction of 2026-11-16, "merge when green, then continue with the lane queue". Then the lane queue, one pull request at a time.
 
 References: BL-20261116-1013-e0-judge-labelling-and-pin; BL-20261116-1017-correction-e0-probes-serving-card-review; BL-20261116-1018-correction-e0-amendment-2-review; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1020-e0-judge-fixture-result; BL-20261116-0939-e0-probes-serving-card; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0812-correction-owner-defaults-review; BL-20261115-1956-e0-judge-labeller-design; BL-20261115-2044-e0-judge-labeller-implemented; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261113-0938-correction-restamp-rule-dates; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/README.md; docs/experiments/serving-card-2026-11-16.md; scripts/judge-fixture.ts; pull requests #121 and #122.
+
+### BL-20261116-1049-correction-e0-planner-fixture-null-content -- 2026-11-16 -- Correction to BL-20261108-0911-probe-extensions-implemented: E0's planner fixture reads a missing or null reply content as empty text, as the model layer does, so a reply whose thinking spent the output cap is a truncated attempt, not `malformed_reply`
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of the planner fixture that BL-20261108-0911-probe-extensions-implemented added (scripts/planner-fixture.ts). That entry is not edited.
+- **The run.** The coordinating session ran E0's planner fixture on the pinned r3 index and stage brief: 30 calls, at the 8,192-token plan cap.
+- **What it found.** Six calls, three each under `legacy-thinking` and `flash-thinking`, came back with `content: null`, `finish_reason: "length"`, `completion_tokens: 8192` and 22–26 KB of reasoning. The reasoning used the whole output cap and left no content.
+- **The gap.** The fixture read only string content, so it classed those six `malformed_reply`. The pipeline's model layer (src/main/private-agent/model.ts) reads a missing or null content as empty text. The plan stage then records a truncated attempt with 0 reply bytes. That is the "truncated, 0 bytes" first planner attempt E0's r3 runs logged.
+
+Decisions:
+(1) **The fixture reads the content as the model layer does.**
+- A missing or null content is empty text, and text is kept.
+- A reply without a message object, or whose content is anything else (a parts array, a number), is still `malformed_reply`. So is a reply body that is not JSON.
+- So a reply that stopped at the cap with no content is a `truncated` attempt with `replyBytes` 0. One that stopped for another reason with no content is `invalid_json`, as the stage would record it.
+(2) **The summary's shape is unchanged.** No class, condition or field is added or removed.
+- The attempt's `replyBytes` already tells a cap spent on thinking (0) from an answer cut off midway.
+- The call's `reasoningBytes` and its usage record how much reasoning the cap held.
+(3) **The recorded run is not rewritten.** Under this reading, its six `malformed_reply` calls are truncated attempts with 0 reply bytes. A rerun on the pinned inputs would class them so.
+(4) **Lane S-harn's registry test changes in one call.** tests/unit/registry-row-e0.test.ts used a reply without content as the planner run's malformed reply. That reply now reads as empty text, so the test uses a reply whose content is a parts array, which the model layer rejects. The test keeps its malformed call, and with it the unknown usage it checks.
+(5) **The extractor fixture already reads content this way** (lane S-pipe's pull request #116, its light review's finding 4). A null content that stopped at the cap is `truncated` there, and its `contentBytes` is 0.
+
+Changes:
+- scripts/planner-fixture.ts: the content reading of decision (1).
+- tests/unit/planner-fixture.test.ts: one test. It covers a null content at the cap, a null content that stopped, a missing content at the cap, and a parts array. The loopback fake can now omit the content or send any value.
+- tests/unit/registry-row-e0.test.ts: the planner run's malformed reply, two comments, and the fake's content type.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On `main` at 6a96098:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The two test files** pass: 29 tests, against loopback fakes only.
+- **The full suite,** `pnpm exec vitest run`: 190 files passed and 13 skipped; 3,765 tests passed and 86 skipped. None failed.
+- **Mutants.** Three single edits of the content reading each fail a test:
+  - the old string-only reading;
+  - null left out of the empty reading;
+  - a parts array read as empty text.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called, and the recorded run was not rerun.
+- **The judge fixture** (scripts/judge-fixture.ts) reads content the way this fixture did. It is not changed here.
+- **No structured output.** The fixture still sends no `response_format`. Whether the planner's structured output holds on the real r3 index is not measured here.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- A light review, and CI green.
+- The coordinating session merges, under the standing go-ahead. If another entry reaches `main` first, this entry is re-stamped.
+
+References:
+- BL-20261108-0911-probe-extensions-implemented (corrected);
+- BL-20261116-0840-e0-registry-modes-implemented (lane S-harn's registry modes, whose test changes here);
+- the extractor fixture's light review, on pull request #116 (finding 4).
+
+### BL-20261116-1050-correction-e0-planner-fixture-null-content-review -- 2026-11-16 -- Correction to BL-20261116-1049-correction-e0-planner-fixture-null-content: the light review's findings; the fixture now reads a reply through a copy of the model layer's reply schema, so an array message and a broken envelope are malformed too
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261116-1049-correction-e0-planner-fixture-null-content, which is not edited. One reviewer checked the pull request, privacy included. The verdict: two minor findings and three nits, with no blocker and no major.
+
+Decisions:
+(1) **Finding 1, minor: an array `message` was read as a message.** The guard checked only `typeof message !== "object"`.
+- So `{"choices":[{"message":[],"finish_reason":"length"}]}` was classed `truncated`.
+- The model layer's schema rejects it, and the stage's call is then denied.
+- The entry's "a reply without a message object … is still `malformed_reply`" was wrong for this shape.
+
+(2) **Nit 4: the envelope the model layer also checks.** The model layer's reply schema (src/main/private-agent/model.ts) also requires:
+- exactly one choice;
+- a `finish_reason` key, string or null;
+- a usage object with whole prompt and completion token counts;
+- strict UTF-8.
+
+The fixture checked none of these. A JSON `null` body threw a TypeError and was recorded as `transport_failed`. That predates the entry above.
+
+(3) **One fix for both: scripts/chat-reply.ts.**
+- **The reader.** It holds a byte-identical copy of model.ts's reply schema and reads a reply as `decodeReply` does under the chat shapes: strict UTF-8, then JSON, then the schema, with a missing or null content read as empty text.
+- **Its returns.** It gives the content, the finish reason, and the raw message and usage, so the fixture can still count reasoning fields. A reply the schema rejects gives nothing.
+- **The fixture** uses it, so every reply the model layer would reject is `malformed_reply`, the array message and the broken envelopes included.
+- **Its test** (tests/unit/chat-reply.test.ts) compares the copy's text with model.ts's, so the copy cannot drift silently.
+- **Why a copy.** Exporting the schema from model.ts would change a file of src/main/private-agent/ and move the harness source freeze. This change touches only scripts and tests.
+
+(4) **Nit 3: the reply without a message had no test.** The fixture's test now sends 11 replies through the loopback fake:
+- null content at the cap;
+- null content that stopped;
+- missing content at the cap;
+- a parts array;
+- no message, an array message and a null message;
+- two choices;
+- no `finish_reason`;
+- no usage;
+- a `null` body.
+
+They class as `truncated`, `invalid_json`, `truncated`, and then `malformed_reply` eight times. A malformed call records neither an attempt nor usage. The fake can now send any body.
+
+(5) **Finding 2, minor: an unsupported claim.** Decision (3) of the entry said "a rerun on the pinned inputs would class them so". A rerun makes new sampled calls, and the six replies were not re-read. What holds: read under this rule, replies of the shape the coordinating session reported would class as `truncated` with 0 reply bytes. They were not re-read here.
+
+(6) **Nit 5, wording.**
+- "On `main` at 6a96098" means on this branch, which is based on `main` at 6a96098.
+- The extractor fixture is on pull request #116, which is not on `main`. Its branch reads content as `message ? message.content ?? "" : undefined`, which has the same array hole.
+- The planner fixture run is an observation the coordinating session reported. No summary, digest or registry row of it is committed.
+- The test comment "never kept" now reads "never kept in the summary": the raw reply, reasoning included, stays under the run's ignored `replies/` folder by design.
+
+(7) **Kept as the entry decided:**
+- lane S-harn's registry test change, which S-harn has agreed to;
+- the summary's shape;
+- the judge fixture, which reads content as this fixture did before and could adopt the shared reader later.
+
+Changes:
+- scripts/chat-reply.ts: new.
+- scripts/planner-fixture.ts: it reads replies through scripts/chat-reply.ts.
+- tests/unit/chat-reply.test.ts: new.
+- tests/unit/planner-fixture.test.ts: the 11-reply test, and the fake's `body` option.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On this branch, based on `main` at 6a96098:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The three test files** pass: 32 tests, against loopback fakes only.
+- **The full suite,** `pnpm exec vitest run`: 191 files passed and 13 skipped; 3,768 tests passed and 86 skipped. None failed.
+- **Mutants.** Four single edits each fail a test:
+  - the schema check bypassed;
+  - the copy's one-choice rule loosened;
+  - missing content read as other text;
+  - the fixture's old JSON reading restored.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called.
+- **The reader covers the chat shapes only.** It does not cover the Responses and Anthropic shapes, settlement, or the broker's receipts. `tool_calls` are checked only as the copied schema checks them.
+- **The extractor fixture on #116** keeps its own reading until its merge. With this reader on `main` by then, that merge switches to it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green.
+- The coordinating session merges, under the standing go-ahead. If another entry reaches `main` first, both entries are re-stamped.
+
+References:
+- BL-20261116-1049-correction-e0-planner-fixture-null-content (corrected);
+- BL-20261108-0911-probe-extensions-implemented;
+- BL-20261116-0840-e0-registry-modes-implemented.
+
+### BL-20261116-1122-correction-e0-planner-fixture-null-content-restamp -- 2026-11-16 -- Correction: #122's two entries are re-stamped after #121's tail, with their original IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #122 (the planner fixture's reply reader, lane S-pipe) branched from `main` at 6a96098 and had not merged `main` since. Its two entries were authored before #121's entries reached `main`.
+- **The order.** The coordinating session set #122 to merge after #121 and before #116. #116 is the extractor fixture, which switches to this pull request's reader.
+- **The tail.** `main` at 42b36e7 ends with BL-20261116-1048-correction-e0-records-final-review.
+- **The rule.** BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates.
+
+Each entry, with its original ID and authoring time. Neither had been re-stamped before.
+- **The null-content Correction** was authored at 10:05 UTC on 2026-11-16 as BL-20261116-1005 (commit 93fefd1). It is now BL-20261116-1049-correction-e0-planner-fixture-null-content.
+- **The review Correction** was authored at 10:25 UTC on 2026-11-16 as BL-20261116-1025 (commit f97cf81). It is now BL-20261116-1050-correction-e0-planner-fixture-null-content-review.
+
+Decisions:
+(1) **The re-stamp.**
+- The two headings take the first free minutes after the tail, 10:49 and 10:50. Their date, 2026-11-16, does not change. This entry takes its own authoring minute.
+- Only those headings and the references to the two IDs change. There are 5 in the log, the headings included, and none outside it.
+- The bodies keep what they state as written.
+(2) **What the merge brought.**
+- Only docs/BUILD_LOG.md conflicted. The resolution keeps `main`'s log whole, as a byte prefix.
+- Since 6a96098, `main` changed none of #122's files. #121 changed the E0 documents, the registry, the serving card and the judge fixture's test.
+(3) **Nothing else changes:** no code, no test, no hash. `researchProtocolSha256()` stays 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5, and the harness source freeze does not move: #122 touches nothing in src/.
+
+Changes:
+- docs/BUILD_LOG.md: `main`'s log, then the two entries re-stamped, then this entry.
+
+Evidence:
+- **Byte identity.** With the two new IDs mapped back, the branch's two entries are byte-identical to f97cf81's.
+- **No original ID remains.** `git grep` finds neither original full ID in the tree.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 against `main` 42b36e7. Its status was read directly.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The full suite,** `pnpm exec vitest run` on the merged tree: 191 files passed and 13 skipped; 3,768 tests passed and 86 skipped. None failed.
+  - A first run had one failure: a 5-second timeout in the lister test of tests/unit/private-agent-sandbox-capture.test.ts, under the suite's load.
+  - That file passes alone, twice, and nothing here touches it.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction. It implements, verifies and releases nothing new.
+- The two entries keep their `Implemented` status.
+- The commit messages keep the original IDs. #122's description is updated to the new ones.
+- If another entry reaches `main` before #122 merges, these three entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green on this head.
+- The coordinating session merges #122 with --match-head-commit, then #116, which is chained on this head.
+
+References:
+- BL-20261116-1049-correction-e0-planner-fixture-null-content and BL-20261116-1050-correction-e0-planner-fixture-null-content-review (re-stamped here);
+- BL-20261116-1048-correction-e0-records-final-review;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates.

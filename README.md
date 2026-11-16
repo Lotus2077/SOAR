@@ -106,10 +106,11 @@ After E0, `SOAR_SERVING_CARD_FILE` and `SOAR_SERVING_CARD_SHA256` in `.env.local
 reads it before any run directory exists. A fixed `serving_card_*` code refuses a
 card that is not adopted, was measured on another served alias or (under
 `flash_next_v1`) another context, lacks the probe evidence for a value, or sets a
-value whose consumer has not merged. The card's sha256, version, date and adopting
-entry are recorded in `freeze.json` (never the path), and a copy of the card stays
-in the run directory. Without the pair nothing changes; the desktop does not read
-the card.
+value whose consumer has not merged (today, only admission). With a card whose K
+is above 1, the research loops and the claims judge run K zero-risk local calls
+at a time. The card's sha256, version, date, adopting entry and K are recorded in
+`freeze.json` (never the path), and a copy of the card stays in the run
+directory. Without the pair nothing changes; the desktop does not read the card.
 
 Diagnostics for the inference endpoint (synthetic prompts only; results stay under
 the ignored `.soar/`, and no address is printed or stored):

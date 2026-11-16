@@ -211,13 +211,14 @@ describe("pnpm setup:general doctor", () => {
     });
     it("gives the reader the run's request settings for a flagged card, as the headless driver does", async () => {
       // BL-20261114-2301-serving-card-request-settings-design: a structured-output flag needs P10's settings to equal the run's.
-      // Under the app's SOAR_STREAMING (default true) and the driver's default cache salt the card meets today's fail-closed step;
-      // with SOAR_STREAMING=false it is refused as measured under other settings, before any field comparison.
+      // Under the app's SOAR_STREAMING (default true) and the driver's default cache salt the card resolves: item 9
+      // (BL-20261116-1208-research-structured-output-design) consumes its flags. With SOAR_STREAMING=false it is refused as measured
+      // under other settings, before any field comparison.
       const flagged = writeCard(cardDir(), adopt(proposedServingCard())), pair = { SOAR_SERVING_CARD_FILE: flagged.path, SOAR_SERVING_CARD_SHA256: flagged.sha256 };
       const same = await doctor(pair);
-      expect(same.card).toMatchObject({ status: "refused", code: "serving_card_parameter_unconsumed" }); expect(same.ready).toBe(false);
+      expect(same.card.status).toBe("matches"); expect(same.ready).toBe(true);
       const streamed = await doctor(pair, { id: ALIAS, ...CARD_IDENTITY }, ALIAS, "SOAR_STREAMING=true\n");
-      expect(streamed.card).toMatchObject({ status: "refused", code: "serving_card_parameter_unconsumed" });
+      expect(streamed.card.status).toBe("matches");
       const unstreamed = await doctor(pair, { id: ALIAS, ...CARD_IDENTITY }, ALIAS, "SOAR_STREAMING=false\n");
       expect(unstreamed.card).toMatchObject({ status: "refused", code: "serving_card_p10_settings_drift" }); expect(unstreamed.ready).toBe(false);
       expect(unstreamed.settings.present).toContain("SOAR_STREAMING");

@@ -45,9 +45,30 @@ This folder holds the committed, sanitized record of live trials (see
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
   - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 7(a) part 2 for caps and
-    thinking, 9 for structured output, 8 for K and 7(b) for admission. Until then,
-    adopt an all-default card or leave the pair unset.
+    refused until the backlog item that uses it merges: 8 for K and 7(b) for
+    admission. Until then, adopt a card that keeps those values at their defaults,
+    or leave the pair unset.
+  - **Caps and thinking are read since 7a.2** (BL-20261116-1203-research-role-policy-design).
+    The research stage sends each local role's attempts the card's caps and
+    thinking: attempt 1 is a role's first call, attempt 2 its repair or second
+    call. A cloud planner or synthesiser keeps today's values. The run is refused
+    before any request (`research_role_policy_invalid`) when a cap exceeds its role
+    model's limit, or when a synthesis attempt's length ceiling falls below 100
+    words. A non-default policy changes the research protocol hash, the session
+    identity and freeze.json's pipeline block. Without a card, nothing changes.
+  - **Structured output is read since item 9**
+    (BL-20261116-1208-research-structured-output-design). A local plan, extract or
+    synthesis call whose effective thinking mode the card flags sends the body it
+    would send without the flag, plus `response_format`: the role's schema under
+    P10's name, and `strict: true` for the strict variant. One more value differs:
+    a flag changes the research protocol hash, which a synthesis payload carries in
+    `coverage.protocolSha256`. Thinking counts as off when the attempt or the role
+    model disables it. Index, a cloud role and the assists never send it. The
+    reader refuses a flag when an attempt that would send it has another cap than
+    its P10 cell measured (`serving_card_structured_output_cap_unmeasured`). A flag
+    also changes the session identity and freeze.json's pipeline block, and a stage
+    row counts the calls that carried it (`structuredOutputCalls`). Without a card,
+    nothing changes.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and
@@ -57,18 +78,18 @@ This folder holds the committed, sanitized record of live trials (see
     under the desktop's settings (`.env.local`). The probe only adds
     `response_format`, and it reads a streamed reply as events. A passing cell
     still shows nothing about requests without `response_format`, which is what
-    the pipeline sends until backlog item 9. It also shows nothing about real
-    corpus sizes or repair requests, since the payloads are synthetic and small.
-    Re-export after changing those settings: the probe refuses an export for
-    another model, and the reader refuses a flag measured under other settings.
-    What stays unbound is how a body is built from those settings: the model
-    layer's construction of it, the heavy profile's values in
-    `COORDINATOR_PROFILES.heavy` (its sampling, thinking and output cap) and
-    `buildLocalScreenModelConfig`. A change to any of them changes P10's bodies
-    without moving any recorded value, so a PR that makes one must state that it
-    invalidates earlier cards' structured-output evidence. The recorded `profile`
-    is the constant `heavy` on both sides, the only profile research runs under.
-    The K bursts use a one-sentence prompt and show decode concurrency only.
+    an unflagged call sends. It also shows nothing about real corpus sizes or
+    repair requests, since the payloads are synthetic and small. Re-export after
+    changing those settings: the probe refuses an export for another model, and
+    the reader refuses a flag measured under other settings. What stays unbound
+    is how a body is built from those settings: the model layer's construction of
+    it, the heavy profile's values in `COORDINATOR_PROFILES.heavy` (its sampling,
+    thinking and output cap) and `buildLocalScreenModelConfig`. A change to any of
+    them changes P10's bodies without moving any recorded value, so a PR that
+    makes one must state that it invalidates earlier cards' structured-output
+    evidence. The recorded `profile` is the constant `heavy` on both sides, the
+    only profile research runs under. The K bursts use a one-sentence prompt and
+    show decode concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
     entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
     no run directory. The driver's and the loop's failure lines, and the loop's
@@ -76,17 +97,31 @@ This folder holds the committed, sanitized record of live trials (see
     refusal, its key path.
 - `e0-planner-fixture-v1.json`: the hashes-only manifest of the E0 planner fixture
   (`scripts/planner-fixture.ts`): the exposed r3 index, its brief and source ids by
-  sha256, the chunk count and the proposed 3 x 10 design. It is a template until the
-  owner fills its hashes; the index and the brief stay under the ignored `.soar/`.
+  sha256, the chunk count and the proposed 3 x 10 design. It was a template until
+  2026-11-16, when it was pinned under E0 card Amendment 1
+  (BL-20261116-0814-e0-card-amendment-1); the index and the brief stay under the ignored
+  `.soar/`.
 - `e0-judge-fixture-v1.json`: the hashes-only manifest of the E0 judge fixture
   (`scripts/judge-fixture.ts`). It holds the claim set's and the labels' sha256, the
   claim, class and planted counts, the card's agreement measure and level, and the
-  per-class minimum, conditions and repeats from the card's amendment. It is a template
-  until the owner pins it. [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md)
+  per-class minimum, conditions and repeats from the card's amendment. It was a template
+  until 2026-11-16, when it was pinned under E0 card Amendment 2, item 3
+  (BL-20261116-1013-e0-judge-labelling-and-pin).
+  [E0_JUDGE_LABELLING_PROTOCOL.md](E0_JUDGE_LABELLING_PROTOCOL.md)
   says how the claims are harvested, labelled by a cloud model through its API, planted
   and pinned; `pnpm label:judge` (`scripts/judge-labeller.ts`) sends the labelling
   request. The claims and the labels (evaluator gold) stay under the ignored
   `.soar/`.
+- `e0-extractor-fixture-v1.json` and `e0-extractor-fixture-v1/`: the pinned manifest
+  and the committed corpus of the E0 extractor fixture (`scripts/extractor-fixture.ts`,
+  `pnpm fixture:extractor`). The corpus is a five-requirement brief, a plan the
+  pipeline's plan assessor accepts, and three invented, public sources, each one chunk
+  of the pipeline's chunking; the manifest binds every file by sha256 and byte count.
+  The fixture sends the extraction stage's own request under the manifest's four
+  conditions: `thinking-off`, the stage's call as deployed today, and thinking on at
+  2,048, 8,192 and 16,384 output tokens. It judges each reply with the stage's own
+  checks (`assessResearchExtractionReply`). It holds no gold: no reply is scored
+  against an expected answer.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan
@@ -105,8 +140,8 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
   run's output;
 - raw outputs, traces and databases, including the probe results and the raw model
   replies the probes and fixtures retain (`serving-probe-*/`, `e0-planner-fixture-*/`,
-  `e0-judge-fixture-*/`, `role-schemas.json`), and the judge fixture's claim set and
-  labels (`e0-judge/`);
+  `e0-judge-fixture-*/`, `e0-extractor-fixture-*/`, `role-schemas.json`), and the
+  judge fixture's claim set and labels (`e0-judge/`);
 - task gold data and endpoints;
 - anything derived from personal or professional data.
 
@@ -129,7 +164,7 @@ unresolved outcomes. H4/H5 acceptance remains unestablished.
 | `gitDirty` | Whether a checkout of `git` would not reproduce the frozen sources when the run started: the repository's clean test failed (anything staged, unstaged, or untracked and not ignored by the repository's own rules; the user's global ignore file is not read, as in scripts/verify-release-head.ts), an index entry is one the status does not compare (skip-worktree, assume-unchanged, a sparse checkout), or a frozen file's bytes were not the ones the source freeze hashed or not its committed blob. `false` means the commit reproduces the run's `sourceFreezeSha256`, since a checkout writes blobs unchanged under this repository's `.gitattributes`. A repository with a configured filter command records `git: null` instead of running it. A loop row is `true` if any stage was dirty and `null` if any stage's state is unknown; `null` on `row_written` rows |
 | `batch` | Experiment card or batch name |
 | `task` | Task id; `taskJobSha256` binds the exact inputs |
-| `family` | research, document_review, website, deck, admin, coding or audit |
+| `family` | research, document_review, website, deck, admin, coding or audit; `serving` on a serving-probe row (`--probe-dir`), which has no task family |
 | `exposure` | `fresh` (never seen by any run or prompt tuning) or `exposed` |
 | `arm` | Route and profile, for example `local-standard` or `local-heavy` |
 | `profile`, `thinking`, `maxOutputTokens` | Coordinator profile the run was frozen with |
@@ -138,7 +173,7 @@ unresolved outcomes. H4/H5 acceptance remains unestablished.
 | `activeSeconds` | Loop rows written once backlog item 11's part 3b merges (BL-20261113-0836): the time the loop's stages ran. It sums the spans the loop recorded (`stages`, and each resume entry's span), plus, for a stage whose process died before the loop recorded its end, the time from its begun time to its last dispatch commit. The wait between a loop's invocations is left out, so a resumed loop's `wallSeconds`, which keeps its meaning, can be much longer. `null` for a version-1 loop |
 | `inputTokens`, `outputTokens`, `cachedTokens`, `cacheWriteTokens`, `lengthStops`, `usd` | Tokens and length stops cover the same calls as `modelCalls`, excluding the separate entailment pass; `usd` sums dispatch fees (local is zero-fee). `cachedTokens` is the part of `inputTokens` the provider reported as served from its prompt cache (summed `cacheReadTokens`, 0 when absent; rows before H1 omit the field). `lengthStops` counts writer replies, research-stage `truncatedReplies` and loop critiques cut at the output limit; historical pipeline rows have the limitation below. `cacheWriteTokens` is the part of `inputTokens` the provider reported as newly written to its cache (summed `cacheWriteTokens`, billed at the write rate); 0 means unrecorded for every run before BL-20261022-1156 including the H1 first attempt |
 | `entailment` | Research tasks with a claims ledger: the host's entailment counts, `entailmentCalls`, `truncated` and `supportRate` (supported / (supported + partial + unsupported + contradicted), excluding `not_judged`; `null` when no claims were judged), or `null` for no pass. The signed balance rate that selection protocol 1 compared, and protocol 2 records in `loop.json` as evidence only, is a separate metric. A local-model judgement is evidence, not acceptance |
-| `hostFlags` | Rows written once backlog item 7(d)'s part C merges (BL-20261114-1246): the run's `host_flags` event (7d.B, BL-20261110-1516) without its positions (no hit lines, flag positions or edit ids). It holds `version`; `rules`, the rule sets that ran (`absence`, `review`); and `counts`, which holds only the parts that ran, so an absent count is never a zero. When present, it also holds `misses` (the run's own misses), `errors` (the sections the host could not compute), the `report` and `argument` scan states (`format`, `scanned`, `reason`, `textCut`, `truncated`) and the `review` state (`valid`, `reason`, `errors`, `read`). `null` means not recorded, never "no flags". That covers a run with no event (one that did not submit, a phase with neither check, a run from before 7d.B, a lost append), a run without a result, and every row written from a desktop verdict receipt, whose version 1 carries none. A loop row reads the run its other fields come from. Every kept value is a name, an enum value, a boolean, a non-negative integer or an error class name; a row whose event holds anything else is refused. Rows written before this change, and `--supersedes` copies of them, have no `hostFlags` key at all: an absent key is neither `null` nor "no flags". Flags decide nothing |
+| `hostFlags` | Rows written once backlog item 7(d)'s part C merges (BL-20261114-1246): the run's `host_flags` event (7d.B, BL-20261110-1516) without its positions (no hit lines, flag positions or edit ids). It holds `version`; `rules`, the rule sets that ran (`absence`, `review`); and `counts`, which holds only the parts that ran, so an absent count is never a zero. When present, it also holds `misses` (the run's own misses), `errors` (the sections the host could not compute), the `report` and `argument` scan states (`format`, `scanned`, `reason`, `textCut`, `truncated`) and the `review` state (`valid`, `reason`, `errors`, `read`). Since 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design), `misses` also holds `questionsTrimmed` (the questions whose verified quotes the packet's caps all left out, which `questionsWithoutEvidence` also counts), `quotesLeftByCap` and `conflictsLeftByCap` (the verified quotes and conflict notes the packet left out) whenever the run's event holds `questionsWithoutEvidence` and was recorded by code that includes 7d.D. A row whose event was recorded by earlier code lacks them, even when the row itself is written later, and that means not recorded, never zero. `null` means not recorded, never "no flags". That covers a run with no event (one that did not submit, a phase with neither check, a run from before 7d.B, a lost append), a run without a result, and every row written from a desktop verdict receipt, whose version 1 carries none. A loop row reads the run its other fields come from. Every kept value is a name, an enum value, a boolean, a non-negative integer or an error class name; a row whose event holds anything else is refused. Rows written before this change, and `--supersedes` copies of them, have no `hostFlags` key at all: an absent key is neither `null` nor "no flags". Flags decide nothing |
 | `unknownDispatches`, `retriedDispatches`, `failedDispatches`, `assistSkippedDispatches`, `assistFailedDispatches` | Dispatch rows by outcome: unsettled rows (still `committed`, or `unknown`, never replayed); attempts a retry superseded; confirmed failures; and, counted apart since 2026-11-07 (backlog item 10), the sealed cloud one-shots (purposes `research plan assist`, `research synthesis assist`) whose row stayed `unknown` (skipped: its reservation stays pinned and no further grant-free cloud call is made in the job) or resolved `failed` into the host fallback. From that date an assist row is excluded from `unknownDispatches` and `failedDispatches`; rows before it omit the two assist columns. A skipped assist is not a model call (it has no reply), and its pinned reservation is not in `usd`, which sums settled fees; rows written once plan 11.4 merges carry it in `pinnedUsd`. On a loop row written once item 11's part 3b merges, `unknownDispatches` can include a zero-fee `committed` row of a run the loop moved aside: the local call in flight when that run's process died. The resume admitted it because sending equivalent work again costs nothing, and the row itself is never sent again, because the rerun is a new job |
 | `zeroFeeFailedDispatches` | The part of `failedDispatches` that reserved and settled nothing (backlog item 11, BL-20261109-0331): `failed` rows other than assists to the two fee-free harness destinations (`owned_local_model`, `approved_public_snapshots`), reserved at exactly 0, with no fee key (or a fee of 0) and no approval key; a null fee or approval fails closed. These are the zero-fee local requests and public GETs the broker resolves `failed`. The H4 loop admits them and stops on every other failed row, so a loop row may now carry `failedDispatches` above 0 with a final selection. Only `--run-dir` and `--loop-dir` rows written once this change merges carry the column; earlier rows, desktop verdict-receipt rows and `--supersedes` copies of earlier rows omit it, and an absent column does not mean 0 |
 | `reservedUsd`, `pinnedUsd`, `committedDispatches` | `--run-dir` and `--loop-dir` rows written once plan 11.4 merges (BL-20261114-1523): every attempt's reservation summed, in USD; the reservations still pinned by rows that stayed `committed` or `unknown` (store.ts's exposure: with `usd` it is the run's exposure, which the experiment launcher's batch cap counts, and it holds a skipped assist's reservation); and the rows still `committed` at the run's end, already counted in `unknownDispatches`. Earlier rows omit these and the columns below, and an absent column does not mean 0 |

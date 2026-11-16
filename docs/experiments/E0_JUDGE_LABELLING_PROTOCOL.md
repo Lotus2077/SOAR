@@ -1,6 +1,10 @@
 # E0 judge fixture: labelling protocol (`e0-judge-labelling-v1`)
 
-Status: `Implemented` with the fixture (`scripts/judge-fixture.ts`); not yet run.
+Status: `Implemented` with the fixture (`scripts/judge-fixture.ts`). The labelling and
+the fixture each ran once, on 2026-11-16: BL-20261116-1013-e0-judge-labelling-and-pin
+records the labelling and the pin, and BL-20261116-1020-e0-judge-fixture-result records
+the run, in which the judge agreed exactly on 38 of 60 claims, below the card's 95%
+level. That set is now frozen (see "After a run, the set is frozen" below).
 
 - **The level.** The E0 card ([e0-card-2026-11-13.md](e0-card-2026-11-13.md), item 2)
   fixes it: exact agreement with the labels on at least 95% of the labelled claims

@@ -109,6 +109,16 @@ describe("shared harness local role configuration", () => {
       await expect(runLocalArtifactScreen(options, { environment: environment(card), cwd })).rejects.toMatchObject({ code, parameter, message: code });
       expect(existsSync(options.outputDirectory)).toBe(false);
     }
+    // BL-20261114-2301-serving-card-request-settings-design: the run's --cache-salt reaches the reader. The writer's card, adopted as written, was
+    // measured with the salt and streaming on: with both it stops at today's fail-closed step, and without the salt at the settings check. A run
+    // that omits the option is salted, as the driver's default is (#111's review).
+    const flagged = writeCard(root, adopt(proposedServingCard()), "flagged.json"), streamed = { ...environment(flagged), SOAR_STREAMING: "true" };
+    for (const [cacheSalt, code, parameter] of [[undefined, "serving_card_parameter_unconsumed", "roles.plan.structuredOutput"],
+      [true, "serving_card_parameter_unconsumed", "roles.plan.structuredOutput"], [false, "serving_card_p10_settings_drift", "roles.plan.structuredOutput.thinkingOn"]] as const) {
+      await expect(runLocalArtifactScreen({ ...options, ...(cacheSalt === undefined ? {} : { cacheSalt }) }, { environment: streamed, cwd }))
+        .rejects.toMatchObject({ code, parameter, message: code });
+      expect(existsSync(options.outputDirectory)).toBe(false);
+    }
   });
 
   it("L3: compares the card's context only under flash_next_v1, against SOAR_VLLM_CONTEXT_TOKENS (SC)", () => {
@@ -116,7 +126,9 @@ describe("shared harness local role configuration", () => {
     expect(card.identity.contextTokens).toBe(262_144);
     const written = writeCard(root, card), descriptor = { path: written.path, sha256: written.sha256 };
     const flash = (contextTokens: number) => { const value = config(true); Object.assign(value.vllm, { localReplyContract: "flash_next_v1", localContextTokens: contextTokens, servingCard: descriptor }); return value; };
-    expect(servingCardExpectation(flash(131_072))).toEqual({ model: "qwen3.8-flash-next", contextTokens: 131_072 });
+    // BL-20261114-2301-serving-card-request-settings-design: the run's request settings join the expectation, the context only under the contract.
+    expect(servingCardExpectation(flash(131_072), true)).toEqual({ model: "qwen3.8-flash-next", contextTokens: 131_072, requestSettings: { model: "qwen3.8-flash-next",
+      streaming: true, localReplyContract: "flash_next_v1", localContextTokens: 131_072, profile: "heavy", cacheSalt: true } });
     let refused: unknown;
     try { buildLocalScreenServingCard(flash(131_072)); } catch (error) { refused = error; }
     expect(refused).toBeInstanceOf(ServingCardError);
@@ -124,7 +136,8 @@ describe("shared harness local role configuration", () => {
     expect(buildLocalScreenServingCard(flash(262_144))!.policy).toEqual(DEFAULT_SERVING_POLICY);
     // Under the legacy contract the context is not compared, even when a configuration object carries one.
     const legacy = config(true); Object.assign(legacy.vllm, { localContextTokens: 131_072, servingCard: descriptor });
-    expect(servingCardExpectation(legacy)).toEqual({ model: "qwen3.8-flash-next" });
+    expect(servingCardExpectation(legacy, false)).toEqual({ model: "qwen3.8-flash-next", requestSettings: { model: "qwen3.8-flash-next", streaming: true,
+      localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: false } });
     expect(buildLocalScreenServingCard(legacy)!.policy).toEqual(DEFAULT_SERVING_POLICY);
   });
 
@@ -142,7 +155,7 @@ describe("shared harness local role configuration", () => {
       expect(localScreenFailureLine(error)).not.toContain("/synthetic"); expect(localScreenFailureLine(error)).not.toContain("parameter");
     }
   });
-  it("7a.2: the freeze's pipeline block is the pre-7a.2 block without a card, and names a non-default card's policy with the protocol computed under it (BL-20261114-1346-research-role-policy-design)", () => {
+  it("7a.2: the freeze's pipeline block is the pre-7a.2 block without a card, and names a non-default card's policy with the protocol computed under it (BL-20261116-1203-research-role-policy-design)", () => {
     const before = { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET, planner: "local", writer: "local" };
     expect(canonical(researchPipelineFreeze("local"))).toBe(canonical(before));
     expect(canonical(researchPipelineFreeze("cloud", structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy))).toBe(canonical({ ...before, planner: "cloud" }));

@@ -25,6 +25,7 @@ import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { deriveBriefUnits, type BriefUnit } from "../src/main/private-agent/research-coverage";
 import { RESEARCH_PLAN_JSON_SCHEMA, assessResearchPlanReply, type ResearchPlanAttempt } from "../src/main/private-agent/research-plan";
 import { OUTPUT_TOKENS, PLAN_SYSTEM, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
+import { readChatReply } from "./chat-reply";
 
 export const FIXTURE_CONDITIONS = ["legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off"] as const;
 export type FixtureCondition = (typeof FIXTURE_CONDITIONS)[number];
@@ -131,14 +132,15 @@ export async function runPlannerFixture(options: FixtureRunOptions): Promise<Fix
         record.replyFile = `${condition}-${String(ordinal).padStart(2, "0")}.json`; record.bodySha256 = digest(bytes); record.bodyBytes = bytes.length;
         writePrivate(join(replies, record.replyFile), bytes);
         if (response.status !== 200) { record.classification = "request_rejected"; summary.calls.push(record); continue; }
-        let reply: { choices?: { message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[]; usage?: unknown };
-        try { reply = JSON.parse(bytes.toString("utf8")); } catch { record.classification = "malformed_reply"; summary.calls.push(record); continue; }
-        const choice = reply.choices?.[0], message = choice?.message, content = typeof message?.content === "string" ? message.content : undefined;
-        if (content === undefined) { record.classification = "malformed_reply"; summary.calls.push(record); continue; }
-        const fields = (["reasoning", "reasoning_content"] as const).filter(field => typeof message?.[field] === "string" && (message[field] as string).length);
-        record.finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null; record.usage = reply.usage ?? null;
+        // The reply as the model layer reads it (scripts/chat-reply.ts): one it would reject is malformed, and a missing or null content is
+        // empty text, so a reply whose thinking spent the output cap and left no content is the pipeline's truncated attempt.
+        const reply = readChatReply(bytes);
+        if (reply === undefined) { record.classification = "malformed_reply"; summary.calls.push(record); continue; }
+        const { content, message } = reply;
+        const fields = (["reasoning", "reasoning_content"] as const).filter(field => typeof message[field] === "string" && (message[field] as string).length);
+        record.finishReason = reply.finishReason; record.usage = reply.usage ?? null;
         record.reasoningField = fields.length === 0 ? "none" : fields.length === 1 ? fields[0]! : "mixed";
-        record.reasoningBytes = fields.reduce((n, field) => n + Buffer.byteLength(message![field] as string), 0);
+        record.reasoningBytes = fields.reduce((n, field) => n + Buffer.byteLength(message[field] as string), 0);
         record.attempt = assessResearchPlanReply({ content, truncated: record.finishReason === "length", ordinal: 1, units: fixture.units, sources }).attempt;
         record.classification = classify(record.attempt);
       } catch (error) {

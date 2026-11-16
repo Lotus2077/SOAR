@@ -843,6 +843,34 @@ def cloud_fields(freeze: dict) -> dict:
     return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
 
 
+# BL-20261116-1327-run-row-card-and-doctor-sources-design (1): the freeze records of SC and 8.2b (servingCardFreeze, src/main/private-agent/serving-card.ts)
+# and of 7a.2's pipeline block (researchPipelineFreeze, scripts/private-agent-local-screen.ts). The card reader's entry pattern, in ASCII
+# digits, and its MAX_LOCAL_STREAMS.
+CARD_ENTRY = re.compile(r"BL-[0-9]{8}-[0-9]{4}-[a-z0-9]+(?:-[a-z0-9]+)*")
+MAX_LOCAL_STREAMS = 8
+
+
+def card_fields(freeze: dict) -> dict:
+    """The run's research protocol hash, the serving card the driver loaded, and its K (BL-20261116-1327-run-row-card-and-doctor-sources-design,
+    decision (1)). researchProtocolSha256 is freeze.pipeline.protocolSha256, the protocol under the card's role policy (null without a
+    research pipeline). servingCard is {sha256, entry} from freeze.servingCard (null without a card). localStreams, ASSIST-M2's K, is the
+    card's localStreams, or 1 when the freeze records none, since the driver gives a session K only from a card. A present value of
+    another shape refuses the row, naming the field, never its value."""
+    pipeline = freeze.get("pipeline")
+    protocol = pipeline.get("protocolSha256") if isinstance(pipeline, dict) else None
+    if protocol is not None and not is_digest(protocol):
+        sys.exit("freeze.json's pipeline.protocolSha256 is not a sha256")
+    card = freeze.get("servingCard")
+    if card is None:
+        return {"researchProtocolSha256": protocol, "servingCard": None, "localStreams": 1}
+    if not isinstance(card, dict) or not is_digest(card.get("sha256")) or not isinstance(card.get("entry"), str) or CARD_ENTRY.fullmatch(card["entry"]) is None:
+        sys.exit("freeze.json's servingCard does not record the card's sha256 and the entry that adopted it")
+    streams = card.get("localStreams", 1)
+    if type(streams) is not int or not 1 <= streams <= MAX_LOCAL_STREAMS:
+        sys.exit(f"freeze.json's servingCard.localStreams is not a whole number from 1 to {MAX_LOCAL_STREAMS}")
+    return {"researchProtocolSha256": protocol, "servingCard": {"sha256": card["sha256"], "entry": card["entry"]}, "localStreams": streams}
+
+
 # Read-only git as scripts/verify-release-head.ts runs it (backlog item 11, part 2): no user or system configuration, pager,
 # prompts or optional locks, no hook or file-system monitor, and no repository found above this one.
 GIT_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "TZ": "UTC", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
@@ -1146,7 +1174,7 @@ def freeze_fields(freeze: dict, result=None, events=(), run_dir: str = "") -> di
                         "supportRate": support_rate(event.get("counts"))} for event in reversed(list(events)) if isinstance(event, dict) and event.get("type") == "claims_entailment"), None)
     return {"date": started.date().isoformat() if started else None, "taskJobSha256": text(binding.get("jobSha256")), "profile": text(freeze.get("profile")) or "standard",
             "maxOutputTokens": tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0 else None,
-            "thinking": config.get("thinking") if isinstance(config.get("thinking"), (bool, str)) else None, **cloud_fields(freeze),
+            "thinking": config.get("thinking") if isinstance(config.get("thinking"), (bool, str)) else None, **cloud_fields(freeze), **card_fields(freeze),
             "pipeline": text(pipeline.get("name")), "pipelinePlanner": text(pipeline.get("planner")),
             "runStatus": text(result.get("status")) if result is not None else None, "terminalCause": text(result.get("reason")) if result is not None else None,
             "entailment": entailment if result is not None else None, "hostFlags": host_flags(events, run_dir) if result is not None else None}
@@ -1398,7 +1426,7 @@ def run_counts(run_dir: str) -> dict:
         "row": {
             "date": started.date().isoformat(), "taskJobSha256": freeze["taskBinding"]["jobSha256"],
             "profile": freeze.get("profile", "standard"), "maxOutputTokens": freeze["modelConfig"]["maxOutputTokens"],
-            "thinking": freeze["modelConfig"]["thinking"], **cloud_fields(freeze),
+            "thinking": freeze["modelConfig"]["thinking"], **cloud_fields(freeze), **card_fields(freeze),
             "pipeline": (freeze.get("pipeline") or {}).get("name"), "pipelinePlanner": (freeze.get("pipeline") or {}).get("planner"),
             "runStatus": result.get("status"), "terminalCause": result.get("reason"),
             # Research tasks: the host's entailment pass (PR-J2), counts only; a judge verdict is evidence, not acceptance.

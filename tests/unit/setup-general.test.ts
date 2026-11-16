@@ -202,13 +202,43 @@ describe("pnpm setup:general doctor", () => {
       const otherAlias = await doctor({ SOAR_SERVING_CARD_FILE: adopted.path, SOAR_SERVING_CARD_SHA256: adopted.sha256 }, { id: "Other Alias", ...CARD_IDENTITY }, "Other Alias");
       expect(otherAlias.card).toMatchObject({ status: "refused", code: "serving_card_model_mismatch" }); expect(otherAlias.ready).toBe(false);
       const half = await doctor({ SOAR_SERVING_CARD_FILE: adopted.path });
-      expect(half.card).toEqual({ configured: true, status: "incomplete", reason: expect.stringContaining("together") }); expect(half.ready).toBe(false);
+      expect(half.card).toEqual({ configured: true, sources: "headless_driver", cacheSalt: "assumed_on", status: "incomplete", reason: expect.stringContaining("together") });
+      expect(half.ready).toBe(false);
       for (const report of [notAdopted, drift, half]) expect(JSON.stringify(report)).not.toContain(dir);
       // Under flash_next_v1 the reader also checks the configured context against the card's.
       const context = await doctor({ SOAR_SERVING_CARD_FILE: adopted.path, SOAR_SERVING_CARD_SHA256: adopted.sha256 }, { id: ALIAS, ...CARD_IDENTITY }, ALIAS,
         "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=131072\n");
       expect(context.card).toMatchObject({ status: "refused", code: "serving_card_context_mismatch" }); expect(context.ready).toBe(false);
     });
+    it("reads the card from the headless driver's sources, and names the keys where the app's differ, never their values (BL-20261116-1327-run-row-card-and-doctor-sources-design)", async () => {
+      const flagged = writeCard(cardDir(), adopt(proposedServingCard())), pair = { SOAR_SERVING_CARD_FILE: flagged.path, SOAR_SERVING_CARD_SHA256: flagged.sha256 };
+      const lines = (values: Record<string, string>) => Object.entries(values).map(([key, value]) => `${key}=${value}\n`).join("");
+      async function doctorWith(files: { userData?: string; cwd: string }, env: Record<string, string> = pair) {
+        const f = setup(files);
+        return runGeneralSetup({ env, cwd: f.cwd, userDataFile: f.userDataFile, write: true, nodeVersion: "v22.22.2", probes: probes({ fetchJson: endpoint({ id: ALIAS, ...CARD_IDENTITY }) }) });
+      }
+      // The app's user-data file turns streaming off; the driver never reads that file, so it streams, and the flagged card resolves.
+      const appOff = await doctorWith({ userData: "SOAR_STREAMING=false\n", cwd: endpointSettings(ALIAS) });
+      expect(appOff.card).toMatchObject({ configured: true, sources: "headless_driver", cacheSalt: "assumed_on", appDiffers: ["SOAR_STREAMING"], status: "matches" });
+      expect(appOff.ready).toBe(true);
+      // The repository's file turns it off and the app's on: the driver reads the repository's, so the card is refused as the driver refuses it.
+      const driverOff = await doctorWith({ userData: "SOAR_STREAMING=true\n", cwd: endpointSettings(ALIAS, "SOAR_STREAMING=false\n") });
+      expect(driverOff.card).toMatchObject({ appDiffers: ["SOAR_STREAMING"], status: "refused", code: "serving_card_p10_settings_drift" }); expect(driverOff.ready).toBe(false);
+      // A pair only in the user-data file is not the driver's: no card for the driver, and the report says the app sets one.
+      const appOnly = await doctorWith({ userData: lines(pair), cwd: endpointSettings(ALIAS) }, {});
+      expect(appOnly.card).toEqual({ configured: false, appDiffers: ["SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256"] });
+      // The app's alias is not the driver's: the doctor probed the app's endpoint, so it does not compare the card with it.
+      const otherAlias = await doctorWith({ userData: "SOAR_VLLM_MODEL=another-alias\n", cwd: endpointSettings(ALIAS) });
+      expect(otherAlias.card).toMatchObject({ appDiffers: ["SOAR_VLLM_MODEL"], status: "unchecked", reason: expect.stringContaining("SOAR_VLLM_MODEL") });
+      expect(otherAlias.card).not.toHaveProperty("fields");
+      // Settings the two sources share report no difference; the report never carries a value or the card's path.
+      const same = await doctorWith({ cwd: endpointSettings(ALIAS) });
+      expect(same.card).toMatchObject({ status: "matches", sources: "headless_driver" }); expect(same.card).not.toHaveProperty("appDiffers");
+      for (const report of [appOff, driverOff, appOnly, otherAlias, same]) {
+        const text = JSON.stringify(report); expect(text).not.toContain(flagged.path); expect(text).not.toContain("another-alias");
+      }
+    });
+
     it("gives the reader the run's request settings for a flagged card, as the headless driver does", async () => {
       // BL-20261114-2301-serving-card-request-settings-design: a structured-output flag needs P10's settings to equal the run's.
       // Under the app's SOAR_STREAMING (default true) and the driver's default cache salt the card resolves: item 9

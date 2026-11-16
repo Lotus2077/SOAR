@@ -42565,3 +42565,59 @@ Next gate: In order:
 5. The planner fixture.
 
 References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-planner-fixture-v1.json; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261116-0813-e0-r3-runs-index-and-harvest; pull requests #91, #102, #114 and #117.
+
+### BL-20261116-0838-correction-e0-amendment-1-review -- 2026-11-16 -- Correction to BL-20261116-0812-correction-owner-defaults-review, BL-20261116-0813-e0-r3-runs-index-and-harvest and BL-20261116-0814-e0-card-amendment-1: #118's light review, four minor findings and two nits; run-5 rowed
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the light review of pull request #118 at 42e8f5a and its fixes. The review found no blocker, no major issue and no privacy issue. It made four minor findings and two nits, and it confirmed the entries' run facts against the runs' own records. The three entries stay as written; where this entry and any of them differ, this entry governs.
+
+The card's Amendment 1 is unchanged. It was committed before E0's export of 08:16:21 UTC, and an edit now would postdate the export. So none of these fixes touches the card.
+
+Decisions:
+1. **Finding 1, the question count in BL-20261116-0812-correction-owner-defaults-review.** That entry corrected a count and miscounted.
+   - HANDOFF §5 step 2 lists six bullets of questions open before E0, each the owner's to answer. The third bullet asks two questions, so there are seven:
+     - three went to the owner;
+     - three are the session's procedural choices;
+     - the seventh, whether E1's hold covers the r3 run, is moot.
+2. **Finding 2, run-5's registry row** (BL-20261116-0813-e0-r3-runs-index-and-harvest, decision 4). The stated reason for holding the row was wrong.
+   - scripts/registry-row.py does require `--outcome`. But its outcome check accepts `incomplete` with `--verdict-by none` for a submitted run that did not end on infrastructure. The registry already holds that shape (`p4claude-r3-grid-batteries-all-cloud-step1`), and docs/experiments/README.md describes it.
+   - So run-5 is rowed now, in that shape: outcome `incomplete`, verdict `none`. Its lesson states that it submitted, pending independent acceptance, and that E0 assesses no report.
+   - Decision 1's "every run is recorded" now holds in the registry too.
+3. **Finding 3, the scope of BL-20261116-0814-e0-card-amendment-1.**
+   - **The owner's decisions:** Amendment 1's items 1 and 5, and item 3's stage brief (decision 2 of BL-20261115-1937-owner-adopts-standing-defaults).
+   - **The session's procedural choices, under decision 4 of that entry:** items 2 and 6.
+   - **The session's choices from BL-20261116-0813-e0-r3-runs-index-and-harvest:** item 4, and item 3's choice of run-5's index.
+   - `Approved` covers the owner's decisions and the owner's merge go. Beyond the documents, nothing there is implemented, verified or released.
+4. **Finding 4, a non-claim missing from BL-20261116-0814-e0-card-amendment-1.** Squash-merging #117 keeps the owner's local account name out of `main`'s history only. #117's earlier commits stay readable in its history on GitHub, and the repository is public.
+5. **Nit 5, the same entry's scope sentence.** Amendment 1 and the pin were committed before E0's export and before any fixture sent a request. The planner fixture's dry run, in that entry's Evidence, sent none.
+6. **Nit 6, the planner-fixture test.** It now parses the committed manifest with `PlannerFixtureManifestSchema`, so the pinned `sourceCount` and `mandatorySourceChunks` are checked against the schema before the template is built from them.
+
+Changes:
+- docs/experiments/registry.jsonl: run-5's row (`e0-r3-grid-batteries-local-heavy-pipeline-run5`).
+- tests/unit/planner-fixture.test.ts: the schema parse of the committed manifest.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The review.** One reviewer read #118 at 42e8f5a against `main` at b487f75, with read-only access to the r3 runs' records. It reported a minor verdict, with CI green on 42e8f5a.
+- **What it confirmed against the runs' own records:**
+  - the dispatch counts (46, 43, 47, 39 and 116), all to the owned local model, with fee, reserved fee and disclosed bytes all 0;
+  - the per-run stage figures;
+  - run-5's index and stage-brief digests, recomputed with the repository's `digest` and `canonical`;
+  - the four rows already committed;
+  - that the card's diff only appends.
+- **Run-5's row,** written by `scripts/registry-row.py --run-dir`:
+  - outcome `incomplete`, verdict `none`;
+  - run status `submitted`, class cause `submitted`, not infrastructure;
+  - USD 0, commit d92a3af, and no path.
+- **Checks:** the planner-fixture suite passed 4 tests; `pnpm typecheck` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: One reader. No skeptic ran, because no finding was a blocker or major.
+
+Paid exposure: None.
+
+Next gate: None of its own. The E0 steps of BL-20261116-0814-e0-card-amendment-1 continue.
+
+References: BL-20261116-0812-correction-owner-defaults-review; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261115-1937-owner-adopts-standing-defaults; scripts/registry-row.py; docs/experiments/README.md; pull requests #117 and #118.

@@ -109,12 +109,14 @@ describe("shared harness local role configuration", () => {
       await expect(runLocalArtifactScreen(options, { environment: environment(card), cwd })).rejects.toMatchObject({ code, parameter, message: code });
       expect(existsSync(options.outputDirectory)).toBe(false);
     }
-    // BL-20261114-2301-serving-card-request-settings-design: the run's --cache-salt reaches the reader. The writer's card, adopted as written, was
-    // measured with the salt and streaming on: with both it stops at today's fail-closed step, and without the salt at the settings check. A run
-    // that omits the option is salted, as the driver's default is (#111's review).
-    const flagged = writeCard(root, adopt(proposedServingCard()), "flagged.json"), streamed = { ...environment(flagged), SOAR_STREAMING: "true" };
-    for (const [cacheSalt, code, parameter] of [[undefined, "serving_card_parameter_unconsumed", "roles.plan.structuredOutput"],
-      [true, "serving_card_parameter_unconsumed", "roles.plan.structuredOutput"], [false, "serving_card_p10_settings_drift", "roles.plan.structuredOutput.thinkingOn"]] as const) {
+    // BL-20261114-2301-serving-card-request-settings-design: the run's --cache-salt reaches the reader. The writer's card was measured with the
+    // salt and streaming on. Since item 9 (BL-20261116-1208-research-structured-output-design) its flags are consumed, so this copy gives plan's
+    // first attempt a cap P10 did not measure: salted it stops at that check, and unsalted at the settings check, which comes first. A run that
+    // omits the option is salted, as the driver's default is (#111's review).
+    const unmeasured = adopt(proposedServingCard()); unmeasured.roles.plan.maxOutputTokens = [4096, 8192];
+    const flagged = writeCard(root, unmeasured, "flagged.json"), streamed = { ...environment(flagged), SOAR_STREAMING: "true" };
+    for (const [cacheSalt, code, parameter] of [[undefined, "serving_card_structured_output_cap_unmeasured", "roles.plan.maxOutputTokens[0]"],
+      [true, "serving_card_structured_output_cap_unmeasured", "roles.plan.maxOutputTokens[0]"], [false, "serving_card_p10_settings_drift", "roles.plan.structuredOutput.thinkingOn"]] as const) {
       await expect(runLocalArtifactScreen({ ...options, ...(cacheSalt === undefined ? {} : { cacheSalt }) }, { environment: streamed, cwd }))
         .rejects.toMatchObject({ code, parameter, message: code });
       expect(existsSync(options.outputDirectory)).toBe(false);

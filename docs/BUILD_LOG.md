@@ -42416,3 +42416,56 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation, its tests and its `Implemented` entry. Then the checks, one light review and CI. The coordinator merges after E0's probe window closes, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
 
 References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261115-1939-research-priority-trim-design; BL-20261115-1940-research-priority-trim-implemented; BL-20261115-1941-correction-research-priority-trim-review; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261116-0829-host-flags-trimmed-counts-implemented -- 2026-11-16 -- Backlog item 7(d) follow-up implemented: the host flags count the questions, quotes and conflict notes 7b.2's trim left out, and the desktop and the registry show them; offline tests only
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261116-0821-host-flags-trimmed-counts-design (plan 7d.D, lane S-desk) as decided, on `feat/7d.D-host-flags-trimmed-count` from `main` at b487f75. The code and tests are commit ba5f6bc.
+
+Decisions: None new. The design's decisions (1) to (5) stand as written. The three counts are computed inside the misses section, so its all-or-nothing rule covers them (BL-20261110-1516-host-flags-event-implemented, correction (d)).
+
+Changes:
+- src/main/private-agent/host-flags.ts: the misses section computes `questionsTrimmed`, `quotesLeftByCap` and `conflictsLeftByCap` from the parsed coverage, and the schema's miss names gain them. The report scan and the review summary are unchanged.
+- src/main/general-tasks/controller.ts: `hostFlagIssues` gives the questions line with the trimmed clause, and the packet line, as in the design's decision (3).
+- scripts/registry-row.py: `HOST_FLAG_MISSES` gains the three names.
+- docs/experiments/README.md: the `hostFlags` row.
+- tests/unit/private-agent-host-flags.test.ts, two new tests:
+  - **A real trimmed packet.** It is built by the pipeline from 20 sources of 12 rows, with one conflict note per chunk. The trim left quotes and notes out, and some chunks are `evidence_trimmed`. The counts equal the coverage's omissions and conflict omissions, `evidence.counts`, and the extract row's `questionsTrimmed` (0) and `quotesLeftByCap`. An edited copy whose omissions mix both reasons counts them all.
+  - **Edited copies of a real coverage, with three questions.** Retained in one chunk and trimmed in another is not trimmed. Trimmed only is trimmed. No evidence counts only among the questions without evidence.
+  - The two existing misses expectations gain the three zeros.
+- tests/unit/private-agent-research-session.test.ts: its misses expectation gains the three zeros.
+- tests/unit/general-task-host-flags.test.ts, one new test: the clause's four forms; none trimmed, and an event from before 7d.D; the packet line's forms; and the line order.
+- tests/unit/registry-row-host-flags.test.ts:
+  - a row copies the counts;
+  - three bad values of the new names are refused;
+  - a new test checks the script's count and miss names against the event schema's, which loads registry-row.py without running it.
+
+Evidence:
+- **Typecheck and readiness.** `pnpm typecheck` passes, and `pnpm validate:readiness` passes.
+- **The changed test files.** These five pass, 261 tests: private-agent-host-flags, general-task-host-flags, registry-row-host-flags, private-agent-research-session, and general-task-controller (unchanged, run because its end-to-end test goes through the real pass).
+- **The full suite.** `pnpm exec vitest run` at ba5f6bc, run alone: 3,801 tests in 201 files; 3,715 passed and 86 skipped, none failed.
+- **Mutants.** 15 single-edit mutants, each run against its test file with the file restored after each. All 15 are killed:
+  - host-flags.ts (7): the trimmed condition dropped; the retained condition dropped; trimmed read as no evidence; `packet_cap` omissions only; conflict omissions not counted; the quote and conflict counts swapped; and the schema without the omission counts;
+  - controller.ts (6): never "each" or "it"; "each" for one question; no trimmed clause; conflict notes not listed; no packet line; and an absent count read as all trimmed;
+  - registry-row.py (2): without `questionsTrimmed`, and without the omission counts.
+- **Hashes, before and after.**
+  - `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 at b487f75 and at ba5f6bc, equal to tests/helpers/research-protocol-pin.ts.
+  - `localScreenSourceFreeze()` moves from 5503a1c98430113a3e62e98f98cb413223630a84a4aaf562867bd1273ce7a2bd to 9f6d0efad93a3fba5466e80680b3369760b8e3fe8efb05f7f7cccbd2fc9903e4, as the design said: host-flags.ts is under src/main/private-agent.
+- **Build log.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **What this is.** `Implemented` only, from offline tests with invented model replies. No live run, no desktop run, and nothing `Verified` or `Released`.
+- **The desktop lines.** The desktop runs no research stage before backlog item 13, so its new lines are tested on synthetic events only.
+- **No real packet has a trimmed question.** The packet cap alone never trims a whole question, because one round of the trim's order holds at most twelve quotes (BL-20261115-1939-research-priority-trim-design, decision (1)). Only the presentation guard can, when the rest of the writer's presentation leaves room for less than one round.
+  - A corpus tuned to that edge would move whenever the presentation's reservation changes, and #103 changes it.
+  - So the question count is tested on edited copies of a real coverage. The real packet shows the count agrees with the extract row at zero.
+- **The gate.** The pass never runs the ready gate, so an edited coverage only has to satisfy the schema.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: One light review, and CI. The coordinator merges after E0's probe window closes, since a local-screen run must not span the merge now that the source freeze moves. If `main`'s tail moved, the entries are re-stamped after it (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261116-0821-host-flags-trimmed-counts-design; BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261114-1246-host-flags-surfaces-design; BL-20261115-1939-research-priority-trim-design; BL-20261115-1941-correction-research-priority-trim-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

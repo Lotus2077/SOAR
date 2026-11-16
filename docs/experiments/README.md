@@ -91,6 +91,16 @@ This folder holds the committed, sanitized record of live trials (see
   and pinned; `pnpm label:judge` (`scripts/judge-labeller.ts`) sends the labelling
   request. The claims and the labels (evaluator gold) stay under the ignored
   `.soar/`.
+- `e0-extractor-fixture-v1.json` and `e0-extractor-fixture-v1/`: the pinned manifest
+  and the committed corpus of the E0 extractor fixture (`scripts/extractor-fixture.ts`,
+  `pnpm fixture:extractor`). The corpus is a five-requirement brief, a plan the
+  pipeline's plan assessor accepts, and three invented, public sources, each one chunk
+  of the pipeline's chunking; the manifest binds every file by sha256 and byte count.
+  The fixture sends the extraction stage's own request under the manifest's four
+  conditions: `thinking-off`, the stage's call as deployed today, and thinking on at
+  2,048, 8,192 and 16,384 output tokens. It judges each reply with the stage's own
+  checks (`assessResearchExtractionReply`). It holds no gold: no reply is scored
+  against an expected answer.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan
@@ -109,8 +119,8 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
   run's output;
 - raw outputs, traces and databases, including the probe results and the raw model
   replies the probes and fixtures retain (`serving-probe-*/`, `e0-planner-fixture-*/`,
-  `e0-judge-fixture-*/`, `role-schemas.json`), and the judge fixture's claim set and
-  labels (`e0-judge/`);
+  `e0-judge-fixture-*/`, `e0-extractor-fixture-*/`, `role-schemas.json`), and the
+  judge fixture's claim set and labels (`e0-judge/`);
 - task gold data and endpoints;
 - anything derived from personal or professional data.
 

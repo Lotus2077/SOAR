@@ -43975,3 +43975,98 @@ Paid exposure: None. Sixty zero-fee requests went to the owned endpoint.
 Next gate: E0's `Verified` entry and issue #57 record that the judge did not reach its level. E3's and E4's cards treat the judge as evidence-only.
 
 References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-judge-fixture-v1.json; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; BL-20261116-1013-e0-judge-labelling-and-pin; BL-20261116-0941-e0-card-amendment-2; BL-20261116-0814-e0-card-amendment-1; BL-20261113-1003-e0-card-owner-answers; BL-20261114-2250-judge-fixture-implemented; BL-20261116-0839-e0-registry-modes-design; issue #57.
+
+### BL-20261116-1048-correction-e0-records-final-review -- 2026-11-16 -- Correction to BL-20261116-1013-e0-judge-labelling-and-pin, BL-20261116-1017-correction-e0-probes-serving-card-review, BL-20261116-1018-correction-e0-amendment-2-review, BL-20261116-1019-e0-planner-fixture-result and BL-20261116-1020-e0-judge-fixture-result: the final review of pull request #121, with the base of kappa and AUROC, two documents that still said the judge had not run, and wording points
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the final review of pull request #121's last two commits, a89c0bd and ddfe2d5, and its fixes.
+
+The review was a workflow of three reviewers, each with its own lens:
+- the corrections against the verified findings they apply;
+- the run records against the runs' own data;
+- privacy, the log rules and consistency across the pull request.
+
+A skeptic then tried to refute the most serious finding of each lens. No reviewer found a blocker, a major issue or a privacy issue. The five entries stay as written, and where this entry differs from any of them, this entry governs. No figure, result or decision in them changes.
+
+Decisions:
+1. **The base of kappa and AUROC** (BL-20261116-1020-e0-judge-fixture-result, Evidence). The entry gives Cohen's kappa 0.5072 and AUROC 0.8374 in a list whose other lines are over all 60 claims, and does not name their base.
+   - **Kappa** 0.5072 is over the 58 judged claims: observed agreement 38 of 58. Recomputed by the review over all 60, with the two unjudged replies counted as disagreements, kappa is 0.4836. The fixture does not output that figure.
+   - **AUROC** 0.8374 compares the 19 judged claims labelled unsupported or contradicted with the 39 judged claims labelled supported or partial. The two claims not judged are in neither group.
+   - **What stands.** Both figures are the fixture's output, and the result stands: exact agreement on 38 of 60, below the 95% level.
+2. **Two current-state documents still said the opposite.** Neither entry's Changes listed them, and the log's rules ask a pull request to update the documents it makes untrue.
+   - **docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.** Its status line said "not yet run". It now names the labelling, the pin and the fixture's run of 2026-11-16, their two entries, and the result. Its status word stays `Implemented`.
+   - **docs/experiments/README.md.** It said the judge manifest "is a template until the owner pins it", and the same of the planner manifest. Both bullets now say when each was pinned and under which amendment.
+   - **The labeller instructions are untouched.** The labelling tool takes them from the protocol's step 2 and step 3 sections. Their digest, recomputed with the tool's own function after the edit, is still 0184b561b5cee866c56fcda7321095a719a522d529b5a46158856d6fa2d3f9d2.
+   - **docs/HANDOFF.md is left as written.** Its "Start here" §7 still says no paid run has happened and the labelling has not run. The next handoff restatement carries all of this.
+3. **The judge fixture's command** (BL-20261116-1020-e0-judge-fixture-result, Evidence; BL-20261116-1013-e0-judge-labelling-and-pin, decision 3).
+   - **The departure.** Amendment 1, item 4, fixes the command without `--manifest`, and the card says nothing outside an amendment changes it. The run added `--manifest` because the main checkout's default path still held the template. That departs from the card's command as written.
+   - **How it was recorded.** Before the run, in decision 3 of BL-20261116-1013-e0-judge-labelling-and-pin, not by an amendment.
+   - **What it changed.** Where the manifest's bytes were read from, not the design. The run's summary records the manifest digest 2d5b505d…, the committed file's.
+4. **The planner fixture's record** (BL-20261116-1019-e0-planner-fixture-result).
+   - **The start time.** The fixture's summary records its start at 09:36:15 UTC, not 09:36:14, and its end at 09:58:29 UTC. The row's 1,333.9 wall seconds is that span.
+   - **The row's outcome.** The row has outcome `accepted` and verdict `agent_diagnostic`. The card sets no level for the planner fixture, so `accepted` means only that the run finished with all 30 calls answered and is taken as E0's planner measurement. It is no judgement that the planner's results are acceptable.
+   - **The classification fix.** Decision 2 asks the fixture's lane to count a cap reply with no content as truncated. Lane S-pipe's pull request #122, opened at 10:08:44 UTC, already makes that change. The recorded run and its row keep the classes the fixture wrote: six `malformed_reply`.
+5. **The four probe rows' `git` field** (BL-20261116-1017-correction-e0-probes-serving-card-review, Evidence).
+   - **The exception.** "Their computed fields are unchanged" holds for every field the row writer derives from the probe records. It has one exception among the fields the writer sets itself: `git`. The writer records the HEAD of the checkout it runs from, so the four rows' `git` now reads a89c0bd, where the rows committed in 7bb3c73 read 6a96098.
+   - **Everything the rewrite changed:** `git` and `exposure` on all four rows, and `lesson` on the rows of runs 1, 2 and 3. No other field changed.
+   - **The scripts are the same.** scripts/serving-probe.py is the same file at b487f75, 6a96098 and a89c0bd, and scripts/registry-row.py is the same file at 6a96098 and a89c0bd.
+6. **Wording in BL-20261116-1017-correction-e0-probes-serving-card-review.**
+   - **Decision 3.** "In both, the first sign was an open stream ending early" describes the failure that ended each run. Run 2's first failure came earlier and was of another kind: P8's cut-off, as that decision's third bullet says.
+   - **Decision 4.** The broker check was made on Node 22.22.2, and "On Node 22" means that version. The probe records keep each failed request's error class, not its reason.
+   - **Decision 5** rests on four times, all between the reflog's two moves:
+     - P1 alone began at 08:10:39 UTC;
+     - the export was written at 08:16:21 UTC;
+     - run 3 ended at 09:33:41 UTC;
+     - the assessment is stamped 09:34:13 UTC.
+
+     All four probe records are in the main checkout.
+   - **Decision 6.** "This entry's route finding" means BL-20261116-0939-e0-probes-serving-card's. The requests of runs 1 and 2 that failed at transport got no reply.
+   - **Decision 7** gives the reason for `exposed` too broadly.
+     - Most of the probe's prompts are literal strings in the script, which earlier probe runs also sent. The long documents of P3, P4 and P11 differ per run.
+     - What runs 2 and 3 resent is run 1's P10 requests: the three full runs' rows carry the same `inputSha256`.
+     - `exposed` stands on all four rows.
+   - **Decision 8.** The missing guard matters because runs 1 and 2 finished with all twelve probes recorded as run and none as failed. Such a run, once assessed, would pass every `accepted` check.
+   - **Decision 9 and the Next gate.** The Next gate covers both fixes, not the probe fix alone. Lane S-harn's agreement to take both is the orchestrating session's report of lane messages. No pull request states it yet.
+   - **Decision 2.** Single-stream decode varied with the prompt, and the card shows no cause for it.
+   - **The serving card's measurement-path line** now says that P1 alone also went through the proxy and completed. The earlier wording could be read as saying it failed.
+7. **Wording in BL-20261116-1018-correction-e0-amendment-2-review.**
+   - **Decision 1.** A second request's reply schema has `planted` only.
+   - **Decision 2.** Each request's body also carries the request's parameters, as decision 3 of BL-20261115-1956-e0-judge-labeller-design lists them: the model, the output-token limit, the reasoning effort, the no-store flag and the service tier.
+   - **Decision 3.** A reply outside the projection counts at its computed fee when that is larger than its reservation (BL-20261115-2044-e0-judge-labeller-implemented).
+   - **Decision 4.** Neither amendment writes the provider's name in words. The owner's chosen option, quoted in decision 3 of BL-20261116-0812-correction-owner-defaults-review, names OpenAI.
+   - **Decision 7.** The protocol's step 4 and BL-20261114-2253-correction-judge-fixture-review-fixes require that the pinned manifest is committed before any run. Neither names a push. The pin was also pushed first: the pull request's CI run for a89c0bd was created at 10:13:10 UTC, before the dry run of 10:13:16 UTC.
+   - **Decision 11.** BL-20261113-0938-correction-restamp-rule-dates states its rule for an entry on `main`. The card's Amendment 2 is not on `main` yet. Decision 11 applies the same rule to it because the section is frozen.
+   - **The limitation "Unverified nits"** covers more than nits. Three of the findings no skeptic checked were rated minor by their reviewers: decisions 5, 6 and 7. The session checked them against the lines the reviewers cited.
+   - **References.** They also include docs/experiments/serving-card-2026-11-16.md, docs/HANDOFF.md and docs/experiments/e0-judge-fixture-v1.json.
+8. **The test's title.** tests/unit/judge-fixture.test.ts's template test is renamed "refuses a template of the committed manifest and every mismatch before any request", since no committed template exists any more.
+9. **The merge.** Pull request #121 merges with a merge commit, not a squash. The entries and rows cite 7bb3c73, c6da620 and a89c0bd, and those commits' times are what show that Amendment 2 and the pin came first.
+
+Changes:
+- docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md: the status line only.
+- docs/experiments/README.md: the planner and judge manifest bullets.
+- docs/experiments/serving-card-2026-11-16.md: one sentence of the hand-written section.
+- tests/unit/judge-fixture.test.ts: the test's title.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The workflow** ran six agents, read-only: three reviewers and three skeptics. None read the claim set, the labels, a reply or any `.env.local`.
+- **What the skeptics confirmed:** decision 1 and decision 2 as minor, and decision 5 as a nit. The session checked the other points against the lines the reviewers cited.
+- **What the reviewers found correct.** The run-records reviewer recomputed the three entries' figures from the runs' own summaries:
+  - the labelling's usage, fee, counts, digests and times;
+  - the planner fixture's per-condition counts and ranges;
+  - the judge fixture's metrics, confusion matrix and the tally of the 22 disagreements;
+  - the manifest's digest against the committed file;
+  - the three rows.
+- **Also found correct:** the privacy of the added lines, the field order, the IDs against their commits' times, the card's JSON and measured tables byte-identical to 7bb3c73's, and the E0 card unchanged after c6da620.
+- **Checks on this branch:** the judge-fixture, planner-fixture and E0 registry-row suites, `pnpm typecheck`, and both validators passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The skeptics covered one finding per lens. The remaining nits are recorded on the reviewers' evidence and the session's own check.
+
+Paid exposure: None.
+
+Next gate: Pull request #121 merges on green CI, under the owner's direction of 2026-11-16, "merge when green, then continue with the lane queue". Then the lane queue, one pull request at a time.
+
+References: BL-20261116-1013-e0-judge-labelling-and-pin; BL-20261116-1017-correction-e0-probes-serving-card-review; BL-20261116-1018-correction-e0-amendment-2-review; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1020-e0-judge-fixture-result; BL-20261116-0939-e0-probes-serving-card; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0812-correction-owner-defaults-review; BL-20261115-1956-e0-judge-labeller-design; BL-20261115-2044-e0-judge-labeller-implemented; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261113-0938-correction-restamp-rule-dates; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/README.md; docs/experiments/serving-card-2026-11-16.md; scripts/judge-fixture.ts; pull requests #121 and #122.

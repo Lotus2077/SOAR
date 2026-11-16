@@ -90,6 +90,6 @@ The orchestrating session wrote this section after reviewing the tables above. E
 - **The reply contract.** On a few synthetic replies, both the legacy shape and `flash_next_v1` were consistent. The contract stays legacy, by decision 4 of BL-20261115-1937-owner-adopts-standing-defaults, unless the owner chooses otherwise.
 - **Speculative decoding** was active during run 3: by the server's counters, 54% of the tokens drafted between the run's start and end were accepted. That is one server-wide count over the whole run, not a rate per request, role or kind of text. Neither P1 nor the comparison with the 2026-11-04 qualification checks the decoding configuration, so a change to it would not show in the Identity table, and the decode rates and ceilings above were measured with it active.
 - **The measurement path.**
-  - Probe runs 1 and 2 went through this Mac's loopback HTTP proxy, which the shell's proxy variables set for the probe's Python client. Both failed at transport partway. P1 alone ran the same way, and its reading is identical to run 3's.
+  - Probe runs 1 and 2 went through this Mac's loopback HTTP proxy, which the shell's proxy variables set for the probe's Python client. Both failed at transport partway. P1 alone also went through that proxy; it completed, and its P1 reading is identical to run 3's.
   - Run 3 bypassed that proxy for the probe process only. The app's own requests, made from Node, never used it. Every probe in run 3 completed.
   - This card rests on run 3 alone.

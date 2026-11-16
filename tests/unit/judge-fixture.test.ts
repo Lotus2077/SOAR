@@ -115,7 +115,7 @@ describe("judge fixture requests", () => {
 });
 
 describe("judge fixture inputs", () => {
-  it("refuses the committed template and every mismatch before any request", async () => {
+  it("refuses a template of the committed manifest and every mismatch before any request", async () => {
     const server = await fakeServer(() => verdictReply("supported")), out = tempDir();
     // E0 card Amendment 2 pins the committed manifest, so the template is that manifest with its pinned fields cleared.
     const committed = JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "e0-judge-fixture-v1.json"), "utf8"));

@@ -263,14 +263,15 @@ function checkServingCard(env: NodeJS.ProcessEnv, cwd: string, userDataFile: str
   if (!file || !sha256 || !/^[a-f0-9]{64}$/u.test(sha256)) {
     return { ...head0, status: "incomplete", reason: "Set SOAR_SERVING_CARD_FILE (an absolute path) and SOAR_SERVING_CARD_SHA256 together, or neither." };
   }
-  // The driver's own call (loadConfig() with no user-data path): its defaults, its endpoint policy and its card pair.
+  // The driver's own call (loadConfig() with no user-data path): its defaults, its endpoint policy and its pair's validation. The pair
+  // read above is the one that call validates; only the driver's builder takes the descriptor from the config (the reader's R10).
   const config = tryLoadConfig({ cwd, environment: env });
-  if (!config?.vllm.servingCard) {
+  if (!config) {
     return { ...head0, sha256, status: "refused", code: "driver_settings_refused",
       reason: "The app's loader refuses the headless driver's settings, so the driver would stop before it read the card." };
   }
   let loaded: LoadedServingCard;
-  try { loaded = loadServingCard(config.vllm.servingCard, servingCardExpectation(config, true)); }
+  try { loaded = loadServingCard({ path: file, sha256 }, servingCardExpectation(config, true)); }
   catch (error) {
     const code = servingCardRefusal(error)?.code ?? "serving_card_unreadable";
     return { ...head0, sha256, status: "refused", code, reason: `The serving-card reader refuses the pinned card (${code}), as the headless driver would.` };

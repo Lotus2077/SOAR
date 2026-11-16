@@ -46618,3 +46618,63 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #123, then the merge after #110 under the standing go-ahead.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1216-correction-local-fanout-restamp; BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-1218-serving-probe-direct-transport-implemented; pull requests #110 and #123.
+
+### BL-20261116-1327-run-row-card-and-doctor-sources-design -- 2026-11-16 -- A run's registry row records its research protocol hash, the serving card the driver loaded and its K; the doctor checks a card from the settings the headless driver reads
+
+Status: `Proposed`
+
+Scope or hypothesis: The coordinator proposed two follow-ups after #123 merged. Both came from a skeptic check of #108.
+- **(a) A row cannot tell a run under an adopted card from a default run.**
+  - **What freeze.json records:**
+    - the card the driver loaded: `servingCard`, with sha256, version, date, the adopting entry and `localStreams` (SC and 8.2b);
+    - the research protocol under the card's role policy: `pipeline.protocolSha256` (7a.2, BL-20261116-1203-research-role-policy-design).
+  - **The gap.** A `--run-dir` or `--loop-dir` row records neither. Since item 9 (BL-20261116-1208-research-structured-output-design), a flagged run and an unflagged one send different request bodies, so two rows that look alike may not be alike.
+- **(b) The doctor and the headless driver read settings from different sources.**
+  - **The doctor** (scripts/setup-general.ts) resolves settings through the app's loader, where the user-data `.env.local` comes before the repository's.
+  - **The headless driver** (scripts/private-agent-local-screen.ts) calls `loadConfig()` with no user-data path. It reads the process environment, `SOAR_ENV_FILE`, then the repository's `.env.local` and `.env`.
+  - **Why it matters.** The driver is the card's only consumer; the desktop passes none until item 13. The doctor's card check says it refuses "as the headless driver would". Yet where the two sources disagree on `SOAR_STREAMING`, the card pair, the alias or the reply contract, its verdict on a flagged card can differ from the driver's.
+  - **The effect.** The driver fails closed, so it is a wrong report, not a wrong run.
+
+Decisions:
+- **(1) Run rows gain three fields, read from the freeze by one helper.**
+  - **Where.** The helper serves both of the writer's row builders: `run_counts` for a run, and `freeze_fields` for a loop's stopped stage. So a loop row takes them from the run it takes its other run fields from.
+  - **`researchProtocolSha256`:** `freeze.pipeline.protocolSha256`, the research protocol under the card's role policy. Structured-output flags, caps and thinking change it. It is null for a run without a research pipeline, or one whose freeze predates the hash.
+  - **`servingCard`:** null without a card; otherwise `{sha256, entry}`, the card's sha256 and the build-log entry that adopted it.
+  - **`localStreams`:** ASSIST-M2's K column (BL-20261114-1505-concurrent-local-admission-design, decision (9)).
+    - It is the card's `localStreams`, or 1 when the freeze records none: a run without a card, or with a card from before 8.2b. The driver gives a session K only from a card.
+    - The session runs K calls at a time only on a zero-risk local model.
+  - **Validation.**
+    - A present value must have the shape the driver writes: a sha256; an entry in the card reader's pattern; K a whole number from 1 to the reader's `MAX_LOCAL_STREAMS` (8). Otherwise the row is refused, and the refusal names the field, never its value.
+    - A freeze from before these records simply lacks them.
+  - **The README** gains three table rows.
+- **(2) The doctor's card check reads the headless driver's sources.**
+  - **What it reads.** The card pair and the card expectation come from `loadEnvironmentFiles` with no user-data path, as `loadConfig()` reads them for the driver: the process environment, `SOAR_ENV_FILE`, then the repository's `.env.local` and `.env`.
+  - **What the report adds:**
+    - `sources: "headless_driver"`;
+    - `cacheSalt: "assumed_on"`, the driver's default. `--cache-salt false` would expect a different card.
+    - `appDiffers`: the card-relevant keys whose value differs in the app's sources, by name only. They are `SOAR_SERVING_CARD_FILE`, `SOAR_SERVING_CARD_SHA256`, `SOAR_STREAMING`, `SOAR_VLLM_BASE_URL`, `SOAR_VLLM_MODEL`, `SOAR_VLLM_REPLY_CONTRACT` and `SOAR_VLLM_CONTEXT_TOKENS`.
+  - **A different endpoint.** When the driver's endpoint or alias differs from the app's, the card is not compared with the endpoint the doctor probed. Its status is `unchecked`, with a reason that names the keys.
+  - **The rest of the doctor** (the endpoint probe, the window and `--write`) keeps reading the app's settings.
+- **(3) Tests.**
+  - **Run rows:** with a card; without one; with a card record from before 8.2b; a loop; and the refusal of each malformed value.
+  - **The doctor:** the user-data and repository files disagreeing on `SOAR_STREAMING` in both directions, on the card pair, and on the endpoint.
+
+Changes: None yet. This entry precedes the code.
+
+Evidence: Read from 2e2d75c:
+- freeze.json's `servingCard` (`servingCardFreeze`, src/main/private-agent/serving-card.ts) and its `pipeline` block (`researchPipelineFreeze`, scripts/private-agent-local-screen.ts);
+- the doctor's `resolveSettings`, `cardExpectation` and `checkServingCard`;
+- `loadConfig` and `loadEnvironmentFiles` (src/main/config.ts).
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- Rows written before this change lack the three fields.
+- The doctor still probes the app's endpoint, and it does not run the driver.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, a light review with privacy checked, then the pull request.
+
+References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-2301-serving-card-request-settings-design; BL-20261116-1203-research-role-policy-design; BL-20261116-1208-research-structured-output-design; pull requests #108 and #123.

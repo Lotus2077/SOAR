@@ -57,6 +57,13 @@ export interface GeneralSessionOptions {
   /** The model that judges claims after submission; absent uses the private phase's model. Phase 2 judges both arms locally. */
   judgeModelFactory?: (contextId: string) => PrivateAgentModel;
   /**
+   * Backlog item 8.2b: K, the serving card's `localStreams` (1 to MAX_LOCAL_STREAMS). The research loops and the claims judge run K
+   * calls at a time when their model is zero-risk local, and one at a time otherwise, so a run without a research stage still judges
+   * its claims K at a time. No part of the session identity, the protocol hash or the counts. The headless driver passes the card's
+   * value in every run with a card; the desktop passes none (K = 1).
+   */
+  localStreams?: number;
+  /**
    * H2b/H2c: a host-run research stage (index, plan, verified extraction, synthesis) before the write phase, in its own
    * reader context. The planner and synthesiser may be a cloud model only where the job's lineage admits one.
    */
@@ -235,7 +242,9 @@ export class GeneralAgentSession {
     const startedAt = performance.now(), passAbort = new AbortController(); this.passAbort = passAbort;
     let outcome: EntailmentOutcome;
     try {
-      outcome = await judgeClaims({ claims, signal: AbortSignal.any([cancel, passAbort.signal, AbortSignal.timeout(ENTAILMENT_MAX_MS)]), stop: () => this.pauseRequested,
+      // 8.2b: K claims at a time when the judge's model is zero-risk local and the session has a K; otherwise one at a time.
+      const limit = this.options.localStreams !== undefined && model.zeroRisk() ? this.options.localStreams : 1;
+      outcome = await judgeClaims({ claims, limit, signal: AbortSignal.any([cancel, passAbort.signal, AbortSignal.timeout(ENTAILMENT_MAX_MS)]), stop: () => this.pauseRequested,
         remainingMs: () => ENTAILMENT_MAX_MS - (performance.now() - startedAt), complete: (messages, tools, judgeSignal, overrides) => model.complete(messages, tools, judgeSignal, overrides) });
     } finally { this.passAbort = undefined; }
     if (this.pauseRequested && outcome.truncated) return "paused";
@@ -412,7 +421,8 @@ export class GeneralAgentSession {
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
               deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
-              ...(options.research.roles ? { roles: options.research.roles } : {}) });
+              ...(options.research.roles ? { roles: options.research.roles } : {}),
+              ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {

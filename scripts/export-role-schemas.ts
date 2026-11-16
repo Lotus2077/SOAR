@@ -75,7 +75,7 @@ const ROLE_SYSTEMS: Readonly<Record<RoleWithSchema, string>> = Object.freeze({ p
  * under the configuration the headless driver gives every local research role (`buildLocalScreenModelConfig`), with the heavy profile, whose
  * thinking is on, and the cache salt on, salted for `jobId`. Without overrides the call takes the model's thinking and the role's pipeline cap;
  * `thinking: "disabled"` is the override the pipeline's call() sends for a role whose thinking is disabled. P10's cells (buildP10Requests) and
- * E0's extractor fixture (scripts/extractor-fixture.ts, BL-20261115-2006-e0-extractor-fixture-design) build their bodies here. The broker is
+ * E0's extractor fixture (scripts/extractor-fixture.ts, BL-20261116-1123-e0-extractor-fixture-design) build their bodies here. The broker is
  * never called: requestBody only builds, and it never reads the model's context id.
  */
 export function buildRoleRequest(settings: RequestSettings, jobId: string, role: RoleWithSchema, userContent: string,
@@ -116,7 +116,7 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
   const quote = "The orchard recorded twelve healthy trees during the autumn survey.";
   const evidence = ResearchEvidenceSchema.parse({ version: 2, quotes: [{ id: "E1", questionIds: ["Q1"], sourceId: chunkSource.id, sourceSha256: chunk.sourceSha256, chunkIds: [chunk.id], locator: "line 2", quote, note: "" }],
     conflicts: [], counts: { verified: 1, inPacket: 1, leftByCap: 0, droppedUnverifiedOrDuplicate: 0, conflictsNoted: 0 } });
-  const coverage = ResearchCoverageSchema.parse({ version: 2, protocolSha256: researchProtocolSha256(), briefSha256: digest(Buffer.from(brief)), briefBytes: Buffer.byteLength(brief),
+  const coverage = ResearchCoverageSchema.parse({ version: 3, protocolSha256: researchProtocolSha256(), briefSha256: digest(Buffer.from(brief)), briefBytes: Buffer.byteLength(brief),
     sourceManifestSha256: inventory.sourceManifestSha256, units, sources: inventory.sources,
     chunks: inventory.chunks.map(c => ({ ...c, status: "complete", attempts: [{ responseSha256: digest("synthetic extraction reply"), status: "complete" }],
       questions: plan.questions.map(q => ({ questionId: q.id, status: c.id === chunk.id && q.id === "Q1" ? "evidence_retained" : "no_verified_evidence", evidenceIds: c.id === chunk.id && q.id === "Q1" ? ["E1"] : [] })) })),

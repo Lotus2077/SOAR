@@ -1,5 +1,5 @@
 /**
- * E0 extractor fixture (review section 5.6, E0: "extractor on 3 synthetic chunks"; BL-20261115-2006-e0-extractor-fixture-design).
+ * E0 extractor fixture (review section 5.6, E0: "extractor on 3 synthetic chunks"; BL-20261116-1123-e0-extractor-fixture-design).
  * For each committed synthetic chunk a pinned manifest names, it builds the extraction stage's own initial request (EXTRACT_SYSTEM and
  * researchExtractionUserContent, through the model layer's requestBody exactly as probe P10 builds its bodies: buildRoleRequest in
  * export-role-schemas.ts) under each condition the manifest pins, and POSTs it directly to the owner's endpoint (outside the broker,

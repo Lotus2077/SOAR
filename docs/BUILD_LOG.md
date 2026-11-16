@@ -46619,6 +46619,658 @@ Next gate: CI on #123, then the merge after #110 under the standing go-ahead.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1216-correction-local-fanout-restamp; BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-1218-serving-probe-direct-transport-implemented; pull requests #110 and #123.
 
+### BL-20261116-1253-e0-planner-structured-condition-design -- 2026-11-16 -- E0 planner fixture designed for the serving card's plan call: `response_format` with thinking on, at 8,192 and 16,384 tokens, in a v2 manifest beside the call without a card
+
+Status: `Proposed`
+
+Scope or hypothesis: The coordinating session asked for one more measurement: the serving card's plan call itself, on the real r3 index, before the card's structured-output proposal is switched on. It also asked for a 16,384-token cell beside it, as the extractor fixture has.
+- **The card's plan call.** Under item 9 (BL-20261116-1208-research-structured-output-design) and the committed card (docs/experiments/serving-card-2026-11-16.json, adopted as written), both plan attempts carry a `response_format`. That is the `research_plan` JSON schema, strict, with thinking on, at 8,192 tokens, under the legacy reply contract.
+- **Why it needs measuring.** E0's planner fixture (BL-20261116-1019-e0-planner-fixture-result) ran the plan call without `response_format`, and some replies spent the whole 8,192-token cap on reasoning with no content (BL-20261116-1049-correction-e0-planner-fixture-null-content).
+  - The card's review correction (BL-20261116-1017-correction-e0-probes-serving-card-review) records that `response_format` does not rule this out: 1 of 52 P10 plan replies with it did the same, on synthetic input.
+  - P10's plan cells measured synthetic input only.
+- **The hypothesis, for the run to decide.** On the real index, the card's plan call returns a valid plan at least as often as the call without a card, and runs out its cap with no content no more often. At 16,384 tokens, that empty truncation is rarer still.
+
+Decisions:
+(1) **Two new conditions in scripts/planner-fixture.ts.**
+- **`legacy-thinking-structured`** is the card's plan call:
+  - the legacy contract;
+  - thinking on (`reasoning_effort` medium, with the Heavy profile's sampling);
+  - `max_tokens` 8,192;
+  - `response_format` built by model.ts's own `jsonSchemaResponseFormat` from `RESEARCH_ROLE_SCHEMAS.plan`, strict.
+- **`legacy-thinking-structured-16384`** is the same call at 16,384 tokens, the Heavy profile's ceiling.
+  - It is a calibration cell. The card reader refuses a flagged plan attempt at a cap P10 did not measure (`serving_card_structured_output_cap_unmeasured`), so no card can send it until P10 measures plan at 16,384.
+- **The bodies** equal model.ts's body for the plan call, apart from the fixture's transport, as for its other conditions:
+  - they do not stream (the card's run streams);
+  - they carry the fixture's one cache salt.
+  - A test checks them against the pipeline's own first plan call under the committed card, byte for byte.
+
+(2) **A new manifest: docs/experiments/e0-planner-fixture-v2.json.**
+- v1's pins are unchanged: run-5's r3 index, the stage brief, the source ids, the counts, the task and the exposure.
+- Conditions `legacy-thinking`, `legacy-thinking-structured` and `legacy-thinking-structured-16384`, with 10 repeats: 30 calls.
+- `legacy-thinking` is the control within the same run: the plan call without a card.
+- v1 is not edited, so its run record stays readable as it is.
+
+(3) **The command line reads the design from the manifest.**
+- Until now it took the built-in default (v1's three conditions) and 10 repeats, whatever the manifest pinned. So running v2 without flags would silently run v1's design.
+- It now takes the conditions and repeats from the manifest when `--conditions` and `--repeats` are absent. Explicit flags still override, as before.
+- For v1 the two coincide, so its command does not change.
+
+(4) **The summary records each condition's own cap,** 8,192 or 16,384, as `requests[condition].maxTokens`. It always said 8,192.
+
+(5) **Lane S-harn's registry copy.** scripts/registry-row.py's `PLANNER_CONDITIONS` gains the two names, in the fixture's order. Its test pins the copy to `FIXTURE_CONDITIONS`, and the reply-file pattern follows from it.
+
+(6) **Endpoint time.** The estimate uses the ~154 decode tokens/s of the 2026-11-04 qualification (BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused).
+- A plan reply that runs to its cap decodes for about 53 s at 8,192 tokens and about 107 s at 16,384.
+- The plan prompt, about 25,000 tokens of index, is prefilled once per condition when the fixture's salt lets the server reuse it.
+- So the 30 calls take at most about 45 minutes, and less where replies stop early.
+
+(7) **What does not change:**
+- the classes and the summary's other fields;
+- `researchProtocolSha256()`, still 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5;
+- the harness source freeze, since no file of src/main/private-agent/ changes;
+- the v1 manifest and its record.
+
+Changes: This entry only. The implementation follows in the same pull request.
+
+Evidence: None yet; this is a design.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **Initial attempts only.** The card also sends `response_format` on the repair attempt, and the fixture sends no repair.
+- **Transport and coverage.** The fixture does not stream. It runs one exposed index (run-5's), so it makes no claim about research quality.
+
+Paid exposure: None. The run, when the coordinating session makes it, is 30 zero-fee local calls.
+
+Next gate:
+- the implementation and a light review in this pull request;
+- the coordinating session's card amendment, which names the v2 command;
+- the run.
+
+References:
+- BL-20261108-0911-probe-extensions-implemented (the planner fixture);
+- BL-20261116-1208-research-structured-output-design;
+- BL-20261116-1017-correction-e0-probes-serving-card-review;
+- BL-20261116-1019-e0-planner-fixture-result;
+- BL-20261116-1049-correction-e0-planner-fixture-null-content;
+- BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused.
+
+### BL-20261116-1256-e0-extractor-structured-condition-design -- 2026-11-16 -- E0 extractor fixture designed for the serving card's extract call: strict `response_format` with thinking off at 2,048 tokens, in a v2 manifest beside the deployed call
+
+Status: `Proposed`
+
+Scope or hypothesis: The coordinating session asked for this cell in the same pull request as the planner's (BL-20261116-1253-e0-planner-structured-condition-design). It follows E0's extractor fixture run on 2026-11-16, 120 calls on manifest 4ae19cd4… (the coordinating session's report).
+- **What that run found.** At the deployed call, thinking off at 2,048 tokens, 10 of 30 first attempts were complete. Every `invalid` reply failed on `schema_too_big`: a note or a quote over the reply schema's size limits.
+- **The card's extract call** (item 9, BL-20261116-1208-research-structured-output-design, and the committed card) carries a strict `response_format` with the `research_extraction` schema, with thinking off, at 2,048 tokens.
+- **The question:** does strict structured output remove `schema_too_big` on these chunks, and what does it do to the other classes?
+
+Decisions:
+(1) **A new condition in scripts/extractor-fixture.ts:** `thinking-off-structured`. It is the deployed call plus the `response_format` that model.ts builds from `RESEARCH_ROLE_SCHEMAS.extract`, strict.
+- The body is built through `buildRoleRequest`, so through `PrivateAgentModel.requestBody`, as the pipeline builds it, streaming and cache salt included.
+- `buildRoleRequest` gains an optional `responseFormat` override. No existing body changes, the P10 export's included.
+- A test checks the pipeline's own first three extraction calls under the committed card, byte for byte.
+(2) **A new manifest: docs/experiments/e0-extractor-fixture-v2.json.**
+- **The corpus pins are v1's.** Conditions `thinking-off` (the deployed call, the control within the run) and `thinking-off-structured`, with 10 repeats: 60 calls.
+- **The exposure is `exposed`.** v1's run has now seen the corpus, although no prompt was tuned on it.
+- **v1 is not edited,** so its run record stays readable.
+(3) **The summary keeps its shape.** No class or field is added. The new condition joins `EXTRACTOR_CONDITIONS`, and its `requests` record carries the condition's own request-set digest. `DEPLOYED_CONDITION` stays `thinking-off`.
+(4) **Lane S-harn's registry copy.** registry-row.py's `EXTRACTOR_CONDITIONS` gains the name. The extractor fixture's own test pins that copy to the export.
+(5) **Endpoint time.** v1's thinking-off calls took about 5 to 19 s each, so the 60 calls take about 10 to 15 minutes.
+
+Changes: This entry only. The implementation follows in the same pull request.
+
+Evidence: None yet; this is a design.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **What the cell cannot settle:** whether the server's structured-output decoding enforces the schema's size limits. It measures the replies only.
+- **Coverage.** Initial attempts only, on three synthetic chunks.
+
+Paid exposure: None. The run, when the coordinating session makes it, is 60 zero-fee local calls.
+
+Next gate:
+- the implementation and a light review in this pull request;
+- the coordinating session's card amendment;
+- the run.
+
+References:
+- BL-20261116-1253-e0-planner-structured-condition-design;
+- BL-20261116-1123-e0-extractor-fixture-design;
+- BL-20261116-1208-research-structured-output-design.
+
+### BL-20261116-1307-correction-research-structured-output-doctor-test -- 2026-11-16 -- Correction to BL-20261116-1212-correction-research-structured-output-restamp: what the doctor test's failure was, and what changed
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261116-1212-correction-research-structured-output-restamp, which is not edited. That entry names the trial review's one blocker only as "the doctor test". The coordinating session's skeptic check of #108's final head asked that the log say what failed and what changed.
+
+Decisions:
+(1) **What failed.**
+- On the trial merge of #108 onto `main`'s line, one case in tests/unit/setup-general.test.ts failed: "gives the reader the run's request settings for a flagged card, as the headless driver does".
+- Under the run's settings, it expected the doctor to refuse the writer's flagged card with `serving_card_parameter_unconsumed`.
+- Item 9 consumes structured-output flags, so the card resolved instead: the doctor reported `matches`, with `ready` true.
+(2) **What changed.**
+- Under the run's settings, the case now expects `matches` and `ready` true. That holds with the app's default streaming and with `SOAR_STREAMING=true`.
+- The refusals the test exists for are unchanged. With `SOAR_STREAMING=false`, and under flash_next_v1 at the card's own context, the doctor still refuses with `serving_card_p10_settings_drift`.
+- The coordinating session reported its check: `main`'s earlier version of the test fails that one case against the merged code. The adjusted test passes 14 of 14, and four single-edit mutants of the doctor's `cardExpectation` each fail it.
+
+Changes:
+- docs/BUILD_LOG.md: this entry. No code or test change.
+
+Evidence:
+- The test's text at 860ec58, #108's merge on `main`.
+- The coordinating session's skeptic-check report of 2026-11-16.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only.
+
+Paid exposure: None.
+
+Next gate: None.
+
+References:
+- BL-20261116-1212-correction-research-structured-output-restamp (corrected);
+- BL-20261116-1208-research-structured-output-design.
+
+### BL-20261116-1330-e0-structured-conditions-implemented -- 2026-11-16 -- E0's planner and extractor fixtures implemented with the calls the serving card would send, in v2 manifests beside the calls without a card, with the light review's corrections to both designs
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261116-1253-e0-planner-structured-condition-design and BL-20261116-1256-e0-extractor-structured-condition-design, neither of which is edited. Decision (6) corrects what they say. One reviewer checked the work, privacy included, and found no blocker and no major.
+
+Decisions:
+(1) **The planner** (scripts/planner-fixture.ts).
+- **The conditions.** `FIXTURE_CONDITIONS` gains `legacy-thinking-structured` and `legacy-thinking-structured-16384`.
+  - `PLAN_RESPONSE_FORMAT` is `RESEARCH_ROLE_SCHEMAS.plan`, strict, and `plannerConditionCap` gives each condition's cap.
+  - `buildPlannerBody` adds model.ts's `jsonSchemaResponseFormat` to the structured conditions.
+  - The summary's `requests[condition].maxTokens` is the condition's cap.
+- **The design comes from the manifest.** Each of the conditions and the repeats comes from the manifest unless its own flag is given. Before, the command line ignored the manifest's design, and E0's card had to fix v1's flags for that reason.
+- **The order** (review finding 6). Each repeat now runs every condition in turn, as the extractor fixture does, so drift at the endpoint falls on every condition alike.
+  - v1's design is unchanged; only the order of its calls is.
+  - The registry rows a planner run by condition and ordinal, so it does not read the order.
+
+(2) **The extractor** (scripts/extractor-fixture.ts). `EXTRACTOR_CONDITIONS` gains `thinking-off-structured`, the deployed call plus `RESEARCH_ROLE_SCHEMAS.extract`, strict.
+- `buildRoleRequest` (scripts/export-role-schemas.ts) gains an optional `responseFormat` override. P10's cells never pass it, so the export is unchanged.
+
+(3) **The manifests.** Both keep v1's pins; v1's files are not edited.
+- docs/experiments/e0-planner-fixture-v2.json: digest(canonical(manifest)) 0d3156b5e9dc1c034a8e0bc42c70ca6936e7a752c47a03572a38936d2914edb8, file sha256 60dc061ac13360d02be6445c58a995fa5c6a6776eba67373c308100d586911ac.
+- docs/experiments/e0-extractor-fixture-v2.json: digest(canonical(manifest)) 14446e28a693fada940c8777f4043976b132392072f6fec99b44368283bfb0e9, file sha256 b692308658ab000a36c959a24235d099e427ba7c60c87ddec7cb6a28a8263e16.
+
+(4) **Lane S-harn's registry.** registry-row.py's `PLANNER_CONDITIONS` and `EXTRACTOR_CONDITIONS` gain the names. S-harn's planner-run test lists its fake replies in the new order, and its per-condition classes are unchanged.
+
+(5) **The commands,** for the coordinating session's card amendment:
+- `pnpm fixture:planner -- --index <run-5 index.json> --brief <stage brief> --manifest docs/experiments/e0-planner-fixture-v2.json`, with or without `--cache-salt`;
+- `pnpm fixture:extractor -- --manifest docs/experiments/e0-extractor-fixture-v2.json`.
+
+(6) **Corrections to the two designs,** from the light review.
+- **The planner's time.** "At most about 45 minutes" at ~154 tokens/s is not an upper bound.
+  - On this index, v1 decoded at about 112 to 130 completion tokens/s. BL-20261116-1019-e0-planner-fixture-result records 30 calls in 22 minutes, with thinking-on calls taking 26 to 73 s.
+  - A reply that runs to its cap therefore takes about 73 s at 8,192 tokens and about 146 s at 16,384.
+  - The run takes about 30 to 40 minutes if replies behave as v1's did, and about 50 minutes if every reply runs to its cap.
+  - The prompt is about 24,000 tokens in all, shared by the three conditions, so it is prefilled about once per run.
+- **The extractor's time.** "10 to 15 minutes" is 5 to 19 minutes: 60 calls at v1's 5 to 19 s.
+- **The salt.** "They carry the fixture's one cache salt" holds only with `--cache-salt`.
+  - Without it the bodies carry none, as v1's run did. With it they carry one salt for every condition and repeat, while a run under the card salts per research job.
+  - The amendment chooses. The equality test uses the salted body.
+- **The card's status.** "Adopted as written" means: if adopted as written. The committed card's decision is still `proposed`, and the reader would refuse it (`serving_card_not_adopted`). The tests feed its roles to the pipeline as the reader would return them once the card is adopted.
+
+(7) **What the tests prove, and what they do not.**
+- **The planner's 8,192 cell.** Its body equals the pipeline's own first plan call under the card's roles, byte for byte, unstreamed and salted with the fixture's job.
+- **The planner's 16,384 cell** equals model.ts's body for the same call at 16,384 tokens.
+- **The extractor.** The pipeline's first three extraction calls under the card's roles equal the fixture's `thinking-off-structured` bodies, streamed and unstreamed. v2's control sends v1's `thinking-off` bodies byte for byte.
+- **Not covered:** a streamed planner body (the fixture does not stream), the repair attempt, the card reader's own path, and live behaviour.
+
+Changes:
+- scripts/planner-fixture.ts, scripts/extractor-fixture.ts, scripts/export-role-schemas.ts, scripts/registry-row.py;
+- tests/unit/planner-fixture.test.ts, tests/unit/extractor-fixture.test.ts, tests/unit/registry-row-e0.test.ts;
+- docs/experiments/e0-planner-fixture-v2.json, docs/experiments/e0-extractor-fixture-v2.json, docs/experiments/README.md;
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On this branch, which merges `main` at 2e2d75c:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The changed test files** pass: the planner, extractor, registry and role-schema export tests, 57 tests.
+- **Mutants.** Twelve single edits each fail a test:
+  - the structured format dropped, made non-strict, or kept from the 16,384 cell;
+  - the 16,384 cap;
+  - the summary's cap;
+  - the manifest's conditions or repeats ignored;
+  - the extractor's format dropped or made non-strict;
+  - the override dropped;
+  - either registry copy left without the names;
+  - the condition-major order.
+- **The hashes.** `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. The source freeze is `main`'s, because no file of src/ changes.
+- **The full suite,** `pnpm exec vitest run` on the merged tree: 193 files passed and 13 skipped; 3,860 tests passed and 86 skipped. None failed.
+  - A first run had one failure, a `python3` subprocess timeout in tests/unit/document-review.test.ts under the suite's load.
+  - That file passes alone, twice, and nothing here touches it.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called, and neither manifest has run.
+- **Initial attempts only.** The planner fixture does not stream, and a card cannot send the 16,384 cell today.
+- **Inputs.** One exposed index and three synthetic chunks, so no claim about research quality.
+
+Paid exposure: None. The runs are 30 and 60 zero-fee local calls, made by the coordinating session after its card amendment.
+
+Next gate:
+- CI green, and the coordinating session's review and merge;
+- its card amendment, which names the cells and the commands;
+- the runs.
+
+References:
+- BL-20261116-1253-e0-planner-structured-condition-design and BL-20261116-1256-e0-extractor-structured-condition-design (implemented and corrected here);
+- BL-20261116-1019-e0-planner-fixture-result;
+- BL-20261116-1017-correction-e0-probes-serving-card-review;
+- BL-20261116-1208-research-structured-output-design;
+- BL-20261116-0840-e0-registry-modes-implemented.
+
+### BL-20261116-1331-correction-local-fanout-skeptic-followups -- 2026-11-16 -- Correction to BL-20261116-1213-local-fanout-design and BL-20261116-1214-local-fanout-implemented after the orchestrator's skeptic check of #110: a stale K pin and stale docs, four untested gates now tested, and a flagged card at K above 1 recorded as unmeasured
+
+Status: `Implemented`
+
+Scope or hypothesis: The orchestrator ran a skeptic check of #110's final head, 5aaeb0a, which merged as 36e194b. It used three agents and a second skeptic.
+- **No blocker.** Its one major was downgraded to minor.
+- **What it confirmed:**
+  - the merge keeps both sides across all nine files;
+  - every `call()` site passes its arguments in the right order;
+  - at K = 1 the calls, request bodies, rows and the protocol hash (7100b7a2…) are unchanged;
+  - E0's card still resolves at K = 1.
+- **What it asked for:** one follow-up pull request on four points, and it noted a fifth for information.
+
+This entry corrects the design and Implemented entries for those points. Both stay as written.
+
+Decisions:
+1. **A stale Docker-gated pin.**
+   - tests/integration/private-agent-runtime.test.ts expected the four-key `servingCard` freeze record.
+   - Since 8.2b, `servingCardFreeze` records `localStreams` for every card, so an all-default card records `localStreams: 1`. The pin now expects it.
+   - That suite needs Docker and CI skips it, so this pull request fixes the expectation without running it. The unit test R7 pins the same fragment for an all-default card.
+2. **Stale docs and comments.** These still said nothing reads K, or that a card with K above 1 is refused, or gave the four-key record:
+   - docs/experiments/README.md: the adopted-cards bullet now names only admission as unconsumed. A new bullet says how K is read and what gates it. The run record names `localStreams`.
+   - README.md: the serving-card paragraph.
+   - scripts/private-agent-local-screen.ts: two comments, on the card loader and on the freeze fragment.
+   - src/main/private-agent/ordered-pool.ts: the module comment, which said the pool had no caller.
+   - Two test titles in tests/unit/serving-card-reader.test.ts: R4's consumed flags and R7's fragment.
+
+   Two dated records keep their lines, written before 8.2b merged:
+   - docs/experiments/e0-card-2026-11-13.md, which says the refusal lasts until 8.2b merges;
+   - docs/experiments/serving-card-2026-11-16.md, which says K above 1 waits for 8.2b's own decision.
+3. **Four gates had no test.**
+   - **The reader's upper bound on K.** K is consumed, so the schema's `max(MAX_LOCAL_STREAMS)` (8) is the only gate against a K above 8; the evidence gate alone would take a K = 9 with a proven burst. A new reader test loads K = 8, and refuses K = 9 with a proven burst as `serving_card_invalid`.
+   - **Each attempt's own values at K > 1, under a policy whose two attempts differ.** A new pipeline test sets:
+     - index and extract thinking to ["disabled", "model"], with a different cap per attempt;
+     - an extract flag on thinking off only;
+     - one repair each, for index batch 1 and extraction chunk 3.
+
+     At K = 1 and at K = 4, each first attempt sends its own cap with thinking off, and every first extraction attempt also sends the strict `research_extraction` format. Each repair sends its own cap with the model's thinking and no format. Files, stage rows, diagnostics and bodies are equal between K = 1 and K = 4.
+   - **The first-pass index launch's signal.** A new pipeline test refuses index batch 1 at K = 3 while batches 0 and 2 are held. Both held batches are aborted, and the stage records batch 1's denial.
+   - **The repair passes at K > 1.** A new pipeline test gives each repair pass two calls: index batches 0 and 1, and extraction chunks 0 and 1. At K = 4 one repair in each pass is refused at once while the other is held. The held repair is aborted, so each repair pass runs at K and on the pool's signals.
+4. **A flagged card at K above 1 is unmeasured.** Since #110 merged, the reader accepts a card with a structured-output flag and a K above 1. No probe has measured that combination: P10 sends its calls one at a time, and P11's bursts carry no `response_format`.
+   - **Decision.** It is recorded as unmeasured. ASSIST-S4's zero-fee owner run at K above 1 must be a research run whose card flags extract for its extraction calls' effective thinking mode, so that the extract row's `structuredOutputCalls` is above 0.
+     - Only extraction can send a format concurrently. Index has no schema, plan and synthesis run one call at a time, and the judge sends none.
+     - So a card flagged on plan alone would meet a looser rule without one concurrent flagged call.
+     - Until that run, the combination stays unmeasured and K > 1 stays `Implemented`. docs/experiments/README.md states the requirement.
+   - **Not proposed: a reader refusal of the combination.** A refusal is one fail-closed reader rule and needs no probe change. Only lifting it later would need a P11 burst that carries `response_format`, which changes the probe and the card's evidence under SC's contract. It is not proposed because:
+     - no adopted card sets K above 1, and E0's card of 2026-11-16 (BL-20261116-0939-e0-probes-serving-card) proposes one stream;
+     - ASSIST-S4 already gates any claim about K above 1;
+     - the run this decision requires is itself the measurement, and a refusal would block it until that probe change lands.
+
+     If the owner prefers the refusal, the orchestrator puts it to the owner.
+5. **For information: token admission at K > 1.** Under `flash_next_v1` local token admission (8.1), the broker awaits the admission (broker.ts:487) before it commits a row (broker.ts:535). So one loop's dispatch rows commit in the order its admissions finish, not in item order.
+   - No test runs K > 1 on that path. E0 ran the legacy path, and #110's tests use the legacy shape.
+   - It is recorded as a limitation, and ASSIST-S4's run states which path it ran.
+
+Changes:
+- tests/integration/private-agent-runtime.test.ts: the pin.
+- README.md, docs/experiments/README.md, scripts/private-agent-local-screen.ts and src/main/private-agent/ordered-pool.ts: text only.
+- tests/unit/serving-card-reader.test.ts: two titles and the K-bound test.
+- tests/unit/private-agent-research-pipeline.test.ts: three tests, for each attempt's values, the first-pass sibling abort and the repair passes.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **Mutation.** Eleven single-edit mutants, all killed by the new tests:
+  - the four the skeptic check found surviving: index repair thinking read from attempt 0, extraction repair thinking read from attempt 0, the index launch without its signal, and the extraction repair's format from attempt 0;
+  - the reader's bound removed;
+  - index or extraction repair cap read from attempt 0, which 7a.2's tests also kill;
+  - the four the light review found surviving: the index or extraction repair pass on the stage's signal, and either repair pass at a limit of 1.
+
+  The light review's own three further mutants were killed too: the bound off by one, `responseFormatFor`'s mode read from attempt 0, and the first-pass index launch on the stage's signal.
+- **The light review.** One reviewer ran it before the pull request opened. It found no blocker or major. This entry takes its four minors and three nits: the repair-pass gap, decision 4's narrower requirement and corrected reasons, the K bullet's caveat for a denial, and the wording.
+- **Checks**, on Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` (2e2d75c): exit 0, 707 entries, append-only.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - The affected test files (the reader, the pipeline and the build-log validator): 257 passed.
+  - `pnpm exec vitest run`: 192 files passed and 13 skipped; 3,857 tests passed, 86 skipped and 1 failed.
+    - The failure is the bounded-cost test of document-review-flags, whose python3 subprocess timed out under the suite's load (`spawnSync python3 ETIMEDOUT`).
+    - That file passes alone three times out of three (154 tests), and this branch changes none of its code.
+- **The hashes.**
+  - `researchProtocolSha256()` stays 7100b7a2….
+  - The harness source freeze moves from 04174684… on `main` (2e2d75c) to 4455ed4f…, through the comment changes in ordered-pool.ts and the driver.
+
+Failures or blockers:
+- The design and Implemented entries left the runtime pin, the docs and three comments stale. They also left the K bound and each attempt's values at K > 1 untested. The skeptic check's mutants found both.
+- This follow-up's first draft tested only the first pass. Its light review found the repair passes untested, with four mutants surviving, and the repair-pass test now kills them.
+
+Limitations and non-claims:
+- The Docker-gated runtime test was not run here.
+- No test runs K > 1 under `flash_next_v1` token admission, as decision 5 records.
+- K > 1 stays `Implemented` under ASSIST-S4, and a flagged card at K > 1 stays unmeasured until that run.
+- Every merge under src/main/private-agent changes the harness source-freeze digest, so no owner loop or E-run may span this one.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's merge, under the standing go-ahead.
+- ASSIST-S4's zero-fee run at K above 1, with a card that flags extract.
+
+References: BL-20261116-1213-local-fanout-design; BL-20261116-1214-local-fanout-implemented; BL-20261116-1216-correction-local-fanout-restamp; BL-20261114-1505-concurrent-local-admission-design; BL-20261116-1208-research-structured-output-design; BL-20261116-0939-e0-probes-serving-card.
+
+### BL-20261116-1356-e0-extractor-fixture-result -- 2026-11-16 -- E0's extractor fixture: all 120 first-attempt calls answered; 10 of 30 complete with the deployed call (thinking off at 2,048), none with thinking on at 2,048, and 8 and 10 of 30 with thinking on at 8,192 and 16,384
+
+Status: `Implemented`
+
+Scope or hypothesis: The extractor fixture of E0's card, run under Amendment 3 (BL-20261116-1132-e0-card-amendment-3, as BL-20261116-1159-correction-e0-amendment-3-pre-run-review corrects it). The card reads the extraction role's thinking policy and output cap from it, beside P10's extract cells. `Implemented` covers the run and its record. E0's `Verified` entry is still to come.
+
+Decisions:
+1. **The run is taken as E0's extractor measurement.** By Amendment 3's item 5 the row's outcome is `accepted`: the run finished, and all 120 calls came back with HTTP 200. None is classed `transport_failed`, `request_rejected` or `malformed_reply`, so no stream had to be read for a cut. `accepted` is no judgement of the extractor's results.
+2. **Readings for E0's `Verified` entry.** These are the orchestrating session's readings of the record, not decisions:
+   - **Pooled over the three chunks, the thinking-on cells did not complete more first attempts** than the deployed call: 8 and 10 of 30 at 8,192 and 16,384, against 10 of 30.
+     - By chunk the counts point both ways: on the notice 0 and 2 of 10 against 7, on the log 5 and 3 against 2, and on the report 3 and 5 against 1. These are counts of ten. The log's and the report's differences are 1 to 4 completions, and only the notice's, 7 and 5, are clearly more than ten repeats show by chance.
+     - The cells at 8,192 and 16,384 also send the Heavy profile's sampling and a larger cap, so this comparison does not separate thinking from either. The thinking-on cell at 2,048 keeps the cap and sends the sampling too.
+     - Their calls took 3.3 and 3.4 times as long in total: 1,082 s and 1,128 s, against 328 s.
+   - **Nothing here displaces the deployed call,** thinking off at 2,048 output tokens.
+     - Its cap did not bind on these chunks: no thinking-off reply used more than 1,645 completion tokens, and all thirty finished `stop`. Thinking off above 2,048 was not run.
+     - The deployed call completed 10 of 30 first attempts, so this is no finding that it is adequate.
+   - **Thinking on at 2,048 completed no first attempt on these chunks.** 28 of 30 replies were truncated at the cap, 24 of them with every token spent on reasoning and no content.
+   - **No measured gain from 16,384 over 8,192.** No thinking-on reply at either cap was truncated. The largest used 7,781 completion tokens, at 8,192, so that cap held only narrowly. With 30 calls a condition, 8 against 10 complete is no measured difference, and 3 of the 10 at 16,384 were kept only after a quote was dropped, against none of the 8 at 8,192.
+   - **Outside thinking on at 2,048, no first-attempt failure was a truncation at the output cap.** Every `invalid` reply broke the schema's size limit on a conflict note. The `needs_followup` and `held` replies asked for follow-up, or gave quotes the stage could not locate or accept. The fixture does not show what would make these replies complete.
+3. **Not measured,** as Amendment 3's item 3 lists. Lane S-pipe's pull request #125, merged as 7e75a47 at 13:55 UTC, adds a cell that sends `response_format`, the call a serving card's extract flag would turn on (docs/experiments/e0-extractor-fixture-v2.json). It states that the orchestrating session asked for it. Nothing has run under it: that cell runs only under a later amendment to the card.
+
+Changes: docs/experiments/registry.jsonl gains the row `e0-extractor-fixture-2026-11-16`, in batch `e0-2026-11-16`. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **Before the run:**
+  - **The amendment.** Its corrected text was committed in 70a75e4 at 11:59:16 UTC and pushed before the checks below.
+  - **The checkout.** At 11:59:41 UTC the main checkout was at fe0ceb0, which contains #116, with a clean tracked tree. Its research protocol pin read 7100b7a2….
+  - **The doctor.** `pnpm setup:general` ran read-only twice at fe0ceb0 and wrote nothing: at 11:40 UTC (decision 4 of BL-20261116-1159-correction-e0-amendment-3-pre-run-review), and again at 11:59:41 UTC, after the corrected text was pushed. Both times it reported the model listed and its one-token completion answered.
+  - **The dry run,** repeated after the doctor's second run at the same commit, sent nothing. It printed the manifest digest 4ae19cd4…, 120 calls, `streamed` true under all four conditions, and request settings with streaming on, no reply contract, the Heavy profile and the cache salt on.
+- **The run,** from 11:59:52 to 12:52:52 UTC, 53 minutes, at fe0ceb0. The checkout's head was unchanged at the end.
+  - Its summary records protocol hash 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 and manifest digest 4ae19cd4cef6906d170942da253bd9d6ebeecea3ed324cd120e4b51f7b6fdb11.
+  - Its four request-set digests equal the dry run's.
+  - 120 calls, all HTTP 200. 120 reply files were retained, each with mode 0600.
+- **By condition,** 30 first attempts each:
+  - `thinking-off` (deployed): 10 complete, 2 held, 12 needs_followup, 6 invalid. All finished `stop`.
+  - `thinking-on` at 2,048: 28 truncated, 2 invalid. The 28 finished `length`, and the 2 finished `stop`.
+  - `thinking-on-8192`: 8 complete, 8 needs_followup, 14 invalid. All finished `stop`.
+  - `thinking-on-16384`: 10 complete, 11 needs_followup, 9 invalid. All finished `stop`.
+- **By chunk, deployed call,** 10 each:
+  - the notice (1,745 bytes): 7 complete, 1 held, 1 needs_followup, 1 invalid;
+  - the log (62,694 bytes): 2 complete, 1 held, 7 needs_followup;
+  - the report (6,691 bytes): 1 complete, 4 needs_followup, 5 invalid.
+- **By chunk, thinking on at 8,192 and at 16,384,** complete of 10:
+  - the notice: 0 and 2;
+  - the log: 5 and 3;
+  - the report: 3 and 5.
+- **Reasons.**
+  - Every `invalid` reply carries `schema_too_big` on a conflict note, and no other code: 7 instances with thinking off, 2 at thinking-on 2,048, 17 at 8,192 and 9 at 16,384.
+  - The 31 `needs_followup` replies all carry `needs_followup`. Fifteen also carry `quote_not_located`: 3 with thinking off, and 6 each at 8,192 and 16,384. With thinking off, three also carry `evidence_found_without_quote`, two `quote_length` and one `no_verified_evidence_with_quote`.
+  - The two `held` replies both carry `quote_length` and `evidence_found_without_quote`, and one also carries `quote_not_located`.
+  - Six `complete` replies carry a reason, which the summary flags as `keptWithDrops`: 1 of the 10 with thinking off, 1 of the 8 at 8,192 and 4 of the 10 at 16,384.
+    - Four dropped one quote the stage could not locate (`quote_not_located`): the one with thinking off and three at 16,384.
+    - Two dropped nothing. In each, a question marked as without evidence was named by a located quote (`no_verified_evidence_with_quote`): one at 8,192 and one at 16,384.
+- **Reasoning tokens,** from each call's usage:
+  - `thinking-off`: 0 on all 30 calls.
+  - `thinking-on` at 2,048: 24 of the 28 truncated replies spent all 2,048 completion tokens on reasoning and returned no content. The other four spent 1,532 to 1,809 on reasoning and returned 941 to 1,997 bytes of content before the cap. The two `invalid` replies finished after 661 and 991 reasoning tokens.
+  - `thinking-on-8192`: 497 to 6,551 reasoning tokens, with a median of 2,848. 22 of 30 replies spent more than 2,048 on reasoning.
+  - `thinking-on-16384`: 977 to 6,406, with a median of about 2,660. 20 of 30 spent more than 2,048.
+- **Time and tokens.**
+  - The median call took 5 to 19 s with thinking off, by chunk. With thinking on at 8,192 it took 19 to 52 s, and at 16,384 it took 19 to 54 s.
+  - The calls of each condition took 328 s, 640 s, 1,082 s and 1,128 s in all, in the order above.
+  - Completion tokens per condition, in the same order: 24,352, 60,351, 116,537 and 121,074.
+  - The run used 2,232,100 prompt tokens in all.
+- **The row** was written by `scripts/registry-row.py --fixture-dir … --fixture extractor` in the main checkout at 2e2d75c, with the manifest's task and exposure: outcome `accepted`, verdict `agent_diagnostic`, 120 calls, USD 0, the classes above, and no text.
+  - It records the summary's sha256, 6813fadf427a053be0f4ea7c0846cdce213a0de399ef11417fe0f191a161336f.
+  - Its `git` is the commit the row was written at (`gitSource` `row_written`), not the run's fe0ceb0.
+  - A first row, written at fe0ceb0 right after the run, was not committed. Its lesson said thinking "did not raise completion", which the pre-commit review found too broad. The committed row differs from it only in `git` and `lesson`.
+  - The summary and the 120 replies stay under the git-ignored `.soar/` on the owner's Mac.
+- **The pre-commit review,** in two rounds, both read-only.
+  - Three reviewers recomputed this entry's figures from the run's summary, and skeptics checked the most serious findings. The Limitations bullet on reasoning and decision 2 were rewritten on their findings, and the times above are true medians.
+  - A re-check then recomputed the rewritten figures. It found decision 3's last sentence out of date, since pull request #125 had been opened by then, and five imprecise wordings. All were corrected before the commit, and the row's lesson was rewritten twice for the same reasons.
+
+Failures or blockers: None in the run.
+
+Limitations and non-claims:
+- **First attempts only.** The research stage repairs a failed chunk. The fixture does not, so its completion rates are not the stage's.
+- **Three synthetic chunks, ten repeats per cell.** A difference of two or three completions between cells is within what ten repeats can show by chance.
+- **The classes are the stage's acceptance checks.** The fixture holds no gold, so `complete` does not mean the extraction is right.
+- **Thinking on also changes sampling and, in two cells, the cap.** The thinking-on cells send the Heavy profile's sampling, and `thinking-off` sends none.
+- **Reasoning is recorded as token counts only.** Each call's usage reports reasoning tokens, which the Evidence gives. The summary keeps no reasoning byte count for a streamed reply, and the retained reasoning text was not read.
+- **No product claim.**
+
+Paid exposure: None. All 120 requests, and the doctor's two one-token completions, were zero-fee and went to the owned endpoint.
+
+Next gate: E0's `Verified` entry states the extraction role's thinking policy and output cap from this run, P10 and P11.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-extractor-fixture-v1.json; docs/experiments/e0-extractor-fixture-v2.json; scripts/extractor-fixture.ts; scripts/registry-row.py; BL-20261116-1132-e0-card-amendment-3; BL-20261116-1159-correction-e0-amendment-3-pre-run-review; BL-20261116-1123-e0-extractor-fixture-design; BL-20261116-1124-e0-extractor-fixture-implemented; BL-20261116-1125-correction-e0-extractor-fixture-review; BL-20261116-1127-correction-e0-extractor-fixture-restamp; BL-20261116-0939-e0-probes-serving-card; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0839-e0-registry-modes-design; BL-20261116-1208-research-structured-output-design; pull requests #116, #124 and #125.
+
+### BL-20261116-1357-e0-verified -- 2026-11-16 -- E0's runs verified: P1's identity fields equal the 2026-11-04 qualification's, with identical weights not shown; what each probe and fixture shows and does not show; the judge did not reach its level, and the settings for planning and synthesis are not settled
+
+Status: `Verified`
+
+Scope or hypothesis: This is the closing entry that E0's card asks for: "A `Verified` build-log entry for what ran, stating what each probe shows and does not show" (docs/experiments/e0-card-2026-11-13.md, "Records"). E0 ran on 2026-11-15 and 2026-11-16 from the owner's Mac against the owned endpoint, under the card and its Amendments 1 to 3.
+
+- **What `Verified` covers.** One thing: the thirteen rowed runs listed under Evidence happened as their entries record, on the revisions those entries name, and produced the measurements stated here.
+  - The doctor runs, the dry runs and the three free requests to the labeller's host are listed as their entries record them. They left no record a reviewer could recompute.
+  - It does not cover the card's hypothesis, product quality, the adoption of the serving card, or any decision the card leaves to the owner.
+- **What it rests on.** Reviewers with read-only access recomputed the run entries' figures from the runs' own records, with one exception below:
+  - the r3 runs (BL-20261116-0838-correction-e0-amendment-1-review);
+  - probe run 3 and the serving card's JSON (BL-20261116-1017-correction-e0-probes-serving-card-review);
+  - the labelling and the planner and judge fixtures (BL-20261116-1048-correction-e0-records-final-review);
+  - the extractor fixture, in the pre-commit review of this entry and of BL-20261116-1356-e0-extractor-fixture-result.
+  - **The exception.** One figure was not recomputed and is the session's own read: that the planner fixture's six `malformed_reply` calls finished `length` at 8,192 completion tokens with no content (Evidence of BL-20261116-1019-e0-planner-fixture-result). The run's summary holds no finish reason or usage for those six calls, and no reviewer read the retained replies (BL-20261116-1048-correction-e0-records-final-review; BL-20261116-1050-correction-e0-planner-fixture-null-content-review).
+- **Who ran it.** The orchestrating session ran every step on the owner's Mac, under the owner's direction of 2026-11-15 (BL-20261115-1937-owner-adopts-standing-defaults). Issue #57 calls the run the owner's work. The readings in the Decisions are the session's, not the owner's. The measurements are the probe's, the fixtures' and the row writer's records.
+- **How the Decisions map to the card.** Decisions 1 to 8 apply the eight bullets of the card's "Decision rule", and decision 9 applies the adoption sentence of its "Records". Where an outcome is the owner's call, the decision says so and decides nothing.
+- **The card's hypothesis** has two parts, and neither is confirmed in full.
+  - **"A single probe run, plus the role fixtures, re-derives every stage bound and clock and settles five things."** The runs settle one by the card's rule: the 2026-11-04 figures stay admissible (decision 1). They do not re-derive every bound (decision 2). The other four come out only as far as the evidence goes: the thinking policy is unchanged for extraction and not settled for planning and synthesis (decision 3), structured output is a proposal measured on synthetic input (decision 4), the adapter probe did not discriminate (decision 5), and K is the writer's 1 (decision 6).
+  - **"The endpoint the owner now serves can carry SOAR's local volume work at zero fee."** Every local request was zero-fee. The card sets no pass level for the volume work, and this entry gives no verdict on it. Decision 8 lists what the runs found.
+
+Decisions:
+1. **Whether the 2026-11-04 figures apply: by the card's rule they stay admissible.**
+   - **The rule** (the card's item 1). If P1 and the writer's `--compare-*` rows match the 2026-11-04 qualification, its figures stay admissible. If any row differs, none of them apply and E0 re-derives every bound.
+   - **The result.** P1's four fields equal the 2026-11-04 record: the served alias, the model root basename, the engine version and the context of 262,144 tokens. The card's three compare rows all read "yes". So the re-derive branch is not triggered.
+   - **What the match shows.** Four identity fields are equal. It does not show identical weights. That the endpoint serves the same model is the owner's answer of 2026-11-13 (BL-20261113-1003-e0-card-owner-answers), not a probe result.
+   - **What the match is worth for bounds.** A read-only pass found no stage bound, clock, cap, K or admission setting in the code that rests on a 2026-11-04 figure. The bounds the app applies are code constants, and the Heavy timeout's own comment cites the 947 s cut of the 2026-09-28 card.
+   - **The handoff's done condition is not met as worded.** It asks for every stage bound to be re-derived from the serving card or, for the delta check, matched to 2026-11-04. Identity is what matched, no stage bound had a 2026-11-04 figure to be matched with, and decision 2 lists the bounds the card does not derive. This entry does not call that condition met. The handoff restatement says which reading it takes.
+   - **One rate reads lower today.** The 2026-11-04 qualification recorded a combined decode rate of about 154 tokens per second over two of its own fixtures. Today's single-stream rates are 81.1 to 144.5.
+     - They were measured on other prompts, on the legacy path, and with speculative decoding active, whose state on 2026-11-04 is not recorded. The 2026-11-04 fixtures were not re-sent, so the two are not a like-for-like pair.
+     - The card states no tolerance for a behaviour figure, and its rule keys on P1 and the compare rows only. This entry records the gap and does not treat it as a difference under the rule.
+2. **Stage bounds and clocks.** The serving card derives a ceiling for each of four research roles: index, plan, extract and synthesis.
+   - **Each of the four caps is below its derived ceiling.**
+     - The caps are the code's: 1,536 tokens for index, 8,192 for plan, 2,048 for extract and 8,192 for synthesis.
+     - The ceilings assume a prompt of 20,000 tokens for index and extract and 60,000 for plan and synthesis, and thinking-off decode rates. They are 28,001 and 27,830 tokens under the 300 s clock, and 85,067 and 86,816 under the 900 s clock, in that order.
+   - **Fitting the clock is not being large enough.** Plan and synthesis think, and the ceilings use thinking-off rates. The longest P10 reply ran at about 48 tokens per second, half the rate its ceiling assumes. On a real index, 8 of 20 thinking-on plan replies reached the planner's cap (decision 3).
+   - **The extraction cap, from the extractor fixture** (Amendment 3, item 3). No thinking-off first attempt reached the 2,048-token cap: the largest used 1,645 tokens, and all thirty finished `stop`. So the cap did not bind on these chunks. Thinking off above 2,048 was not run.
+   - **The ceilings are informational.** No code reads them, and the caps and clocks stay the code's constants.
+   - **Not derived:** the writer's, judge's, critique's and repair's caps; the index and extraction call ceilings; and K at extraction-size prompts. So the review's "every stage bound and clock" is not met in full.
+3. **Thinking policy for each role.**
+   - **Extraction: no change from the deployed call, thinking off at 2,048 tokens.** No measured alternative completed more first attempts overall. That is not a finding that the deployed call is adequate: it completed 10 of 30 first attempts, and four of five r3 runs ended on extraction.
+     - **Pooled over the fixture's three chunks,** the thinking-on cells did not complete more first attempts: 10 of 30 with thinking off, against 8 and 10 of 30 with thinking on at 8,192 and 16,384.
+     - **By chunk the counts point both ways:** the notice 7 of 10 against 0 and 2, the log 2 against 5 and 3, and the report 1 against 3 and 5. These are counts of ten, and only the notice's differences are clearly more than ten repeats show by chance.
+     - **Thinking is not isolated.** The cells at 8,192 and 16,384 also send the Heavy profile's sampling and a larger cap, so this comparison does not separate thinking from either.
+     - **At 2,048,** 28 of 30 thinking-on replies were truncated at the cap, 24 of them with every token spent on reasoning.
+     - **P10's extract cells** show the same failure on a smaller scale. Sent with `response_format` on the export's two short sources, 18 of 20 were valid with thinking on, both failures spending all 2,048 tokens on reasoning, and 20 of 20 with thinking off. P10 counts a schema-valid reply and the fixture counts the stage's first-attempt class, on different input, so the two rates are not compared. Both inputs are synthetic.
+     - **P11,** which the card also names as a source, sent every request with thinking off. It bears on no role's thinking policy.
+   - **Planning: not settled.**
+     - **Without `response_format`, on the real r3 index,** the planner fixture's two thinking-on conditions gave 11 of 20 valid plans: 6 of 10 in the legacy shape and 5 of 10 in the `flash_next_v1` shape. 8 of those 20 replies reached the 8,192-token cap, and 6 of them had no content.
+     - **What the legacy condition is.** It carries the pipeline's planner messages and thinking fields as they are today. The fixture sent it non-streaming and without a cache salt, where the pipeline's own call streams and carries one (Amendment 1, item 6).
+     - **With thinking off,** 1 of 10 was valid. So without `response_format`, turning thinking off is not a fix, and with thinking on the cap is too tight for an r3-sized index for that request.
+     - **In the r3 runs,** at d92a3af, the planner's first reply was truncated with no content in 5 of 5 runs, against 3 of 10 legacy-thinking replies in the fixture. BL-20261116-1019-e0-planner-fixture-result does not explain the difference.
+     - **With `response_format`,** the planner is measured only on P10's small synthetic input: 20 of 20 valid with thinking on, and 20 of 20 with thinking off. `response_format` does not rule the cap failure out: in probe run 1, which is not card evidence, one thinking-on plan reply sent with it spent all 8,192 tokens on reasoning (BL-20261116-1017-correction-e0-probes-serving-card-review).
+     - **The measurement on the real index is not made yet.** Lane S-pipe's pull request #125, merged as 7e75a47 at 13:55 UTC, adds planner cells that send `response_format`. They run only under a later amendment to the card.
+     - **Whether to adopt the planner's settings before that measurement** is the owner's call.
+   - **Synthesis: not settled.**
+     - P10 gave 17 of 20 valid with thinking on and 19 of 20 with thinking off, on synthetic input. Its four failures ran to the cap with content, not reasoning, and the card does not show why.
+     - No fixture measured synthesis on a real packet. In run-5, the one r3 run that reached synthesis, the stage fell back to its skeleton after 2 calls (BL-20261116-0813-e0-r3-runs-index-and-harvest). That entry does not say why.
+   - **Index:** no P10 cell exists, since the role has no JSON schema. E0 measured nothing about its thinking.
+4. **Structured output for each role.**
+   - **The proposal.** By the 95% rule on the strict variant, the card writer proposes structured output for plan (thinking on and off), for extract (thinking off) and for synthesis (thinking off).
+   - **What it would turn on.** The pipeline's plan and synthesis calls think, and its extraction calls do not. So under the card as written, both plan attempts and every extraction call would carry `response_format`, and no synthesis call would.
+   - **What it is not.** It is a proposal measured on synthetic input. E0 did not measure structured output on a real index or on the fixture's chunks.
+5. **The adapter path: not settled by the probe; legacy stays.**
+   - **The probe.** It found a few synthetic replies consistent with both the legacy shape and `flash_next_v1`. So it did not discriminate, and the card's rule yields no choice.
+   - **What E0 ran.** Every E0 run was configured with no reply contract, which is the legacy shape. One fixture condition sent the other request shape: the planner fixture's `flash-thinking`, ten calls in the `flash_next_v1` body.
+   - **Whose choice.** The legacy configuration is the orchestrating session's procedural choice (decision 4 of BL-20261115-1937-owner-adopts-standing-defaults), which the owner may replace.
+   - **What replacing it costs.** A run under `flash_next_v1` could not use this card's flags: the reader refuses a card whose flags were measured under other request settings. So keeping the flags after replacing the contract means a new export, a new run of all twelve probes and a new card.
+6. **K stays 1.**
+   - **What was measured.** P11's bursts had zero errors at K of 1, 2, 4 and 8, on a one-sentence prompt. E0 did not measure K at extraction-size prompts.
+   - **The proposal.** The writer proposes K = 1.
+   - **What the reader accepts.** Since 8.2b (#110) merged, the reader accepts an adopted K above 1, up to 8, only with a zero-error P11 burst at that K. This card's bursts would let an adopted card carry K of 2, 4 or 8, on the evidence of a one-sentence prompt only.
+   - **Not measured together.** No probe sent a body with `response_format` at K above 1: P10 sends its calls one at a time, and P11's bursts carry no `response_format`.
+   - **Any K above 1 is the owner's decision.**
+7. **The judge threshold does not apply: the judge did not reach item 2's level.**
+   - **The result.** The judge agreed exactly with the labels on 38 of 60 claims, 63.3%, against the owner's 95%.
+   - **What follows, by the card's rule.** Criterion 8's judge threshold does not apply in E3 and E4, and criterion 3's does not apply in E4. The judge stays evidence-only.
+   - **What stays the owner's.** Under the stop list, cloud claim verification is reconsidered. That reconsideration is the owner's, with E3's and E4's cards.
+8. **Serving-recipe work.** The card says it stays stopped unless E0 shows a role-level gap. No source defines that term, and this entry does not decide whether E0 shows one. Until the owner says it does, the work stays stopped. The findings the owner may weigh, by role:
+   - **the planner:** its replies at its cap (decision 3), and a first reply truncated with no content in all five r3 runs, with the host plan used in two;
+   - **extraction:** 1 of 5 r3 runs reached `research_packet_ready`, and the other four ended `research_extraction_incomplete` with 1, 2, 4 and 2 of 24 chunks not completed after repairs. In the fixture, first attempts completed in 10, 0, 8 and 10 of 30 calls under its four conditions;
+   - **synthesis:** P10's four replies that ran to the cap with content (decision 3), and the skeleton fallback after 2 calls in the one r3 run that reached synthesis;
+   - **the judge:** 63.3% exact agreement against 95% (decision 7);
+   - **the server:** no prefix-cache reuse on the one pair of consecutive requests sent on each extraction layout.
+9. **The serving card stays `proposed`.**
+   - **Adoption is not part of this entry.** It is a later reviewed commit, made once this entry's ID is final on `main`. After it, the owner pins the adopted file in the ignored local configuration.
+   - **Adoption alone changes no run.** Only the headless driver and the doctor read a card, and only once the owner's pin is set.
+   - **What the reader then does.** Since #108 it resolves the card as written, provided the configured alias equals the card's and the run uses the settings P10 recorded: streaming on, no reply contract and the cache salt on. Under other settings it refuses the card while a flag stays (`serving_card_p10_settings_drift`), and the run does not start.
+   - **What the pipeline then sends.** Decision 4's flags, under a research protocol hash other than 7100b7a2…, the one E0's fixtures ran under.
+   - **The caps the flags hold.** The reader refuses a plan cap other than the 8,192 tokens P10 measured while plan's thinking-on flag stays, and an extract cap other than 2,048 while extract's flag stays (BL-20261116-1210-correction-research-structured-output-review).
+   - **Whether to adopt as written** is the owner's call.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The runs,** each with its entry, the revision and tree state that entry records, and its registry row:
+  - **The doctor,** four times. Each sent one one-token completion to the owned endpoint. No row, since it is a setup check. No entry states the tree for the first three runs, nor the revision for the one at 08:29:54 UTC.
+    - On 2026-11-15 at 19:12 UTC at d92a3af, before the r3 runs (BL-20261115-1937-owner-adopts-standing-defaults).
+    - On 2026-11-16 at 08:29:54 UTC, after probe run 1 (BL-20261116-0939-e0-probes-serving-card).
+    - At 11:40 UTC and at 11:59:41 UTC at fe0ceb0, before the extractor fixture (BL-20261116-1159-correction-e0-amendment-3-pre-run-review and BL-20261116-1356-e0-extractor-fixture-result).
+  - **Five r3 research runs,** at d92a3af with a clean tracked tree: BL-20261116-0813-e0-r3-runs-index-and-harvest, as BL-20261116-0838-correction-e0-amendment-1-review corrects it. Five rows. The card asked for one run, and that entry's decision 1 says why there were five.
+  - **P1 alone, the export, three runs of all twelve probes and the assessment,** in the main checkout while its head was b487f75: BL-20261116-0939-e0-probes-serving-card, as BL-20261116-1017-correction-e0-probes-serving-card-review and BL-20261116-1048-correction-e0-records-final-review correct it. Four rows: P1 alone and the three runs.
+    - No retained record states the tree for this window (decision 5 of BL-20261116-1017-correction-e0-probes-serving-card-review).
+    - Runs 1 and 2 are `infra_invalid` and are not used. Run 3 is the serving card's evidence.
+    - Run 3 ran with the proxy bypassed in the probe's environment, so its client connected directly. P1 alone and runs 1 and 2 went through this Mac's loopback proxy. That the proxy caused the two failures is an inference, not shown (decision 4 of the same correction).
+    - The card writer ran after the assessment. The review recomputed the card's JSON from run 3's record and found it byte-identical.
+  - **The judge's labelling,** the one paid step, at a355074 with a clean tracked tree: BL-20261116-1013-e0-judge-labelling-and-pin, as BL-20261116-1048-correction-e0-records-final-review corrects it. One row.
+  - **The planner fixture,** at a355074 with a clean tracked tree: BL-20261116-1019-e0-planner-fixture-result, as the same correction corrects it. One row.
+  - **The judge fixture,** at a355074 with a clean tracked tree, reading the manifest's blob from a89c0bd: BL-20261116-1020-e0-judge-fixture-result, as the same correction corrects it. One row, `rejected`.
+  - **The extractor fixture,** at fe0ceb0 with a clean tracked tree: BL-20261116-1356-e0-extractor-fixture-result. One row.
+  - **Dry runs.** The labelling and each fixture ran `--dry-run` first, as Amendments 1 to 3 require. Each sent nothing.
+  - **Not rowed:** the doctor runs, the dry runs, the export, the assessment, the card writer, the harvest, and three free requests to the labeller's API host that carried no claim (see Paid exposure).
+- **The stop rule.** None of the card's stop conditions triggered.
+  - **Before any request.** The probe's zero-fee guard did not refuse: all four probe records carry the cost policy `local_zero_cost`, with no key configured (decision 6 of BL-20261116-1017-correction-e0-probes-serving-card-review). The planner manifest was pinned on `main` in #118 before its run (decision 2 of BL-20261116-0814-e0-card-amendment-1), and the fixture ran with it (BL-20261116-1019-e0-planner-fixture-result).
+  - **After P1.** P1 alone listed the configured alias, checked by hand, so the run went on (BL-20261116-0814-e0-card-amendment-1).
+  - **Between the export and the assessment.** #115 and #118 merged inside that window. Neither touches `src/`, so neither changes `researchProtocolSha256()` (decision 8 of the 1017 correction).
+  - **Before committing.** The card writer accepted the alias, and a scan of both card files found no address (BL-20261116-0939-e0-probes-serving-card).
+  - **Outside the rule.** Probe runs 1 and 2 failed at transport, which the rule does not cover. The session ran all twelve probes again each time, since a card covers exactly one invocation (Amendment 1, item 2).
+  - **The budget.** The card allows two days and USD 0 for the run. E0 took two days and USD 0 for its runs, and USD 0.067876 of the labelling's separate USD 1.00.
+- **The records the card asks for:**
+  - **The serving card,** docs/experiments/serving-card-2026-11-16.md and .json, both `proposed`, written with the three compare flags.
+  - **The manifests.** The planner's was pinned in #118 before its run, and the judge's in a89c0bd before its run. The extractor's came pinned with #116.
+  - **Thirteen registry rows,** under two batch names that both belong to this card: `e0-2026-11-15` on the five r3 rows, and `e0-2026-11-16` on the other eight.
+  - **The rows' `git`.** The r3 rows record the run's commit. The other eight record the commit the row was written at (`gitSource` `row_written`): a89c0bd on the probe and judge-fixture rows, c6da620 on the labelling and planner rows, and 2e2d75c on the extractor row. The runs' own revisions are the ones under "The runs".
+  - **The raw records are not committed.** The probe records and P10's retained replies, the fixtures' summaries and retained replies, the r3 runs' records, and the judge's claim set, labels, reply and summary stay under the git-ignored `.soar/` on the owner's Mac. Each probe, fixture and labelling row carries its record's sha256, and the card's JSON carries run 3's.
+- **What each probe shows and does not show,** from run 3 (docs/experiments/serving-card-2026-11-16.md):
+  - **P1.** The endpoint lists one model, with the alias, root basename, context and engine version of 2026-11-04. It does not show identical weights or the launch configuration.
+  - **P2.** Thinking switches on and off: each of the four effort settings produced reasoning, 760 to 834 tokens, and thinking disabled produced none. Decode ran at 121.1 to 144.5 tokens per second on its short puzzle. Reasoning did not grow with effort (834 tokens at low, 760 at medium and 833 at xhigh, one call each), so P2 does not show that a higher effort buys more reasoning. It does not show reasoning length on real prompts.
+  - **P3.** Single-stream decode was 83.2 tokens per second on prose and 143.8 on code. On a 47,330-token prompt, prefill ran at about 3,551 tokens per second. It does not show a cause for the spread between prompts.
+  - **P4.** An identical long prompt reused 44,800 cached tokens. It does not show reuse between different requests.
+  - **P5.** One tool call returned an 11,124-byte payload byte-exact. It does not show tool behaviour over a multi-turn run.
+  - **P6.** After an abort at 4.0 s the server showed no running request, and the next request's first token came in 0.19 s. It does not show an abort under load.
+  - **P7.** Two concurrent streams decoded at 71.6 and 70.6 tokens per second, against 81.1 alone, on one short prompt. It does not show more than two streams, or long prompts.
+  - **P8.** One non-streaming request produced 20,000 tokens in 137.8 s. It ended inside the 300 s clock, so it does not test a request that outlasts either clock, nor the 947 s remote cut that the Heavy timeout's comment cites.
+  - **P9.** A one-word prompt with `max_tokens` set to the whole 262,144-token window was answered with HTTP 200 in 0.3 s, not rejected with 400.
+    - So this server did not reject a request whose prompt plus `max_tokens` exceeded the window.
+    - It does not show whether the server lowered the limit, or what happens when a reply's tokens reach the window.
+    - The 2026-09-28 card recorded a clean 400 for this probe, on another model and engine version. So a rejection by the server cannot be counted on here.
+  - **P10.** The server accepts `response_format` for all three roles, strict and non-strict.
+    - Valid replies per cell, of 20, on the strict variant: plan 20 with thinking on and 20 with it off; extract 18 and 20; synthesis 17 and 19. The non-strict variant was tested for acceptance only, so it has no validity rate.
+    - The 95% rule's conditions held: 20 calls per cell, assessed under the protocol hash the export sent, 7100b7a2…, with the strict variant run and no unassessed reply.
+    - Every failure was a truncation at the output cap.
+    - It was measured on the role export's synthetic input of two short sources. It does not show validity on a real index or packet.
+  - **P11.**
+    - Prefill ran at about 3,474 to 3,576 tokens per second up to 119,980 prompt tokens.
+    - Neither extraction layout reused cached tokens between two consecutive requests: 0 of 14,356 and 0 of 14,358 prompt tokens on the second. The two requests of a layout share the system prompt and the packet, differ in chunk, and carry one `cache_salt`. P4's repeat was an identical prompt. So P11 does not show why reuse was zero, nor which of those differences accounts for it.
+    - Bursts of 1, 2, 4 and 8 streams had no errors, with aggregate decode of 84.5, 141.4, 158.3 and 295.9 tokens per second.
+    - The bursts used a one-sentence prompt, so P11 does not show K at extraction-size prompts.
+  - **The adapter probe.** `/tokenize` matched the reply's prompt-token count on a 19-token prompt. Reasoning arrives in the `reasoning` field, and none leaks with thinking off. The card records `preserve_thinking` and `cache_salt` as accepted; the probe does not show what either field does. The few synthetic replies were consistent with both reply shapes, which does not establish either contract.
+- **What each fixture shows and does not show:**
+  - **The r3 runs.** The pipeline at d92a3af completed the research stage in 1 of 5 runs on r3. They do not give a completion rate under the current protocol, since #102 merged after them.
+  - **The planner fixture.** It shows decision 3's planner figures for the pipeline's planner messages and thinking fields, in the legacy and `flash_next_v1` shapes, on run-5's index, sent non-streaming and without a cache salt. It does not show the planner with `response_format`, nor the streamed, salted call the pipeline makes.
+  - **The judge fixture.** It shows agreement with one cloud labeller's labels on 60 claims, of which 20 are planted negatives. It does not show agreement with ground truth. With one condition and one repeat, it shows no consistency between repeats.
+  - **The extractor fixture.** It shows first-attempt classes on three synthetic chunks under four conditions: thinking off at 2,048 tokens, and thinking on at 2,048, 8,192 and 16,384. It does not show repairs, extraction quality against gold, or `response_format`.
+- **The delta check.** A read-only pass over the 2026-11-04 entries (BL-20261104-0701-new-endpoint-metadata-and-deployment-drift, BL-20261104-1319-api-only-target-and-new-window-approved, BL-20261104-1358-api-only-native-preflight-accepted-candidate-released and BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused) found:
+  - the identity values and the OpenAPI schema digest equal today's;
+  - the decode rate lower today, as decision 1 says;
+  - no figure for prefill, concurrency, a long non-streaming request or speculative decoding to compare with.
+- **What the reader does with the card.** A read-only skeptic check of #108's final head called the reader offline, with fake models and no endpoint, on a scratch copy of the card edited as adoption would edit it. Under P10's recorded settings and the card's own alias it resolved, and it gave decision 4's and decision 9's behaviour. Its report is not a retained record; the reader's code on `main` is the durable source.
+- **The pre-commit review of this entry,** in two rounds, both read-only.
+  - Three reviewers checked its figures, its claims against their sources, and its completeness, and skeptics checked the most serious findings. The title, the Scope, decisions 1 to 3 and 5 to 9, the probe list, the run list, Failures or blockers, Limitations, Paid exposure and the Next gate were rewritten on their findings.
+  - A second check of the rewrite followed. It found no blocker or major issue, and its minor findings were applied before this entry was committed.
+
+Failures or blockers:
+- **Probe runs 1 and 2** failed at transport partway and are not used.
+- **Four of five r3 runs** ended `research_extraction_incomplete`, and the planner's first reply was truncated with no content in all five.
+- **The judge** did not reach its level.
+- **The serving card's first hand-written conclusions** carried two major errors. The review caught them before the card reached `main` (BL-20261116-1017-correction-e0-probes-serving-card-review).
+- **The first cloud key check** was rejected with HTTP 401, before anything else was sent. The owner replaced the key (BL-20261116-1013-e0-judge-labelling-and-pin).
+- **Two departures from what was pre-registered,** both recorded: the price recheck followed the labelling instead of preceding it (decision 3 of BL-20261116-1018-correction-e0-amendment-2-review), and the judge fixture's command added `--manifest` without an amendment (decision 3 of BL-20261116-1048-correction-e0-records-final-review).
+
+None of these blocks this entry. Each is recorded as a result.
+
+Limitations and non-claims:
+- **One endpoint, two days, one accepted run of all twelve probes.** The latencies and rates are one-shot measurements.
+- **Small and synthetic inputs.** P10 and the extractor fixture use synthetic input. The planner fixture and the r3 runs use one task. The judge's labels are one cloud model's.
+- **Not shown,** as the card lists: product quality, identical weights, K at extraction-size prompts, and anything about a cloud route.
+- **Also not shown:**
+  - the decoding configuration, which no identity check covers. Speculative decoding was active during run 3;
+  - exact native-token admission, which the 2026-11-04 qualification ran with (BL-20261104-1358-api-only-native-preflight-accepted-candidate-released). E0 ran the legacy shape with no token admission, and sent the `flash_next_v1` request shape only in the planner fixture's `flash-thinking` condition;
+  - the planner and the extractor with `response_format` on real-shaped input;
+  - synthesis on a real packet, beyond run-5's skeleton fallback.
+- **Tree state of the probe runs.** No retained record states it. The entries of the r3 runs, the labelling and the three fixtures record a clean tracked tree.
+- **What E0 leaves to later cards:**
+  - **E2 (#62)** looks to E0's serving card for the writer's output budget and thinking policy. The card gives neither: its bounds table has no writer row, and no probe or fixture measured the writer.
+  - **E6 (#54)** likewise gets no output cap for the document-review writer.
+  - **E3 (#63)** takes the per-role bounds and thinking policy from E0's card. Today those are the code's defaults for the four research roles (decision 2), with planning and synthesis not settled (decision 3) and K at 1 (decision 6).
+  - **E3 and E4** run without the judge's thresholds (decision 7).
+- **Two records left as written.** The E0 card's status line still says the r3 index is owed; the card changes only by amendment. No E0 run entry records the pnpm version of the main checkout, or the frozen-lockfile install, that issue #57's checklist asks for.
+- **The serving card is not adopted.** Nothing in the app reads it yet.
+- **Decisions 3 to 9 leave calls to the owner.** This entry makes none of them.
+
+Paid exposure: USD 0.067876 in all for E0: the judge's labelling, one request, as its tool computes it at its price constants, against a projection of USD 0.476585.
+- **The line and the cap.** It is charged to PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)", inside the labelling's USD 1.00 cap (BL-20261113-1003-e0-card-owner-answers).
+- **What is not visible.** The provider's bill is not visible to the tool, and the price recheck followed the run (decision 3 of BL-20261116-1018-correction-e0-amendment-2-review).
+- **What left the Mac.** That request's body, 63,658 bytes of public or synthetic material, is the only request body E0 sent to a cloud provider. Three free requests to the same host carried no claim: two key checks, the first rejected, and one read of its model list.
+- **Everything else.** Every other model request of E0 was zero-fee and addressed to the owned endpoint. By their rows: 251 model calls and 40 entailment calls in the r3 runs, which are the 291 dispatches BL-20261116-0813-e0-r3-runs-index-and-harvest records; 171 in each of the three full probe runs; and 30, 60 and 120 in the planner, judge and extractor fixtures. The four doctor runs each sent one one-token completion and have no row. P1 alone made no model call. P1 alone and probe runs 1 and 2 went through this Mac's loopback proxy, whose onward route is not shown (decision 6 of BL-20261116-1017-correction-e0-probes-serving-card-review).
+
+Next gate:
+1. **This pull request merges,** once its light review is clean and CI is green, under the owner's merge go of 2026-11-16 for E0 record pull requests (decision 3 of BL-20261116-0814-e0-card-amendment-1). This entry's ID is final only once it is on `main`.
+2. **Issue #57's resolution,** posted after step 1. It records this pull request's link, with #118, #120, #121 and #124, which hold the rest of E0's records; the serving card's path; and the facts its body lists, from decisions 1 to 7.
+3. **A handoff restatement.** It does not wait for the steps below. docs/HANDOFF.md "Start here" still gives E0 as the next step, the protocol hash as 505c385a…, and no paid run since 2026-11-07.
+4. **The owner's calls on the card:**
+   - the planner's settings when the card is adopted, put to the owner on 2026-11-16 and not answered at that entry's time (decision 5 of BL-20261116-1131-owner-directions-merge-and-continue);
+   - whether adoption waits for the two measurements of step 5, and whether the card is adopted as written. No entry records either as put to the owner yet.
+5. **The two measurements with `response_format`:** the planner's request on run-5's index, and the extraction request on the fixture's chunks.
+   - Lane S-pipe's pull request #125, now merged, adds their cells.
+   - An amendment to E0's card names the commands, the manifests' digests, what the card reads from them and the rows' outcome rule, before either runs.
+   - Each runs its dry run first, and gets its row and its result entry. This entry is not rewritten: a later entry records those results.
+6. **The adoption commit,** in its own reviewed pull request, after steps 1 and 4. It merges on the owner's own go. Then the owner sets `SOAR_SERVING_CARD_FILE` and `SOAR_SERVING_CARD_SHA256` in the ignored local configuration, and `pnpm setup:general` compares the card with the endpoint.
+7. **Decisions 7 and 8** go to the owner with E3's and E4's cards: cloud claim verification, and whether E0 shows a role-level gap.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/serving-card-2026-11-16.md; docs/experiments/serving-card-2026-11-16.json; docs/experiments/serving-card-2026-09-28.md; docs/experiments/README.md; docs/experiments/e0-planner-fixture-v1.json; docs/experiments/e0-judge-fixture-v1.json; docs/experiments/e0-extractor-fixture-v1.json; docs/HANDOFF.md "Start here" §5; docs/PLAN.md §4; docs/PROJECT_REVIEW_2026-11-05.md §5.6, §5.8 and §5.10; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261104-1319-api-only-target-and-new-window-approved; BL-20261104-1358-api-only-native-preflight-accepted-candidate-released; BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0838-correction-e0-amendment-1-review; BL-20261116-0939-e0-probes-serving-card; BL-20261116-0941-e0-card-amendment-2; BL-20261116-1013-e0-judge-labelling-and-pin; BL-20261116-1017-correction-e0-probes-serving-card-review; BL-20261116-1018-correction-e0-amendment-2-review; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1020-e0-judge-fixture-result; BL-20261116-1048-correction-e0-records-final-review; BL-20261116-1050-correction-e0-planner-fixture-null-content-review; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-1132-e0-card-amendment-3; BL-20261116-1159-correction-e0-amendment-3-pre-run-review; BL-20261116-1210-correction-research-structured-output-review; BL-20261116-1214-local-fanout-implemented; BL-20261116-1356-e0-extractor-fixture-result; pull requests #102, #108, #110, #115, #116, #118, #120, #121, #124 and #125; issues #54, #57, #62 and #63.
+
 ### BL-20261116-1327-run-row-card-and-doctor-sources-design -- 2026-11-16 -- A run's registry row records its research protocol hash, the serving card the driver loaded and its K; the doctor checks a card from the settings the headless driver reads
 
 Status: `Proposed`

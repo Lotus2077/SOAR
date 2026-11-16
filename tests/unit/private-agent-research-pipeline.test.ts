@@ -1687,4 +1687,53 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
     expect(zeroRisk({ longContext: { aboveTokens: 1000, inputUsdPerMillion: 0, outputUsdPerMillion: 2 } })).toBe(false);
     expect(zeroRiskDispatch.mock.calls.map(([input]) => input)).toContainEqual({ destinationId: "owned", maxFeeMicrousd: 0, method: "POST" });
   });
+
+  it("sends each attempt its own cap, thinking and format at K = 4 as at K = 1, repairs included, under a policy whose two attempts differ (#110's skeptic check)", async () => {
+    // Index and extract think on their repair only, with another cap per attempt; extract's flag is for thinking off, so only its first attempts carry the format.
+    const roles = rolePolicy(r => { r.index.maxOutputTokens = [1024, 1536]; r.index.thinking = ["disabled", "model"];
+      r.extract.maxOutputTokens = [1024, 2048]; r.extract.thinking = ["disabled", "model"]; r.extract.structuredOutput = { variant: "strict", thinkingOff: true, thinkingOn: false }; });
+    // Index batch 1 lists titles only and extraction chunk 3 replies invalid JSON: one repair each, launched after its stage's initial calls.
+    const script: Script = (stage, input, n, system) => stage === "index" && n === 1 ? JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) })
+      : stage === "extract" && n === 3 ? "bad JSON" : happy(stage, input, n, system);
+    const one = fanned(script, reversed), four = fanned(script, reversed);
+    const serial = await observe(one, { roles }), fannedOut = await observe(four, { roles, localStreams: 4 });
+    expect(serial.outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    for (const key of ["files", "events", "retained", "bodies"] as const) expect(fannedOut[key]).toEqual(serial[key]);
+    expect(four.peak).toMatchObject({ index: 3, extract: 4 });
+    /** A stage's calls in launch order: the cap, the thinking fields as the 7a.2 tests read them, and the format's name and strictness. */
+    const attempts = (m: ReturnType<typeof fanned>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => { const body = JSON.parse(c.body);
+      return [body.max_tokens, body.reasoning_effort ?? "off", body.chat_template_kwargs?.enable_thinking ?? null,
+        body.response_format ? [body.response_format.json_schema.name, body.response_format.json_schema.strict] : null]; });
+    for (const m of [one, four]) {
+      expect(attempts(m, "index")).toEqual([...Array.from({ length: 3 }, () => [1024, "off", false, null]), [1536, "medium", null, null]]);
+      expect(attempts(m, "extract")).toEqual([...Array.from({ length: 7 }, () => [1024, "off", false, ["research_extraction", true]]), [2048, "medium", null, null]]);
+    }
+    expect(serial.events.find(e => e.stage === "extract")).toMatchObject({ calls: 8, repairCalls: 1, structuredOutputCalls: 7 });
+  });
+
+  it("aborts both held siblings when an index batch is denied at K = 3: each first-pass index launch carries its own signal (#110's skeptic check)", async () => {
+    // The three index batches launch together; batch 1 is refused at once while batches 0 and 2 are held.
+    const script: Script = (stage, input, n, system) => stage === "index" && n === 1 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const three = fanned(script, (stage, n) => stage === "index" && n !== 1 ? 500 : 0), result = await observe(three, { localStreams: 3 });
+    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(three.calls.map(c => [c.stage, c.n, c.signal.aborted])).toEqual([["index", 0, true], ["index", 1, false], ["index", 2, true]]);
+    // The aborted siblings answer cancelled after the pool's abort: sibling stops, never the stage's denial.
+    expect(result.events.at(-1)).toMatchObject({ stage: "index", calls: 0, denied: "budget_denied" });
+  });
+
+  it("aborts a held repair when another repair is denied, in the index and the extraction repair passes at K = 4 (#110's skeptic check, its follow-up's review)", async () => {
+    // Index batches 0 and 1 list titles only, so the repair pass holds two calls: n = 3 is refused at once while n = 4 is held.
+    const titles = (input: any) => JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) });
+    const indexScript: Script = (stage, input, n, system) => stage === "index" && n < 2 ? titles(input) : stage === "index" && n === 3 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const index = fanned(indexScript, (stage, n) => stage === "index" && n === 4 ? 500 : 0), indexed = await observe(index, { localStreams: 4 });
+    expect(indexed.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(index.calls.filter(c => c.stage === "index").map(c => [c.n, c.signal.aborted])).toEqual([[0, false], [1, false], [2, false], [3, false], [4, true]]);
+    expect(indexed.events.at(-1)).toMatchObject({ stage: "index", calls: 3, repairCalls: 0, denied: "budget_denied" });
+    // Extraction chunks 0 and 1 reply invalid JSON, so the repair pass holds two calls: n = 7 is refused at once while n = 8 is held.
+    const extractScript: Script = (stage, input, n, system) => stage === "extract" && n < 2 ? "bad JSON" : stage === "extract" && n === 7 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const extract = fanned(extractScript, (stage, n) => stage === "extract" && n === 8 ? 500 : 0), extracted = await observe(extract, { localStreams: 4 });
+    expect(extracted.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(extract.calls.filter(c => c.stage === "extract" && c.n >= 7).map(c => [c.n, c.signal.aborted])).toEqual([[7, false], [8, true]]);
+    expect(extracted.events.at(-1)).toMatchObject({ stage: "extract", calls: 7, repairCalls: 0, denied: "budget_denied" });
+  });
 });

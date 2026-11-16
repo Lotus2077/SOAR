@@ -47629,3 +47629,104 @@ References:
 - BL-20261116-1330-e0-structured-conditions-implemented (corrected);
 - BL-20261116-1253-e0-planner-structured-condition-design;
 - E0 card Amendment 4, pull request #129.
+
+### BL-20261116-1546-e0-structured-fixtures-result -- 2026-11-16 -- E0's two `response_format` fixture runs under Amendment 4: the format removed the extractor's size-limit failures (7 of 30 calls to 0); for the planner no difference is shown on any registered question (valid plans 4 and 3 of 10 at 8,192 tokens, empty truncations 4 and 5, and 1 at 16,384); outside those questions, with the format at 16,384 tokens the planner returned 9 valid plans of 10
+
+Status: `Implemented`
+
+Scope or hypothesis: The two fixture runs that E0 card Amendment 4 names (BL-20261116-1441-e0-card-amendment-4): the extraction call and the plan call with the `response_format` the proposed serving card would add, each beside a control without it.
+
+- **What `Implemented` covers.** The two runs and their record. Nothing here is `Verified`, and BL-20261116-1357-e0-verified does not extend to these runs. A later entry says whether they are verified. The serving card stays `proposed`, and E0's closing entry is not rewritten.
+- **The planner's hypothesis,** from its design entry: on the real index the card's plan call returns a valid plan at least as often as the control and runs out its cap with no content no more often, and at 16,384 tokens that empty truncation is rarer still. The amendment set no pass level, so the runs neither accept nor reject it. By the counts, the first two parts went against the prediction by one call each (3 valid plans against the control's 4, and 5 empty truncations against 4), and the third went with it (1 against 5). None of the three differences is shown by the amendment's rule (decision 3), which is not a finding that the cells are alike.
+- **The extractor's question:** does strict structured output remove `schema_too_big`, and what does it do to the classes? Decision 2 answers it.
+- **Whose readings.** Decisions 2 and 3 are the orchestrating session's readings under the amendment's item 5. Decision 4 is an observation outside item 5, and decision 5 is the session's summary for the owner. None decides anything about the serving card.
+
+Decisions:
+1. **Both runs are taken as Amendment 4's measurements.** Each row's outcome is `accepted` by the amendment's item 7: each run finished, its summary records every value item 6 fixes, and no call is classed `transport_failed` or `request_rejected`. None is classed `malformed_reply` either, so no reply had to be read for a cut stream. All 90 calls came back with HTTP 200, and each fixture ran once. `accepted` is no judgement of the results.
+2. **The extractor's answer: the format removed `schema_too_big` on these chunks.**
+   - **The registered count.** 7 of 30 `thinking-off` calls carry the code, and 0 of 30 `thinking-off-structured` calls do. That is "removed" as the amendment defines it, and the difference is shown: Fisher's exact test gives a two-sided p of 0.011.
+   - **The classes,** control then structured: complete 8 and 12, held 3 and 10, needs_followup 12 and 8, invalid 7 and 0. Every `invalid` reply is one of the seven that carry `schema_too_big`.
+   - **No other difference is shown:** complete p = 0.41, held p = 0.057, needs_followup p = 0.41. Held replies went from 3 to 10. p = 0.057 is not below 0.05, so by the rule no difference is shown, and the counts are reported.
+   - **What it does not show.** The format did not show more complete first attempts. The fixture holds no gold, so it shows nothing about whether an extraction is right.
+3. **The planner's three answers.** None shows a difference. By the amendment's rule that is not a finding that the cells are alike.
+   - **Valid plans.** 3 of 10 with the format at 8,192 tokens, against 4 of 10 in the control. That is not "at least as many". No difference is shown (p = 1.0).
+   - **Empty truncation.** 5 of 10 with the format at 8,192, against 4 of 10 in the control. That is not "at most as many". No difference is shown (p = 1.0).
+   - **The cap.** 1 empty truncation of 10 at 16,384, against 5 of 10 at 8,192 with the same format. That is fewer, and it is not shown (p = 0.14): the amendment says a difference of four is never shown with ten calls a cell.
+4. **Outside the registered questions, post hoc: valid plans at 16,384.** This is an observation, not an answer under item 5, because the amendment registered no question on it. Its difference is not called shown under the amendment's rule. The 16,384 cell is the amendment's calibration cell, which no card can send today. By item 5 it is one measurement for the plan role's output cap, and no cap changes by it.
+   - The 16,384 cell returned 9 valid plans of 10, against 3 of 10 at 8,192 with the same format, the one cell the amendment compares it with. Fisher's test on that pair gives p = 0.020, not corrected. The comparison was chosen after the counts were seen. It is one cell of ten in one run.
+   - Three of the nine valid plans used more than 8,192 completion tokens: 9,017, 9,664 and 15,443. The other six used 4,087 to 6,403.
+   - The one failure spent all 16,384 tokens on reasoning and returned no content.
+5. **What the runs say to the owner's calls on the serving card.** These are the session's readings, and the calls stay the owner's.
+   - **The extract flag.** On these chunks no first attempt with the call the flag would send carried `schema_too_big`, the code on every `invalid` reply here and in the first extractor run: 0 of 30 calls against the control's 7. The run does not show more complete first attempts (12 against 8 of 30), and held replies went from 3 to 10, which is not shown either (p = 0.057). Repairs, which also carry the format under the card, were not run.
+   - **The plan flags at 8,192.** The run shows no difference between the plan call with the format and the control, in either direction: 3 and 4 valid first attempts of 10, and 5 and 4 empty truncations. That is not a finding that the two are alike. With the control at 4 of 10, only 10 of 10 could have shown the format better. With plan's thinking-on flag kept, the reader holds the cap at 8,192 tokens (decision 9 of BL-20261116-1357-e0-verified).
+   - **The cap.** All but one of the planner's failures in the two 8,192 cells were truncations, without the format as with it: 5 of the control's 6 failures and all 7 with the format reached the cap, 4 and 5 of them with no content. The control's sixth is one `schema_invalid` reply, which finished `stop` at 6,190 completion tokens. No card can send the 16,384 cell today: the reader refuses a flagged plan attempt at a cap P10 did not measure. By the amendment's item 5, no cap changes by that cell.
+   - **Not measured:** the plan call at 16,384 without the format. So the run does not separate the cap's effect from the format's at that cap.
+6. **The planner's client ceiling was not met.** The longest call took 155.0 s, the reply that spent 16,384 tokens on reasoning. No call was read under the amendment's exception, and the doctor was not needed after the run.
+
+Changes: docs/experiments/registry.jsonl gains the rows `e0-extractor-fixture-v2-2026-11-16` and `e0-planner-fixture-v2-2026-11-16`, both in batch `e0-2026-11-16`. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **Before the runs.**
+  - **The amendment** was committed in daab44e at 14:41:24 UTC and pushed before the first check below (pull request #129).
+  - **The checkout.** The main checkout was at 7e75a47, #125's merge, with a clean tracked tree, before and after each run. Its research protocol pin read 7100b7a2….
+  - **The doctor** ran read-only before each run, at 14:41:53 and 14:54:09 UTC, and wrote nothing. Both times it reported the model listed and its one-token completion answered.
+  - **Each dry run,** at the same commit, printed every value the amendment's item 6 fixes, among them `dryRun` true, the conditions, the repeats, the caps or the call count, the extractor's manifest digest, `streamed` true with streaming on and no reply contract, and the request digests. The planner manifest's file sha256 matched item 2. `NODE_USE_ENV_PROXY` was unset.
+  - **What retains this.** The doctor's and the dry runs' output was read in the session. The run logs retain the runs' own lines only.
+  - **The order** was the amendment's: the extractor, then the planner, with no overlap. The extractor ended at 14:53:10 and the planner started at 14:54:19. The session sent nothing else to the endpoint during either run. No record shows whether anything else used the endpoint in those windows, so item 6's condition is shown for the session's own requests only.
+  - **The budget.** Both runs started and ended on 2026-11-16 UTC, the second of the card's two days, at zero fee.
+- **The extractor run,** from 14:42:05 to 14:53:10 UTC, 11 minutes, at 7e75a47.
+  - Its summary records `dryRun` false, manifest digest 14446e28a693fada940c8777f4043976b132392072f6fec99b44368283bfb0e9, 60 calls, protocol hash 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5, and the two request-set digests item 6 fixes.
+  - 60 calls, all HTTP 200, all finished `stop`. 60 reply files were retained, each with mode 0600.
+  - **By condition,** 30 first attempts each:
+    - `thinking-off` (the control): 8 complete, 3 held, 12 needs_followup, 7 invalid;
+    - `thinking-off-structured`: 12 complete, 10 held, 8 needs_followup, 0 invalid.
+  - **By chunk,** control then structured, 10 each:
+    - the notice: complete 3 and 2, held 3 and 6, needs_followup 4 and 2;
+    - the log: complete 2 and 6, held 0 and 1, needs_followup 7 and 3, invalid 1 and 0;
+    - the report: complete 3 and 4, held 0 and 3, needs_followup 1 and 3, invalid 6 and 0.
+  - **`schema_too_big`** is on 7 control calls, 1 on the log and 6 on the report, in 8 instances (1 and 7). No structured call carries it.
+  - **Other reasons.** Every structured `held` reply carries `quote_not_located` and `evidence_found_without_quote`. Kept with a reason among the complete replies: 1 of 8 in the control and 4 of 12 with the format.
+  - **Tokens and time.** No reply used more than 1,752 completion tokens, so the 2,048 cap did not bind. The calls of each condition took 324 s and 340 s in all. Every call reports 0 cached prompt tokens, so the times of the two cells are comparable.
+- **The planner run,** from 14:54:19 to 15:27:46 UTC, 33 minutes, at 7e75a47.
+  - Its summary records `dryRun` false, the three conditions, 10 repeats, 30 calls, protocol hash 7100b7a2…, the three request digests item 6 fixes, and caps of 8,192, 8,192 and 16,384.
+  - 30 calls, all HTTP 200. 30 reply files were retained, each with mode 0600. Each repeat ran the three conditions in turn.
+  - **By condition,** 10 first attempts each:
+    - `legacy-thinking` (the control): 4 valid, 5 truncated, 1 schema_invalid. Of the 5 truncated, 4 are empty and 1 has 3,829 bytes of content.
+    - `legacy-thinking-structured`: 3 valid, 7 truncated. Of the 7, 5 are empty and 2 have content.
+    - `legacy-thinking-structured-16384`: 9 valid, 1 truncated, which is empty.
+  - **Tokens.** Every prompt was 24,011 tokens, with 22,400 cached on every call after the first. Completion tokens per condition: 68,335, 73,714 and 80,999. Every empty truncation reports all of its completion tokens as reasoning.
+  - **Time.** Median call 66.5 s, 75.4 s and 46.5 s by condition; longest 82.4 s, 84.4 s and 155.0 s. Completion tokens over elapsed time came to about 110, 109 and 115 per second by condition, so the cells with the format were not slower by that figure.
+- **The exact tests** are the amendment's: Fisher's, two-sided, on two cells' counts. The session computed each p above, and recomputed the amendment's thresholds before the runs.
+- **The rows** were written by `scripts/registry-row.py --fixture-dir … --fixture extractor` and `--fixture planner` in the main checkout at 7e75a47, the runs' own commit, with the manifests' tasks and `exposed`.
+  - Both: outcome `accepted`, verdict `agent_diagnostic`, USD 0, the classes above, and no text.
+  - They record the summaries' sha256: bbbc5b3a8cc06e189441df0ac9df48928aac313976ef2dedf486c1fb2132a520 for the extractor and 81daccecd40dc293801cfdcfcdfecc31cc902e22d8bc358d70930ec297bdccee for the planner.
+  - The summaries and the 90 replies stay under the git-ignored `.soar/` on the owner's Mac.
+- **This entry was reviewed before its commit.** Two read-only reviewers recomputed every figure from the two summaries and checked each reading against the amendment, and three skeptics checked the major findings.
+  - **One false sentence** was found in decision 5: one of the control's six failures was not a truncation. It is corrected.
+  - **The title and the Scope** leaned on the unregistered 16,384 count, or rejected the hypothesis in words. Both were rewritten, and decisions 4 and 5 now carry their limits where they stand.
+  - **One p was rounded wrongly,** 0.057 and not 0.058, here and in the extractor row's lesson. Both rows were regenerated before the commit, and only their lessons changed.
+
+Failures or blockers:
+- **Nothing failed in either run.**
+- **A slip in the session's merge check.** The session merged #128 at 14:54:42 UTC before reading five lines its privacy pattern had matched in that pull request's diff. Read straight after, all five are harmless: the code's default alias and base address in an entry, and a placeholder path in four test lines. The merge is not gated on that count; it should be.
+- **#129's electron-e2e job** was cancelled after 15 minutes, at 15:00 UTC, with no failed step. The session re-ran it once.
+
+Limitations and non-claims:
+- **First attempts only,** on one exposed index and three exposed synthetic chunks. Neither fixture holds gold.
+- **Ten calls a planner cell.** By the amendment's rule the planner run could show only a large difference, and it showed none among the registered questions. With this run's control at 4 valid and 4 empty of 10, only 10 valid of 10 with the format, or 10 empty of 10, would have been shown. "No difference shown" is not a finding that the cells are alike.
+- **Decision 4 is post hoc.** Its comparison was not registered, and its p is not corrected for having been chosen after the counts. It rests on one cell of ten in one run and is not repeated.
+- **The server's part is not measured.** The cells count replies. Whether the server's structured decoding enforces the schema's size limits is not shown, and "removed" is the amendment's count of calls.
+- **Identical bodies vary between runs.** The extractor control's 30 bodies equal the first run's, and its classes differ: 8 complete here against 10 there, and on the notice 3 of 10 against 7. The planner's control gave 4 valid here against 6 in the first run, which sent no salt.
+- **The planner's calls were unstreamed and shared one salt.** A run under the card streams and salts each job. No cold first plan call was measured beyond the run's first.
+- **Not measured,** as the amendment lists: repairs, the plan call with thinking off and the format, the plan call at 16,384 without the format, synthesis, and the card reader's own path.
+- **No product claim,** and no decision on the serving card.
+
+Paid exposure: None. 90 zero-fee calls and two doctor completions, all to the owned endpoint.
+
+Next gate:
+1. The owner's calls on the serving card, put with these results: the planner's settings, whether the card is adopted as written, and whether anything more is measured first.
+2. A handoff restatement.
+3. Lane S-pipe's open points from #125's review, which its pull request #130 takes up.
+4. A later entry says whether these two runs are verified (the amendment's item 8).
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendment 4); docs/experiments/e0-planner-fixture-v2.json; docs/experiments/e0-extractor-fixture-v2.json; docs/experiments/serving-card-2026-11-16.json; scripts/planner-fixture.ts; scripts/extractor-fixture.ts; scripts/registry-row.py; BL-20261116-1441-e0-card-amendment-4; BL-20261116-1357-e0-verified; BL-20261116-1356-e0-extractor-fixture-result; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1253-e0-planner-structured-condition-design; BL-20261116-1256-e0-extractor-structured-condition-design; BL-20261116-1330-e0-structured-conditions-implemented; pull requests #125, #128, #129 and #130.

@@ -358,9 +358,10 @@ in a call, under `claims` or under `prices`.
 - **Checked, not copied:**
   - `labeller`, `run` and `servedModel`;
   - each call's `servedModel`, `requestId`, `errorType`, `errorCode` and `failure`.
-- **Refused while running:** a summary whose run directory has `labelling.lock` beside it,
-  since a run holds that lock while it rewrites its summary before each request. A lock that a
-  killed run left is removed by hand.
+- **Refused while running:** a summary with `labelling.lock` in any directory above its run
+  directory. A run holds that lock in the tool's `e0-judge` directory while it rewrites its
+  summary before each request, and its run directory sits beside `claims.json`, in that
+  directory or a folder below it. A lock that a killed run left is removed by hand.
 - **Required and copied:**
   - `cloudModel` must be an approved labelling model (`gpt-6-sol`, BL-20261115-1937), sent
     through `openai_responses`;

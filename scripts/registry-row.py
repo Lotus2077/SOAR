@@ -1476,7 +1476,8 @@ LABELLING_STATES = {"settled": "settled", "rejected": "failed", "not_sent": "fai
 LABELLING_SECOND_REQUESTS = ("sent", "labeller_cap_exceeded")
 # The tool's UNBILLED_STATUSES: the only statuses a `rejected` call, counted at zero, can carry.
 LABELLING_UNBILLED_STATUSES = (400, 401, 403, 404, 429)
-# The lock a labelling run holds beside its run directories (the tool's LOCK_NAME), created at its start and removed at its end.
+# The lock a labelling run holds in the tool's e0-judge directory (the tool's LOCK_NAME), created at its start and removed at its end. The run
+# directory sits beside claims.json, in that directory or a folder below it, so the lock is looked for in every directory above the run directory.
 LABELLING_LOCK = "labelling.lock"
 LABELLING_PLANT_REJECTIONS = ("unknown_source", "unchanged_sentence", "duplicate", "sentence_bounds", "empty_note", "surplus", "no_free_id")
 LABELLING_FAILURES = ("labeller_interrupted", "labeller_timeout", "labeller_reply_too_large", "labeller_transport_failed", "labeller_rejected", "labeller_http_status",
@@ -1955,9 +1956,13 @@ def labelling_row(args) -> dict:
     """Decision (5), in the shape agreed with lane S-e1 (recorded in the Implemented entry): the labelling summary, version 1."""
     source = "--labelling-file"
     # A labelling run rewrites its summary as interrupted before each request while it holds its lock; a held loop.lock is refused alike.
-    lock = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(args.labelling_file))), LABELLING_LOCK)
-    if os.path.lexists(lock):
-        refuse(source, f"a labelling run holds {LABELLING_LOCK} beside its run directory: row it once that run has ended (a lock a killed run left is removed by hand)")
+    directory = os.path.dirname(os.path.dirname(os.path.abspath(args.labelling_file)))
+    while True:
+        if os.path.lexists(os.path.join(directory, LABELLING_LOCK)):
+            refuse(source, f"a labelling run holds {LABELLING_LOCK} above its run directory: row it once that run has ended (a lock a killed run left is removed by hand)")
+        if os.path.dirname(directory) == directory:
+            break
+        directory = os.path.dirname(directory)
     raw, summary = read_producer_json(args.labelling_file, source)
     if set(summary) != LABELLING_KEYS:
         refuse(source, "the summary does not hold exactly the labelling summary's keys")

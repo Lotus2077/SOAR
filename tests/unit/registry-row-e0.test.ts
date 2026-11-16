@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -11,6 +11,8 @@ import { assembleIndexEntry, buildLiteralSourceCard } from "../../src/main/priva
 import { researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
 import { assessProbeFile } from "../../scripts/assess-probe-replies";
 import { JUDGE_CONDITIONS, runJudgeFixture } from "../../scripts/judge-fixture";
+import { CALL_KINDS, CALL_STATES, CallRecordSchema, ENVELOPE_LINE, LABELLER_MODEL, LABELLING_FAILURES, LABELLING_OUTCOMES, LOCK_NAME, LabellingSummarySchema,
+  PLANT_REJECTIONS, SECOND_REQUEST_VALUES, TOKEN_FIELDS, UNBILLED_STATUSES, runLabelling, type LabellingSummary } from "../../scripts/judge-labeller";
 import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, runPlannerFixture } from "../../scripts/planner-fixture";
 import { syntheticProbe } from "../helpers/serving-probe-fixture";
 
@@ -585,5 +587,140 @@ describe("E0 registry modes: corrections and source rules", () => {
     expect(() => supersede("accepted")).toThrow(/did not finish/u);
     expect(JSON.parse(supersede("infra_invalid"))).toMatchObject({ id: "e0-probe-1b", supersedes: "e0-probe-1", outcome: "infra_invalid", terminalCause: "probe_unfinished", probe: { finished: false } });
     expect(refused(["--probe-dir", dir, "--labelling-file", registry], "incomplete")).toContain("give exactly one of");
+  }, 60_000);
+});
+
+/**
+ * Pinned to the labelling tool (scripts/judge-labeller.ts, pull request #115), which merged before this mode: its exported closed sets
+ * and the keys of its summary schema equal the writer's mirrors, and the summaries the real tool writes against a loopback fake of the
+ * Responses endpoint are rowed with every field the summary determines.
+ */
+describe("E0 registry modes: pinned to the labelling tool", () => {
+  it("mirrors the tool's closed sets, its summary schema's keys, its model, its interface and its lock name exactly", () => {
+    const python = [
+      "import importlib.util, json, sys",
+      "spec = importlib.util.spec_from_file_location('registry_row', sys.argv[1]); row = importlib.util.module_from_spec(spec); spec.loader.exec_module(row)",
+      "print(json.dumps({'outcomes': list(row.LABELLING_OUTCOMES), 'kinds': list(row.LABELLING_CALL_KINDS), 'states': list(row.LABELLING_STATES),",
+      "  'second': list(row.LABELLING_SECOND_REQUESTS), 'plant': list(row.LABELLING_PLANT_REJECTIONS), 'failures': list(row.LABELLING_FAILURES),",
+      "  'lines': list(row.ENVELOPE_LINES), 'models': list(row.LABELLING_MODELS), 'apis': list(row.LABELLING_APIS), 'unbilled': list(row.LABELLING_UNBILLED_STATUSES),",
+      "  'tokens': list(row.LABELLING_TOKENS), 'verdicts': list(row.JUDGE_VERDICTS), 'lock': row.LABELLING_LOCK, 'keys': sorted(row.LABELLING_KEYS),",
+      "  'callKeys': sorted(row.LABELLING_CALL_KEYS), 'claimsKeys': sorted(row.LABELLING_CLAIMS_KEYS), 'priceKeys': list(row.LABELLING_PRICE_KEYS)}))"].join("\n");
+    const mirrored = JSON.parse(execFileSync("python3", ["-I", "-c", python, SCRIPT], { encoding: "utf8" }));
+    const summary = LabellingSummarySchema.shape, claims = summary.claims.shape, prices = summary.prices.shape, sorted = (shape: object) => Object.keys(shape).sort();
+    expect(mirrored).toEqual({ outcomes: [...LABELLING_OUTCOMES], kinds: [...CALL_KINDS], states: [...CALL_STATES], second: [...SECOND_REQUEST_VALUES], plant: [...PLANT_REJECTIONS],
+      failures: [...LABELLING_FAILURES], lines: [ENVELOPE_LINE], models: [LABELLER_MODEL], apis: [...summary.cloudApi.values], unbilled: [...UNBILLED_STATUSES],
+      tokens: [...TOKEN_FIELDS], verdicts: Object.keys(claims.labelCounts.unwrap().shape), lock: LOCK_NAME, keys: sorted(summary), callKeys: sorted(CallRecordSchema.shape),
+      claimsKeys: sorted(claims), priceKeys: Object.keys(prices).filter(key => key !== "longContext") });
+    expect(sorted(prices)).toEqual([...mirrored.priceKeys, "longContext"].sort());
+    expect(sorted(prices.longContext.shape)).toEqual([...mirrored.priceKeys, "aboveTokens"].sort());
+    expect([Object.keys(claims.belowMinimum.unwrap().shape), Object.keys(claims.plantedRejected.shape)]).toEqual([mirrored.verdicts, mirrored.plant]);
+  });
+
+  const PROTOCOL_TEXT = readFileSync(join(ROOT, "docs", "experiments", "E0_JUDGE_LABELLING_PROTOCOL.md"), "utf8");
+  const PASSAGE = "The orchard recorded twelve healthy trees during the autumn survey, and the meadow recorded seven.";
+  /** Six synthetic claims, harvested into a fresh e0-judge directory (or a folder below it) the way the harvest writes them. */
+  function harvestedSet(below = false) {
+    const root = join(scratch(), ".soar", "experiments", "e0-judge"), directory = below ? join(root, "set-a") : root;
+    mkdirSync(directory, { recursive: true });
+    const claims = ["C1", "C2", "C3", "C4", "C5", "C6"].map((id, index) => ({ id, sentence: `Synthetic sentence ${index + 1} about the orchard and the meadow.`,
+      quote: "twelve healthy trees", context: PASSAGE }));
+    writeFileSync(join(directory, "claims.json"), `${JSON.stringify({ version: 1, task: "r3-grid-batteries", claims }, null, 1)}\n`, { mode: 0o600 });
+    writeFileSync(join(directory, "claims.origin.json"), `${JSON.stringify({ version: 1, task: "r3-grid-batteries",
+      origins: claims.map(claim => ({ id: claim.id, run: "SIDECAR-RUN", claimId: claim.id })) }, null, 1)}\n`, { mode: 0o600 });
+    return { root, directory, claimsPath: join(directory, "claims.json") };
+  }
+  type Step = (body: string) => { status: number; body: unknown } | "never";
+  /** A loopback fake of the Responses endpoint that answers each request from a script, in order. */
+  async function responsesFake(script: Step[]) {
+    let count = 0;
+    const server: Server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", chunk => chunks.push(chunk as Buffer));
+      request.on("end", () => {
+        const step = script[count++]?.(Buffer.concat(chunks).toString("utf8"));
+        if (step === undefined || step === "never") return;
+        response.on("error", () => undefined);
+        response.writeHead(step.status, { "content-type": "application/json", "x-request-id": `req_fake_${count}` });
+        response.end(JSON.stringify(step.body));
+      });
+    });
+    await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
+    cleanups.push(() => new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }));
+    return `http://127.0.0.1:${(server.address() as { port: number }).port}/v1/responses`;
+  }
+  // Two labels per class, and two planted contradictions, so one request meets the minimum of two.
+  const LABELS = [{ id: "C1", label: "supported", note: null }, { id: "C2", label: "supported", note: null }, { id: "C3", label: "partial", note: "REPLY-NOTE-TEXT" },
+    { id: "C4", label: "partial", note: null }, { id: "C5", label: "unsupported", note: null }, { id: "C6", label: "unsupported", note: null }];
+  const PLANTED = [{ sourceId: "C1", label: "contradicted", sentence: "The orchard recorded no healthy trees.", note: "PLANTED-NOTE-1 negates it." },
+    { sourceId: "C2", label: "contradicted", sentence: "The meadow recorded twelve healthy trees and the orchard seven.", note: "PLANTED-NOTE-2 swaps the numbers." }];
+  const answered: Step = body => ({ status: 200, body: { id: "resp_fake", object: "response", model: "gpt-6-sol-2026-09-22", status: "completed", service_tier: "default",
+    output: [{ type: "message", id: "msg_fake", role: "assistant", status: "completed", content: [{ type: "output_text", text: JSON.stringify({ labels: LABELS, planted: PLANTED }),
+      annotations: [] }] }],
+    usage: { input_tokens: Math.floor(Buffer.byteLength(body) / 4), input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens: 1500,
+      output_tokens_details: { reasoning_tokens: 900 } } } });
+  const rejectedStep: Step = () => ({ status: 400, body: { error: { type: "invalid_request_error", code: "context_length_exceeded", message: "REJECTED-MESSAGE-TEXT" } } });
+  /** The real tool's run, and the summary it wrote. */
+  async function label(set: ReturnType<typeof harvestedSet>, endpoint: string, timeoutMs = 60_000) {
+    let tick = 0;
+    await runLabelling({ claimsPath: set.claimsPath, root: set.root, minimumPerClass: 2, protocolText: PROTOCOL_TEXT, apiKey: "test-labeller-key", endpoint, timeoutMs,
+      now: () => new Date(Date.UTC(2026, 10, 15, 20, 0, 0, tick++)) });
+    const run = readdirSync(set.directory).find(name => name.startsWith("labelling-"))!, path = join(set.directory, run, "summary.json");
+    return { run, path, summary: JSON.parse(readFileSync(path, "utf8")) as LabellingSummary };
+  }
+  /** Every row field a summary determines, computed here from that summary. */
+  function determined(summary: LabellingSummary) {
+    const states = { settled: "settled", rejected: "failed", not_sent: "failed", unknown: "unknown", outside_projection: "unknown" } as const;
+    const sent = new Map(summary.calls.filter(call => call.state !== "not_sent").map(call => [call.bodySha256, call.bodyBytes]));
+    return { inputSha256: summary.claims.inputSha256, cloudModel: summary.cloudModel, cloudApi: summary.cloudApi, modelCalls: summary.modelCalls,
+      failedDispatches: summary.rejectedDispatches, unknownDispatches: summary.unknownDispatches, inputTokens: summary.inputTokens, outputTokens: summary.outputTokens,
+      cachedTokens: summary.cachedTokens, usd: summary.usd, reservedUsd: summary.calls.reduce((sum, call) => sum + call.projectedUsd, 0), pinnedUsd: summary.reservedUnknownUsd,
+      disclosedBytes: [...sent.values()].reduce((sum, bytes) => sum + bytes, 0), terminalCause: summary.failure ?? summary.outcome,
+      cloudCalls: summary.calls.map(call => ({ purpose: call.kind, status: states[call.state], feeUsd: call.state === "settled" ? call.usd : null, reservedUsd: call.projectedUsd,
+        bodyBytes: call.bodyBytes })) };
+  }
+
+  it("rows the summary the real tool writes for a labelled run with every field it determines, and none of its text", async () => {
+    const set = harvestedSet(), { run: runName, path, summary } = await label(set, await responsesFake([answered]));
+    expect([summary.outcome, summary.modelCalls, summary.calls[0]!.state]).toEqual(["labelled", 1, "settled"]);
+    const line = run(["--labelling-file", path], "accepted", { "--arm": "cloud-gpt-6-sol" }), result = JSON.parse(line);
+    const { inputSha256: _input, ...claims } = summary.claims;
+    expect(result).toMatchObject({ ...determined(summary), cacheWriteTokens: summary.cacheWriteTokens, outcome: "accepted" });
+    expect(result.labelling).toEqual({ version: 1, sha256: digest(readFileSync(path)), outcome: "labelled", failure: null, secondRequest: summary.secondRequest,
+      envelopeLine: "synthetic_data", capUsd: summary.capUsd, priorCountedUsd: summary.priorCountedUsd, instructionsSha256: summary.instructionsSha256, prices: summary.prices,
+      reasoningTokens: summary.reasoningTokens, cacheWriteAssumed: 0, claims });
+    expectAbsent(line, "test-labeller-key", "REPLY-NOTE-TEXT", "PLANTED-NOTE", "Synthetic sentence", "orchard", "SIDECAR-RUN", "req_fake", "resp_fake", runName, "127.0.0.1",
+      "openai/gpt-6-sol", "gpt-6-sol-2026-09-22", set.root);
+  }, 60_000);
+
+  it("rows the summaries the real tool writes for a rejected request and a timed-out one, and refuses accepted for both", async () => {
+    const rejected = await label(harvestedSet(), await responsesFake([rejectedStep]));
+    expect([rejected.summary.outcome, rejected.summary.calls[0]!.state]).toEqual(["failed", "rejected"]);
+    const line = run(["--labelling-file", rejected.path], "infra_invalid");
+    expect(JSON.parse(line)).toMatchObject({ ...determined(rejected.summary), failedDispatches: 1, usd: 0, pinnedUsd: 0, terminalCause: "labeller_rejected" });
+    expectAbsent(line, "REJECTED-MESSAGE-TEXT", "invalid_request_error", "context_length_exceeded", "req_fake", rejected.run);
+    const timedOut = await label(harvestedSet(), await responsesFake([() => "never"]), 300);
+    expect([timedOut.summary.outcome, timedOut.summary.calls[0]!.state]).toEqual(["failed", "unknown"]);
+    expect(row(["--labelling-file", timedOut.path], "incomplete")).toMatchObject({ ...determined(timedOut.summary), unknownDispatches: 1, usd: 0,
+      pinnedUsd: timedOut.summary.calls[0]!.projectedUsd, terminalCause: "labeller_timeout" });
+    for (const { path } of [rejected, timedOut]) expect(refused(["--labelling-file", path], "accepted")).toContain("the labelling ended failed, not labelled");
+  }, 60_000);
+
+  it("refuses the summary the real tool writes ahead of its request while the tool runs, its claims in e0-judge or a folder below it", async () => {
+    for (const below of [false, true]) {
+      const set = harvestedSet(below), labelling = label(set, await responsesFake([() => "never"]), 1_500);
+      // The run ends before its scratch directory is removed, even if an expectation below fails.
+      cleanups.push(() => labelling.then(() => undefined, () => undefined));
+      let interim: string | undefined;
+      for (let wait = 0; interim === undefined && wait < 100; wait++) {
+        const name = readdirSync(set.directory).find(entry => entry.startsWith("labelling-"));
+        if (name !== undefined && existsSync(join(set.directory, name, "summary.json"))) interim = join(set.directory, name, "summary.json");
+        else await new Promise(done => setTimeout(done, 10));
+      }
+      expect(existsSync(join(set.root, LOCK_NAME))).toBe(true);
+      expect(refused(["--labelling-file", interim!], "incomplete")).toContain(`holds ${LOCK_NAME}`);
+      const { summary } = await labelling;
+      expect(existsSync(join(set.root, LOCK_NAME))).toBe(false);
+      expect(row(["--labelling-file", interim!], "incomplete")).toMatchObject({ ...determined(summary), terminalCause: "labeller_timeout" });
+    }
   }, 60_000);
 });

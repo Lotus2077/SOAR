@@ -43456,3 +43456,83 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #117, then the coordinator's squash-merge with `--match-head-commit`.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-0839-e0-registry-modes-design; BL-20261116-0840-e0-registry-modes-implemented; BL-20261116-0841-correction-e0-registry-modes-skeptic; BL-20261115-2044-e0-judge-labeller-implemented; pull requests #115 and #117.
+
+### BL-20261116-1033-serving-probe-direct-transport-design -- 2026-11-16 -- The serving probe connects directly whatever the proxy settings, a P10 stream that ends early gets its own class, and a probe row is not accepted when its records show a transport failure
+
+Status: `Proposed`
+
+Scope or hypothesis: E0's serving-probe runs 1 and 2 dropped partway (BL-20261116-0939 and its correction BL-20261116-1017, on #121).
+- **The path.** Both runs inherited the shell's proxy variables, and E0's endpoint is outside the shell's `no_proxy`. scripts/serving-probe.py opens its requests with urllib's `urlopen`, which takes a proxy from the environment, or on macOS from the system settings. So its requests went through the shell's loopback proxy.
+- **The cause is an inference, not shown.** That the proxy caused the drops is inferred from the failures below and from run 3.
+- **The failures.**
+  - In both runs, the first sign of failure was an open stream that ended early with no finish reason. The probe counted it `invalid_json`, since it has no class for a stream that ends early.
+  - After it, every request raised URLError in 0.0 s.
+  - Run 2's P8 was cut at 120.9 s (RemoteDisconnected), a separate earlier failure.
+- **Run 3** ran with `NO_PROXY='*'` for the probe process only. It completed every probe, and its 120 P10 replies all ran to a finish reason.
+- **The app** opens its own requests from Node, which takes no proxy; those never failed.
+- **Approval.** The coordinator approved this change on 2026-11-16, to start once #117 had merged and E0's probe window had closed. Both hold.
+
+Decisions:
+- **(1) The probe connects directly.**
+  - Every request goes through `urllib.request.build_opener(urllib.request.ProxyHandler({}))` instead of `urlopen`, at the four call sites: `Endpoint.get`, `post`, `post_stream` and `stream`.
+  - Only the proxy choice changes. `urlopen` itself opens through a default opener, so every request, status and exception is as before.
+  - A refused or unreachable endpoint records exactly as today. A GET's status is -1. A POST's status is -1, with `transport_error` set to the exception class (URLError for a refused connection). A stream's `error` is that class.
+  - No run depends on the caller's `NO_PROXY` any more.
+- **(2) `stream_ended_early`.**
+  - A P10 reply that was streamed, answered 200 and ended with no finish reason is classed `stream_ended_early`, where it was `invalid_json`. The class comes after `request_rejected` in the probe's order, and before `truncated`.
+  - The probe and scripts/assess-probe-replies.ts apply the same rule, so assessing a probe keeps the class. Both class lists gain it, and a test keeps them equal.
+  - A reply that was not streamed is classed as before. A stream cut by an exception still records status -1 with its `transport_error`, and is classed `request_rejected` as today.
+- **(3) The probe version stays 2.**
+  - **The direct connection** changes no field and no field's meaning.
+  - **The new class** adds one value a call's `classification` can take, and one key to each cell's `counts`. Every reader is in this repository and changes with it. The assessor, the card writer and the registry writer read version 2 with or without that key.
+  - **Old records.** A record never says which code wrote it, so a version-2 `invalid_json` written before this change may be an early-ended stream; runs 1 and 2 hold one each. The new assessor reclasses such a call if the probe is assessed again, since the rule reads the call's recorded status and finish reason and the cell's `streamed` flag.
+  - **Why not 3.** A new version would make every reader accept both 2 and 3 for E0's run 3, and no reader needs to tell them apart.
+- **(4) The card writer refuses a probe in which a P10 stream ended early.**
+  - Such a call measured the transport, not the server.
+  - The card's format does not change. ServingCardV1, whose reader holds seven class counts per cell, stays as it is, and so does the app's reader.
+  - **A card written from run 3 is unchanged.** None of its 120 P10 replies ended early, so none is `stream_ended_early`. The card writer recounts the classes from the calls, so the new key in each cell's `counts` changes nothing on the card.
+  - A P10 call that failed at transport with status -1 is still counted as `requestRejected`, as before.
+- **(5) The registry writer's transport-failure guard.**
+  - **The gap #117 shipped with.** `--outcome accepted` for a probe row was refused only for an unfinished run, a failed probe, an unassessed P10 or a protocol mismatch. The probe catches a transport failure per request, so a run whose requests all failed at transport could be rowed accepted. A local test run on 2026-11-16 was: none of its 47 requests reached the test's fake (BL-20261116-0900, decision (4)).
+  - **The guard.** A probe row records `probe.transportFailures`, the probes whose records show a transport failure, in the probe order. `--outcome accepted` is refused when it is not empty.
+  - **A transport failure** is any of:
+    - a `transport_error`, recorded with status -1 by a POST;
+    - a stream's `error` naming an exception class. A stream's HTTP error code is the server's answer, not a transport failure.
+    - a status of -1, as a GET records: P1's `models_status` and `version_status`, and the adapter's `/openapi.json` status and `chat_status`;
+    - a status naming an exception class, as a P11 cache-layout row records;
+    - a P11 K burst whose `errors` count is above 0;
+    - a stream that answered 200 and ended with no finish reason: a P10 call classed `stream_ended_early`, or a stream's own record.
+  - **P6 and P8, after checking their record shapes.**
+    - P6's deliberate abort is recorded as `aborted_after_s`, never as an error, so it needs no exception. P6's other stream is checked like any other.
+    - P8's record is excepted. Its long request ending in a cut connection (status -1 with `transport_error`) is what P8 measures.
+- **(6) Tests.**
+  - The P10-align test's environment gets dead-port proxies (`http_proxy`, `https_proxy` and their upper-case forms), so every request must still reach its loopback fake.
+  - **Each request path** reaches a loopback server with dead-port proxies set. A refused endpoint records as today, with and without them.
+  - **`stream_ended_early`:**
+    - the classifier's order;
+    - a P10 run whose loopback server ends a stream early;
+    - the assessor keeping the class;
+    - the two class lists equal.
+  - **The card writer:** its refusal, and an unchanged card when each cell's counts carry the new key.
+  - **The guard:** case by case, with P6's and P8's shapes included.
+  - tests/helpers/serving-probe-fake.py runs its probe copy with dead-port proxies, in place of `no_proxy=*`.
+
+Changes: None yet. This entry precedes the code.
+
+Evidence: The record shapes and readers are read from 6a96098:
+- scripts/serving-probe.py: `Endpoint`, `post_record`, `reassemble_stream`, `classify_reply`, `summarize_cell`, `aggregate_streams` and `inspect_sse`, and the P1, P6, P8, P10, P11 and adapter probes;
+- the readers: scripts/assess-probe-replies.ts, scripts/serving-card.py, src/main/private-agent/serving-card.ts and scripts/registry-row.py.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- That the proxy caused runs 1 and 2 to drop is an inference, not shown.
+- **P11's cache-layout rows** keep no finish reason. So a layout stream that ends early without an error shows only as missing usage, and the guard cannot see it.
+- **Old rows.** Rows that #117's writer wrote carry no `transportFailures`, so `--supersedes` cannot repeat the new refusal for them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, a light review with privacy checked, then the pull request. The entries are re-stamped once at merge, after #121.
+
+References: BL-20261116-0839-e0-registry-modes-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.

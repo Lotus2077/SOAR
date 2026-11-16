@@ -44746,3 +44746,101 @@ References:
 - BL-20261113-0938-correction-restamp-rule-dates;
 - BL-20261116-0839-e0-registry-modes-design and BL-20261116-0840-e0-registry-modes-implemented (lane S-harn's registry modes, #117);
 - BL-20261115-1940-research-priority-trim-implemented (#102, which moved the freeze and the pin).
+
+### BL-20261116-1131-owner-directions-merge-and-continue -- 2026-11-16 -- The owner's directions of 2026-11-16: merge #121 when green and continue with the lane queue, then keep continuing the experiments; what they cover and what they do not lift
+
+Status: `Approved`
+
+Scope or hypothesis: On 2026-11-16 the owner gave two directions in the orchestrating session's chat, which the log does not hold yet. This entry records them, how the session reads them, and their limits. `Approved` covers the two directions as quoted. The session's reading in decisions 2 and 3 is the session's own, until the owner replaces it. Nothing is implemented, verified or released by this entry.
+
+Decisions:
+1. **The owner's words.** Both directions came between about 10:25 and 10:45 UTC:
+   - "merge when green, then continue with the lane queue";
+   - "when all current tasks are done, keep continue the experiments".
+2. **What the first direction did.**
+   - **The merge.** Pull request #121 merged at 11:20:26 UTC as 42b36e7, with a merge commit, on green CI and after its final review (BL-20261116-1048-correction-e0-records-final-review). Pull request #120 landed with it.
+   - **The queue.** The lane pull requests then merge one at a time, each on green CI, in this order: #122, #116, the pull request that holds this entry, #119, #103, #108, #110 and #123.
+   - **The chain.** Each is chained on the one before it, so their CI runs at once. Lane pull requests keep the standing go-ahead of 2026-11-13.
+3. **How the session reads the second direction.** After the current tasks, the session goes on to the next experiments in the handoff's order without waiting for a prompt. The current tasks are #121, the lane queue and E0's remaining steps.
+   - **Zero-fee runs proceed once their card is committed.** Zero-fee local runs on public or synthetic inputs need no approval entry (PLAN.md §4(c)).
+   - **A card value that no source gives a default for is put to the owner.** The session does not fill it in on the owner's behalf. This is the narrower of two readings.
+   - **The session has asked which reading the owner means.** The wider one would let the session's proposed values for zero-fee cards stand until the owner replaces them. No answer is recorded yet.
+4. **What neither direction lifts.** PLAN.md §5 says: "Defaults apply only to non-gated planning. They never authorize live, paid, private or publication actions." These stay the owner's, each time:
+   - anything paid beyond an approved cap, any new egress destination and any real private data;
+   - #105's residues, so 10.b stays blocked;
+   - the review's decisions with no default: 5's grader model, 6, 8 and 10, and the open parts of 9, 11, 12 and 13;
+   - any change to a rule the owner approved.
+5. **The questions put to the owner on 2026-11-16,** in a git-ignored owner-facing summary. None is answered at this entry's time. By topic:
+   - how far the second direction reaches;
+   - E5's build, its conventions and its stop rule;
+   - E2's card: the second writer's bound, who authors the synthetic tasks, and the decision rule;
+   - E6's card: who authors the planted-defect files, and the acceptance rule;
+   - the incomplete-chunk rule;
+   - the planner's settings when the serving card is adopted;
+   - #105;
+   - decision 6 and arm D's allowance;
+   - decision 11's open parts;
+   - cloud claim verification, now that the judge is evidence-only;
+   - E4's decisions;
+   - whether the session may run the remaining Docker-gated suites, and whether the merge go covers card pull requests.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The owner's words** are quoted from the orchestrating session's chat.
+- **The merge.** `gh` reports #121 merged at 11:20:26 UTC as 42b36e7, and #120 as merged at 11:20:28 UTC. Before the merge, #121's two checks had passed on its head 1779183.
+- **What can run next.** A read-only research pass by six agents, with a critic, over E2, E6, E5, E3 and E4 found that after E0's extractor fixture no run in those experiments is pre-registered or can start without an owner answer. Its sources are the review's §5.6 rows, issues #54 and #62, the handoff and the lane plan.
+
+Failures or blockers: None in recording. Decision 5's questions are open.
+
+Limitations and non-claims:
+- **Approximate times.** The times of the owner's directions are approximate, and this log cannot show the chat.
+- **The reading in decision 3 is the session's.** The owner has not confirmed either reading.
+- **The research pass** rests on documents, not runs. Its list of what blocks each experiment is in the git-ignored summary, not in this log.
+
+Paid exposure: None.
+
+Next gate: E0's extractor fixture under Amendment 3, then E0's `Verified` entry. The owner's answers to decision 5's questions, whenever they come.
+
+References: docs/HANDOFF.md "Start here" §5; PLAN.md §4(c) and §5; docs/PROJECT_REVIEW_2026-11-05.md §5.6 and §5.10; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1048-correction-e0-records-final-review; pull requests #105, #116, #119, #120, #121, #122 and #123; issues #54 and #62.
+
+### BL-20261116-1132-e0-card-amendment-3 -- 2026-11-16 -- E0 card Amendment 3: the extractor fixture's command and design, named before that fixture runs
+
+Status: `Implemented`
+
+Scope or hypothesis: The E0 card's "Role fixtures" section says the extractor fixture's command is named in an amendment before that fixture runs, and Amendment 1 left it to a later amendment. This entry records Amendment 3, appended to docs/experiments/e0-card-2026-11-13.md.
+
+`Implemented` covers the amendment's text in the card and nothing else. Nothing is approved item by item, run or verified here. The amendment adds no owner decision. The design is lane S-pipe's proposal, with a fourth condition that the orchestrating session asked for. The owner did not choose its values one by one.
+
+Decisions:
+1. **The command** is `pnpm fixture:extractor -- --manifest docs/experiments/e0-extractor-fixture-v1.json`, first with `--dry-run`. The conditions and repeats come only from the manifest.
+2. **The manifest** is the one #116 committed, already pinned. Its canonical sha256 is 4ae19cd4cef6906d170942da253bd9d6ebeecea3ed324cd120e4b51f7b6fdb11.
+   - **The design:** 4 conditions × 3 synthetic chunks × 10 repeats, 120 calls.
+   - **The conditions:** `thinking-off` at 2,048 output tokens, which is the extraction stage's call as deployed; `thinking-on` at 2,048; `thinking-on-8192`; and `thinking-on-16384`.
+3. **What the card reads from it:** the extraction role's thinking policy and output cap, beside P10's extract cells. No pass level is set.
+4. **The fourth condition.** The session asked for `thinking-on-16384` beside `thinking-on-8192` after the r3 runs showed planner replies filling an 8,192-token cap with reasoning. Two caps separate a reply that needs more room from one that does not stop.
+5. **The row's outcome** is `accepted` when the run finished with its calls answered. That is no judgement of the extractor's results.
+
+Changes: docs/experiments/e0-card-2026-11-13.md gains the Amendment 3 section, appended; nothing above it changes. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **The fixture** is scripts/extractor-fixture.ts at #116's head 72006f0.
+  - Its header gives the command line, and says the conditions and repeats come only from the manifest.
+  - Its constants give the four conditions' output caps, and name `thinking-off` as the deployed condition.
+  - Its classes are the eight the amendment lists.
+- **The manifest** at 72006f0 holds status `pinned`, the task `e0-extractor-synthetic-v1`, three sources with one chunk each, the four conditions and 10 repeats. Its canonical digest is 4ae19cd4…: lane S-pipe reported it after the re-stamp changed only the note's entry ID, and the session recomputed it from the file at 72006f0.
+- **Lane S-pipe's checks on 72006f0** (BL-20261116-1127-correction-e0-extractor-fixture-restamp): the full test suite passed, and `researchProtocolSha256()` stays 7100b7a2….
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Pre-registration only.** The amendment sends nothing.
+- **The time bound.** The manifest's note estimates at most about 1 h 45 min, from the 2026-11-04 decode rate. That is an estimate.
+- **The digest** is recomputed here from the committed file. The dry run prints it before any request, and the run's record is compared with it.
+- **Three small synthetic chunks.** The fixture measures the extraction request on them, not extraction at real corpus sizes.
+
+Paid exposure: None. The fixture's requests are zero-fee and go to the owned endpoint.
+
+Next gate: #116 on `main`; then `pnpm setup:general`, the dry run and the run; then the row.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-extractor-fixture-v1.json; scripts/extractor-fixture.ts; BL-20261116-1123-e0-extractor-fixture-design; BL-20261116-1124-e0-extractor-fixture-implemented; BL-20261116-1125-correction-e0-extractor-fixture-review; BL-20261116-1127-correction-e0-extractor-fixture-restamp; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0839-e0-registry-modes-design; pull request #116.

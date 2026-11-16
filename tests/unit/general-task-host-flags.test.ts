@@ -52,7 +52,7 @@ describe("the reported issues of a submission's host flags (backlog item 7(d), p
   });
   it("names the questions whose verified quotes the packet's caps all left out and the packet's omissions (7d.D); an event from before 7d.D reads as before", () => {
     const lines = (misses: Record<string, number>) => hostFlagIssues([event({ misses })], true);
-    const trimmed = (n: number, of: string) => `${n} research question${n === 1 ? " has" : "s have"} no retained evidence; ${of} had verified quotes, all left out of the packet at its caps.`;
+    const trimmed = (n: number, of: string) => `${n} research question${n === 1 ? " has" : "s have"} no retained evidence; ${of} had verified evidence, all left out of the packet at its caps.`;
     expect(lines({ questionsWithoutEvidence: 3, questionsTrimmed: 1 })).toEqual([trimmed(3, "1 of them")]);
     expect(lines({ questionsWithoutEvidence: 3, questionsTrimmed: 2 })).toEqual([trimmed(3, "2 of them")]);
     expect(lines({ questionsWithoutEvidence: 2, questionsTrimmed: 2 })).toEqual([trimmed(2, "each")]);

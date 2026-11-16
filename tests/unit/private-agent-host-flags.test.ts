@@ -11,7 +11,7 @@ import { DOCUMENT_REVIEW_FLAGS_PATH, type DocumentReviewFlags } from "../../src/
 import { HOST_FLAGS_REVIEW_CHECK_ID, HostFlagsEventSchema, claimsReportPath, hostFlagsEvent, recordHostFlags } from "../../src/main/private-agent/host-flags";
 import { RESEARCH_FILES } from "../../src/main/private-agent/research-contract";
 import type { PrivateAgentStore } from "../../src/main/private-agent/store";
-import { researchV4Reply } from "../helpers/research-v4-fixture";
+import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
 import { researchV4Packet } from "../helpers/research-v4-packet";
 
 const cleanups: (() => void)[] = [];
@@ -276,8 +276,8 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1509)", ()
         { type: "tool_finished", output: JSON.stringify({ error: "path_invalid" }) }, { type: "tool_finished", output: { error: "public_fetch_limit_reached" } },
         { type: "tool_started", output: JSON.stringify({ error: "public_fetch_limit_reached" }) }] });
       const event = hostFlagsEvent(h.run({ "output/report.md": "Prices fell [C1].", [CLAIMS_LEDGER_PATH]: "[]" }))!;
-      expect(event.misses).toEqual({ briefUnits: 1, questionsWithoutEvidence: 1, unresolvedQuestions: 1, noEvidenceOutcomes: 2, extractionRetries: 1, droppedQuotes: 1,
-        fetchFailures: 1, fetchLimitRefusals: 1 });
+      expect(event.misses).toEqual({ briefUnits: 1, questionsWithoutEvidence: 1, questionsTrimmed: 0, unresolvedQuestions: 1, noEvidenceOutcomes: 2, extractionRetries: 1,
+        droppedQuotes: 1, quotesLeftByCap: 0, conflictsLeftByCap: 0, fetchFailures: 1, fetchLimitRefusals: 1 });
       expect(event.packet).toEqual({ coverageSha256: digest(coverage.bytes) });
       const at = argument.findIndex(line => line.includes("None of the sources mention 2025")) + 1;
       expect(event.argument).toEqual({ format: "markdown", scanned: true, textCut: false, hits: [absence(at, "A1"), absence(at, "A1", true)], truncated: false });
@@ -286,11 +286,57 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1509)", ()
     }, 30_000);
     it("records no misses for the plain fixture packet beyond its single unit, and no single-unit flag for a numbered brief", async () => {
       const plain = hostFlagsEvent(harness({ files: await packet() }).run({ "output/report.md": "x" }))!;
-      expect(plain.misses).toEqual({ briefUnits: 1, questionsWithoutEvidence: 0, unresolvedQuestions: 0, noEvidenceOutcomes: 0, extractionRetries: 0, droppedQuotes: 0,
-        fetchFailures: 0, fetchLimitRefusals: 0 });
+      expect(plain.misses).toEqual({ briefUnits: 1, questionsWithoutEvidence: 0, questionsTrimmed: 0, unresolvedQuestions: 0, noEvidenceOutcomes: 0, extractionRetries: 0,
+        droppedQuotes: 0, quotesLeftByCap: 0, conflictsLeftByCap: 0, fetchFailures: 0, fetchLimitRefusals: 0 });
       expect(plain.counts.briefSingleUnit).toBe(1); expect(plain.argument!.hits).toEqual([]);
       const numbered = hostFlagsEvent(harness({ files: await packet("1. Describe the alpha observations.\n2. Describe the beta observations.\n") }).run({ "output/report.md": "x" }))!;
       expect(numbered.misses!.briefUnits).toBe(2); expect(numbered.counts.briefSingleUnit).toBe(0);
+    }, 30_000);
+    /** 7d.D (BL-20261116-0821-host-flags-trimmed-counts-design): twenty sources of twelve rows, every row a verified quote for Q1 and every chunk one
+     * conflict note, so 7b.2's trim leaves quotes and notes out of the packet, as in its own pipeline test. */
+    const trimmedPacket = async () => {
+      const sources = Array.from({ length: 20 }, (_, i) => ({ id: `input/t-${String(i).padStart(2, "0")}.md`, path: `input/t-${i}.md`,
+        bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+      const reply = (system: string, user: string) => {
+        if (!system.startsWith("You extract")) return researchV4Reply(system, user);
+        const input = parseResearchUserContent(user);
+        return JSON.stringify({ questions: input.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "evidence_found" })),
+          quotes: String(input.chunk.text).split("\n").map((quote: string) => ({ quote, questionIds: ["Q1"], note: "n".repeat(200) })),
+          conflicts: [{ questionIds: ["Q1"], note: `The rows of ${input.source.id} disagree with another source.` }] });
+      };
+      return (await researchV4Packet(undefined, sources, reply)).files;
+    };
+    const json = (files: { path: string; bytes: Buffer }[], path: string) => JSON.parse(files.find(file => file.path === path)!.bytes.toString("utf8"));
+    /** The pass's misses over `files` with coverage.json replaced: an edited copy keeps the schema, and the ready gate is not asked (the pass never runs it). */
+    const missesWith = (files: { path: string; bytes: Buffer }[], coverage: unknown) => hostFlagsEvent(harness({ files: files.map(file => file.path === RESEARCH_FILES.coverage ?
+      { path: file.path, bytes: Buffer.from(`${JSON.stringify(coverage)}\n`) } : file) }).run({ "output/report.md": "x" }))!.misses!;
+    it("counts the quotes and conflict notes the trim left out of a real packet, and no trimmed question while each kept a quote, as the extract row does (7d.D)", async () => {
+      const files = await trimmedPacket(), coverage = json(files, RESEARCH_FILES.coverage), evidence = json(files, RESEARCH_FILES.evidence);
+      const extract = json(files, RESEARCH_FILES.summary).stages[2];
+      // Some chunks lost all their quotes (evidence_trimmed), but the round-robin's first round kept one for the question.
+      expect(coverage.chunks.some((chunk: { questions: { status: string }[] }) => chunk.questions[0]!.status === "evidence_trimmed")).toBe(true);
+      expect(coverage.omissions.length).toBeGreaterThan(coverage.conflictOmissions.length); expect(coverage.conflictOmissions.length).toBeGreaterThan(0);
+      const misses = hostFlagsEvent(harness({ files }).run({ "output/report.md": "x" }))!.misses!;
+      expect(misses).toMatchObject({ questionsWithoutEvidence: 0, questionsTrimmed: 0, quotesLeftByCap: coverage.omissions.length, conflictsLeftByCap: coverage.conflictOmissions.length });
+      expect([misses.questionsTrimmed, misses.quotesLeftByCap]).toEqual([extract.questionsTrimmed, extract.quotesLeftByCap]);
+      expect([misses.quotesLeftByCap, misses.conflictsLeftByCap]).toEqual([evidence.counts.leftByCap, evidence.counts.conflictsNoted - evidence.conflicts.length]);
+      // An omission the presentation guard made counts as one the packet cap made.
+      const mixed = { ...coverage, omissions: coverage.omissions.map((omission: Record<string, unknown>, i: number) => ({ ...omission, reason: i % 2 ? "presentation_cap" : "packet_cap" })) };
+      expect(missesWith(files, mixed).quotesLeftByCap).toBe(coverage.omissions.length);
+    }, 30_000);
+    it("counts a question as trimmed when no chunk retained evidence for it and one trimmed some, among the questions without evidence (7d.D)", async () => {
+      const files = await packet(), coverage = json(files, RESEARCH_FILES.coverage);
+      // Each chunk's outcomes for Q1 to Q3, in order; an outcome left out is no_verified_evidence.
+      const outcomes = (chunks: string[][]) => missesWith(files, { ...coverage,
+        synthesis: { ...coverage.synthesis, questions: ["Q1", "Q2", "Q3"].map(questionId => ({ questionId, disposition: "unresolved", evidenceIds: [] })) },
+        chunks: coverage.chunks.map((chunk: Record<string, unknown>, i: number) => ({ ...chunk, questions: ["Q1", "Q2", "Q3"].map((questionId, q) => {
+          const status = chunks[i]?.[q] ?? "no_verified_evidence"; return { questionId, status, evidenceIds: status === "evidence_retained" ? ["E1"] : [] }; }) })) });
+      expect(coverage.chunks).toHaveLength(2);
+      // Q1 kept a quote in one chunk though the other chunk's were trimmed; Q2's were all trimmed; Q3 had none.
+      expect(outcomes([["evidence_retained", "evidence_trimmed"], ["evidence_trimmed"]])).toMatchObject({ questionsWithoutEvidence: 2, questionsTrimmed: 1 });
+      // With Q1's only quote trimmed too, two of the three questions without evidence were trimmed.
+      expect(outcomes([["evidence_trimmed", "evidence_trimmed"]])).toMatchObject({ questionsWithoutEvidence: 3, questionsTrimmed: 2 });
+      expect(outcomes([])).toMatchObject({ questionsWithoutEvidence: 3, questionsTrimmed: 0, noEvidenceOutcomes: 6 });
     }, 30_000);
     it("records none of the section's parts when its ledger read fails after the packet was read", async () => {
       const h = harness({ files: await packet() });

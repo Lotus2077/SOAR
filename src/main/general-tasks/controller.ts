@@ -184,8 +184,17 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
     if (scan.textCut) issues.push(`Only the first part of ${label} was scanned for absence claims.`);
   }
   const misses = flags.misses ?? {};
-  if (misses.questionsWithoutEvidence) issues.push(`${many(misses.questionsWithoutEvidence, "research question has", "research questions have")} no retained evidence.`);
+  if (misses.questionsWithoutEvidence) {
+    // 7d.D (BL-20261116-0821-host-flags-trimmed-counts-design): the questions whose verified quotes the packet's caps all left out are among
+    // them. An event recorded before 7d.D has no such count, and its line reads as before.
+    const total = misses.questionsWithoutEvidence, trimmed = misses.questionsTrimmed ?? 0;
+    const why = trimmed ? `; ${trimmed === total ? (total === 1 ? "it" : "each") : `${trimmed} of them`} had verified quotes, all left out of the packet at its caps` : "";
+    issues.push(`${many(total, "research question has", "research questions have")} no retained evidence${why}.`);
+  }
   if (misses.unresolvedQuestions) issues.push(`${many(misses.unresolvedQuestions, "research question was", "research questions were")} left unresolved by the synthesis.`);
+  const left = [...(misses.quotesLeftByCap ? [many(misses.quotesLeftByCap, "verified quote", "verified quotes")] : []),
+    ...(misses.conflictsLeftByCap ? [many(misses.conflictsLeftByCap, "conflict note", "conflict notes")] : [])];
+  if (left.length) issues.push(`The research packet left out ${listed(left)} at its caps.`);
   if (misses.fetchFailures) issues.push(`${many(misses.fetchFailures, "public source fetch", "public source fetches")} failed.`);
   if (misses.fetchLimitRefusals) issues.push(`${many(misses.fetchLimitRefusals, "public source fetch was", "public source fetches were")} refused at the fetch limit.`);
   if (counts.briefSingleUnit === 1) issues.push("The brief has a single unit, so the research plan's coverage check was vacuous.");

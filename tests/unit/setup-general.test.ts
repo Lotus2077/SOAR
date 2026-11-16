@@ -210,7 +210,7 @@ describe("pnpm setup:general doctor", () => {
         "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=131072\n");
       expect(context.card).toMatchObject({ status: "refused", code: "serving_card_context_mismatch" }); expect(context.ready).toBe(false);
     });
-    it("reads the card through the headless driver's own loader, and names the keys where the app's differ, never their values (BL-20261116-1327-run-row-card-and-doctor-sources-design)", async () => {
+    it("reads the card through the headless driver's own loader, and names the keys where the app's differ, never their values (BL-20261116-1358-run-row-card-and-doctor-sources-design)", async () => {
       const flagged = writeCard(cardDir(), adopt(proposedServingCard())), pair = { SOAR_SERVING_CARD_FILE: flagged.path, SOAR_SERVING_CARD_SHA256: flagged.sha256 };
       const lines = (values: Record<string, string>) => Object.entries(values).map(([key, value]) => `${key}=${value}\n`).join("");
       async function doctorWith(files: { userData?: string; cwd: string }, env: Record<string, string> = pair) {

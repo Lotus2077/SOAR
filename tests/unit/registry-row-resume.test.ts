@@ -123,7 +123,7 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
       loop: { selected: null, step: null, stopped: { stage: "a", failure: "loop_stage_incomplete", closed: false } } });
     expect(refused(["--loop-dir", unfinished], "rejected")).toContain("record --outcome infra_invalid");
     expect(refused(["--loop-dir", unfinished], "accepted")).toContain("the loop selected nothing");
-    // BL-20261116-1327-run-row-card-and-doctor-sources-design: a stopped stage's freeze gives the row its protocol hash, card and K too.
+    // BL-20261116-1358-run-row-card-and-doctor-sources-design: a stopped stage's freeze gives the row its protocol hash, card and K too.
     const cardFreeze = `${canonical({ version: 1, jobId: "job-a", startedAt: time(0), sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, profile: "heavy",
       modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, limits: { feeMicrousd: 0 }, arm: { arm: "local" }, pipeline: { name: "research", protocolSha256: h("d") },
       servingCard: { sha256: h("c"), version: 1, date: "2026-11-10", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 3 } })}\n`;
@@ -145,7 +145,7 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     const missing = stoppedLoop(() => undefined, { stage: "a", failure: "loop_stage_missing" });
     const missingRow = row(["--loop-dir", missing], "infra_invalid");
     expect(missingRow).toMatchObject({ runClass: infra("loop_stage_missing"), modelCalls: 0 });
-    // BL-20261116-1327-run-row-card-and-doctor-sources-design: with no stage freeze, the protocol hash, the card and K are unknown, never left out.
+    // BL-20261116-1358-run-row-card-and-doctor-sources-design: with no stage freeze, the protocol hash, the card and K are unknown, never left out.
     expect([missingRow.researchProtocolSha256, missingRow.servingCard, missingRow.localStreams]).toEqual([null, null, null]);
   });
   it("classifies a version-2 critique_failed or repair_failed loop by its draft, or by the stop's recorded cause when the draft did not submit", () => {

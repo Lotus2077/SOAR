@@ -21,7 +21,7 @@ import { loadServingCard, looksLikePath, servingCardExpectation, servingCardRefu
  * the serving-card pair is set, compares the identity with the adopted card through the pinned reader; never the card's
  * path. The card is checked as the headless driver reads it, its only consumer: the pair and the expectation come from the driver's
  * sources through its own loadConfig() (the process environment, SOAR_ENV_FILE, then the working directory's .env.local and .env;
- * never the user-data file), BL-20261116-1327-run-row-card-and-doctor-sources-design.
+ * never the user-data file), BL-20261116-1358-run-row-card-and-doctor-sources-design.
  */
 export const GENERAL_SETUP_KEYS = ["SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL", "SOAR_VLLM_API_KEY", "SOAR_VLLM_COST_POLICY", "SOAR_ALLOW_INSECURE_VLLM_HTTP", "SOAR_GENERAL_TASK_IMAGE_ID", "SOAR_GENERAL_TASK_PROFILE",
   "SOAR_VLLM_REPLY_CONTRACT", "SOAR_VLLM_CONTEXT_TOKENS", "SOAR_STREAMING", "SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256"] as const;
@@ -46,7 +46,7 @@ export interface GeneralSetupReport {
     /** The window against the larger of the profile's request guard and, under flash_next_v1, the configured context; ok is null when the endpoint reports no max_model_len, false when the contract and context settings are ones the app refuses. */
     window?: { requiredTokens: number; ok: boolean | null; reason?: string } };
   /**
-   * The card as the headless driver reads it (BL-20261116-1327-run-row-card-and-doctor-sources-design, decision (2)): its pair and expectation come from
+   * The card as the headless driver reads it (BL-20261116-1358-run-row-card-and-doctor-sources-design, decision (2)): its pair and expectation come from
    * the driver's sources (`sources`), with the cache salt the driver assumes (`cacheSalt`); `appDiffers` names the card-relevant keys whose
    * value the app's sources give differently, never a value.
    */
@@ -127,7 +127,7 @@ export function parseEnvFile(text: string): Partial<Record<GeneralSetupKey, stri
 }
 /**
  * The settings a card depends on: its pair, the streaming switch, and the endpoint, alias and reply contract its expectation and
- * comparison read (BL-20261116-1327-run-row-card-and-doctor-sources-design).
+ * comparison read (BL-20261116-1358-run-row-card-and-doctor-sources-design).
  */
 export const CARD_KEYS = ["SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256", "SOAR_STREAMING", "SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL",
   "SOAR_VLLM_REPLY_CONTRACT", "SOAR_VLLM_CONTEXT_TOKENS", "SOAR_VLLM_COST_POLICY", "SOAR_ALLOW_INSECURE_VLLM_HTTP"] as const satisfies readonly GeneralSetupKey[];

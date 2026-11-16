@@ -55,7 +55,7 @@ const tool = (operationId: string, name?: string) => [...(name ? [{ type: "tool_
 const stage = (name: string, over: Record<string, unknown> = {}) => ({ type: "research_stage", contextId: "r", stage: name, calls: 1, invalidReplies: 0, usage: { inputTokens: 10, outputTokens: 1 }, ...over });
 
 describe("registry columns (plan 11.4)", () => {
-  it("records the run's research protocol hash, the serving card the driver loaded and its K, and refuses a card record of another shape (BL-20261116-1327-run-row-card-and-doctor-sources-design)", () => {
+  it("records the run's research protocol hash, the serving card the driver loaded and its K, and refuses a card record of another shape (BL-20261116-1358-run-row-card-and-doctor-sources-design)", () => {
     const card = { sha256: h("c"), version: 1, date: "2026-11-16", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 4 };
     const pipeline = { name: "research", version: 3, protocolSha256: h("d"), planner: "local", writer: "local" }, root = scratch();
     // The card's sha256 and adopting entry only: never its version, date or path.

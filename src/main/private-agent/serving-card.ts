@@ -321,7 +321,7 @@ export function loadServingCard(descriptor: ServingCardDescriptor, expectation: 
 /**
  * 8.2b: `localStreams` is the card's K, which the driver passes to the session in every run with a card: the research loops and the claims
  * judge run K calls at a time on a zero-risk local model, and one at a time otherwise (ASSIST-M2's default: freeze.json; the registry row's
- * `localStreams` copies it, BL-20261116-1327-run-row-card-and-doctor-sources-design).
+ * `localStreams` copies it, BL-20261116-1358-run-row-card-and-doctor-sources-design).
  */
 export interface ServingCardFreeze { sha256: string; version: 1; date: string; entry: string; localStreams: number }
 /** The freeze.json fragment: {} without a card; never the path. */

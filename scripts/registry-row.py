@@ -843,7 +843,7 @@ def cloud_fields(freeze: dict) -> dict:
     return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
 
 
-# BL-20261116-1327-run-row-card-and-doctor-sources-design (1): the freeze records of SC and 8.2b (servingCardFreeze, src/main/private-agent/serving-card.ts)
+# BL-20261116-1358-run-row-card-and-doctor-sources-design (1): the freeze records of SC and 8.2b (servingCardFreeze, src/main/private-agent/serving-card.ts)
 # and of 7a.2's pipeline block (researchPipelineFreeze, scripts/private-agent-local-screen.ts). The card reader's entry pattern, in ASCII
 # digits, and its MAX_LOCAL_STREAMS.
 CARD_ENTRY = re.compile(r"BL-[0-9]{8}-[0-9]{4}-[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -851,7 +851,7 @@ MAX_LOCAL_STREAMS = 8
 
 
 def card_fields(freeze: dict) -> dict:
-    """The run's research protocol hash, the serving card the driver loaded, and its K (BL-20261116-1327-run-row-card-and-doctor-sources-design,
+    """The run's research protocol hash, the serving card the driver loaded, and its K (BL-20261116-1358-run-row-card-and-doctor-sources-design,
     decision (1)). researchProtocolSha256 is freeze.pipeline.protocolSha256, the protocol under the card's role policy (null without a
     research pipeline). servingCard is {sha256, entry} from freeze.servingCard (null without a card). localStreams, ASSIST-M2's K, is the
     card's localStreams, or 1 when the freeze records none, since the driver gives a session K only from a card. A present value of
@@ -1295,7 +1295,7 @@ def loop_row(args) -> dict:
         path = os.path.join(loop_dir, stage) if stage else None
         fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": task["jobSha256"], "profile": None, "maxOutputTokens": None,
                   "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None,
-                  # BL-20261116-1327-run-row-card-and-doctor-sources-design: without a stage freeze, the protocol hash, the card and K are unknown.
+                  # BL-20261116-1358-run-row-card-and-doctor-sources-design: without a stage freeze, the protocol hash, the card and K are unknown.
                   "hostFlags": None, "researchProtocolSha256": None, "servingCard": None, "localStreams": None}
         evidence = {"kind": "none"}
         if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):

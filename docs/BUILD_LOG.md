@@ -47271,7 +47271,7 @@ Next gate:
 
 References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/serving-card-2026-11-16.md; docs/experiments/serving-card-2026-11-16.json; docs/experiments/serving-card-2026-09-28.md; docs/experiments/README.md; docs/experiments/e0-planner-fixture-v1.json; docs/experiments/e0-judge-fixture-v1.json; docs/experiments/e0-extractor-fixture-v1.json; docs/HANDOFF.md "Start here" §5; docs/PLAN.md §4; docs/PROJECT_REVIEW_2026-11-05.md §5.6, §5.8 and §5.10; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261104-1319-api-only-target-and-new-window-approved; BL-20261104-1358-api-only-native-preflight-accepted-candidate-released; BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0838-correction-e0-amendment-1-review; BL-20261116-0939-e0-probes-serving-card; BL-20261116-0941-e0-card-amendment-2; BL-20261116-1013-e0-judge-labelling-and-pin; BL-20261116-1017-correction-e0-probes-serving-card-review; BL-20261116-1018-correction-e0-amendment-2-review; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1020-e0-judge-fixture-result; BL-20261116-1048-correction-e0-records-final-review; BL-20261116-1050-correction-e0-planner-fixture-null-content-review; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-1132-e0-card-amendment-3; BL-20261116-1159-correction-e0-amendment-3-pre-run-review; BL-20261116-1210-correction-research-structured-output-review; BL-20261116-1214-local-fanout-implemented; BL-20261116-1356-e0-extractor-fixture-result; pull requests #102, #108, #110, #115, #116, #118, #120, #121, #124 and #125; issues #54, #57, #62 and #63.
 
-### BL-20261116-1327-run-row-card-and-doctor-sources-design -- 2026-11-16 -- A run's registry row records its research protocol hash, the serving card the driver loaded and its K; the doctor checks a card from the settings the headless driver reads
+### BL-20261116-1358-run-row-card-and-doctor-sources-design -- 2026-11-16 -- A run's registry row records its research protocol hash, the serving card the driver loaded and its K; the doctor checks a card from the settings the headless driver reads
 
 Status: `Proposed`
 
@@ -47331,11 +47331,11 @@ Next gate: the implementation with its tests, a light review with privacy checke
 
 References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-2301-serving-card-request-settings-design; BL-20261116-1203-research-role-policy-design; BL-20261116-1208-research-structured-output-design; pull requests #108 and #123.
 
-### BL-20261116-1405-run-row-card-and-doctor-sources-implemented -- 2026-11-16 -- A run's registry row records its research protocol hash, the serving card the driver loaded and its K, and the doctor checks a card through the headless driver's own loader: implemented, with the light review's fixes
+### BL-20261116-1359-run-row-card-and-doctor-sources-implemented -- 2026-11-16 -- A run's registry row records its research protocol hash, the serving card the driver loaded and its K, and the doctor checks a card through the headless driver's own loader: implemented, with the light review's fixes
 
 Status: `Implemented`
 
-Scope or hypothesis: This implements BL-20261116-1327-run-row-card-and-doctor-sources-design.
+Scope or hypothesis: This implements BL-20261116-1358-run-row-card-and-doctor-sources-design.
 - **Held as designed:** decision (1), the row fields.
 - **Tightened after the light review:** decision (2), the doctor.
 
@@ -47422,4 +47422,49 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: the pull request, then the merge under the standing go-ahead.
 
-References: BL-20261116-1327-run-row-card-and-doctor-sources-design; BL-20261114-1505-concurrent-local-admission-design; pull requests #108 and #123.
+References: BL-20261116-1358-run-row-card-and-doctor-sources-design; BL-20261114-1505-concurrent-local-admission-design; pull requests #108 and #123.
+
+### BL-20261116-1431-correction-run-row-card-and-doctor-sources-restamp -- 2026-11-16 -- Correction: #128's two entries are re-stamped after `main`'s tail; their original IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #125, #127 and #126 reached `main` before this branch, and `main`'s last ID is now BL-20261116-1357-e0-verified. This branch merged `main` (a7a21f3) at 6cf16b2, with no force-push. Its two entries move after that tail, under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates).
+
+Each entry, with its original ID and authoring time, both on 2026-11-16 UTC:
+- **The design entry.** Authored at 13:27 as BL-20261116-1327. It is now BL-20261116-1358-run-row-card-and-doctor-sources-design.
+- **The implemented entry.** Authored at 14:05 as BL-20261116-1405. It is now BL-20261116-1359-run-row-card-and-doctor-sources-implemented.
+
+Decisions:
+- **(1) The re-stamp.**
+  - **What changes.** Only the two headings' IDs change, with the references to them: two in the implemented entry's body, and 13 in comments, test titles and the experiments README.
+  - **The 13 references** are across 8 files: scripts/registry-row.py, scripts/setup-general.ts, src/main/private-agent/serving-card.ts, docs/experiments/README.md and four test files.
+  - **The log.** No entry on `main` cites the original IDs. `main`'s log is kept whole, as a byte prefix of this branch's.
+- **(2) The merge.**
+  - **The conflict.** Only docs/BUILD_LOG.md conflicted. It is resolved by appending: `main`'s log whole, then this branch's two entries.
+  - **The other files.** README.md, docs/experiments/README.md and scripts/registry-row.py merged without conflict. #125 changed other lines of the last two.
+  - **The merged tree** differs from `main` only in this branch's 10 files. Compared line by line, each carries exactly this branch's edits from 2e2d75c to a86e61f.
+  - **Rerere.** The merge ran with `rerere.enabled=false`, and its output shows no reused resolution.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, their references, and this entry.
+- The files that cite the entries, as listed in decision (1).
+
+No behaviour changes.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (716 entries, append-only against `main` at a7a21f3). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On the merged tree, on Node 22.22.2 and pnpm 10.12.4: the registry-row, doctor, serving-card, probe, fixture, labelling-tool and config suites pass 411 of 411, in 26 files.
+- **The re-stamp.** With the two new IDs mapped back, the log before this entry is byte-identical to the merge commit's. `git grep` finds the original IDs only in this entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- If another branch's entries reach `main` first, this branch merges `main` again and re-stamps under the same rule.
+- Commit messages and #128's earlier description keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #128, then the coordinator's merge under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1357-e0-verified; BL-20261116-1358-run-row-card-and-doctor-sources-design; BL-20261116-1359-run-row-card-and-doctor-sources-implemented; pull requests #125, #126, #127 and #128.

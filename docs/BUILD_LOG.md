@@ -47468,3 +47468,164 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #128, then the coordinator's merge under the standing go-ahead.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1357-e0-verified; BL-20261116-1358-run-row-card-and-doctor-sources-design; BL-20261116-1359-run-row-card-and-doctor-sources-implemented; pull requests #125, #126, #127 and #128.
+
+### BL-20261116-1441-e0-card-amendment-4 -- 2026-11-16 -- E0 card Amendment 4: the planner's and the extractor's calls with the `response_format` the proposed serving card would add, named before either runs
+
+Status: `Implemented`
+
+Scope or hypothesis: E0's closing entry, BL-20261116-1357-e0-verified, leaves two measurements to a later amendment: the planner's request with `response_format` on the real r3 index, and the extraction request with `response_format` on the extractor fixture's chunks. This entry records Amendment 4, appended to docs/experiments/e0-card-2026-11-13.md, which names both before either runs.
+
+- **What `Implemented` covers.** The amendment's text in the card and nothing else. No request is sent and nothing is verified here; the two dry runs under Evidence sent nothing.
+- **Whose choices.** The amendment adds no owner decision. The cells are lane S-pipe's design at the orchestrating session's request, and the owner did not choose their values. What the card reads from the runs, the reading rules, the conditions of the runs and the rows' outcome rule (items 5 to 8) are the session's procedural choices, as is `--cache-salt`.
+- **Why no approval entry.** Both are zero-fee local runs on public or synthetic input within the Heavy caps, the 16,384 cell at the ceiling (PLAN.md §4(c)).
+- **The hypotheses.** The planner's design entry states one, which the card puts as questions: on the real index, the card's plan call returns a valid plan at least as often as the call without `response_format`, and runs out its cap with no content no more often; at 16,384 tokens that empty truncation is rarer still. The extractor's design entry asks a question and predicts nothing: does strict structured output remove `schema_too_big` on these chunks, and what does it do to the other classes? With no pass level, the runs neither accept nor reject the planner's hypothesis. The card's item 5 says how the counts are read.
+
+Decisions:
+1. **The commands,** each first with `--dry-run`:
+   - `pnpm fixture:planner -- --index <run-5 index.json> --brief <stage brief> --manifest docs/experiments/e0-planner-fixture-v2.json --cache-salt`;
+   - `pnpm fixture:extractor -- --manifest docs/experiments/e0-extractor-fixture-v2.json`.
+2. **The planner's design:** 3 conditions × 10 repeats, 30 calls, on run-5's index.
+   - `legacy-thinking` is the control: the pipeline's plan messages and thinking fields as they are today, with no `response_format`, sent unstreamed and, in this run, with the fixture's salt.
+   - `legacy-thinking-structured` adds what the proposed card adds to that call: strict `research_plan`, with thinking on at 8,192 tokens.
+   - `legacy-thinking-structured-16384` is the same body at 16,384 tokens, a calibration cell that no card can send today.
+3. **The extractor's design:** 2 conditions × 3 chunks × 10 repeats, 60 calls.
+   - `thinking-off` is the control: the deployed call.
+   - `thinking-off-structured` is the proposed card's extract call: strict `research_extraction`, thinking off, 2,048 tokens.
+4. **`--cache-salt` on the planner run.** This is the session's choice between the two forms lane S-pipe offered.
+   - **Why with the salt.** The card's recorded settings have the cache salt on. #125's test proves the salted 8,192 cell equal, byte for byte, to the pipeline's own first plan call under the committed card's roles, with the pipeline's model configured unstreamed and under the fixture's job (decision (7) of BL-20261116-1330-e0-structured-conditions-implemented). No test compares the unsalted body with a pipeline call.
+   - **What it does not make equal.** A run under the card streams and salts with its own job, so its body differs from the cell's in those fields.
+   - **What it costs.** v1's planner run sent no salt. So this run's control differs from v1's `legacy-thinking` bodies in that one field, and the two controls are not the same request. One salt for 30 calls also lets the server reuse the prompt after the first call, so the run measures no cold first plan call. The comparison that counts is inside this run.
+5. **What the card reads from them.** Both runs are read beside P10's plan and extract cells, as evidence under three bullets of "Decision rule". They change no bullet's rule and decide nothing about adoption.
+6. **How the answers are read.** No pass level is set, and each answer is given as two cells' counts.
+   - A difference is called shown only where Fisher's exact test gives a two-sided p below 0.05. Anything else is "no difference shown", which is not a finding that the cells are alike.
+   - With 10 calls a planner cell, the run can show only a large difference. If the control repeats v1's cell, no result can show the card's call better.
+   - The 16,384 cell is compared with the 8,192 structured cell only, from which it differs in the cap alone.
+7. **The conditions of the runs** (the card's item 6):
+   - the amendment committed and pushed before the first request;
+   - the extractor first, then the planner, one at a time;
+   - the doctor before each run, and each dry run and its run at one commit;
+   - the printed values and request digests that item 6 fixes, and protocol hash 7100b7a2…;
+   - if a printed value differs, that fixture does not run.
+8. **The planner's client ceiling.** The planner's calls are unstreamed, and Node's `fetch` gives up after 300 s without a response header. So the 16,384 cell cannot count a reply slower than that.
+   - A call of the 16,384 cell cut there is read as "no reply within 300 s" when its elapsed time is between 295 and 320 s and the calls before and after it were answered with HTTP 200. For the run's last call, the doctor's completion straight after the run stands for the call after. Such a call does not by itself make the run `infra_invalid`. A call cut in either 8,192 cell does.
+   - The reading says what the client saw, not why: the neighbours show that the endpoint answered before and after, not that it was still generating this reply. The row still classes the call `transport_failed`.
+   - Such a call counts as neither `valid` nor an empty truncation, and the cap question is called shown only if it is shown with those calls counted either way.
+   - This exception is the session's choice. Without it, one slow reply in the calibration cell would void the run's other 29 calls, a second run would meet the same ceiling, and running again until no reply is slow would choose the run by a result.
+9. **The rows** take Amendment 3's outcome rule (its item 5), with the exception of decision 8.
+   - `accepted` when a run finished, its summary records the values the card's item 6 fixes, and no call is classed `transport_failed` or `request_rejected`, decision 8's calls apart. For the extractor's streamed replies, also no `malformed_reply` whose stream was cut.
+   - `infra_invalid` when it finished with any other of those, or with a summary that records another value.
+   - `incomplete` or `infra_invalid` when it stopped early.
+   - A fixture runs again only after a run that was not `accepted`, never because of a result.
+
+Changes: docs/experiments/e0-card-2026-11-13.md gains the Amendment 4 section, appended; nothing above it changes. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **The fixtures** are scripts/planner-fixture.ts and scripts/extractor-fixture.ts at 7e75a47, #125's merge.
+  - The planner's command line takes its conditions and repeats from the manifest when no flag gives them, and `--cache-salt` adds one salt to every body. It refuses no flag.
+  - The planner's summary records each condition's request digest, byte count and cap. It records no manifest digest and not the salt flag.
+  - The extractor's dry run prints its manifest digest and its request settings, and its command line refuses a flag it does not know.
+- **The manifests** at that commit hold status `pinned`, v1's pins, and the conditions and repeats above.
+  - The planner's canonical digest is 0d3156b5e9dc1c034a8e0bc42c70ca6936e7a752c47a03572a38936d2914edb8, and its file's sha256 is 60dc061ac13360d02be6445c58a995fa5c6a6776eba67373c308100d586911ac.
+  - The extractor's canonical digest is 14446e28a693fada940c8777f4043976b132392072f6fec99b44368283bfb0e9, and its file's sha256 is b692308658ab000a36c959a24235d099e427ba7c60c87ddec7cb6a28a8263e16.
+  - Lane S-pipe reported the four digests. The session's reviewer recomputed all four at d81d551 with the repository's own functions, and the session recomputed the two file digests in the main checkout at 7e75a47.
+- **Dry runs before this amendment,** in the main checkout at 7e75a47 with a clean tracked tree. They sent nothing and wrote nothing.
+  - **Planner, with `--cache-salt`:** `dryRun` true, the three conditions in order, 10 repeats, caps of 8,192, 8,192 and 16,384, and the three request digests the amendment's item 6 fixes.
+  - **Planner, without it:** `legacy-thinking` printed 48016d5d2f5b840aab5630843a78b33f75e3b24dc8d855caf6d3e906ab2456e2, the digest in v1's run summary. Each salted body is 80 bytes longer than its unsalted one.
+  - **Extractor:** manifest digest 14446e28…, 60 calls, `streamed` true under both conditions, and request settings with streaming on and no reply contract. `thinking-off` printed request-set digest 881e55ef…, the value in v1's run summary, and `thinking-off-structured` printed 42bc1a39…, the value the reviewer had computed offline.
+- **The session's light review of #125,** made after lane S-pipe's own (BL-20261116-1330-e0-structured-conditions-implemented), by one read-only reviewer at d81d551, with privacy checked. It found no blocker and no major issue: two minor findings and four nits.
+  - **It confirmed** that the planner's structured cell differs from its control only in `response_format`, and the 16,384 cell in the cap too; that the extractor's structured cell differs from its control in `response_format` and in its cache salt, since each repeat of a condition is salted as its own job; that v1's bodies and digests are unchanged; and that the diff holds no private string.
+  - **Tests.** It ran the three changed test files and the role-schema export test: 58 tests passed on the merged tree. BL-20261116-1330's 57 is the count before its merge of `main` at 2e2d75c, which brought one registry test from #123.
+  - **Minor: no test pins what `--cache-salt` does.** The code is right today. The amendment's fixed digests cover this run, and lane S-pipe is asked for the test.
+  - **Minor: the planner's time.** See Limitations.
+  - #125 then gained one documentation commit, 1bd1d16, which the session read. #125 merged at that head as 7e75a47 at 13:55 UTC, with CI green.
+- **Lane S-pipe's checks** (BL-20261116-1330-e0-structured-conditions-implemented): the full test suite passed on its second run, after a first run with one subprocess timeout in a file #125 does not touch; twelve single-edit mutants each fail a test; and `researchProtocolSha256()` stays 7100b7a2….
+- **This amendment was reviewed before the runs,** read-only, by three reviewers and two skeptics: the text against the code, the soundness of the pre-registration, and this entry's claims against their sources.
+  - **Two major findings, both confirmed and fixed in place.** The questions had no rule for reading counts of ten, so decision 6 and the card's "How the answers are read" were added. The planner's 300 s client ceiling was not stated, so decision 8 and the card's ceiling bullet were added. A reviewer measured the ceiling on Node 22.22.2 against a silent loopback server: the fetch failed after about 302 s.
+  - **The minor findings** were applied before the commit: the questions defined by the summary's fields, the checks after each run and what follows if one fails, one command line for dry run and run, the rows' ids, the rule for a second run, the salt's exact reach and cost, the list of what is not measured, the three "Decision rule" bullets, and the budget.
+  - **The exception in decision 8** was written after that review. The reviewers' text kept such a run `infra_invalid`. One further skeptic then reviewed the exception alone, read-only, and kept it with changes: the 16,384 cell only, a rule for the run's last call, the two readings of the cap question, and the statement that the reading names no cause. On Node 22.22.2 against a silent loopback server it measured the cut at 301.6 s, recorded as `TypeError` with a null status. The server saw the connection close at the same moment, and the next request was answered.
+  - The session recomputed the exact-test thresholds the card states.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Pre-registration only.** The amendment sends nothing.
+- **Initial attempts only.** Under the card the repair attempt also carries `response_format`, and neither fixture sends a repair.
+- **The planner fixture does not stream,** and a run under the card does. Its client therefore gives up at 300 s without response headers, not at the fixture's 900 s.
+- **A call read as "no reply within 300 s"** is not shown to be a slow reply. A stall or a lost connection within that one call leaves the same record, and the summary keeps the error's name, not its cause.
+- **One salt for the planner's 30 calls,** where a run under the card salts each research job.
+- **Small samples.** 10 calls a planner cell and 30 an extractor condition, 10 a chunk, on one exposed index and three synthetic chunks.
+- **After the closing entry.** These runs come after E0's `Verified` entry, which does not extend to them. Their results go in a later entry.
+- **The time estimates.** No rule depends on them. Lane S-pipe's are about 30 to 50 minutes for the planner and 5 to 19 for the extractor. The reviewers', from v1's runs, differ:
+  - **Planner.** v1's eight thinking-on replies at the 8,192-token cap took 61 to 86 s, 79 s on average. If every reply runs to its cap, and a reply at 16,384 tokens takes twice as long, the 30 calls take about 53 minutes at that average and about 57 at the slowest. A reply decoded more slowly takes longer, so this is no upper bound. BL-20261116-1330's "26 to 73 s" is BL-20261116-1019's range for the valid plans only.
+  - **Extractor.** v1's thinking-off calls averaged about 5, 9 and 19 s by chunk. So the 60 calls take about 11 minutes if the structured cell is no slower.
+- **The protocol hash in each summary** is the protocol without a card. A run under the card's roles binds another hash, which the fixtures do not record.
+- **Open points from #125's review,** left to lane S-pipe: a test for `--cache-salt`, and the README's wording, which calls both structured planner cells the card's call.
+
+Paid exposure: None. Both runs are zero-fee and go to the owned endpoint: 60 and 30 calls, and the doctor's one-token completion before each.
+
+Next gate: The doctor, the extractor's dry run and run, the doctor, the planner's dry run and run; then the two rows and a result entry. The close-out pull request #126 merged as a7a21f3 at 14:30 UTC, so BL-20261116-1357's ID is final.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-planner-fixture-v2.json; docs/experiments/e0-extractor-fixture-v2.json; docs/experiments/serving-card-2026-11-16.json; docs/experiments/README.md; docs/PLAN.md §4(c); scripts/planner-fixture.ts; scripts/extractor-fixture.ts; scripts/registry-row.py; tests/unit/planner-fixture.test.ts; BL-20261116-1357-e0-verified; BL-20261116-1356-e0-extractor-fixture-result; BL-20261116-1253-e0-planner-structured-condition-design; BL-20261116-1256-e0-extractor-structured-condition-design; BL-20261116-1330-e0-structured-conditions-implemented; BL-20261116-1132-e0-card-amendment-3; BL-20261116-1159-correction-e0-amendment-3-pre-run-review; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1049-correction-e0-planner-fixture-null-content; BL-20261116-1208-research-structured-output-design; BL-20261116-1210-correction-research-structured-output-review; pull requests #122, #123, #125 and #126.
+
+### BL-20261116-1539-correction-e0-planner-fixture-salt-pin -- 2026-11-16 -- Correction to BL-20261116-1330-e0-structured-conditions-implemented after the coordinating session's review of #125: tests now pin what `--cache-salt` does, and the README no longer calls the 16,384 cell the card's plan call
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261116-1330-e0-structured-conditions-implemented, which is not edited. The coordinating session's light review of #125 left two points to lane S-pipe, and E0 card Amendment 4 (pull request #129) lists them as open. The session asked for both in one pull request on `main` (da30c9d).
+- **No test pinned `--cache-salt`.** 1330's decision (6) says that with `--cache-salt` the bodies "carry one salt for every condition and repeat", and that without it they carry none. No test set `cacheSalt: true` on `runPlannerFixture`. So dropping the option where the bodies are built, or salting per repeat, passed every test. The code itself was right, and the amendment's planner run passed the flag.
+- **The README's v2 bullet** (docs/experiments/README.md) called both structured cells the serving card's plan call. Only `legacy-thinking-structured`, at 8,192 tokens, is a call a card can send. `legacy-thinking-structured-16384` is a calibration cell: the card reader refuses a flagged plan attempt at a cap P10 did not measure (`serving_card_structured_output_cap_unmeasured`). BL-20261116-1253-e0-planner-structured-condition-design says so in its body.
+
+Decisions:
+(1) **Two tests pin `--cache-salt`** (tests/unit/planner-fixture.test.ts, in the manifest-v2 block).
+- **The run.** Over all six conditions and two repeats:
+  - each salted body is the plain body plus `cache_salt`, the fixture's one salt (`vllmCacheSalt(FIXTURE_JOB_ID)`), with nothing else changed;
+  - a dry run records the plain bodies' digests, sizes and caps without the option and with it false, and the salted bodies' with it;
+  - a run against a loopback fake records the same, and sends those bodies byte for byte: the salted body on every call of both repeats with the option, and the plain body without it.
+- **The command line.** The script's dry run prints the salted request digests with `--cache-salt` and the plain ones without it, for v2's three conditions.
+- The loopback fake now also keeps each request's raw body, for the byte comparison. The other tests do not read it.
+
+(2) **The README's v2 planner bullet** names `legacy-thinking-structured` alone as the card's plan call, and `legacy-thinking-structured-16384` as a calibration cell that no card can send until P10 measures plan at 16,384. It also says what `--cache-salt` does.
+
+(3) **The same short form elsewhere stays as it is.**
+- The headings of 1253 and 1330 speak of the card's call at both caps. So do the comment on `buildPlannerBody` in scripts/planner-fixture.ts and the title of the test that builds both cells.
+- The entries' bodies say the 16,384 cell is a calibration cell, and they hold.
+- Committed entries are not edited, and this change touches no script.
+
+Changes:
+- tests/unit/planner-fixture.test.ts: the two tests of decision (1), and the fake's raw body.
+- docs/experiments/README.md: decision (2).
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On this branch, from `main` at da30c9d:
+- **Mutants.** Seven single edits of scripts/planner-fixture.ts, each run against the planner test file:
+  - the option dropped where the bodies are built;
+  - a salt per repeat;
+  - a salt per condition;
+  - the salt sent whatever the option;
+  - another job's salt;
+  - the command line's flag not passed to the run;
+  - the salted digest recorded while the plain body is sent.
+- With the new tests, each of the seven fails a test. With `main`'s tests, six survive. Only "whatever the option" fails, through the existing loopback test's plain digests.
+- **The planner test file** passes: 11 tests, 2 of them new.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The hashes.** `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. The source freeze is `main`'s, because no file of src/ or scripts/ changes.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- Tests and documentation only. No script changes, so E0's runs and their request digests are unaffected.
+- **A synthetic index.** The tests use a two-source synthetic index, because the real r3 index is not in the repository. The request digests of E0's run are the ones Amendment 4 fixes, not this test's.
+- **A mistyped flag.** The command line still refuses no unknown flag, so a mistyped `--cache-salt` runs unsalted, as Amendment 4 notes. That is not changed here.
+- **Not asked now; recorded for a later change.**
+  - The coordinating session's reviewer found that Node cuts the planner fixture's unstreamed `fetch` at about 300 s if no response headers have come. That is before the fixture's own 900 s signal (the Heavy profile's `requestTimeoutMs`); the reviewer measured about 302 s.
+  - It did not bite E0's run, whose longest call took 155 s.
+  - A run at larger caps needs a streamed call or its own transport.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green, then the coordinating session's review and merge.
+
+References:
+- BL-20261116-1330-e0-structured-conditions-implemented (corrected);
+- BL-20261116-1253-e0-planner-structured-condition-design;
+- E0 card Amendment 4, pull request #129.

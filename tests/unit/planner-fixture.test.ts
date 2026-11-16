@@ -12,7 +12,7 @@ import { deriveBriefUnits, inventoryResearchSources } from "../../src/main/priva
 import { assembleIndexEntry, buildLiteralSourceCard } from "../../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research-plan";
 import { OUTPUT_TOKENS, PLAN_SYSTEM, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
-import { DEFAULT_CONDITIONS, FIXTURE_JOB_ID, PLAN_RESPONSE_FORMAT, PlannerFixtureManifestSchema, buildPlannerBody, buildPlannerMessages, plannerConditionCap, runPlannerFixture, verifyFixtureInputs,
+import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, FIXTURE_JOB_ID, PLAN_RESPONSE_FORMAT, PlannerFixtureManifestSchema, buildPlannerBody, buildPlannerMessages, plannerConditionCap, runPlannerFixture, verifyFixtureInputs,
   type FixtureCondition } from "../../scripts/planner-fixture";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
@@ -37,11 +37,11 @@ const plan = (sourceIds: string[]) => JSON.stringify({ version: 2, questions: [{
 
 /** A loopback fake of the chat-completions route that answers a scripted reply per call and records every request. */
 async function fakeServer(script: (ordinal: number) => { content?: unknown; finish?: string; status?: number; body?: unknown }) {
-  const requests: { url: string; headers: Record<string, string | string[] | undefined>; body: any }[] = [];
+  const requests: { url: string; headers: Record<string, string | string[] | undefined>; body: any; raw: string }[] = [];
   const server: Server = createServer((request, response) => {
     let data = ""; request.on("data", chunk => { data += chunk; });
     request.on("end", () => {
-      requests.push({ url: request.url ?? "", headers: request.headers, body: JSON.parse(data) });
+      requests.push({ url: request.url ?? "", headers: request.headers, body: JSON.parse(data), raw: data });
       const reply = script(requests.length);
       response.writeHead(reply.status ?? 200, { "content-type": "application/json" });
       // A script's `body` replaces the whole reply, envelope included.
@@ -257,5 +257,34 @@ describe("planner fixture: the serving card's plan call (manifest v2, BL-2026111
       .toEqual({ "legacy-thinking": 8192, "legacy-thinking-structured": 8192, "legacy-thinking-structured-16384": 16384 });
     // Explicit flags still override the manifest's design, as before.
     expect(dry(["--conditions", "thinking-off", "--repeats", "2"])).toMatchObject({ conditions: ["thinking-off"], repeats: 2 });
+  });
+
+  it("salts every body with the fixture's one salt under --cache-salt and only then: the request digests a dry run records, and the bodies a run sends on every repeat", async () => {
+    const f = fixtureInputs(), inputs = { index: f.index, brief: f.briefBytes, manifest: f.manifest }, messages = buildPlannerMessages(verifyFixtureInputs(inputs));
+    const salt = vllmCacheSalt(FIXTURE_JOB_ID), conditions = [...FIXTURE_CONDITIONS];
+    const plain = conditions.map(c => buildPlannerBody(c, "Synthetic", messages)), salted = conditions.map(c => buildPlannerBody(c, "Synthetic", messages, { cacheSalt: salt }));
+    // Each salted body is the plain body with the one salt added, and nothing else changed.
+    salted.forEach((body, i) => { const { cache_salt: added, ...rest } = JSON.parse(body); expect(added).toBe(salt); expect(canonical(rest)).toBe(plain[i]); });
+    const recorded = (bodies: string[]) => Object.fromEntries(conditions.map((c, i) => [c, { requestSha256: digest(bodies[i]!), requestBytes: Buffer.byteLength(bodies[i]!), maxTokens: plannerConditionCap(c) }]));
+    const run = (options: { cacheSalt?: boolean; dryRun?: boolean }, baseUrl = "http://127.0.0.1:9/v1") =>
+      runPlannerFixture({ endpoint: { baseUrl, model: "Synthetic" }, inputs, out: join(outDir(), "salt"), repeats: 2, conditions, ...options });
+    expect((await run({ dryRun: true })).requests).toEqual(recorded(plain)); expect((await run({ dryRun: true, cacheSalt: false })).requests).toEqual(recorded(plain));
+    expect((await run({ dryRun: true, cacheSalt: true })).requests).toEqual(recorded(salted));
+    // A run sends those bodies byte for byte: the same salt on every call of both repeats with the option, and none without it.
+    const server = await fakeServer(() => ({ content: plan(["input/corpus/alpha.md"]), finish: "stop" }));
+    expect((await run({ cacheSalt: true }, server.baseUrl)).requests).toEqual(recorded(salted)); expect((await run({}, server.baseUrl)).requests).toEqual(recorded(plain));
+    expect(server.requests.map(r => r.raw)).toEqual([...salted, ...salted, ...plain, ...plain]);
+  });
+
+  it("takes --cache-salt from the command line: its dry run prints the salted request digests with the flag and the plain ones without it", () => {
+    const f = fixtureInputs(), root = outDir(), conditions = ["legacy-thinking", ...STRUCTURED] as const;
+    const messages = buildPlannerMessages(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest: f.manifest }));
+    writeFileSync(join(root, "index.json"), f.index); writeFileSync(join(root, "brief.md"), f.briefBytes); writeFileSync(join(root, "manifest.json"), JSON.stringify({ ...f.manifest, conditions, repeats: 10 }));
+    const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1", SOAR_VLLM_MODEL: "Synthetic", SOAR_ENV_FILE: join(root, "none.env") };
+    const printed = (extra: string[]) => Object.fromEntries(Object.entries(JSON.parse(execFileSync(process.execPath, ["--import", "tsx", "scripts/planner-fixture.ts", "--index", join(root, "index.json"),
+      "--brief", join(root, "brief.md"), "--manifest", join(root, "manifest.json"), "--dry-run", ...extra], { cwd: ROOT, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] })).requests as Record<string, { requestSha256: string }>)
+      .map(([condition, request]) => [condition, request.requestSha256]));
+    const expected = (options: { cacheSalt?: string }) => Object.fromEntries(conditions.map(c => [c, digest(buildPlannerBody(c, "Synthetic", messages, options))]));
+    expect(printed(["--cache-salt"])).toEqual(expected({ cacheSalt: vllmCacheSalt(FIXTURE_JOB_ID) })); expect(printed([])).toEqual(expected({}));
   });
 });

@@ -27,6 +27,8 @@
     "probe:assess": "node --import tsx scripts/assess-probe-replies.ts",
     "fixture:planner": "node --import tsx scripts/planner-fixture.ts",
     "fixture:judge": "node --import tsx scripts/judge-fixture.ts",
+    "fixture:extractor": "node --import tsx scripts/extractor-fixture.ts",
+    "label:judge": "node --import tsx scripts/judge-labeller.ts",
     "card:serving": "python3 scripts/serving-card.py",
     "launcher": "node --import tsx scripts/experiment-launcher.ts",
     "setup:general": "node --import tsx scripts/setup-general.ts",

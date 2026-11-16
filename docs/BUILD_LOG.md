@@ -41759,6 +41759,1272 @@ Next gate: CI green, and the owner's go to merge, since this is not a lane pull 
 
 References: docs/HANDOFF.md "Start here"; BL-20261114-1119-handoff-start-here; BL-20261114-2300-correction-handoff-hash-line-restamp; BL-20261114-2254-correction-judge-fixture-second-restamp; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2307-correction-e1-recoverability-gate-review; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261114-2255-doctor-endpoint-identity-implemented; BL-20261114-2256-correction-doctor-endpoint-identity-restamp; BL-20261114-2301-serving-card-request-settings-design; BL-20261114-2302-serving-card-request-settings-implemented; BL-20261114-2304-correction-serving-card-request-settings-review; BL-20261114-2305-correction-serving-card-request-settings-second-restamp; BL-20261109-0351-e1-recoverability-card; BL-20261114-1344-experiment-launcher-design; BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1523-registry-columns-design; BL-20261114-1526-registry-columns-review-design; BL-20261114-2309-revoke-reopens-budget-stop-design; BL-20261114-2326-correction-revoke-reopens-budget-stop-second-restamp; BL-20261113-0856-claims-trailing-strip-linear-design; BL-20261114-1711-claims-check-linear-strips-design; BL-20261114-1724-claims-check-linear-strips-implemented; BL-20261114-1808-claims-check-long-char-refs-implemented; pull requests #37 to #112 as the section lists them; issues #46 and #57.
 
+### BL-20261115-1937-owner-adopts-standing-defaults -- 2026-11-15 -- The owner adopts every standing default, answers E0's three open questions, and directs the experiments to start
+
+Status: `Approved`
+
+Scope or hypothesis: On 2026-11-15, at about 19:05 UTC, the owner answered in the orchestrating session's chat: "all go by default; start the experiments asap". The questions answered are the open owner questions of docs/HANDOFF.md "Start here" §4 and §5 step 2, and the git-ignored owner-facing summary of 2026-11-15.
+
+This entry records that answer the way BL-20261022-0941-privacy-filter-v2-approved recorded a blanket one: each question with a stated default takes that default, and the owner may replace any of them with a recorded answer at any time.
+
+PLAN.md §5 bounds what a default can do: "Defaults apply only to non-gated planning. They never authorize live, paid, private or publication actions." So the session put the three E0 questions with no default to the owner as separate questions at about 19:35 UTC, and decision 2 records the owner's choices. Decision 3 lists what stays open. "Start the experiments asap" is the owner's own direction, not a default; decision 5 records what it starts.
+
+Decisions:
+
+1. **Defaults adopted.** Each stands as its source states it.
+   - **#98, 11.5, the launcher.**
+     - HARN-26's six batch rules: yes.
+     - On an owner's stop, the wait before SIGKILL is 120 s, with a cap of 4 re-invocations per loop (BL-20261114-1344-experiment-launcher-design).
+     - A hangup sends the run SIGTERM.
+     - The window for a repeated signal is 5 s.
+
+     The last two come from BL-20261114-1431-experiment-launcher-signals-design, as BL-20261114-1503-correction-experiment-launcher-hangup corrects it: a hangup is never taken as a second press. All of these merged with #98.
+   - **#101 and #110, items 8.1 and 8.2b.** ASSIST-M1, ASSIST-1, ASSIST-2 and ASSIST-M2, from decision (10) of BL-20261114-1505-concurrent-local-admission-design. At K > 1, the class of a run that hits a denial can come out either way, as BL-20261114-1508-correction-concurrent-local-admission-review records. ASSIST-M2's registry column needs a later part of item 11, because 11.4 did not add it.
+   - **#104, 11.4** (BL-20261114-1523-registry-columns-design):
+     - HARN-27 takes the brief's definitions.
+     - On a closed corpus, `domains` is 0, and E3 reads `urls` and `actions.sourcesRead`.
+     - `sourcesIndexed` is the closed-corpus "read" until item 12.
+   - **#100, 6.4.** A Revoke re-opens a task that its approved consultation's budget stop ended (BL-20261114-2309-revoke-reopens-budget-stop-design).
+   - **#97, E1-G.** E1-1, E1-2, E1-3 and E1-6, from decision 3 of BL-20261114-2306-e1-recoverability-gate-ci-verified. E1-2 carries two obligations: 10.b re-proves clause 3 end to end under the same describe name, and E3's card cites that test.
+   - **#92, 7d.B** (BL-20261110-1509-host-flags-event-design). D11 keeps the segmentation and flags single-unit briefs, and "misses" means the run's own misses.
+   - **#89, question (b) of BL-20261113-0836-infra-resume-design.** Criterion 7 reads `activeSeconds` for a loop with resumes or void starts, and `wallSeconds` otherwise.
+     - This amends the decision rules that BL-20261107-0650-owner-decisions-review-items-2-5 approved for E3 and E4, and their cards state it. No cap, provider or money changes.
+     - The same answer adopts that entry's other defaults, (a) and (c) to (f).
+   - **7b.2's D4 incomplete-chunk clause:** an incomplete chunk still ends `research_extraction_incomplete`. This is decision 8 of #102's design entry; #102 is unmerged, and its re-stamp will move its IDs.
+   - **Review §5.10** (docs/PROJECT_REVIEW_2026-11-05.md):
+     - Decision 5's reallocation: none. E4 starts only if the harness line's balance after E3 covers E4's cap, the admission condition BL-20261107-0650-owner-decisions-review-items-2-5 applies.
+     - Decision 7: no thinking-off writer arm. E2's card leaves it out.
+     - Decision 11: proxy grades are provisional (PLAN.md D9). Its open parts are under decision 3.
+     - Decision 12's first part: keep the segmentation and flag single-unit briefs, with the one-question host fallback plan for unnumbered briefs (BL-20261113-0927-research-v5-design).
+     - Decision 13's D20(b): private source code is regime-tagged, as BL-20261022-0941-privacy-filter-v2-approved approved. T3 and coding on private source code stay blocked.
+     - Decision 2's last part: the assist toggle starts off.
+   - **Defaults of BL-20261113-0920-assist-wrapper-design that bear on dispatch.** These include ASSIST-6, which accepts a stated limit for public and synthetic tasks on E3's and E4's approved arms only, and ASSIST-8. They stand only as defaults and take effect only when 10.b dispatches, which decision 3 keeps blocked. Under PLAN.md §5 they accept no private exposure. The owner's explicit answer on #105, which 10.b needs anyway, is where they are confirmed or replaced.
+
+2. **The owner's answers to E0's three questions that have no default.**
+   - **(a) 7b.2 (#102) merges before E0's schema export.**
+     - #102 merges `main` in, re-stamps its entries and merges.
+     - Then an amendment to docs/experiments/e0-card-2026-11-13.md moves the card's precondition hash to `7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5`. It is committed once #102 is on `main` and before `pnpm probe:export-schemas`.
+     - E0 then measures 7b.2's request bodies.
+     - The r3 run, the planner pin and the judge's harvest do not depend on this: coverage v3 keeps `chunks` and `briefSha256`.
+   - **(b) The labeller is `gpt-6-sol`.**
+     - It runs at the public API host `api.openai.com`.
+     - Its key variable is `SOAR_PHASE2_CLOUD_API_KEY`, which scripts/with-cloud-key.sh reads from the owner's Keychain at launch. The key never enters a file, log or commit.
+     - The USD 1.00 cap of BL-20261113-1003-e0-card-owner-answers is charged to PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)" (USD 20). The Phase 4 harness track line stays whole for E3 and E4.
+     - The material is public and synthetic only, as before.
+     - The labelling tool does not exist yet. The card amendment that names it, with the per-class minimum, the conditions and the repeats, is committed before the first claim is sent.
+   - **(c) The planner fixture pins the stage brief.** The stage brief is `brief.md` with the claims-ledger instructions appended, exactly the planner's input in the pipeline.
+     - It is written to a git-ignored file.
+     - Its sha256 and byte length must equal the r3 run's `coverage.json` `briefSha256` and `briefBytes`.
+
+3. **No default, so still open.** Each still blocks what it blocked before.
+   - **#105, scrub policy 5.** The owner was offered three choices: accept the 13 residues listed in decision 2 of #105's last design entry; close named items first; or keep 10.b blocked.
+     - **No source states a default.** The defaults that bear on it amount to keeping 10.b blocked:
+       - BL-20261113-0925-correction-assist-core-rereview closes L1 to L4 and L7 by rule.
+       - The train-1 owner-question list says 10.b stays blocked, and #105 stays a draft, until the owner answers.
+       - #105's rules are frozen, so no further rule will come.
+     - **Accepting is a privacy exposure.** Credentials, passwords among them, and query tokens in model-written packet text would reach a paid cloud provider on public and synthetic arms, and the list may not be complete. Only the owner's explicit answer can accept that (PLAN.md §5).
+     - **So #105 stays a draft, and 10.b stays blocked.** Neither gates E0 or E1.
+   - **Owner decisions in review §5.10 with no default:**
+     - Decision 5's LiveDRBench grader judge model: a paid model on the key JAT, which E4's card proposes.
+     - Decision 6: the provider of the assists and of E3's arm D, a paid provider and key.
+     - Decision 8: SearXNG or a keyed search API. Either is a new egress destination.
+     - Decision 10: the Manus product baseline, which means spend outside the envelope.
+     - Decision 12's second part: disclosing the public brief from the desktop.
+     - Decision 13's dashboard reconciliation.
+     - Decision 9's sub-questions (#52) and the box checklist (PLAN.md D5).
+     - Decision 11's open parts (#53): the sample the owner grades, the second-verdict policy, `verdictBy`, and what E5 records.
+
+     These gate E3, E4, E5's labelled work and item 13. None gates E0 or E1.
+   - **Whether E1's held gate covers E0's r3 run:** no default. The question is moot: BL-20261115-1938-e1-l-sandbox-suite-docker-verified records E1-L's Docker run, and under decision 1's E1 defaults that run releases the gate.
+
+4. **The orchestrating session's procedural choices for E0.** These are not the owner's decisions. Each holds unless the owner replaces it, and the probe choice can be replaced before the export.
+   - **The reply contract.** The configuration sets no `SOAR_VLLM_REPLY_CONTRACT`, which is the legacy shape, as review §5.9 recommends during E0. It stays that way for the export, the probes and every later run that uses E0's card. So do `SOAR_STREAMING`, which is unset and so true, and the driver's default cache salt.
+   - **The probe invocation** runs `python3 scripts/serving-probe.py` with no `--only`. That is all twelve probes, P1 to P11 and the adapter probe, in one invocation. It satisfies both the card's Arms and its Order; the card's Order names P1, P10, P11 and the adapter probe in one invocation. P1 alone runs first, as the Order says.
+   - **The planner manifest** is filled locally before the planner run and committed with the results. That is where the card's Records, the Next gate of BL-20261113-0936-e0-card and #57 put it.
+   - **No OpenRouter call.** Every E0 command sets `SOAR_OPENROUTER_ENABLED=false` in its own environment.
+
+5. **What "start the experiments asap" starts.**
+   - **E1.** The Docker run of E1-L's sandbox suite, recorded in BL-20261115-1938-e1-l-sandbox-suite-docker-verified, releases E1's gate.
+   - **E0,** per its card, from the owner's Mac and at zero fee, except the labelling.
+     - **Done or under way:**
+       - The doctor has run (Evidence).
+       - The r3 run started at 19:31:07 UTC on d92a3af with `--arm local` and no cloud flag.
+     - **Next, in order:**
+       - The stage brief and the planner pin.
+       - #102's merge and the precondition-hash amendment.
+       - P1 alone, then the export, the twelve probes, `pnpm probe:assess`, and the card writer with the `--compare-*` flags.
+       - For the judge: its tool, its amendment, the harvest, the labelling, the pin and the run.
+       - The planner fixture, then the extractor fixture, whose command an amendment names first.
+       - The registry rows, then the `Verified` entry.
+     - **Zero-fee local runs** on public or synthetic inputs need no approval entry (PLAN.md §4(c)). This entry records the owner's direction anyway.
+   - **The endpoint configuration E0 reads.**
+     - **Where it comes from.** The owner chose the `.env.local` of another of the owner's checkouts, and it is linked into this repository's root, where git ignores it. E0's scripts read that file; the doctor reads it after the app's user-data `.env.local`. The user-data file sets four endpoint keys, and the linked file sets the same four to the same values.
+     - **What the linked file adds.** `SOAR_VLLM_COST_POLICY=local_zero_cost`, the image setting, and OpenRouter and paid-cap settings, with OpenRouter enabled. Decision 4 turns OpenRouter off for E0.
+     - **What this log records.** No address, key or path. It records key names, and only the non-secret values named here.
+   - **The tools E0 still lacks** are built in reviewed lane pull requests, each with its own entries:
+     - the labelling tool;
+     - the extractor fixture;
+     - registry-row.py modes for probe runs, fixture runs and the labelling call.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The owner's words** are quoted from the orchestrating session's chat. The blanket answer came at about 19:05 UTC; the three answers of decision 2 at about 19:35 UTC, as the choices the session marked recommended.
+- **The sources of each default** were read on `main` at d92a3af, and on the branches of #102, #105 and #110 for their unmerged entries:
+  - the entries cited above;
+  - PLAN.md §4, §5 and D9;
+  - docs/PROJECT_REVIEW_2026-11-05.md §5.9 and §5.10;
+  - docs/experiments/e0-card-2026-11-13.md;
+  - #95's and #102's descriptions, and issue #57;
+  - the git-ignored train-1 owner-question list and the owner-facing summary of 2026-11-15.
+- **The endpoint.** The doctor ran at 19:12 UTC, read-only and without `--write`. It is `pnpm setup:general`, at d92a3af. It reported `ready: true`:
+  - Node 22.22.2;
+  - Docker reachable;
+  - the qualified image `sha256:e5c7075f…` installed and configured;
+  - the model listed, and a one-token completion in 218 ms;
+  - the identity: served alias RM-01 VLM, model-root basename Qwen3.8-Flash-Next-NVFP4, engine vLLM 0.33.0rc1.dev617+g821038729, context 262,144 tokens;
+  - the window covering the Heavy profile's 234,838 tokens;
+  - no serving card configured.
+
+  That identity is the one BL-20261104-0701-new-endpoint-metadata-and-deployment-drift recorded, so E0 stays the delta check of decision 1 of BL-20261113-1003-e0-card-owner-answers. The report's settings path and endpoint digest are left out here.
+- **The configuration** was compared by key name only, with the app's own loader, `loadEnvironmentFiles`. Its values were never printed, apart from the non-secret ones named in decision 5.
+
+Failures or blockers: None in recording. Decision 3's questions stay open.
+
+Limitations and non-claims:
+- **A blanket answer.** It adopts defaults as their sources state them, and the owner did not read each one in this chat. Any of them can be replaced by a recorded answer.
+- **The sources govern.** Where this entry and a cited source differ, the source governs.
+- **The doctor run** proves the endpoint's identity at 19:12 UTC only. It does not prove the probes' results, which E0 measures.
+- **The envelope line** for the labelling is the owner's choice. Its balance is tracked in the registry, and this entry does not re-check it.
+- **Approximate times.** The times of the owner's answers are approximate.
+
+Paid exposure: None in this entry. The labelling's USD 1.00 is approved but unspent. It runs only after its tool exists and its amendment is committed. Zero SOAR model requests here beyond the doctor's one-token completion on the owned endpoint, which costs nothing.
+
+Next gate: The steps of decision 5, in the card's order. Decision 3's questions, whenever the owner answers them.
+
+References: docs/HANDOFF.md "Start here" §4 and §5; PLAN.md §4, §5 and D9; docs/PROJECT_REVIEW_2026-11-05.md §5.9 and §5.10; docs/experiments/e0-card-2026-11-13.md; BL-20261022-0941-privacy-filter-v2-approved; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261107-0650-owner-decisions-review-items-2-5; BL-20261107-0718-correction-owner-decisions-record; BL-20261110-1509-host-flags-event-design; BL-20261113-0836-infra-resume-design; BL-20261113-0920-assist-wrapper-design; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261114-1344-experiment-launcher-design; BL-20261114-1431-experiment-launcher-signals-design; BL-20261114-1503-correction-experiment-launcher-hangup; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261114-1523-registry-columns-design; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2309-revoke-reopens-budget-stop-design; pull requests #89, #92, #95, #97, #98, #100, #101, #102, #104, #105 and #110; issues #52, #53 and #57.
+
+### BL-20261115-1938-e1-l-sandbox-suite-docker-verified -- 2026-11-15 -- E1-L verified against Docker on the owner's Mac: the sandbox integration suite passes on `main` at d92a3af, which releases E1's gate
+
+Status: `Verified`
+
+Scope or hypothesis: This is the Docker-gated run that E1's gate waits for: decision 2 of BL-20261114-2306-e1-recoverability-gate-ci-verified, under #88's default (decision 2 of BL-20261113-0848-correction-e1-train-1-reviews). The suite is tests/integration/private-agent-sandbox.test.ts, run under `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true` against the real Docker daemon and the pinned image. It ran at a commit that contains E1-L (#74) and every later merge. Hypothesis: E1-L's container half holds inside the container, and so do the suite's earlier contracts. E1-L's container half is that the lister lists the host's pinned paths first, past a bulky directory that sorts first, and never follows a pinned link. The orchestrating session ran it on the owner's Mac after the owner's direction of 2026-11-15 to start the experiments (BL-20261115-1937-owner-adopts-standing-defaults).
+
+Decisions: None of its own.
+- **E1's gate is released.** Decision 2 of BL-20261114-2306-e1-recoverability-gate-ci-verified names this run, recorded `Verified`, as the gate's release. Decision 3 of BL-20261114-2307-correction-e1-recoverability-gate-review holds that release only while the defaults E1-1, E1-2, E1-3 and E1-6 stand. BL-20261115-1937-owner-adopts-standing-defaults records the owner's adoption of them.
+- **What the release does not do.** It lifts E1's hold on E2 to E6's live runs and on harness loops. Each of those still needs its own card, cap and gates.
+
+Changes: None; this entry records runs only.
+
+Evidence:
+- **Setup.** The run was on 2026-11-15, on the owner's Mac (Darwin 25.5.0), with Docker Engine 29.8.2. The pinned image `sha256:95be0fdf09ef20ff31c5f605108f068422a58edb93b35834c5cfaf45312d3071` was present locally, tagged `soar-patch-fixture:1` and `soar-patch-python:1`. The suite never pulls or builds it.
+- **The command.** `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-sandbox.test.ts --maxWorkers=1 --testTimeout=120000 --reporter=verbose` ran at d92a3af with a clean tree. This is decision 2's command plus the verbose reporter.
+- **The result.** 1 file and 18 tests passed, 0 failed, in 25.82 s, from 19:07:18 to 19:07:45 UTC.
+- **E1-L's case.** The 18 include "lists the host's pinned paths first inside the container, past a bulky directory that sorts first, never following a pinned link (E1-L)".
+- **The other 17.**
+  - The four omission cases: a file symlink, a directory symlink, a FIFO and a hard link.
+  - The name that is not valid UTF-8.
+  - The bounded output.
+  - Cancellation and timeout, each with descendants.
+  - The overlong command.
+  - Recovery of the exact owned context.
+  - The forged-namespace cleanup that fails closed.
+  - PID1 expiry independent of the host timer.
+  - The write, append and replace protocol.
+  - The lifetime ceiling.
+  - The credential, network and proxy isolation cases.
+- **The containers.** After the run, the containers labelled `soar.private-job-id` were the same four that BL-20261107-1111-stop-bricking-tasks-docker-suite-verified found. They were created on 2026-10-07 and 2026-10-14 from image e5c7075fac7a and exited weeks ago. The run created none; the suite removed its own containers, as its cleanup assertions require.
+
+Failures or blockers: None. The four stale containers predate this work and were left as they were.
+
+Limitations and non-claims:
+- **Scope of the run.** One machine, one daemon version and one image, outside CI, where the suite is skipped.
+- **What it verifies.** It verifies the sandbox contract inside a container. It does not verify the runner's recovery paths against Docker, the owned model, the desktop or product quality. No model request, endpoint or paid call ran.
+- **E1's other clauses** remain `Verified` in CI only (BL-20261114-2306-e1-recoverability-gate-ci-verified).
+- **Other Docker-gated suites have still not run:** #81's document-review suite, #73's runtime-freeze `git` assertion and #72's general-task e2e assertion.
+- **Not released.** Nothing in the product is `Released`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: E0 continues per its card (HANDOFF "Start here" §5 step 2). E2 to E6 each wait for their own conditions.
+
+References: BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261114-2307-correction-e1-recoverability-gate-review; BL-20261113-0848-correction-e1-train-1-reviews; BL-20261109-0351-e1-recoverability-card; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; BL-20261115-1937-owner-adopts-standing-defaults; tests/integration/private-agent-sandbox.test.ts; pull request #74.
+
+### BL-20261115-1939-research-priority-trim-design -- 2026-11-15 -- Item 7b.2 decided: a priority trim of the research packet whose disclosed omissions the ready gate accepts (finding D4), coverage v3, and a presentation guard before synthesis
+
+Status: `Proposed`
+
+Scope or hypothesis: Item 7b.2 of the lane plan, backlog item 7(b) part 2. It addresses review finding D4 and principle 5 of review section 5.2 ("no single failure ends a task; every fallback is disclosed").
+
+Today a packet ends incomplete in either of two cases, and the writer never starts:
+- its verified quotes overflow evidence.md's 65,536 bytes (`research_packet_cap_omission`);
+- its conflict notes overflow the packet's 16 notes or 8,192 bytes (`research_conflict_cap_omission`).
+
+E1-T2 pins the first case for this item (BL-20261113-0850-e1-recoverability-pipeline-seed-implemented): 252 verified quotes on the f2-shaped corpus.
+
+The hypothesis:
+- the packet keeps the quotes and notes a fixed priority picks;
+- coverage.json discloses every other one;
+- the gate accepts a packet whose disclosures are counted and bound.
+
+Such a run then reaches the writer with nothing hidden. The default of the lane plan's owner question stands: a trimmed packet that discloses every omission counts as ready. The owner may record otherwise.
+
+Decisions:
+(1) **The priority of quotes.** After extraction, a host step with no model call orders the verified quotes:
+- round-robin over the plan's questions, in plan order;
+- each question's quotes in evidence-id order;
+- a quote shared by several questions is placed once, at its first turn.
+
+This is the order 10.a's T2 packet already uses (research-assist.ts, `buildSynthesisAssistPacket`). The packet is the longest prefix of that order whose evidence.md fits 65,536 bytes. evidence.md still lists it in evidence-id order. Every quote outside the prefix becomes an omission. So a question with a verified quote keeps one whenever the first round fits; a round holds at most twelve quotes.
+
+Today's rule is first fit in verification order: a quote that does not fit is skipped and later ones are still tried. A prefix keeps the priority strict and matches T2.
+
+(2) **The priority of conflict notes.** The extractor's notes are ordered the same way, each question's notes in the order they were noted. The packet keeps the longest prefix within 16 notes and 8,192 bytes of canonical JSON, the existing `LIMITS.packet`. The rest stay conflict omissions as today: reason `conflict_cap`, with the note's hash. Notes are chosen before quotes, because evidence.md renders the kept notes.
+
+(3) **Disclosure: coverage version 3.**
+- **Omissions.** Each gains `chunkIds` (the omitted quote's chunks, as an evidence quote lists them) and `locator`.
+  - (sourceId, locator, quoteSha256) is the pipeline's own identity for a verified quote, its deduplication key with the text hashed. So each omission names exactly one verified quote.
+  - The reason is `packet_cap` beyond the 64 KiB prefix, or the new `presentation_cap` for a quote that only the guard in (6) left out.
+- **Outcomes.** A chunk question's outcome gains the status `evidence_trimmed`: the chunk's verified quotes for that question were all left out. Its evidence ids are empty. If some quotes were kept, the outcome stays `evidence_retained` with the kept ids, and the others are omissions.
+  - A (chunk, question) pair that only an omitted quote names becomes `evidence_trimmed`. That is the same rule by which a kept quote makes such a pair `evidence_retained` today.
+- **Unchanged:** every other coverage field. evidence.json stays version 2, because its counts already carry `leftByCap` and `conflictsNoted`. The pipeline stays version 5, as the lane plan sets for all of item 7.
+
+**Why version 3, not version 2 extended in place.** BL-20261113-0927-research-v5-design allows an in-place extension only if no v5 artifact is kept between #93 and this merge.
+- E0's step 1 keeps a v5 r3 run.
+- The planner fixture's pin reads that run's coverage.json: `mandatorySourceChunks` is its chunk count, by the command in #95's body (BL-20261113-1023-p10-align-implemented (5)).
+- A version-2 file would then name two formats: 7c's, where any omission means incomplete, and this one's, where disclosed omissions are ready.
+
+The fixture is not affected: it reads the raw chunk count, which this item does not change.
+
+(4) **The ready gate** (research-coverage.ts). A packet with omissions or conflict omissions is ready when they are counted, unique and bound.
+- **Counts.** `evidence.counts.inPacket` equals the packet's quotes. `leftByCap` equals the omissions. `verified` equals inPacket plus leftByCap. `conflictsNoted` equals the packet's notes plus the conflict omissions.
+- **Identity.** No two omissions share an identity, and none equals a packet quote's (sourceId, locator, sha256 of the quote).
+- **Binding.**
+  - An omission's source is in the manifest, its chunks are that source's, and its questions are the plan's.
+  - Every (chunk, question) pair an omission names has the outcome `evidence_retained` or `evidence_trimmed`.
+  - Every `evidence_trimmed` outcome has no evidence ids, and some omission names its pair.
+  - A conflict omission's source is in the manifest and its questions are the plan's.
+- **The coverage policy.** `RESEARCH_COVERAGE_POLICY` goes to version 2. `readyRequiresNoVerifiedQuoteOmissions` and `readyRequiresNoConflictOmissions` become false, and a new key records the rule above.
+- **What the gate cannot check.** It cannot check the priority, since an omission carries only a hash. The pipeline tests check it.
+
+(5) **The pipeline.**
+- **Removed reasons.** `research_packet_cap_omission` and `research_conflict_cap_omission` go: a trimmed packet goes on to synthesis.
+- **The extract stage row** gains two counts:
+  - `questionsTrimmed`: plan questions with a verified quote and none in the packet;
+  - `quotesLeftByPresentation`: the `presentation_cap` omissions.
+
+  `quotesLeftByCap` still counts every omission.
+- **Unchanged.** A denied call still ends the stage `research_request_denied`, so decision (6) of BL-20261107-0809-zero-fee-failures-resolve-design stays unreachable for packets.
+
+(6) **The presentation guard.**
+- **The risk.** Accepted omissions grow coverage.json. The writer's presentation renders argument.md, evidence.md, plan.json and coverage.json as JSON strings and is capped at 196,608 bytes (`RESEARCH_PRESENTATION_POLICY`). Since 7c the pipeline's last check refuses an oversize presentation (`research_presentation_too_large`), but only after synthesis has spent its calls.
+- **Before synthesis.** The pipeline renders the presentation as it would stand at completion, with two upper bounds in place of the synthesis:
+  - **the argument:** the larger of the host skeleton's rendered argument and 8 bytes per word of the length cap (9,600 bytes at today's 1,200 words);
+  - **the synthesis section:** each question listing every packet id that names it, under the longest disposition. No reply's section, the skeleton's included, can be larger.
+  - If that does not fit, the prefix of (1) shrinks by a binary search over its length, and the quotes it loses become `presentation_cap` omissions.
+  - If not even a one-quote packet fits, the stage ends `research_presentation_too_large` before any synthesis call.
+- **In synthesis.** A reply whose argument and questions would make the presentation exceed the cap is rejected with the fixed code `presentation_too_large`, as an invalid reply. The stage then goes on as for any rejected reply: the next attempt, the assist slot, and finally the host skeleton, which the reservation made fit.
+- **Unchanged.** 7c's last check stays. `RESEARCH_PRESENTATION_POLICY` is unchanged, with no counts-only coverage view, so the presentation's policy digest and the runner's initial-evidence identity stay as they are.
+- **A new policy.** `RESEARCH_TRIM_POLICY` in a new research-trim.ts records the orders, the prefixes, the reservation and the rejection. It is bound into `researchProtocolSha256`.
+
+(7) **The instructions.** `SYNTHESIS_SYSTEM` and the writer instructions each gain one sentence. Evidence the caps left out is listed by hash in coverage.json, was verified, is not in the packet, cannot be cited, and is never absence.
+
+(8) **D4's incomplete-chunk clause stays out of scope.** A chunk left incomplete still ends the stage `research_extraction_incomplete`.
+- 7c did not take the clause: BL-20261113-0927-research-v5-design has no decision on it.
+- No planned item accepts a disclosed incomplete chunk. 7b.3's reserved repair capacity makes incomplete chunks rarer.
+- It goes to the orchestrator as an open question.
+
+(9) **The hash and E0.** The default `researchProtocolSha256()` moves from 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92 to a value the `Implemented` entry records. These inputs change:
+- `SYNTHESIS_SYSTEM` and the writer instructions;
+- the coverage policy, the coverage schema and its version (3);
+- the new trim policy.
+
+Consequences:
+- P10's synthesis bodies change: the system prompt, and the payload's coverage, which scripts/export-role-schemas.ts moves to version 3. A card probed before this merge measured the previous synthesis request.
+- The coordinator's rule holds: this never merges between the owner's `pnpm probe:export-schemas` and `pnpm probe:assess`. The owner decides whether it lands before the export, which needs a precondition-hash amendment to E0's card, or after the assessment, which needs a full re-probe for a structured-output card.
+- Every run made before the merge stops being seedable (`research_seed_protocol_mismatch`), as after every hash change.
+
+(10) **Effects in other lanes' files.** None of these files changes here.
+- **10.a's T2 (research-assist.ts).** Its counts-only coverage counts `chunksWithEvidence` from `evidence_retained` outcomes only. Its `quotesVerified` will include locally trimmed quotes, while its `quotesTrimmed` counts only T2's own trim. The lane plan has 10.b add the local trim counts.
+- **7d.B's host flags (host-flags.ts).** `misses.questionsWithoutEvidence` counts a question whose evidence was all trimmed, since it has no `evidence_retained` outcome. Whether 7d.C adds a trimmed count is S-desk's call.
+
+(11) **Tests, offline only.**
+- **The D4 pin flips.** The f2-shaped dense corpus ends `research_packet_ready`, with 252 quotes verified, in-packet plus left-by-cap equal to 252, and evidence.md within 64 KiB. Every omission is bound, every question that had a quote keeps one, and the writer's presentation builds.
+- **The conflict-cap and packet-cap cases** become ready with their disclosures.
+- **The orders:** round-robin, a shared quote once, the prefix.
+- **The gate refuses:** a count that does not add up; a duplicate omission; an omission equal to a packet quote; an `evidence_trimmed` outcome no omission names; an omission whose pair has `no_verified_evidence`; an omission naming another source's chunk or an unknown question.
+- **The guard:**
+  - a large coverage shrinks the prefix into `presentation_cap` omissions;
+  - a packet that cannot fit even one quote ends `research_presentation_too_large` with no synthesis call;
+  - an over-long argument is rejected, and the run completes with the next attempt or the skeleton.
+- **The rest:** the session hands a trimmed packet to the writer; a trimmed packet seeds; the stage-key guard; the protocol pin.
+
+Changes: Planned:
+- src/main/private-agent/research-trim.ts (new);
+- research-pipeline.ts, research-coverage.ts, research-contract.ts, and research-presentation.ts (a size helper);
+- scripts/export-role-schemas.ts;
+- the research tests and their fixtures, and tests/helpers/research-protocol-pin.ts.
+
+Evidence: Read at `main` 582f880:
+- research-pipeline.ts: the first-fit loops and the two terminal reasons, and the last presentation check;
+- research-coverage.ts: the gate's refusal of any omission, and of a non-zero `leftByCap`;
+- research-presentation.ts: the render and its cap;
+- research-assist.ts: T2's round-robin order and its prefix search;
+- host-flags.ts: its parse of coverage.json;
+- scripts/planner-fixture.ts and docs/experiments/e0-planner-fixture-v1.json: the fixture reads no coverage schema.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims:
+- This is `Proposed`. Nothing is implemented, and nothing runs against an endpoint.
+- The trim decides which verified quotes the synthesiser and writer see, never whether they are relevant or true.
+- The 8-bytes-per-word reservation is a protocol constant, not a measurement. The rejection in (6) covers an argument that outgrows it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the implementation, with its offline tests and an `Implemented` entry;
+- one light review;
+- CI green;
+- the merge, held for the owner's choice of E0 window as (9) states.
+
+References:
+- review finding D4 and section 5.2, principle 5;
+- BL-20261113-0927-research-v5-design;
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented;
+- BL-20261113-1023-p10-align-implemented;
+- BL-20261109-0334-research-request-shapes-design;
+- BL-20261107-0809-zero-fee-failures-resolve-design.
+
+### BL-20261115-1940-research-priority-trim-implemented -- 2026-11-15 -- Item 7b.2 implemented: the priority trim with disclosed omissions the ready gate accepts, coverage v3, and the presentation guard before and during synthesis; offline tests only
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261115-1939-research-priority-trim-design (item 7b.2, finding D4). A packet the caps cut now reaches synthesis and the writer with every quote and conflict note it left out disclosed in coverage.json.
+
+Decisions: The design of 1304 stands. These are the specifics.
+
+(1) **The code.**
+- **research-trim.ts (new).** It holds `RESEARCH_TRIM_POLICY`, `researchTrimOrder` (the round-robin) and `researchLargestFitting` (the prefix search).
+- **research-pipeline.ts.**
+  - The first-fit loops and both terminal reasons are replaced by the trim.
+  - The guard runs before synthesis, and the judge applies the reply rule (`presentation_too_large`).
+  - `SYNTHESIS_SYSTEM` and the writer instructions each gain one sentence.
+  - The protocol binds the trim policy and coverage version 3.
+- **research-coverage.ts.** It has coverage v3 and the gate rules: `evidence_counts` (extended), `omission_identity`, `omission_binding`, `omission_question` and `question_outcome` (extended). `conflict_binding` now covers conflict omissions too.
+- **research-contract.ts.** `RESEARCH_COVERAGE_POLICY` is now version 2.
+- **research-presentation.ts.** It gains `researchPresentationBytes`, which renders as `buildResearchPresentation` does but without the gate.
+- **scripts/export-role-schemas.ts.** P10's synthetic coverage moves to version 3.
+
+(2) **What a run records.**
+- **The extract row** gains `questionsTrimmed` and `quotesLeftByPresentation`. Both are counts, and both are added to the stage-key guard.
+- **coverage.json.** An omission carries `chunkIds`, `locator` and `reason` (`packet_cap` or `presentation_cap`). A chunk question may be `evidence_trimmed`.
+- **The judge.** A rejected over-cap reply reaches the diagnostics sink with `{code: "presentation_too_large", path: ["argument"], maximum: 196608}`.
+- **When nothing fits.** If not even a one-quote packet fits before synthesis, the files hold the 64 KiB prefix with `packet_cap` omissions only, and `coverage.unresolved` names `research_presentation_too_large`.
+
+(3) **The hash.** The default `researchProtocolSha256()` moves from 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92 to 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. tests/helpers/research-protocol-pin.ts records both.
+- **The E0 card.** docs/experiments/e0-card-2026-11-13.md names 505c385a… as its precondition, and this PR does not amend it. If the owner lands 7b.2 before E0's export, the card needs that amendment first.
+- **The synthesis request.** An untrimmed run's synthesis request changes only in coverage's version and protocol hash. The 7c pin test shows this: with coverage put back in 7a.1's shape, the request still equals 7a.1's byte for byte.
+
+(4) **Changes in other lanes' files:** none. The effects (10) of 1304 names, on T2's counts-only coverage and on 7d.B's host flags, stand as stated.
+
+Changes:
+- Commit 573f53f: src/main/private-agent/research-trim.ts (new), research-pipeline.ts, research-coverage.ts, research-contract.ts and research-presentation.ts; scripts/export-role-schemas.ts.
+- The tests in the same commit:
+  - tests/unit/private-agent-research-trim.test.ts (new);
+  - the pipeline, coverage, session and seed tests;
+  - tests/helpers/research-protocol-pin.ts.
+
+Evidence: The checks ran locally at 573f53f.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related tests.** The research, export, probe, host-flags, run-reasons and planner-fixture suites pass: 23 files and 506 tests.
+- **The flipped pins** (E1-T2's, BL-20261113-0850-e1-recoverability-pipeline-seed-implemented):
+  - **The f2-shaped dense corpus** ends `research_packet_ready`: 252 quotes verified, 230 in the packet and 22 omitted. evidence.md is 65,322 bytes and the presentation 91,719. Before this item it ended `research_packet_cap_omission`.
+  - **The conflict-cap case** keeps sixteen notes and discloses four by hash.
+  - **The packet-cap case** keeps a prefix of its 240 quotes and discloses the rest, each with its chunk and line.
+  - The D4 test stays in E1's describe block under a new name, so `-t "E1 recoverability"` still selects the same number of tests.
+- **The new tests.**
+  - **The priority.** With three questions, the packet is exactly a prefix of the round-robin, a shared quote is placed once, and no question is left without a packet quote. A second case orders conflict notes by the same round-robin.
+  - **The gate** accepts a real trimmed packet holding retained, trimmed and no-evidence outcomes. It refuses:
+    - counts that do not add up;
+    - a duplicate omission, and an omission of a packet quote;
+    - an `evidence_trimmed` outcome that keeps ids or that no omission names;
+    - an omission bound to another source's chunk, an unknown question, or a pair with no verified evidence;
+    - a conflict omission from an unknown source.
+  - **The guard.**
+    - Twenty-four sources with 1,500-character non-ASCII paths shrink to a 54-quote packet with 67 `presentation_cap` omissions, and the presentation is 187,044 bytes.
+    - Forty sources with 2,000-character paths end `research_presentation_too_large` with no synthesis call.
+    - An over-cap first reply is rejected, and the second is accepted.
+    - Two over-cap replies fall back to the skeleton, which fits.
+  - **The session.** A trimmed packet reaches the writer, with coverage v3, its omissions and an `evidence_trimmed` outcome in the presentation. The writer's instructions name `evidence_trimmed`.
+  - **The seed.** A trimmed packet seeds with the transfer status code null.
+- **Mutations.** Ten single edits each fail a test:
+  - quotes in verification order;
+  - conflict notes in noted order;
+  - no `evidence_trimmed` outcome;
+  - every omission `packet_cap`;
+  - no guard before synthesis;
+  - no reply rule;
+  - the gate without the identity check, without the trimmed outcome's binding, without `omission_question`, or without the new counts.
+- **Scale, on synthetic fixtures** of twelve 258-character rows with 200-character notes per source; these are not real corpora.
+  - At the schema's maximum of 480 verified quotes (40 sources), the presentation fits without the guard with 10- and 200-character source paths: 175,276 and 182,876 bytes.
+  - With 600- and 1,000-character paths, the guard keeps 86 and 38 quotes.
+  - With 2,000-character paths, nothing fits.
+- **The full suite.** `pnpm exec vitest run` reports 183 files passed and 13 skipped, and 3,600 tests passed and 86 skipped. None failed.
+- **The protocol hash** is 7100b7a2… by the pin test.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint.
+- **What the gate checks.** It checks that omissions are counted, unique and bound. It cannot check that the trim kept the right quotes, since an omission carries only a hash. Nor can it see an omission that was removed together with its counts, unless that leaves an `evidence_trimmed` outcome unbound. The pipeline's tests check the order.
+- **The reservation** of 8 bytes per word is a protocol constant, not a measurement. The reply rule covers an argument that outgrows it.
+- **Long source paths.** At web scale they can still leave no packet that fits (`research_presentation_too_large` before synthesis). That is disclosed, and the presentation policy is unchanged.
+- **Not done here:**
+  - D4's incomplete-chunk clause, which stays open for the orchestrator;
+  - T2's local trim counts (10.b);
+  - a trimmed count in the host flags (S-desk's call).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review;
+- CI green;
+- the merge, held for the owner's choice of E0 window: never between `pnpm probe:export-schemas` and `pnpm probe:assess`, and with E0's card amended if it lands before the export.
+
+References:
+- BL-20261115-1939-research-priority-trim-design;
+- BL-20261113-0927-research-v5-design;
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented;
+- BL-20261113-1023-p10-align-implemented.
+
+### BL-20261115-1941-correction-research-priority-trim-review -- 2026-11-15 -- Correction to BL-20261115-1940-research-priority-trim-implemented and BL-20261115-1939-research-priority-trim-design after the light review of #102: the scale evidence restated with ids equal to paths, the synthesis request cap the trim assumes, and the synthesis request's change stated whole
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261115-1940-research-priority-trim-implemented and BL-20261115-1939-research-priority-trim-design. The coordinator's light review of #102 at 432eeb9 was clean: no blocker, no major and no privacy finding, with four minor findings.
+- This entry records findings 1, 2 and 3, and the review's two open points.
+- Finding 4 is a test, in the commit below.
+- Neither entry is edited.
+
+Decisions:
+(1) **Finding 1: the scale evidence used short ids.**
+- **The claim.** 1331's evidence says that at 480 verified quotes the presentation fits without the guard with 10- and 200-character source paths, and that the guard keeps 86 and 38 quotes with 600- and 1,000-character paths.
+- **Why it is fixture-only.** Those runs lengthened `path` but kept 13-character ids. The session builds every source with its id equal to its path, and every omission repeats `sourceId`.
+- **The restated numbers.** The review measured with ids equal to paths, 40 dense sources, 480 quotes and a 640 KiB synthesiser:
+
+  | id length | Result |
+  | --- | --- |
+  | 10 | completes, packet of 119 quotes |
+  | 30 | completes, packet of 105 quotes |
+  | 50 | completes, packet of 68 quotes |
+  | 70 | completes, packet of 32 quotes; 75 `presentation_cap`, 448 omissions |
+  | 100 or 200 | `research_presentation_too_large` before synthesis |
+
+  This session's fixture agrees on the stop: it completes at 13, 30, 50 and 70 characters and stops at 100. The stop is disclosed and spends nothing.
+- **A possible follow-up, not done:** a more compact omission, whose `sourceId` is derived from its `chunkIds`.
+
+(2) **Finding 2: the guard bounds the writer's presentation, not the synthesis request.**
+- **What the request carries.** Besides the coverage and plan the presentation bounds, the synthesis request carries the packet's evidence as JSON and the brief twice (as `brief` and `units`).
+- **Measured** with ids equal to paths and 40 dense sources: 192,671 bytes with 13-character ids, and 201,072 with 30.
+- **Every research synthesiser today has 640 KiB.**
+  - The driver requires `--profile heavy` for `--pipeline research`, and the heavy profile allows 640 KiB.
+  - The split arm's cloud model takes the profile's cap.
+  - The desktop runs no research stage.
+- **Under the broker's 192 KiB default** (196,608 bytes), such a request is refused before dispatch. The stage ends `research_request_denied`, its synthesis row is denied `request_body_size_exceeded` with zero calls, and nothing is spent.
+- **The assumption.** The trim therefore assumes a synthesiser request cap of about 210 KB or more. A new test pins both sides.
+- **Bounding the request in the guard** stays possible later. It would change the trim policy and the protocol hash.
+
+(3) **Finding 3: the synthesis request's change, stated whole.**
+- **The claim.** 1331 (3) says an untrimmed run's synthesis request changes only in coverage's version and protocol hash.
+- **What is true.** That holds for its user message. Its system message, `SYNTHESIS_SYSTEM`, also gains one sentence, as 1304 (9) states. So every run's synthesis system message changes.
+- **Why it matters for E0.** P10 sends these bodies, so its synthesis cells change.
+- **The cited pin** compares the user message only.
+
+(4) **Finding 4, a test: the guard's bound on the synthesis section is now pinned.**
+- **The fixture.** Twelve questions share every quote, and every synthesis reply is rejected. The skeleton's argument then outgrows the 9,600-byte reserve, and the skeleton's argument and section fill the presentation to within its cap: 196,463 bytes on this fixture.
+- **The mutant.** Leave the section out of the bound, as the review did. The packet then keeps 319 quotes, two synthesis calls are spent, and the skeleton's presentation reaches 216,488 bytes. The test fails on it.
+
+(5) **The review's open points.**
+- **D4's incomplete-chunk clause.** The default stands: an incomplete chunk still ends `research_extraction_incomplete`. The coordinator lists it for the owner with that default, and nothing in the code changes.
+- **7d.C (#99) merged without a trimmed count.** `main`'s controller counts a question whose evidence was all trimmed under "N research questions have no retained evidence". The follow-up is S-desk's, and the coordinator passes it on after 7b.2 lands. This replaces 1304 (10)'s "Whether 7d.C adds a trimmed count is S-desk's call".
+
+Changes:
+- **Commit eaab4a5:** two tests in tests/unit/private-agent-research-pipeline.test.ts.
+  - **The request cap:** 40 sources with 30-character ids equal to their paths. With a 192 KiB synthesiser the stage is refused before any synthesis call; with 640 KiB it completes with a request between 192 KiB and 210 KiB.
+  - **The synthesis section:** the twelve-question skeleton fits.
+- No source change, so the protocol hash stays 7100b7a2…. This entry.
+
+Evidence: At eaab4a5:
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The research suites** pass, with the export, probe, host-flags, run-reasons and planner-fixture tests: 23 files, 508 tests.
+- **The mutant** in (4) fails exactly the new section test, and the other research tests pass.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref 582f880` passes; 582f880 is the PR's base. Against `main` (19d7826) it fails only because #99's entries are not merged in. The coordinator asked for no merge and no re-stamp before the merge is scheduled.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified`. Nothing ran against an endpoint.
+- The sizes in (1) and (2) come from synthetic fixtures, not real corpora.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- the coordinator's check of the fixes;
+- the merge, still held for the owner's E0 timing call. Then `main` is merged in, and all three of this item's entries are re-stamped after `main`'s tail.
+
+References:
+- BL-20261115-1940-research-priority-trim-implemented and BL-20261115-1939-research-priority-trim-design (corrected);
+- the light review of #102.
+
+### BL-20261115-1944-correction-research-priority-trim-restamp -- 2026-11-15 -- Correction: 7b.2's three entries are re-stamped after #114's tail, with their original IDs and authoring times, and the owner's decision that #102 merges before E0's schema export lifts its merge hold
+
+Status: `Implemented`
+
+Scope or hypothesis: #102 (item 7b.2, lane S-pipe) branched from `main` at 582f880 and had not merged `main` since. Its three entries were authored on 2026-11-14, earlier than `main`'s tail.
+- **The owner's decision.** Decision 2(a) of BL-20261115-1937-owner-adopts-standing-defaults has #102 merge before E0's schema export: #102 merges `main` in, re-stamps its entries and merges. That closes the hold the review Correction's Next gate recorded, "still held for the owner's E0 timing call".
+- **The chain.** The coordinating session merges #114 first, then #102. So this merge takes #114's head 505ce70, which is `main` at d92a3af plus #114's two entries, instead of `main`. The log's tail is then BL-20261115-1938-e1-l-sandbox-suite-docker-verified, a day later than all three entries.
+- **The rule.** BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates: the entries move after the tail, and their heading dates move with their IDs.
+
+Each entry, with its original ID and authoring time. None had been re-stamped before.
+- **The design entry** was authored at 13:04 UTC on 2026-11-14 as BL-20261114-1304 (commit 5855859). It is now BL-20261115-1939-research-priority-trim-design.
+- **The implemented entry** was authored at 13:31 UTC on 2026-11-14 as BL-20261114-1331 (commit 432eeb9). It is now BL-20261115-1940-research-priority-trim-implemented.
+  - `main`'s log uses the same short form for another entry: 11.4's design entry as first authored, which BL-20261114-1524-correction-registry-columns-design-id records. The two are different entries.
+- **The review Correction** was authored at 14:22 UTC on 2026-11-14 as BL-20261114-1422 (commit 77d44ca). It is now BL-20261115-1941-correction-research-priority-trim-review.
+
+Decisions:
+(1) **The re-stamp.**
+- The three headings take the first free minutes after the tail, in their order, and their dates move from 2026-11-14 to 2026-11-15. This entry takes its own authoring minute.
+- Only those headings and the references to the three IDs change. There are 11 in the log, the headings included.
+- Outside the log there are 18, all citing the design entry, in 11 files:
+  - src/main/private-agent/research-coverage.ts (two), and research-contract.ts, research-pipeline.ts, research-presentation.ts and research-trim.ts in the same folder (one each);
+  - tests/helpers/research-protocol-pin.ts (one, in the pin's history);
+  - tests/unit/private-agent-research-pipeline.test.ts (six) and private-agent-research-coverage.test.ts (two);
+  - tests/unit/private-agent-research-seed.test.ts, private-agent-research-session.test.ts and private-agent-research-trim.test.ts (one each).
+- The bodies keep what they state as written. That includes the review Correction's account of the hold and its Next gate; decision (2) records how that gate closed.
+
+(2) **The hold is lifted by the owner's decision.**
+- The design entry and #102's description held the merge for the owner's choice of E0 window, and never between `pnpm probe:export-schemas` and `pnpm probe:assess`. Decision 2(a) chose "before E0's schema export".
+- **E0's card is not amended here.** The amendment that moves the card's precondition hash to 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 is the coordinating session's. Decision 2(a) commits it once #102 is on `main` and before the export.
+- **D4's incomplete-chunk clause.** Decision 1 of the same entry adopts the design entry's decision (8) as its default: an incomplete chunk still ends `research_extraction_incomplete`. The code already does this, so nothing changes.
+- **The merge itself** comes under the standing go-ahead: the light review was clean, and the review Correction records its fixes. The coordinating session merges on green CI.
+
+(3) **The pin holds.** At the default budget, `researchProtocolSha256()` is still 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 on the merged tree. Nothing that `main` and #114 brought since 582f880 moves the research protocol. In tests/helpers/research-protocol-pin.ts, only the history comment's entry ID changes.
+
+(4) **What the merge brought.**
+- Only docs/BUILD_LOG.md conflicted. The resolution keeps 505ce70's log whole, as a byte prefix.
+- Since 582f880, `main` changed one of #102's files: scripts/export-role-schemas.ts, where #111 builds the export's `requestSettings` with the serving-card reader's function. That file merged without a conflict. It is now 505ce70's file with #102's one change, coverage version 3 in the synthetic export.
+
+Changes:
+- docs/BUILD_LOG.md: 505ce70's log, then 7b.2's three entries re-stamped, then this entry.
+- The 18 citations in the 11 files above.
+- No other code or test changes.
+
+Evidence:
+- **Byte identity.** With the three new IDs and their heading dates mapped back, the branch's three entries are byte-identical to 77d44ca's.
+- **The merged tree** differs from 505ce70 only in #102's 13 files. With the design entry's ID mapped back:
+  - 11 of them are byte-identical to 77d44ca's, because `main` did not change them;
+  - scripts/export-role-schemas.ts is 505ce70's file plus #102's version line.
+- **No original ID remains.** `git grep` finds none of the three original full IDs in the tree.
+- **The pin.** `researchProtocolSha256()` printed 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 on the merged tree. The pin's tests in private-agent-research-pipeline.test.ts and role-schema-export.test.ts pass.
+- **The log.** These ran at this head, with each exit status read directly:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 against `main` d92a3af;
+  - with `--base-ref 505ce70`, it exits 0 against #114's head.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The full suite.** `pnpm exec vitest run` ran on the merged tree before this entry was added: 188 files passed and 13 skipped; 3,711 tests passed and 86 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction, plus 18 IDs in comments and test names. It implements, verifies and releases nothing.
+- The entries keep their statuses: the design entry `Proposed`, the other two `Implemented`.
+- **#114 is not on `main` yet**, and this branch carries its commit. If #114 changes before it merges, or another entry reaches `main` first, these four entries are re-stamped again under the same rule.
+- The commit messages keep the original IDs. #102's description is updated to the new ones.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green on this head.
+- The coordinating session merges #114, then #102, under the standing go-ahead.
+- The coordinating session commits its amendment of E0's precondition hash before `pnpm probe:export-schemas`.
+
+References:
+- BL-20261115-1939-research-priority-trim-design, BL-20261115-1940-research-priority-trim-implemented and BL-20261115-1941-correction-research-priority-trim-review (re-stamped here);
+- BL-20261115-1937-owner-adopts-standing-defaults;
+- BL-20261115-1938-e1-l-sandbox-suite-docker-verified;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261114-1524-correction-registry-columns-design-id.
+
+### BL-20261115-1956-e0-judge-labeller-design -- 2026-11-15 -- E0's judge labelling tool designed: `pnpm label:judge` sends the protocol's steps 2 and 3, the per-class minimum and claims.json to `gpt-6-sol` under the USD 1.00 cap, and writes claims.json and labels.json as step 3 says
+
+Status: `Proposed`
+
+Scope or hypothesis: The orchestrating session assigned this tool to lane S-e1 on 2026-11-15, through the coordinating session.
+- **The owner's choice.** BL-20261115-1937-owner-adopts-standing-defaults (on pull request #114), decision 2(b):
+  - the labeller is `gpt-6-sol` at the public API host `api.openai.com`;
+  - the key variable is `SOAR_PHASE2_CLOUD_API_KEY`, which scripts/with-cloud-key.sh reads from the owner's Keychain at launch;
+  - the cap is the USD 1.00 of BL-20261113-1003-e0-card-owner-answers, charged to PLAN.md §4's synthetic-data line;
+  - the material is public and synthetic only.
+
+  Its decision 5 lists this tool among the tools E0 still lacks.
+- **What governs.** docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md, with BL-20261114-2250-judge-fixture-implemented, BL-20261114-2252-correction-judge-fixture-cloud-labeller and BL-20261114-2253-correction-judge-fixture-review-fixes. The protocol says that no labelling tool exists yet.
+- **What does not change.** No file under src/ changes. claims.ts, model.ts and scripts/judge-fixture.ts are only imported. So the entailment prompt, the research protocol hash, the private-agent source freeze and the fixture's scoring stay as they are.
+
+Decisions:
+
+(1) **The command.**
+- The owner runs it as `scripts/with-cloud-key.sh pnpm label:judge -- --claims .soar/experiments/e0-judge/claims.json --minimum-per-class <n> [--dry-run]`, with the script at scripts/judge-labeller.ts.
+- Three values are constants, and no flag or environment variable changes them:
+  - the model, `gpt-6-sol`;
+  - the endpoint, `https://api.openai.com/v1/responses`, on the public host that BL-20261115-1937-owner-adopts-standing-defaults names and scripts/with-cloud-key.sh already calls;
+  - the key variable, `SOAR_PHASE2_CLOUD_API_KEY`.
+- **The key.** It is read from the environment only, where the wrapper puts it at launch. It goes only into the request's Authorization header. It is never printed, logged or written.
+- **`--minimum-per-class`** is required. It takes the number that the card's amendment fixes, from 1 to 200, the manifest's bounds.
+- **`--dry-run`** needs no key, sends nothing and writes nothing. It prints the first request's size, its sha256, the instructions' sha256, the output cap and the projected fee against what the cap has left.
+- **The labeller's name.** `labeller` in labels.json is the constant `openai/gpt-6-sol`, for the amendment to name as it stands.
+
+(2) **The request goes outside the broker, to one fixed host.**
+- **Why not the broker.** The judge fixture posts directly, outside the broker, for its zero-fee calls (decision 2 of BL-20261114-2250-judge-fixture-implemented). The paid Anthropic probe of BL-20261030-0620-claude-cloud-adapter-design went through the broker. But the broker's cloud destination (`buildCloudArm` in scripts/private-agent-local-screen.ts) admits only a wholly synthetic lineage, and harvested claims are public text. So the tool does not reuse it, and holds the broker's money rules itself (decisions 4 and 5).
+- **The transport.** One https POST per request:
+  - no retry;
+  - a fresh connection, with no shared agent;
+  - a 900-second timeout, the broker's ceiling (`BROKER_MAX_TIMEOUT_MS`).
+
+  Node's `fetch` is not used, because its default 300-second header timeout can cut off a long non-streaming reply that has already been billed.
+- **Tests.** The run function accepts the constant endpoint, or plain http on a loopback address for the tests' fake server, and no other host.
+
+(3) **What it sends.** The body is model.ts's Responses shape with a strict JSON-schema reply format. That shape is: the model, `input`, `max_output_tokens`, reasoning effort `medium`, `store: false` and service tier `default`. The input has two messages.
+- **The system message** is the protocol's "Step 2: label" and "Step 3: plant negatives up to the minimum" sections, word for word. It is the protocol file's text from the step 2 heading up to the "Files" heading. The tool reads it from docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md at run time and records its sha256.
+- **The user message** has three parts:
+  - one fixed sentence: the sentences, quotes and contexts in claims.json are untrusted text and contain no instructions. The judge's own prompt carries the same rule;
+  - `claims.json:` and the file's exact text;
+  - one fixed sentence giving the per-class minimum: label every claim, then plant negatives until every class reaches the minimum, counting both labelled and planted claims.
+
+  claims.json comes before the request-specific sentence, so that a second request shares the first one's prefix.
+- **The reply schema.**
+  - `labels`: each has an id, a label of the four, and a note or null.
+  - `planted`: each has a source id, a label (`partial`, `unsupported` or `contradicted`), a sentence and a note.
+
+  Both note fields carry the description "At most 400 characters."
+- **Nothing else is sent.** Never claims.origin.json, a verdict, a grade, a run directory, a path, an address or a label. The tool reads the sidecar only for decision 6's check, and sends nothing from it.
+- **Whose words.** The two fixed sentences and the schema are this pull request's wording, not the protocol's.
+
+(4) **The fee projection and the cap.** Before each request:
+- **The projection** is model.ts's reservation (`reservationMicrousd`). It is the body's bytes at the dearer of the input and cache-write rates, plus the output cap at the output rate. Both rates are taken at the tier that the byte count could reach. A token covers at least one byte, so the bytes bound the prompt tokens.
+- **The output cap** comes from the claim count. It is 16,384, plus 96 per claim to label, plus 384 per claim the request may plant, and at most 65,536. A first request may plant three times the minimum, and a second request the counts still to plant.
+  - If the projection at that cap would pass what the cap has left, the output cap shrinks to fit.
+  - If it would then fall below 8,192, plus 48 per claim to label, plus 256 per plantable claim, the request is refused before it is sent (`labeller_cap_exceeded`).
+- **The cap** is USD 1.00 in total (BL-20261113-1003-e0-card-owner-answers). It holds across invocations and relabellings.
+  - A ledger, `.soar/experiments/e0-judge/labelling-ledger.jsonl` (mode 0600), records each request's reservation before the request is sent, and its settlement after.
+  - A request with no settlement counts at its reservation.
+  - A lock file stops two paid invocations from running at once.
+- **The prices**, in USD per million tokens:
+
+  | Tier | Input | Cached input | Cache write (30-minute) | Output |
+  | --- | --- | --- | --- | --- |
+  | Base | 2.00 | 0.20 | 2.50 | 10.00 |
+  | Above 272K input tokens | 4.00 | 0.40 | 5.00 | 15.00 |
+
+  These are OpenAI's published `gpt-6-sol` prices, read on 2026-10-22, as BL-20261022-1157-cloud-cache-write-price-correction records them.
+  - The Phase 2 cloud arm takes its prices from the `--cloud-prices` flag, not from a constant. So the tool holds them as one explicit constant.
+  - They equal H5's pinned `gpt-6-sol` flags in tests/unit/private-agent-identity-golden.fixture.ts.
+
+(5) **The settlement fails closed.** After each reply:
+- **HTTP 200 with usage.** The fee is model.ts's settlement, at the tier of the reported prompt:
+  - uncached input at the input rate;
+  - cache writes at the write rate;
+  - cached input at the cached rate;
+  - output at the output rate.
+- **Usage outside the projection** (`labeller_usage_outside_projection`). The tool counts the reservation, or the computed fee if larger, and makes no further request. That happens when the reply reports any of these:
+  - no prompt tokens;
+  - more prompt tokens than the body has bytes;
+  - more output than the cap;
+  - cached plus written tokens beyond the prompt;
+  - a service tier other than `default`;
+  - a fee above the reservation.
+- **HTTP 4xx other than 408.** The request is rejected and settles at zero.
+- **A connection that failed before its TLS handshake finished.** Nothing was sent, so it settles at zero.
+- **Anything else** counts at its reservation, as unknown: a timeout, a reset after the handshake, a 5xx, or an undecodable reply.
+
+(6) **The requests.** One request labels and plants.
+- **Refused before the first request:**
+  - a claims path outside `.soar/experiments/e0-judge/`;
+  - a claim set that the fixture's `ClaimsFileSchema` refuses;
+  - a claim set whose ids differ from its harvest sidecar's. So a set that already holds planted claims is never labelled again;
+  - an existing labels.json;
+  - a missing key.
+- **The class counts.** After the reply, the tool counts each class: its labels plus its accepted planted claims.
+- **The second request.** It follows only if partial, unsupported or contradicted is still below the minimum, and only if the cap admits it.
+  - It carries the same instructions and claims.json. In place of the minimum sentence, it carries the counts still to plant per class.
+  - It carries no label and no planted sentence, and its schema has `planted` only.
+- **No third request.** A class still short, or a supported class below the minimum, is reported. The fixture's own minimum check then refuses the set until the owner decides.
+
+(7) **Planted claims.** The model returns only the source id, the intended label, the new sentence and a note.
+- **When the tool accepts one.** All of these must hold:
+  - the source is a harvested claim;
+  - the sentence is new: it is not the source's sentence, and no claim has the same sentence, quote and context;
+  - the sentence is within `ClaimsVerifiedClaimSchema`'s bounds, 1 to 600 code points;
+  - the note is not empty.
+- **Up to the minimum.** The tool accepts planted claims in reply order only while their class is below the minimum, and counts the rest as surplus.
+- **What the tool adds:**
+  - it copies the source's quote and context byte for byte from the local claims.json;
+  - it gives the next free id (C<n+1> onward, none past C999);
+  - it omits origin;
+  - it marks the claim `planted: true`.
+- **Rejections** are counted by reason in the summary.
+
+(8) **The labels.**
+- **Completeness.** The reply must label every claim in claims.json exactly once. Otherwise the tool writes nothing (`labeller_labels_incomplete`).
+- **Long notes.** A note longer than 400 UTF-16 code units, labels.json's bound, is shortened to fit. The summary counts the shortened notes, and the retained raw reply keeps the full text.
+- **The labels** themselves are never changed.
+
+(9) **The files.** All of them stay under `.soar/experiments/e0-judge/`, which git ignores, with mode 0600.
+- **labels.json**, beside claims.json, created exclusively. It is `{"version": 1, "protocol": "e0-judge-labelling-v1", "labeller": "openai/gpt-6-sol", "labels": [...]}`, with the harvested claims first in claims.json's order, then the planted ones.
+- **claims.json** is replaced atomically. The harvested claims stay unchanged, and the planted claims are appended. The tool first checks that the file still has the bytes the request sent.
+- **Checks before writing.** Both files are parsed with the fixture's own `ClaimsFileSchema` and `LabelsFileSchema`.
+- **The run directory.** Each paid invocation gets `labelling-<UTC stamp>/` beside claims.json, holding each raw reply under `replies/` and `summary.json` (decision 10).
+- **What it prints.** Standard output gives aggregates only: the outcome, the calls, the tokens, the USD, the count per label, the planted count and the two hashes. A failure prints a fixed code, never a path.
+
+(10) **The summary for the registry row.** It is a small JSON that lane S-harn's registry-row mode reads, and its shape is agreed with S-harn. It holds:
+- the version, kind and protocol;
+- the model and the served model;
+- the times;
+- the outcome and the failure code;
+- the calls and the token counts;
+- the USD settled and counted, and the cap;
+- a record for each call;
+- the claim counts, the count per label and the hashes.
+
+It holds no path, key, claim text or per-claim label.
+
+(11) **Tests, planned.** They run against a loopback fake server only, so no request leaves the machine. They cover:
+- the request's exact content. That is the protocol's sections word for word, claims.json's exact text and the minimum. No sidecar run name, path or address appears in any request, and no label appears in a second request;
+- the projection's parity with `PrivateAgentModel.reservationMicrousd` in both tiers;
+- refusals before any request when the projection passes the cap, counting earlier ledger spend and an unsettled reservation;
+- a full run whose labels.json and claims.json the fixture's `verifyJudgeFixtureInputs` accepts under a manifest pinned from the summary;
+- the second request;
+- each settlement path: usage outside the projection, 4xx, 5xx, a refused connection and a timeout;
+- incomplete labels, shortened notes and rejected planted claims;
+- each input refusal;
+- a command-line dry run that prints no path or address.
+
+Changes: Planned in one pull request on `feat/e0-judge-labeller`, from `main` at d92a3af:
+- scripts/judge-labeller.ts and tests/unit/judge-labeller.test.ts, both new;
+- package.json, for `label:judge`;
+- README.md and docs/experiments/README.md, for the command;
+- the protocol's sentence that no labelling tool exists.
+
+Evidence: None yet; this entry decides. Under the owner's lighter-review rule, the pull request gets one light review, with privacy checked.
+
+Failures or blockers: None. The amendment fixes the rest: the per-class minimum, the conditions and the repeats.
+
+Limitations and non-claims:
+- **Proposed only.** Nothing is implemented or verified by this entry.
+- **Where the claims came from.** The tool cannot show that the claim set came from public or synthetic runs, only that it came from the harvest. That stays the owner's check ("Before any claim leaves the machine").
+- **A generous projection.** The projection is a byte bound, so the cap may refuse a set whose actual fee would fit. At r3's claim sizes, about 150 claims fit. After a large first request, a second may not fit at all.
+- **Estimated output allowances.** The output cap's constants are estimates. A reply cut off at the cap fails, and its fee still counts.
+- **Unbilled rejections are assumed.** That OpenAI bills no request it rejects with a 4xx is an assumption.
+- **The prices** are as read on 2026-10-22. PLAN.md asks for a recheck on the day of use.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. The tests make no external request. The labelling's USD 1.00 stays unspent until the amendment names this tool and the owner runs it.
+
+Next gate:
+- The implementation with its `Implemented` entry, the checks, the light review, CI, and a merge after #114, whose entry this one cites.
+- Then the card's amendment names the tool, with the minimum, the conditions, the repeats and a price recheck.
+- Then the harvest runs, and the owner runs the labelling.
+
+References: BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261022-1157-cloud-cache-write-price-correction; BL-20261030-0620-claude-cloud-adapter-design; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; PLAN.md §4; pull request #114.
+
+### BL-20261115-2044-e0-judge-labeller-implemented -- 2026-11-15 -- E0's judge labelling tool implemented: `pnpm --silent label:judge`, with the summary contract agreed with lane S-harn and the light review's fixes; tested against a loopback fake only, and nothing was sent to OpenAI
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261115-1956-e0-judge-labeller-design on branch `feat/e0-judge-labeller`, from `main` at d92a3af (lane S-e1). The commits are:
+- the design, cd000aa;
+- the tool, a4c1611;
+- the summary contract agreed with lane S-harn, 7a757ba;
+- the light review's fixes, 5d5492f.
+
+The coordinating session reports a harvested set of 40 claims from r3's run-5. This lane neither read nor used it: every test and estimate here is synthetic.
+
+Decisions: Implemented as decided, with these details and the changes below.
+- **The command.** `scripts/with-cloud-key.sh pnpm --silent label:judge -- --claims .soar/experiments/e0-judge/claims.json --minimum-per-class <n> [--dry-run]`.
+  - `--silent` keeps pnpm's own banner, which names the checkout's path, off standard output.
+  - Every flag is named once. An unknown or repeated flag prints the usage line.
+  - The exit code is 0 when labelled with every class at the minimum, 3 when labelled with a class still short, and 2 when refused or failed.
+  - A dry run exits 0 when the first request would be admitted and 2 when it would not.
+- **The constants.** No flag or variable changes them.
+  - The model is `gpt-6-sol` and the labeller `openai/gpt-6-sol`.
+  - The endpoint is `https://api.openai.com/v1/responses`.
+  - The key variable is `SOAR_PHASE2_CLOUD_API_KEY`. A test checks that it equals the cloud arm's `CLOUD_ARM_KEY_VARIABLE`.
+  - The cap is 1,000,000 micro-USD, charged to the envelope line `synthetic_data`.
+  - The prices are the design's table. A test checks that they equal H5's pinned flags.
+  - The timeout is 900 seconds.
+- **The instructions.** They are the protocol's step 2 and 3 sections, cut by line from the `## Step 2: label` heading up to `## Files`, with trailing blank lines dropped.
+  - At this commit they are 2,200 bytes, with sha256 `0184b561b5cee866c56fcda7321095a719a522d529b5a46158856d6fa2d3f9d2`. The amendment can cite that hash.
+  - The tool refuses any other layout (`labeller_protocol_unrecognised`).
+- **The checks before the first request.** Each refusal is a fixed code and writes nothing. In order:
+  - the minimum;
+  - the endpoint, which must be the constant or, in tests, a loopback IP literal;
+  - the instructions;
+  - the path: inside `.soar/experiments/e0-judge/` and named `claims.json`;
+  - an existing labels.json;
+  - the claim set: `ClaimsFileSchema`, valid UTF-8, and text that the request encoding accepts;
+  - the claim set's exact bytes, which must be the harvest's own serialization (`labeller_claims_not_canonical`);
+  - the sidecar: the same task and the same ids, in order;
+  - the key.
+
+  Then, under the lock:
+  - labels.json and the claim set's digest are checked again;
+  - a ledger missing where a labelling already ran is refused (`labeller_ledger_missing`);
+  - the cap is checked.
+- **The run directory.** Each paid invocation's `labelling-<UTC stamp>/` has mode 0700. It keeps more than the design named, all mode 0600:
+  - `requests/call-<n>.json`, each exact request body, written before the request is sent, so what left the machine can be checked afterwards;
+  - `replies/call-<n>.json`, each raw reply;
+  - `summary.json`.
+- **The ledger.** Each request appends a `reserved` line before it is sent and one final line after: `settled`, `rejected`, `not_sent`, `unknown` or `outside_projection`. Each line records the micro-USD counted against the cap and is fsynced, and the file has mode 0600.
+  - The tool refuses a malformed line, a final line without its reservation, or a second final line.
+  - The total holds only while the ledger does, per checkout. A relabelling keeps the ledger and puts its new set in a subdirectory.
+- **The lock.** `labelling.lock` is created exclusively and removed when the paid invocation ends. A killed run leaves it in place, and the owner removes it by hand (`labeller_busy`). The ledger still counts the killed request at its reservation.
+- **The outcome of each request.**
+  - **HTTP 200 with usage.** It settles with model.ts's formula. If the reply omits `cache_write_tokens`, every uncached input token is taken as written, at the dearer write rate. model.ts counts an absent value as zero writes, but the cap must not under-count.
+  - **Outside the projection.** The request counts at its reservation, or at its computed fee if larger, and the tool sends nothing more. This applies to the cases the design names, and to:
+    - 12-hour cache writes;
+    - cache-write tier parts that do not add up;
+    - a served model other than `gpt-6-sol` or a dated snapshot of it (`labeller_served_model_mismatch`).
+
+    The summary records a served model's name only if it is a plain name of up to 64 characters.
+  - **Settled at zero.** Only HTTP 400, 401, 403, 404 and 429 (`UNBILLED_STATUSES`), and a connection that failed before its TLS handshake finished. Every other status, 408 and the other 4xx included, counts at its reservation.
+- **The summary.** The shape is the one proposed to lane S-harn for its registry-row mode. S-harn accepted it on 2026-11-15 with three changes, all taken:
+  - a top-level `envelopeLine`;
+  - the closed sets exported as runtime arrays: `LABELLING_OUTCOMES`, `LABELLING_FAILURES` (18 codes), `CALL_KINDS`, `CALL_STATES`, `SECOND_REQUEST_VALUES` and `PLANT_REJECTIONS`;
+  - the per-call rules. `usd` is the fee when settled, 0 when rejected or not sent, and null when unknown or outside the projection. The token fields are 0 without a usable reply.
+
+  `LabellingSummarySchema`, which is strict, checks every summary before it is written, against the sums S-harn's writer cross-checks. The summary is written atomically before each request, with that request counted at its reservation and the outcome `labeller_interrupted`. It is rewritten after each reply and at the end. So a killed tool still leaves a summary of every request that may have been charged, as S-harn asked. Two example summaries, written by the tool against a loopback fake, are in the orchestrator's shared notes folder as S-harn's fixtures.
+- **Protocol wording.** The protocol's two "only" passages now name the tool's fixed framing (an untrusted-text sentence, a sentence stating the minimum or the counts still to plant, and the reply's JSON schema). A second request adds only the counts to the first request's instructions and claims.json, never a label or a planted claim. Steps 2 and 3 are unchanged.
+- **Corrections to the design entry,** which stays as written:
+  - **Decision 3's prefix.** It says claims.json comes before the request-specific sentence "so that a second request shares the first one's prefix". In the default implicit cache mode, a request's write ends at its last message (BL-20261022-1157-cloud-cache-write-price-correction), so the second request reuses no cached claims. The order is kept, and it does no harm.
+  - **Decision 5's timeouts.** It counts "a timeout" at its reservation. A timeout before the handshake finished counts zero, because nothing was sent.
+- **The light review.** One light review, with privacy checked, under the owner's lighter-review rule. It found no blocker or major, so no skeptic ran. Its six minor findings and seven nits are fixed in 5d5492f:
+  - narrower unbilled statuses;
+  - cache-write tiers;
+  - the ledger guard;
+  - canonical bytes;
+  - the protocol wording;
+  - the tests: a cap-limited second request, a TLS handshake that never finished, `.invalid` hosts, and a preload that blocks connections off loopback for the command-line tests;
+  - the served-model check under settlement;
+  - re-checks under the lock;
+  - the loopback IP literal;
+  - `--silent`;
+  - the corrected wording above.
+
+Changes:
+- scripts/judge-labeller.ts and tests/unit/judge-labeller.test.ts, both new (28 tests).
+- package.json: `label:judge`.
+- README.md: the command, its `--silent`, the ledger and the lock, and a row in the command table.
+- docs/experiments/README.md: the tool's name in the judge manifest's paragraph.
+- docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md: the tool sentence, and the two passages on what is sent.
+
+Evidence:
+- **The tests.** `pnpm exec vitest run tests/unit/judge-labeller.test.ts` passes 28 tests. Their only server is a loopback fake, and the command-line tests run behind a preload that throws on any connection off loopback. They prove these points.
+  - **The request.** It is exactly:
+    - the protocol's sections, cut independently by the test;
+    - the untrusted-text sentence;
+    - claims.json's exact text;
+    - the minimum sentence.
+
+    The body has exactly the seven Responses keys, and the key goes only in the Authorization header. None of these appears in any body: the sidecar's run name or claim ids, a directory, the home directory, the address or the key.
+  - **The endpoint.** Every host but the constant and a loopback IP literal is refused, `localhost` and `.invalid` names included.
+  - **Projection and settlement.**
+    - The projection equals `PrivateAgentModel.reservationMicrousd` at H5's pinned arm, for six byte counts across the 272K tier and three output caps.
+    - The settlement equals model.ts's own, through `PrivateAgentModel.complete` with a broker stub.
+    - The output cap shrinks to fit and never passes the cap.
+    - A reply without a write count settles at the write rate.
+  - **The cap.**
+    - It counts the ledger's earlier settled and unsettled spend, refusing before any request when the projection would pass it.
+    - The first request's settled fee is counted before a second request is admitted. In a test whose first request settles at exactly its reservation, the second is refused, and the ledger stays under the cap.
+    - A missing ledger is refused where a run directory or labels.json exists.
+  - **The files.**
+    - claims.json and labels.json are written with mode 0600, and the judge fixture's `verifyJudgeFixtureInputs` accepts them under a manifest pinned from the summary's hashes and counts.
+    - The planted claims carry their sources' quotes and contexts, the next free ids and `planted: true`.
+    - Neither the summary nor the printed line holds a path, the key, an address, the sidecar's run name, a note, a claim sentence or a passage.
+  - **Planting.**
+    - A second request carries the counts and none of the first reply's planted sentences or notes. A surplus planted claim is rejected, and no third request is made.
+    - A class still short exits 3 with the labels written.
+    - A rejected second request keeps the first request's labels.
+    - A note longer than 400 characters is shortened, while the raw reply keeps it whole, and each kind of planted-claim rejection is counted.
+  - **Failing closed.** Usage outside the projection fails closed in eight cases: too many prompt tokens, too much output, no prompt tokens, too many cached tokens, another service tier, writes beyond the prompt, 12-hour writes, and write tiers that do not add up. A served model that is not `gpt-6-sol` fails closed too, and an unsafe model string is never copied.
+  - **Settling at zero or at the reservation.**
+    - 404 and 429 settle at zero; 408, 409, 422, 500 and 503 count at their reservations.
+    - A timeout after connecting, and a reply too large to read, count at their reservations.
+    - A refused connection, and TLS handshakes that never finished, count at zero.
+  - **Nothing written.** Each of these writes nothing:
+    - a missing, repeated or unknown label;
+    - a reply cut at the output cap;
+    - a refusal;
+    - a reply that is not JSON;
+    - a body that is not a Responses reply;
+    - a claims.json changed while the request was out.
+  - **The input refusals.** Seventeen input refusals each come before any request, among them a claims.json that hides text behind a duplicate key, and a re-indented one. A set is never labelled twice.
+  - **The summary contract.**
+    - The summary is written ahead: while each request is in flight, it counts that request at its reservation.
+    - The keys and the closed sets are pinned.
+    - The schema refuses sixteen broken summaries.
+  - **The command line.** It accepts pnpm's argument shape. A dry run needs no key and prints aggregates without a path or the host. A paid run without the key prints only `labeller_key_missing`, and a path outside the directory only `labeller_claims_outside_root`.
+- **Mutants.** Twenty-six mutants of scripts/judge-labeller.ts were run, and 25 fail the file. They include:
+  - the first sixteen, for the sidecar, the rate, the earlier spend, the usage check, labels in a second request, the copied quote, the 4xx and not-sent counts, the surplus rule, unsettled reservations, incomplete labels, the sidecar check, the host, notes, the served model and the floor;
+  - the review's surviving mutant, in which a second request ignores the first's spend, which now fails;
+  - the canonical check, the ledger guard, all 4xx unbilled, 12-hour writes, TLS counted as sent at its TCP connect, unreported writes counted free, no write-ahead summary, and an unsafe model string.
+
+  The survivor is the repeated check under the lock, which no single-threaded test can reach.
+- **Neighbouring tests.** `pnpm exec vitest run tests/unit/judge-labeller.test.ts tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/private-agent-model-responses.test.ts` passes 97 tests in 4 files.
+- **The checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. So does `pnpm --silent validate:build-log -- --base-ref origin/main`, with its exit status checked directly.
+- **Readiness.** It first refused the test file, because its first test key had an OpenAI-style shape. The key was replaced, without the `sk-` prefix, before the first commit.
+- **The light review checked these.**
+  - **On loopback:** a stalled or failed TLS handshake counts as not sent, and a silent server or a reset after the handshake as sent. Near the cap with earlier spend, two requests never pass USD 1.00.
+  - **By reading:** stdout, stderr and the summary carry fixed codes and aggregates only.
+- **Sizing for the 40 harvested claims.** This is from the tool's own projection on synthetic sets with a minimum of 10.
+  - With plain prose contexts at the 1,200-character bound, the request body is about 68 KB and the first projection USD 0.49.
+  - With every field at its bound and quote-heavy text, the body is 140 KB and the projection USD 0.67.
+
+Failures or blockers: None in the offline work. The paid labelling waits for the card's amendment.
+
+Limitations and non-claims:
+- **`Implemented`, not `Verified`.** Nothing was sent to OpenAI.
+- **The request body is untested against OpenAI.** It is unproven that the Responses API accepts the strict `json_schema` text format, `reasoning.effort: medium`, and a `max_output_tokens` of up to 65,536 for `gpt-6-sol`. A rejected body is a 400, settled at zero on the assumption that OpenAI bills no request it rejects with 400, 401, 403, 404 or 429.
+- **The projection is a byte bound.** It admits fewer claims than their actual fee would. A second request fits only while the first has not used most of the cap.
+- **The output cap's constants are estimates.** A reply cut off at the cap fails, and its fee counts.
+- **The prices are as OpenAI published them on 2026-10-22.**
+- **The ledger holds the total per checkout only.** Another checkout's labelling, or a deleted ledger in a directory with no earlier run, is not counted.
+- **The repeated checks under the lock are untested.**
+- **Where the claims came from.** The tool checks only that the claim set came from the harvest, not that its runs were public or synthetic.
+- **Planted claims.** The tool checks their form, not that each is wrong for one stated reason.
+- **A crash between the two writes** leaves labels.json beside the unlabelled claims.json. The judge fixture refuses that pair, and the tool refuses to label again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. No request left the machine.
+
+Next gate:
+- CI, then a merge after #114, whose entry this one cites.
+- Then the card's amendment, which:
+  - names the tool, the labeller string, the instructions' hash and the envelope line;
+  - fixes the minimum, the conditions and the repeats;
+  - rechecks the prices.
+- Then `scripts/with-cloud-key.sh --check`, the owner's dry run, and the labelling.
+- S-harn's `--labelling-file` mode rows the summary. Whichever of the two pull requests merges second adds the test that pins its closed sets to this tool's arrays.
+
+References: BL-20261115-1956-e0-judge-labeller-design; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261114-2250-judge-fixture-implemented; BL-20261114-2252-correction-judge-fixture-cloud-labeller; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261022-1157-cloud-cache-write-price-correction; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; pull request #114.
+
+### BL-20261115-2049-correction-e0-judge-labeller-duplicate-plants -- 2026-11-15 -- Correction to BL-20261115-2044-e0-judge-labeller-implemented: a test now shows that a second request's repeat of an earlier planted or harvested claim is dropped, and the coordinating session approved #115's protocol wording
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session reviewed #115 on 2026-11-15. It approved the protocol wording that the pull request changes. It also asked whether the tool drops a planted sentence that repeats an earlier planted or harvested one, since the second request never sees what the first one planted. BL-20261115-2044-e0-judge-labeller-implemented stays as written. This entry answers the question and records the one test added for it.
+
+Decisions:
+- **The answer.** Yes: the code has dropped such repeats since a4c1611, and a test now shows it.
+  - `acceptPlanted` keeps one key set across both requests. It holds the harvested claims' (sentence, quote, context) triples and the triple of every planted claim it accepts.
+  - A planted claim whose triple is already in the set is rejected as `duplicate`, and the summary counts it in `plantedRejected`.
+  - The triple is the harvest's own duplicate key. So a planted claim counts as a repeat exactly when the harvest would also have kept only one of the two.
+  - A planted sentence equal to its own source's sentence is rejected earlier, as `unchanged_sentence`.
+  - The same sentence planted from a different source has a different quote and context. To the judge it is a different claim, and the tool keeps it.
+- **The evidence, corrected.** BL-20261115-2044-e0-judge-labeller-implemented counts 28 tests, and its second-request test shows only that a surplus planted claim is rejected. No test then covered a repeat across the two requests.
+  - The file now has 29 tests.
+  - The new test has the second request plant the first request's claim again, together with a planted claim that repeats a harvested one. Both are dropped as duplicates, and the written claims.json holds each triple once.
+- **The protocol wording.** The coordinating session approved the wording that #115 gives the protocol's two "only" passages, and asked that it stay as written. Its reasons:
+  - nothing forbidden leaves the machine;
+  - the fixed framing carries no data;
+  - the stateless second request re-sends only what the first one sent, plus the counts.
+- **The merge order the coordinating session set:** #114, then #102, then #115, then its own E0 follow-up. #115 merges `main` in after #102, without a force-push. Its entries already sort after #102's.
+
+Changes:
+- tests/unit/judge-labeller.test.ts: one test, 29 in the file.
+- docs/BUILD_LOG.md: this entry.
+- No change to scripts/judge-labeller.ts.
+
+Evidence:
+- `pnpm exec vitest run tests/unit/judge-labeller.test.ts` passes 29 tests.
+- With the duplicate check removed from `acceptPlanted`, the new test fails.
+- `pnpm typecheck` passes, and so does `pnpm --silent validate:build-log -- --base-ref origin/main`, with its exit status checked directly.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A test and a record correction only.
+- The tool drops exact duplicates only. A planted sentence that words the same point differently from an earlier one is kept, and its label is the labeller's.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI, then the merge of `main` after #102, then the coordinating session's merge under the standing go-ahead.
+
+References: BL-20261115-2044-e0-judge-labeller-implemented; BL-20261115-1956-e0-judge-labeller-design; pull requests #102, #114 and #115.
+
+### BL-20261116-0812-correction-owner-defaults-review -- 2026-11-16 -- Correction to BL-20261115-1937-owner-adopts-standing-defaults and BL-20261115-1938-e1-l-sandbox-suite-docker-verified: the light review's fourteen minor findings, each checked against its source
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the light review of pull request #114 at 505ce70 and its fixes. The review found no blocker, no major issue and no privacy issue. It made fourteen minor findings, and the orchestrating session checked each against the line the review cited. Both entries merged as written so that #102, which was chained on #114's head, needed no second re-stamp. Where this entry differs from either of them, this entry governs.
+
+Decisions:
+1. **What `Approved` covers** (finding 11). In BL-20261115-1937-owner-adopts-standing-defaults, `Approved` covers three things only: decision 1's adoption, decision 2's answers and decision 5's direction. Decision 4 is the orchestrating session's own, and decision 3 stays open. That entry implements, verifies and releases nothing.
+2. **The E0 questions** (finding 12). HANDOFF §5 step 2 lists six questions open before E0, each the owner's to answer.
+   - **Three went to the owner,** as decision 2 records: 7b.2's timing, the labeller, and which brief the planner fixture pins.
+   - **Three are the session's procedural choices** in decision 4 until the owner answers them: the reply contract, the probe set, and when the planner manifest is committed.
+   - **The sixth is moot,** as decision 3 records: whether E1's hold covers the r3 run.
+
+   So the sentence "the three E0 questions with no default" misstated the count.
+3. **The owner's words behind decision 2** (finding 13). At about 19:35 UTC the session put three questions. Each offered options the session wrote, one marked recommended, and the owner chose that option each time. The chosen options read:
+   - **(a) "Before the export (Recommended)":** "S-pipe merges main into #102, re-stamps it and merges it while r3 runs, and I amend the card's precondition hash to 7100b7a2…. E0 then measures the final request bodies, so its structured-output card stays usable once item 9 lands, with no second probe session."
+   - **(b) "gpt-6-sol (Recommended)":** "OpenAI at api.openai.com, with the Phase 2 key SOAR_PHASE2_CLOUD_API_KEY that scripts/with-cloud-key.sh reads from your Keychain. The USD 1.00 comes from the synthetic-data line (USD 20), so the Phase 4 line stays whole for E3 and E4."
+   - **(c) "The stage brief (Recommended)":** "brief.md plus the claims-ledger instructions: exactly what the pipeline's planner receives, so the fixture reproduces the real planner request. I write it to a git-ignored file and check its hash against the run's coverage.json."
+
+   **The endpoint configuration.** At about 19:10 UTC the owner chose, from options the session wrote, the checkout whose `.env.local` E0 reads. This log names neither that checkout nor its path.
+4. **Decision 1 of BL-20261115-1937-owner-adopts-standing-defaults, corrected** (findings 1 to 4):
+   - **8.1 and 8.2b.** At K > 1, the class of a run that hits a denial can differ from K = 1's in either direction. BL-20261114-1508-correction-concurrent-local-admission-review records infrastructure where K = 1 gives task, and #110's review correction records the reverse. 8.2b keeps both as a limitation. The earlier text cited only the first source for both directions.
+   - **The defaults that bear on dispatch** come from two entries. ASSIST-6 is BL-20261113-0920-assist-wrapper-design's fourth owner question. It accepts model-written packet text that may carry undetectable source text, for public and synthetic tasks on E3's and E4's approved arms only. ASSIST-8 comes from the Limitations of BL-20261113-0922-correction-assist-core-review. It states, as limits for the public and synthetic arms only, the address-like forms the scrubber sends as written. Both labels are defined only in the git-ignored train-1 owner-question list.
+   - **Decision 7:** no thinking-off writer arm, since BL-20261101-2120-fast-v3-artifact-trial-approved did not approve one (review §5.10, item 7). No E2 card exists yet; E2's card, when written, leaves the arm out.
+   - **Decision 12's first part** cites BL-20261110-1509-host-flags-event-design for keeping the segmentation and flagging single-unit briefs. It cites BL-20261113-0927-research-v5-design only for the one-question host fallback plan.
+   - **#89's question (b).** Its source says it "needs the owner's answer". The entry takes the blanket answer as that answer, which the owner gave without reading this item; the entry's Limitations already say the owner did not read each item.
+5. **Decision 3 of BL-20261115-1937-owner-adopts-standing-defaults, corrected** (findings 5 and 6):
+   - **#105.** The 13 residues are listed in decision 2 of #105's last entry, its residue correction, not in a design entry.
+   - **What BL-20261113-0925-correction-assist-core-rereview does.** It holds 10.b's dispatch until each class it lists is closed by a reviewed policy-5 rule, or accepted by the owner in a recorded decision. Its default closes L1 to L4 and L7 by rule.
+   - **What the open review decisions gate:** E3, E4, item 12's search destination, the uncached all-cloud baselines, labelled work (E5's among it) and item 13. None gates E0 or E1.
+6. **OpenRouter** (finding 10). No code in src/ or scripts/ reads `SOAR_OPENROUTER_ENABLED`. scripts/validate-readiness.mjs lists it, with the paid-cap settings, as an inactive runtime input. So decision 4's "No OpenRouter call" holds because no E0 path reads the OpenRouter or paid-cap settings, not because of the override. Every E0 command still sets `SOAR_OPENROUTER_ENABLED=false`, which nothing reads. In decision 5, "Decision 4 turns OpenRouter off for E0" now reads "No E0 path reads them (decision 4)".
+7. **The r3 run and the paid-exposure line** (finding 9).
+   - **Timing.** The r3 run started at 19:31:07 UTC on d92a3af, with `--arm local` and no cloud flag. That was after the owner's direction at about 19:05 UTC, and after E1-L's suite passed at 19:07:45 UTC. It was before BL-20261115-1938-e1-l-sandbox-suite-docker-verified recorded the suite's run, which was committed at 19:36:08 UTC.
+   - **Results.** The r3 runs' results are recorded in a later entry.
+   - **Paid exposure** of BL-20261115-1937-owner-adopts-standing-defaults now reads: "None. The doctor's one-token completion and the r3 runs are zero-fee requests to the owned endpoint. The labelling's USD 1.00 is approved but unspent. It runs only after its tool exists and its amendment is committed."
+8. **BL-20261115-1938-e1-l-sandbox-suite-docker-verified, corrected** (findings 7 and 8).
+   - "The other 17" listed 16. The missing one is the bounded file exchange between separate context filesystems.
+   - The heading "What the release does not do" now reads "What the release does and does not do". It lifts only E1's hold on E2 to E6's live runs and on harness loops, and each of those still needs its own card, cap and gates.
+9. **The IDs** (finding 14).
+   - **Later than their commit.** BL-20261115-1937-owner-adopts-standing-defaults and BL-20261115-1938-e1-l-sandbox-suite-docker-verified carry minutes one and two minutes later than their commit, 505ce70 at 19:36:08 UTC.
+   - **They stay as written.** Both IDs are UTC and come after the log's tail. A rename would have moved every citation in #114 and in #102's chained re-stamp.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The review.** One reviewer read #114 at 505ce70 against `main` at d92a3af. It reported a minor verdict, with no blocker, no major issue and no privacy issue, and CI green on 505ce70: check and electron-e2e.
+- **The session's checks:**
+  - The cited log lines of BL-20261114-1508-correction-concurrent-local-admission-review, BL-20261113-0920-assist-wrapper-design, BL-20261113-0922-correction-assist-core-review and BL-20261113-0925-correction-assist-core-rereview.
+  - BL-20261101-2120-fast-v3-artifact-trial-approved, BL-20261110-1509-host-flags-event-design and BL-20261113-0927-research-v5-design, all on `main`.
+  - A grep of src/ and scripts/ for `SOAR_OPENROUTER_ENABLED`, whose one hit is scripts/validate-readiness.mjs.
+  - The suite's run log, which names 18 tests.
+  - `git log` for the commit time.
+- **The reviewer's spot-checks,** which found nothing wrong:
+  - #98's four values; the ASSIST defaults; #104, #100, #92, E1-1, E1-2, E1-3 and E1-6; #89's other defaults; 7b.2's D4 clause and the 7100b7a2… hash;
+  - review §5.10 decisions 5, 11, 13's D20(b) and 2's last part;
+  - the PLAN.md quotes; every "no default" item; the E1 gate's release;
+  - the suite's log, the privacy of the added lines, and the field order.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **One reader.** No skeptic ran, because no finding was a blocker or major.
+- **What the log can't show.** The chat that holds the owner's answers. Decision 3 quotes the options the owner chose.
+- **The r3 results.** This entry does not record them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: None of its own. E0 continues as BL-20261115-1937-owner-adopts-standing-defaults decision 5 lists.
+
+References: BL-20261115-1937-owner-adopts-standing-defaults; BL-20261115-1938-e1-l-sandbox-suite-docker-verified; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261113-0920-assist-wrapper-design; BL-20261113-0922-correction-assist-core-review; BL-20261113-0925-correction-assist-core-rereview; BL-20261101-2120-fast-v3-artifact-trial-approved; BL-20261110-1509-host-flags-event-design; BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; scripts/validate-readiness.mjs; pull requests #102, #105, #110 and #114.
+
+### BL-20261116-0813-e0-r3-runs-index-and-harvest -- 2026-11-16 -- E0's r3 step: five zero-fee local research runs on r3, four ended research_extraction_incomplete and the fifth wrote the current-format index; the stage brief rebuilt and matched; 40 judge claims harvested
+
+Status: `Implemented`
+
+Scope or hypothesis: This is E0's second step, from docs/HANDOFF.md "Start here" §5 step 2. Zero-fee local research runs on the exposed r3 task produce two things:
+- the current-format research index, which the planner fixture pins;
+- the claims the judge fixture harvests.
+
+Each run used the headless driver as #95 specifies: `scripts/private-agent-local-screen.ts --execute-synthetic-local --profile heavy --claims-ledger true --pipeline research --arm local`. No run used a cloud flag or public retrieval. They ran on the owner's Mac against the owned endpoint whose identity the doctor confirmed (BL-20261115-1937-owner-adopts-standing-defaults). Hypothesis: a run reaches `research_packet_ready` and writes `index.json` and `coverage.json`.
+
+Decisions:
+1. **Five runs, not one.**
+   - **Why.** The first run ended incomplete. The session then ran a second with diagnostics retained (`--retain-diagnostics true`), then up to three more in sequence, stopping at the first that wrote the index.
+   - **Authority.** Each run had a git-ignored authority record stating its scope.
+   - **The index is a fixture input, not a measured outcome.** So a later success replaces nothing. Every run is recorded, and the selection is stated: run-5 supplies the index and the claims.
+2. **The planner fixture's inputs.** Its index is run-5's, and its brief is the stage brief (card Amendment 1, item 3).
+3. **The judge's claim set** is run-5's harvest. Run-5 was the only run that reached the finish-time claims check.
+4. **Registry rows.**
+   - **Runs 1 to 4** are rowed now: outcome `incomplete`, cause `task`, `verdictBy` `none`.
+   - **Run-5's row waits.** It ended `submitted`, pending independent acceptance. The row tool requires an outcome, which needs a verdict, and E0 gives none, since it makes no claim about product quality.
+
+Changes: docs/experiments/registry.jsonl gains four rows, batch `e0-2026-11-15`, arm `local-heavy-pipeline-research`. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **Common conditions.**
+  - All five ran on `main` at d92a3af, with a clean tracked tree and runtime hash `42f138aa8945905bb85b2fcabf893d4b7f55cb5e5124f7dda2bb718d4178a2b5`.
+  - They ran between 19:31 and 20:28 UTC on 2026-11-15.
+  - Every dispatch of every run went to the owned local model, settled at USD 0, with 0 disclosed bytes: 46, 43, 47, 39 and 116 dispatches.
+- **Per run** (the index stage, the plan stage, then extraction):
+  - **run-1:** 24 sources indexed. Both plan attempts were truncated with 0 reply bytes, so the host plan was used. 23 of 24 chunks completed. Ended `research_extraction_incomplete`.
+  - **run-2:** 24 indexed. The first plan attempt was truncated with 0 bytes, and the second was accepted. 22 of 24. Incomplete.
+  - **run-3:** 24 indexed. Both plan attempts were truncated empty, so the host plan was used. 20 of 24. Incomplete.
+  - **run-4:** 24 indexed. The first plan attempt was truncated empty, and the second was accepted. 22 of 24. Incomplete.
+  - **run-5:** 24 indexed. The first plan attempt was truncated empty, and the second was accepted. 24 of 24, so the stage ended `research_packet_ready`. Synthesis fell back to its skeleton after 2 calls. The run submitted after 29 minutes and is pending independent acceptance.
+- **Extraction reasons.** Run-2's retained diagnostics name them:
+  - `schema_too_big` on quote and conflict notes;
+  - `needs_followup` on questions;
+  - `quote_not_located`;
+  - `no_verified_evidence_with_quote`;
+  - `evidence_found_without_quote`.
+
+  Repair calls recovered most chunks. Those they did not recover ended each incomplete run.
+- **Run-5's index,** computed with #95's command:
+  - version 2;
+  - sha256 `af292cd940cf0bd1d23251a8b5192406185811f112414b447b38301d20d43d6d`;
+  - 24 sources, `sourceIdsSha256` `d4eceaed7578651faf551078e3cb4d95261b1532d3e27b8666b3be0b2f53f897`;
+  - 24 mandatory chunks, coverage version 2.
+- **The stage brief.**
+  - It was rebuilt from the r3 task with the driver's own functions: `loadPreparedOperatorTask`, then `withClaimsLedger`, then `withDeckValidity`.
+  - It is 3,904 bytes, sha256 `6f0a6d83323f2c740a3061aab569adf670ae69183c7b11e8b1845f0772d56a35`.
+  - It equals run-5's `coverage.json` `briefSha256` and `briefBytes`, and the session's recorded `originalGoalSha256`.
+  - It stays git-ignored.
+- **The harvest.** `pnpm fixture:judge -- harvest` over run-5 printed:
+  - 40 claims, 0 skipped, 0 duplicates and 0 runs without claims;
+  - sha256 `c1b630b3fd737a29aef8629b20e58466fe38a687036e6c9267b4d4727a402739`.
+
+  Both of its files are mode 0600 and git-ignored. No claim text was printed or sent.
+- **The four rows** were written by `scripts/registry-row.py --run-dir`. Each reads commit d92a3af from its run's freeze, records USD 0 and cause `task`, and holds no path.
+
+Failures or blockers:
+- **Four of five runs ended `research_extraction_incomplete`.** This is a negative result for the research pipeline on r3 with this model.
+- **The planner's first reply was truncated with no content in all five runs.**
+
+Limitations and non-claims:
+- **A small sample.** Five runs on one task, with one model, at one commit. One completion in five is not an estimate of anything beyond this sample.
+- **The empty planner replies.** They fit reasoning that fills the output cap, but this entry does not show that. The planner fixture measures it.
+- **No product quality.** Nothing here measures product quality, and run-5's report is not assessed.
+- **These runs predate 7b.2 (#102),** which merged after them. The index and the pins do not depend on it, because coverage version 3 keeps `chunks` and `briefSha256`.
+
+Paid exposure: None. Zero envelope spend: every request went to the owned endpoint.
+
+Next gate: The planner fixture runs under Amendment 1, after E0's probes. The judge waits for Amendment 2 and the labelling.
+
+References: BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1023-p10-align-implemented; BL-20261114-2250-judge-fixture-implemented; docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; pull requests #95 and #102.
+
+### BL-20261116-0814-e0-card-amendment-1 -- 2026-11-16 -- E0 card Amendment 1: the precondition hash after 7b.2, all twelve probes, the stage brief and run-5's index pinned, the judge's command and the labeller named; and the owner's merge go of 2026-11-16
+
+Status: `Approved`
+
+Scope or hypothesis: The card's "Role fixtures" rule lets only an amendment change the card. This entry records:
+- Amendment 1, appended to docs/experiments/e0-card-2026-11-13.md;
+- the planner manifest's pin.
+
+Both are committed before E0's export and before any fixture runs. The entry also records the owner's answers of 2026-11-16, at about 08:08 UTC.
+
+`Approved` covers two things: the owner's decisions the amendment applies, and the owner's merge go. Amendment items 2 and 6 are the orchestrating session's procedural choices (decision 4 of BL-20261115-1937-owner-adopts-standing-defaults). Beyond the documents, nothing here is implemented, verified or released.
+
+Decisions:
+1. **Amendment 1.** Its six items, as the card now states them:
+   - **(1) The precondition hash** becomes `7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5`, since 7b.2 merged first. The no-merge rule between the export and the assessment stands.
+   - **(2) The one probe invocation** runs all twelve probes, with the defaults. P1 alone runs first.
+   - **(3) The planner fixture** pins run-5's index and the stage brief. The amendment fixes its command and design flags.
+   - **(4) The judge fixture's command** is `pnpm fixture:judge`, and its claim set is run-5's harvest.
+   - **(5) The labeller** is `gpt-6-sol` through its API at `api.openai.com`, with key variable `SOAR_PHASE2_CLOUD_API_KEY`, under the USD 1.00 cap, charged to the synthetic-data line. This replaces "labelled by a separate session". Amendment 2 adds the tool, the minimum, the conditions and the repeats.
+   - **(6) The settings** are kept identical from the export onward: no reply contract, `SOAR_STREAMING` unset, the default cache salt.
+2. **The planner manifest is pinned now,** before the planner run. Decision 4 of BL-20261115-1937-owner-adopts-standing-defaults had said "with the results". The fixture does not record the manifest's digest, so only a commit made before the run shows that the pin preceded it.
+3. **The owner's answers of 2026-11-16.** The session wrote two questions and marked one option of each recommended; the owner chose the recommended option both times:
+   - **The merge go.** To "May I merge #114 now, then the E0 record PRs that follow it (#102 is a lane PR and merges under your standing go-ahead), each once its review is clean and CI is green?", the owner answered "Yes, merge them (Recommended)". #114 and #102 merged at 08:09 UTC under it.
+   - **#117's history.** The question explained that an earlier pushed commit of #117 held the owner's local account name in three test strings, which the latest commit replaces. To it, the owner answered "Squash-merge #117 (Recommended)".
+   - **What the merge go covers.** The orchestrating session's E0 record pull requests (amendments, run records and corrections), each once it has a clean light review and green CI. Lane pull requests keep the standing go-ahead. #117 merges by squash, a departure from the merge-commit practice for that pull request only.
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: the Amendment 1 section, appended. Nothing above it changes.
+- docs/experiments/e0-planner-fixture-v1.json: pinned. This sets the five hashes and counts, the status `pinned`, and a note naming the stage brief.
+- tests/unit/planner-fixture.test.ts: its template-refusal test read the committed manifest and asserted that it was still a template, so pinning the manifest, as the card always intended, was bound to break it. The test now asserts that the committed manifest is pinned, with three 64-hex hashes, and builds its template from that manifest with the pinned fields cleared. Its refusal checks are unchanged.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The protocol hash.** On `main` at b487f75, `researchProtocolSha256()` printed `7100b7a2…`, the value tests/helpers/research-protocol-pin.ts pins since #102.
+- **P1 alone,** at 08:10:39 UTC on b487f75:
+  - `/v1/models` returned 200, listing exactly one model, `RM-01 VLM`, with root basename Qwen3.8-Flash-Next-NVFP4 and max_model_len 262144.
+  - `/version` returned 200: 0.33.0rc1.dev617+g821038729.
+
+  Checked by hand against BL-20261104-0701-new-endpoint-metadata-and-deployment-drift. The card's stop rule does not trigger.
+- **The pin.** The manifest's values come from BL-20261116-0813-e0-r3-runs-index-and-harvest. `pnpm fixture:planner -- --dry-run`, with the pinned manifest, run-5's index and the stage brief, accepted the pin without sending a request: 3 conditions × 10 repeats over 6 brief units; request bodies `48016d5d…` (legacy-thinking, 69,594 bytes), `63b501ea…` (flash-thinking, 69,668 bytes) and `50332a55…` (thinking-off, 69,575 bytes), each with max_tokens 8,192.
+- **The export path.** scripts/serving-probe.py's `--schemas` defaults to `.soar/experiments/role-schemas.json`.
+- **Checks on this branch:**
+  - the planner-fixture suite and the five registry-row suites that read the registry: 6 files, 53 tests passed;
+  - `pnpm typecheck` passed;
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm --silent validate:readiness` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Pre-registration only.** The amendment runs nothing.
+- **Still to come:** Amendment 2 adds the labelling tool, the per-class minimum, the conditions and the repeats. A later amendment, after #116, adds the extractor fixture's command.
+- **The owner's words** are quoted from the orchestrating session's chat. This log cannot show the chat.
+
+Paid exposure: None.
+
+Next gate: In order:
+1. `pnpm probe:export-schemas`.
+2. The twelve probes, in one invocation.
+3. `pnpm probe:assess`.
+4. The card writer, with the `--compare-*` flags.
+5. The planner fixture.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-planner-fixture-v1.json; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261116-0813-e0-r3-runs-index-and-harvest; pull requests #91, #102, #114 and #117.
+
+### BL-20261116-0838-correction-e0-amendment-1-review -- 2026-11-16 -- Correction to BL-20261116-0812-correction-owner-defaults-review, BL-20261116-0813-e0-r3-runs-index-and-harvest and BL-20261116-0814-e0-card-amendment-1: #118's light review, four minor findings and two nits; run-5 rowed
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the light review of pull request #118 at 42e8f5a and its fixes. The review found no blocker, no major issue and no privacy issue. It made four minor findings and two nits, and it confirmed the entries' run facts against the runs' own records. The three entries stay as written; where this entry and any of them differ, this entry governs.
+
+The card's Amendment 1 is unchanged. It was committed before E0's export of 08:16:21 UTC, and an edit now would postdate the export. So none of these fixes touches the card.
+
+Decisions:
+1. **Finding 1, the question count in BL-20261116-0812-correction-owner-defaults-review.** That entry corrected a count and miscounted.
+   - HANDOFF §5 step 2 lists six bullets of questions open before E0, each the owner's to answer. The third bullet asks two questions, so there are seven:
+     - three went to the owner;
+     - three are the session's procedural choices;
+     - the seventh, whether E1's hold covers the r3 run, is moot.
+2. **Finding 2, run-5's registry row** (BL-20261116-0813-e0-r3-runs-index-and-harvest, decision 4). The stated reason for holding the row was wrong.
+   - scripts/registry-row.py does require `--outcome`. But its outcome check accepts `incomplete` with `--verdict-by none` for a submitted run that did not end on infrastructure. The registry already holds that shape (`p4claude-r3-grid-batteries-all-cloud-step1`), and docs/experiments/README.md describes it.
+   - So run-5 is rowed now, in that shape: outcome `incomplete`, verdict `none`. Its lesson states that it submitted, pending independent acceptance, and that E0 assesses no report.
+   - Decision 1's "every run is recorded" now holds in the registry too.
+3. **Finding 3, the scope of BL-20261116-0814-e0-card-amendment-1.**
+   - **The owner's decisions:** Amendment 1's items 1 and 5, and item 3's stage brief (decision 2 of BL-20261115-1937-owner-adopts-standing-defaults).
+   - **The session's procedural choices, under decision 4 of that entry:** items 2 and 6.
+   - **The session's choices from BL-20261116-0813-e0-r3-runs-index-and-harvest:** item 4, and item 3's choice of run-5's index.
+   - `Approved` covers the owner's decisions and the owner's merge go. Beyond the documents, nothing there is implemented, verified or released.
+4. **Finding 4, a non-claim missing from BL-20261116-0814-e0-card-amendment-1.** Squash-merging #117 keeps the owner's local account name out of `main`'s history only. #117's earlier commits stay readable in its history on GitHub, and the repository is public.
+5. **Nit 5, the same entry's scope sentence.** Amendment 1 and the pin were committed before E0's export and before any fixture sent a request. The planner fixture's dry run, in that entry's Evidence, sent none.
+6. **Nit 6, the planner-fixture test.** It now parses the committed manifest with `PlannerFixtureManifestSchema`, so the pinned `sourceCount` and `mandatorySourceChunks` are checked against the schema before the template is built from them.
+
+Changes:
+- docs/experiments/registry.jsonl: run-5's row (`e0-r3-grid-batteries-local-heavy-pipeline-run5`).
+- tests/unit/planner-fixture.test.ts: the schema parse of the committed manifest.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The review.** One reviewer read #118 at 42e8f5a against `main` at b487f75, with read-only access to the r3 runs' records. It reported a minor verdict, with CI green on 42e8f5a.
+- **What it confirmed against the runs' own records:**
+  - the dispatch counts (46, 43, 47, 39 and 116), all to the owned local model, with fee, reserved fee and disclosed bytes all 0;
+  - the per-run stage figures;
+  - run-5's index and stage-brief digests, recomputed with the repository's `digest` and `canonical`;
+  - the four rows already committed;
+  - that the card's diff only appends.
+- **Run-5's row,** written by `scripts/registry-row.py --run-dir`:
+  - outcome `incomplete`, verdict `none`;
+  - run status `submitted`, class cause `submitted`, not infrastructure;
+  - USD 0, commit d92a3af, and no path.
+- **Checks:** the planner-fixture suite passed 4 tests; `pnpm typecheck` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: One reader. No skeptic ran, because no finding was a blocker or major.
+
+Paid exposure: None.
+
+Next gate: None of its own. The E0 steps of BL-20261116-0814-e0-card-amendment-1 continue.
+
+References: BL-20261116-0812-correction-owner-defaults-review; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261115-1937-owner-adopts-standing-defaults; scripts/registry-row.py; docs/experiments/README.md; pull requests #117 and #118.
+
 ### BL-20261115-1954-e0-registry-modes-design -- 2026-11-15 -- Decide registry-row.py's three E0 modes: a serving-probe run, a role-fixture run and the labelling call each get one sanitized row from the producer's own output
 
 Status: `Proposed`

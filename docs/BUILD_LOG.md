@@ -44942,3 +44942,186 @@ Paid exposure: None.
 Next gate: The dry run again at the run's commit, then the extractor fixture's run, then its row.
 
 References: BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-1132-e0-card-amendment-3; BL-20261116-1123-e0-extractor-fixture-design; BL-20261116-1124-e0-extractor-fixture-implemented; BL-20261116-1125-correction-e0-extractor-fixture-review; BL-20261116-1127-correction-e0-extractor-fixture-restamp; BL-20261116-1019-e0-planner-fixture-result; BL-20261116-1020-e0-judge-fixture-result; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1048-correction-e0-records-final-review; docs/experiments/e0-card-2026-11-13.md; scripts/extractor-fixture.ts; scripts/registry-row.py; pull requests #103, #108, #110, #116, #119, #122, #123 and #124.
+
+### BL-20261116-1200-host-flags-trimmed-counts-design -- 2026-11-16 -- Backlog item 7(d) follow-up decided: the host flags count the questions, quotes and conflict notes that 7b.2's trim left out of the research packet, and the desktop and the registry show them
+
+Status: `Proposed`
+
+Scope or hypothesis: 7b.2 (#102, merged as b487f75) lets the ready gate accept a packet whose caps left out verified quotes and conflict notes, as long as every omission is disclosed (BL-20261115-1939-research-priority-trim-design, decisions (1) to (4)). A chunk question whose verified quotes were all left out has the new outcome `evidence_trimmed`.
+- **7d.B's premise changed.** Its decision (4) recorded only counters that could be nonzero, and named packet and conflict omissions among the misses that never reached the pass, because the packet check ended such runs first (BL-20261110-1509-host-flags-event-design). Since 7b.2 they reach it.
+- **What the flags say today.** `misses.questionsWithoutEvidence` counts a question whose verified quotes were all trimmed as a question without evidence (BL-20261115-1939, decision (10)). 7d.C's desktop line "N research questions have no retained evidence" and the registry's `hostFlags` column count it the same way. No count shows the packet's omissions.
+- BL-20261115-1941-correction-research-priority-trim-review leaves the trimmed count to S-desk. This entry decides it: plan ID 7d.D, lane S-desk.
+
+Decisions:
+
+(1) **Three counts in the misses** (src/main/private-agent/host-flags.ts). They come from the coverage.json the misses section already parses, with no new file read. The names are the pipeline's where one exists.
+- `questionsTrimmed`: the synthesis questions with no `evidence_retained` outcome in any chunk and an `evidence_trimmed` outcome in at least one. These had verified quotes, and the packet's caps left them all out. They are among `questionsWithoutEvidence`, which keeps its meaning. For a packet the ready gate accepts, the count equals the extract stage row's `questionsTrimmed` ("plan questions with a verified quote and none in the packet").
+- `quotesLeftByCap`: the coverage's omissions, for both reasons, `packet_cap` and `presentation_cap`. For an accepted packet it equals `evidence.counts.leftByCap` and the extract row's `quotesLeftByCap`.
+- `conflictsLeftByCap`: the coverage's conflict omissions (`conflict_cap`).
+- Trimmed chunk outcomes are not counted on their own: a question can lose its quotes in one chunk and keep others in another, and the quote count already measures the trim.
+
+(2) **The event's version stays 1.**
+- **Why no bump.** The counts are optional, like every count in the event, and the section computes all three whenever it reads coverage.json. So they are present exactly when `questionsWithoutEvidence` is.
+- **Older events.** An event recorded before this change lacks them, and a reader takes that as "not recorded", never as zero (7d.B's decision (2): "Absent and zero never look the same").
+- No existing field changes its meaning, so a bump would only make every reader accept two versions. The event's readers are the desktop's issue lines and registry-row.py, and both change with it.
+
+(3) **The desktop's issue lines** (`hostFlagIssues` in src/main/general-tasks/controller.ts), built from the counts alone:
+- **The questions line** names the trimmed ones: "3 research questions have no retained evidence; 1 of them had verified quotes, all left out of the packet at its caps." When every one of them was trimmed, it says "each had" ("it had" for one question). Without `questionsTrimmed`, or with zero, the line is as before.
+- **A new line**, after the unresolved questions, when quotes or conflict notes were left out: "The research packet left out 14 verified quotes and 2 conflict notes at its caps."
+  - Why a line: the writer cannot cite a left-out quote (7b.2's instruction), so the report rests on less than the verified evidence. That is a miss that qualifies a deliverable, which 7d.C's rule gives a line.
+  - Dropped quotes, which failed verification or repeated another, stay registry-only.
+- **Reach.** Today the desktop runs no research stage (BL-20261114-1246-host-flags-surfaces-design), so these lines are tested on synthetic events, like the other packet misses.
+
+(4) **The registry** (scripts/registry-row.py). The three names join the closed set of miss names, so the column copies them. Rows already written stay as they are. 7d.C kept the script's names equal to the event schema's by hand; a new test checks the count and miss names against the schema.
+
+(5) **Docs.** docs/experiments/README.md's `hostFlags` row names the three counts and says what their absence means. README.md's general-task row lists only lines that can appear today, so it does not change.
+
+Changes: Planned in one pull request on `feat/7d.D-host-flags-trimmed-count`, from `main` at b487f75:
+- src/main/private-agent/host-flags.ts: the three counts and the schema's miss names;
+- src/main/general-tasks/controller.ts: the two lines;
+- scripts/registry-row.py: the closed set;
+- docs/experiments/README.md: the `hostFlags` row;
+- tests:
+  - private-agent-host-flags: a real pipeline packet that the trim cut, with conflict omissions; edited copies of its coverage for the question counts; the existing misses expectations gain the zeros;
+  - private-agent-research-session: its misses expectation;
+  - general-task-host-flags: the lines;
+  - registry-row-host-flags: the names copied, a bad value refused, and the closed sets equal to the schema's.
+
+Consequences:
+- **`researchProtocolSha256()` keeps its default value.** It binds the coverage and evidence schemas and the research files, which this change reads and does not edit. No research pipeline file changes, so the E0 card's precondition hash holds.
+- **The private-agent source freeze moves.** `localScreenSourceFreeze()` hashes every .ts file under src/main/private-agent, host-flags.ts included. A local-screen run that spans the merge stops with `local_screen_reviewed_source_changed`. So the merge waits until no such run is in progress; the coordinator merges after E0's probe window closes.
+- The desktop's build identity changes, as with every desktop change, so a task begun before the merge cannot resume after it.
+
+Evidence: None yet; this entry decides.
+
+Failures or blockers: None. There is no owner question: 7b.2 left the count to S-desk (BL-20261115-1941).
+
+Limitations and non-claims: `Proposed` only: nothing is implemented or verified by this entry. The counts say what the trim left out, not whether a left-out quote mattered. They decide nothing: no status, check, Resume, selection, acceptance or registry outcome. The pass still sees only packets the ready gate accepted, and only submitted runs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation, its tests and its `Implemented` entry. Then the checks, one light review and CI. The coordinator merges after E0's probe window closes, re-stamping after `main`'s tail if it moved (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261114-1246-host-flags-surfaces-design; BL-20261114-1311-host-flags-surfaces-implemented; BL-20261115-1939-research-priority-trim-design; BL-20261115-1940-research-priority-trim-implemented; BL-20261115-1941-correction-research-priority-trim-review; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261116-1201-host-flags-trimmed-counts-implemented -- 2026-11-16 -- Backlog item 7(d) follow-up implemented: the host flags count the questions, quotes and conflict notes 7b.2's trim left out, and the desktop and the registry show them; offline tests only
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261116-1200-host-flags-trimmed-counts-design (plan 7d.D, lane S-desk) as decided, on `feat/7d.D-host-flags-trimmed-count` from `main` at b487f75. The code and tests are commit ba5f6bc.
+
+Decisions: None new. The design's decisions (1) to (5) stand as written. The three counts are computed inside the misses section, so its all-or-nothing rule covers them (BL-20261110-1516-host-flags-event-implemented, correction (d)).
+
+Changes:
+- src/main/private-agent/host-flags.ts: the misses section computes `questionsTrimmed`, `quotesLeftByCap` and `conflictsLeftByCap` from the parsed coverage, and the schema's miss names gain them. The report scan and the review summary are unchanged.
+- src/main/general-tasks/controller.ts: `hostFlagIssues` gives the questions line with the trimmed clause, and the packet line, as in the design's decision (3).
+- scripts/registry-row.py: `HOST_FLAG_MISSES` gains the three names.
+- docs/experiments/README.md: the `hostFlags` row.
+- tests/unit/private-agent-host-flags.test.ts, two new tests:
+  - **A real trimmed packet.** It is built by the pipeline from 20 sources of 12 rows, with one conflict note per chunk. The trim left quotes and notes out, and some chunks are `evidence_trimmed`. The counts equal the coverage's omissions and conflict omissions, `evidence.counts`, and the extract row's `questionsTrimmed` (0) and `quotesLeftByCap`. An edited copy whose omissions mix both reasons counts them all.
+  - **Edited copies of a real coverage, with three questions.** Retained in one chunk and trimmed in another is not trimmed. Trimmed only is trimmed. No evidence counts only among the questions without evidence.
+  - The two existing misses expectations gain the three zeros.
+- tests/unit/private-agent-research-session.test.ts: its misses expectation gains the three zeros.
+- tests/unit/general-task-host-flags.test.ts, one new test: the clause's four forms; none trimmed, and an event from before 7d.D; the packet line's forms; and the line order.
+- tests/unit/registry-row-host-flags.test.ts:
+  - a row copies the counts;
+  - three bad values of the new names are refused;
+  - a new test checks the script's count and miss names against the event schema's, which loads registry-row.py without running it.
+
+Evidence:
+- **Typecheck and readiness.** `pnpm typecheck` passes, and `pnpm validate:readiness` passes.
+- **The changed test files.** These five pass, 261 tests: private-agent-host-flags, general-task-host-flags, registry-row-host-flags, private-agent-research-session, and general-task-controller (unchanged, run because its end-to-end test goes through the real pass).
+- **The full suite.** `pnpm exec vitest run` at ba5f6bc, run alone: 3,801 tests in 201 files; 3,715 passed and 86 skipped, none failed.
+- **Mutants.** 15 single-edit mutants, each run against its test file with the file restored after each. All 15 are killed:
+  - host-flags.ts (7): the trimmed condition dropped; the retained condition dropped; trimmed read as no evidence; `packet_cap` omissions only; conflict omissions not counted; the quote and conflict counts swapped; and the schema without the omission counts;
+  - controller.ts (6): never "each" or "it"; "each" for one question; no trimmed clause; conflict notes not listed; no packet line; and an absent count read as all trimmed;
+  - registry-row.py (2): without `questionsTrimmed`, and without the omission counts.
+- **Hashes, before and after.**
+  - `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 at b487f75 and at ba5f6bc, equal to tests/helpers/research-protocol-pin.ts.
+  - `localScreenSourceFreeze()` moves from 5503a1c98430113a3e62e98f98cb413223630a84a4aaf562867bd1273ce7a2bd to 9f6d0efad93a3fba5466e80680b3369760b8e3fe8efb05f7f7cccbd2fc9903e4, as the design said: host-flags.ts is under src/main/private-agent.
+- **Build log.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **What this is.** `Implemented` only, from offline tests with invented model replies. No live run, no desktop run, and nothing `Verified` or `Released`.
+- **The desktop lines.** The desktop runs no research stage before backlog item 13, so its new lines are tested on synthetic events only.
+- **No real packet has a trimmed question.** The packet cap alone never trims a whole question, because one round of the trim's order holds at most twelve quotes (BL-20261115-1939-research-priority-trim-design, decision (1)). Only the presentation guard can, when the rest of the writer's presentation leaves room for less than one round.
+  - A corpus tuned to that edge would move whenever the presentation's reservation changes, and #103 changes it.
+  - So the question count is tested on edited copies of a real coverage. The real packet shows the count agrees with the extract row at zero.
+- **The gate.** The pass never runs the ready gate, so an edited coverage only has to satisfy the schema.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: One light review, and CI. The coordinator merges after E0's probe window closes, since a local-screen run must not span the merge now that the source freeze moves. If `main`'s tail moved, the entries are re-stamped after it (BL-20261113-0937, BL-20261113-0938).
+
+References: BL-20261116-1200-host-flags-trimmed-counts-design; BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261114-1246-host-flags-surfaces-design; BL-20261115-1939-research-priority-trim-design; BL-20261115-1941-correction-research-priority-trim-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261116-1202-correction-host-flags-trimmed-counts-review-restamp -- 2026-11-16 -- Correction: plan 7d.D's two entries are re-stamped after E0 Amendment 3's last entry, with their original IDs and authoring times; the light review's minor finding and one nit are fixed
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261116-1200-host-flags-trimmed-counts-design and BL-20261116-1201-host-flags-trimmed-counts-implemented (plan 7d.D, lane S-desk, #119).
+- **Why a re-stamp.** #119 waited for E0's probe window to close. In that time `main` took #115, #118, #117 and #121, then #122 and #116, and its tail became BL-20261116-1127-correction-e0-extractor-fixture-restamp.
+- **The chain.** The coordinator merges #122, #116, its E0 Amendment 3 pull request (#124) and #119 in that order, so that their CI runs at the same time; #122 and #116 have merged. Amendment 3 sits right after #116 because the extractor fixture's card section, which freezes once that fixture runs, cites its entry.
+- **What #119 merges.** It merges #116's head, 72006f0, then Amendment 3's first head, 14a855b, and then its head after the pre-run review, 70a75e4. That head holds #116's head, #122 and `main` at 42b36e7. #119's entries follow Amendment 3's last entry, BL-20261116-1159-correction-e0-amendment-3-pre-run-review.
+- **The original IDs.** Both entries were authored before those tails:
+  - the design entry as BL-20261116-0821, at 08:21 UTC on 2026-11-16, in 99253bb;
+  - the implemented entry as BL-20261116-0829, at 08:29 UTC, in 9e4a0e3.
+- **The light review.** The light review of #119 at 9e4a0e3 found one minor issue and two nits, none blocking, and CI was green there.
+
+Decisions:
+
+(1) **The re-stamp** (BL-20261113-0937-owner-decision-restamp-unmerged-entries, BL-20261113-0938-correction-restamp-rule-dates).
+- The design entry becomes BL-20261116-1200 and the implemented entry BL-20261116-1201: the first free minutes after Amendment 3's last entry.
+- Only the IDs and the references to them change. The bodies are otherwise byte-identical.
+- References moved: two in the implemented entry, and one each in:
+  - host-flags.ts;
+  - controller.ts;
+  - registry-row.py;
+  - docs/experiments/README.md;
+  - private-agent-host-flags.test.ts;
+  - registry-row-host-flags.test.ts.
+
+(2) **Review item 1 (minor), fixed in b895e27.** docs/experiments/README.md tied the three counts to when a row is written, but they depend on when the run's event was recorded.
+- The failing case: a run recorded before 7d.D merged and rowed after it. Its row holds `questionsWithoutEvidence` without the three counts.
+- The row now ties them to the event, as host-flags.ts, controller.ts and registry-row.py already did.
+
+(3) **Review nit 2, taken in b895e27.** The trimmed clause now says "had verified evidence, all left out of the packet at its caps", which stays correct for a question with a single verified quote.
+- This departs from the wording quoted in the design's decision (3), "had verified quotes".
+- The pull request's description is updated to match.
+
+(4) **Review nit 3, not done here.** The pin test covers the count names and the miss names only. registry-row.py's other closed sets are still kept equal to the schema by hand: rules, sections, formats, scan and review reasons, review parts and read caps. Pinning them is a possible follow-up.
+
+Changes:
+- docs/BUILD_LOG.md: the two re-stamped entries, and this Correction.
+- The six references above: three code comments, the docs row, a test comment and a test name.
+- b895e27: the docs row, the clause and its test.
+- 65047a7, 7da90d8 and 657e69d: the merges of #116's head and of Amendment 3's two heads.
+
+Evidence:
+- **The merges.** Merging #116's head, then each of Amendment 3's two heads, conflicted only at the log's tail. Each time the log is resolved as the merged head's log followed by the two entries. Of the files 7d.D changes, the merged side also changes docs/experiments/README.md (`main` and #116) and scripts/registry-row.py (`main`), in other lines, and both merged cleanly. After each merge, the tree is the merged head plus exactly 7d.D's own changes.
+- **The re-stamp.** With the new IDs mapped back, the two entries are byte-identical to 9e4a0e3's, and Amendment 3's log is a byte prefix of this one.
+- **Checks.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Tests.**
+  - The four changed test files and general-task-controller pass: 5 files, 261 tests, none failed. So does build-log-validator.test.ts, whose ledger test reads this log: 52 tests.
+  - The full suite (`pnpm exec vitest run`, run alone) passed on a tree that differs from this one only in #124's docs commit 70a75e4, the IDs and this Correction's wording. That tree was #124's first head merged as here, with the entries re-stamped after its tail 1132 and this Correction drafted, none of it committed: 3,873 tests in 205 files; 3,787 passed and 86 skipped, none failed.
+  - The full suite was not run again on this tree, because E0's extractor fixture now runs on this machine. CI runs it at the head.
+  - An earlier run at 65047a7, before any re-stamp and under a load average near 27, failed four tests: the repository-ledger test, because the entries were not yet re-stamped, and three that hit their 5-second timeout (patch routing, the absence rules' word sweep and the sandbox lister). All four pass in the later run.
+  - After the wording change, the six controller mutants were run again at b895e27, and all six are killed.
+- **Hashes.**
+  - `researchProtocolSha256()` keeps 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+  - `localScreenSourceFreeze()` at the head is 1fb7931e0a9be6a0e56ecb4fdf990b27d85eb936f46e8f9d2540b8ff652a83c3. At #124's head 70a75e4, without 7d.D, it is 0de7a3baf0a44c811c81b3595e04dbb7005f69e1a2ce3fc71fdd44262b5e8bd4, as at #116's head, since #124 changes docs only. It differs from 9e4a0e3's 9f6d0efa… for two reasons: #116 changes research-pipeline.ts, and host-flags.ts' comment now cites the re-stamped ID.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- The statuses stay as written: nothing is `Verified` or `Released`.
+- The review's confirmations are the reviewer's, at 9e4a0e3: the subset and the extract-row equality, absent counts never read as zero, old events parsing, and counts-only lines.
+- The checks ran with Amendment 3's head 70a75e4 as merged here. If it moves before it merges, #119 merges the new head and is re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The coordinator merges #119 on green CI right after Amendment 3's pull request, with `--match-head-commit`, under the standing go-ahead.
+
+References: BL-20261116-1200-host-flags-trimmed-counts-design; BL-20261116-1201-host-flags-trimmed-counts-implemented; BL-20261116-1159-correction-e0-amendment-3-pre-run-review; BL-20261116-1127-correction-e0-extractor-fixture-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

@@ -12,7 +12,7 @@ import { deriveBriefUnits, inventoryResearchSources } from "../../src/main/priva
 import { assembleIndexEntry, buildLiteralSourceCard } from "../../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research-plan";
 import { OUTPUT_TOKENS, PLAN_SYSTEM, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
-import { DEFAULT_CONDITIONS, buildPlannerBody, buildPlannerMessages, runPlannerFixture, verifyFixtureInputs, type FixtureCondition } from "../../scripts/planner-fixture";
+import { DEFAULT_CONDITIONS, PlannerFixtureManifestSchema, buildPlannerBody, buildPlannerMessages, runPlannerFixture, verifyFixtureInputs, type FixtureCondition } from "../../scripts/planner-fixture";
 
 const cleanups: (() => void)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
@@ -84,8 +84,11 @@ describe("planner fixture request builder", () => {
 
   it("refuses a template manifest or a hash mismatch before any request", async () => {
     const f = fixtureInputs(), server = await fakeServer(() => ({ content: plan([]), finish: "stop" })), out = outDir();
-    const template = JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "e0-planner-fixture-v1.json"), "utf8"));
-    expect(template).toMatchObject({ status: "template", indexSha256: null, briefSha256: null, sourceIdsSha256: null, mandatorySourceChunks: null, conditions: [...DEFAULT_CONDITIONS], repeats: 10 });
+    // E0 card Amendment 1 pins the committed manifest, so the template is that manifest with its pinned fields cleared.
+    const committed = JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "e0-planner-fixture-v1.json"), "utf8"));
+    expect(PlannerFixtureManifestSchema.parse(committed)).toMatchObject({ status: "pinned", sourceCount: expect.any(Number), mandatorySourceChunks: expect.any(Number), conditions: [...DEFAULT_CONDITIONS], repeats: 10 });
+    for (const key of ["indexSha256", "briefSha256", "sourceIdsSha256"]) expect(committed[key]).toMatch(/^[a-f0-9]{64}$/u);
+    const template = { ...committed, status: "template", indexSha256: null, briefSha256: null, sourceIdsSha256: null, sourceCount: null, mandatorySourceChunks: null };
     const attempt = (manifest: unknown, index = f.index) => runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: { index, brief: f.briefBytes, manifest }, out, repeats: 1, conditions: DEFAULT_CONDITIONS });
     await expect(attempt(template)).rejects.toThrow("planner_fixture_manifest_template");
     await expect(attempt({ ...f.manifest, indexSha256: "0".repeat(64) })).rejects.toThrow("planner_fixture_index_mismatch");

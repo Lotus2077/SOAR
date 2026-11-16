@@ -42758,3 +42758,269 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI, then the merge of `main` after #102, then the coordinating session's merge under the standing go-ahead.
 
 References: BL-20261115-2044-e0-judge-labeller-implemented; BL-20261115-1956-e0-judge-labeller-design; pull requests #102, #114 and #115.
+
+### BL-20261116-0812-correction-owner-defaults-review -- 2026-11-16 -- Correction to BL-20261115-1937-owner-adopts-standing-defaults and BL-20261115-1938-e1-l-sandbox-suite-docker-verified: the light review's fourteen minor findings, each checked against its source
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the light review of pull request #114 at 505ce70 and its fixes. The review found no blocker, no major issue and no privacy issue. It made fourteen minor findings, and the orchestrating session checked each against the line the review cited. Both entries merged as written so that #102, which was chained on #114's head, needed no second re-stamp. Where this entry differs from either of them, this entry governs.
+
+Decisions:
+1. **What `Approved` covers** (finding 11). In BL-20261115-1937-owner-adopts-standing-defaults, `Approved` covers three things only: decision 1's adoption, decision 2's answers and decision 5's direction. Decision 4 is the orchestrating session's own, and decision 3 stays open. That entry implements, verifies and releases nothing.
+2. **The E0 questions** (finding 12). HANDOFF §5 step 2 lists six questions open before E0, each the owner's to answer.
+   - **Three went to the owner,** as decision 2 records: 7b.2's timing, the labeller, and which brief the planner fixture pins.
+   - **Three are the session's procedural choices** in decision 4 until the owner answers them: the reply contract, the probe set, and when the planner manifest is committed.
+   - **The sixth is moot,** as decision 3 records: whether E1's hold covers the r3 run.
+
+   So the sentence "the three E0 questions with no default" misstated the count.
+3. **The owner's words behind decision 2** (finding 13). At about 19:35 UTC the session put three questions. Each offered options the session wrote, one marked recommended, and the owner chose that option each time. The chosen options read:
+   - **(a) "Before the export (Recommended)":** "S-pipe merges main into #102, re-stamps it and merges it while r3 runs, and I amend the card's precondition hash to 7100b7a2…. E0 then measures the final request bodies, so its structured-output card stays usable once item 9 lands, with no second probe session."
+   - **(b) "gpt-6-sol (Recommended)":** "OpenAI at api.openai.com, with the Phase 2 key SOAR_PHASE2_CLOUD_API_KEY that scripts/with-cloud-key.sh reads from your Keychain. The USD 1.00 comes from the synthetic-data line (USD 20), so the Phase 4 line stays whole for E3 and E4."
+   - **(c) "The stage brief (Recommended)":** "brief.md plus the claims-ledger instructions: exactly what the pipeline's planner receives, so the fixture reproduces the real planner request. I write it to a git-ignored file and check its hash against the run's coverage.json."
+
+   **The endpoint configuration.** At about 19:10 UTC the owner chose, from options the session wrote, the checkout whose `.env.local` E0 reads. This log names neither that checkout nor its path.
+4. **Decision 1 of BL-20261115-1937-owner-adopts-standing-defaults, corrected** (findings 1 to 4):
+   - **8.1 and 8.2b.** At K > 1, the class of a run that hits a denial can differ from K = 1's in either direction. BL-20261114-1508-correction-concurrent-local-admission-review records infrastructure where K = 1 gives task, and #110's review correction records the reverse. 8.2b keeps both as a limitation. The earlier text cited only the first source for both directions.
+   - **The defaults that bear on dispatch** come from two entries. ASSIST-6 is BL-20261113-0920-assist-wrapper-design's fourth owner question. It accepts model-written packet text that may carry undetectable source text, for public and synthetic tasks on E3's and E4's approved arms only. ASSIST-8 comes from the Limitations of BL-20261113-0922-correction-assist-core-review. It states, as limits for the public and synthetic arms only, the address-like forms the scrubber sends as written. Both labels are defined only in the git-ignored train-1 owner-question list.
+   - **Decision 7:** no thinking-off writer arm, since BL-20261101-2120-fast-v3-artifact-trial-approved did not approve one (review §5.10, item 7). No E2 card exists yet; E2's card, when written, leaves the arm out.
+   - **Decision 12's first part** cites BL-20261110-1509-host-flags-event-design for keeping the segmentation and flagging single-unit briefs. It cites BL-20261113-0927-research-v5-design only for the one-question host fallback plan.
+   - **#89's question (b).** Its source says it "needs the owner's answer". The entry takes the blanket answer as that answer, which the owner gave without reading this item; the entry's Limitations already say the owner did not read each item.
+5. **Decision 3 of BL-20261115-1937-owner-adopts-standing-defaults, corrected** (findings 5 and 6):
+   - **#105.** The 13 residues are listed in decision 2 of #105's last entry, its residue correction, not in a design entry.
+   - **What BL-20261113-0925-correction-assist-core-rereview does.** It holds 10.b's dispatch until each class it lists is closed by a reviewed policy-5 rule, or accepted by the owner in a recorded decision. Its default closes L1 to L4 and L7 by rule.
+   - **What the open review decisions gate:** E3, E4, item 12's search destination, the uncached all-cloud baselines, labelled work (E5's among it) and item 13. None gates E0 or E1.
+6. **OpenRouter** (finding 10). No code in src/ or scripts/ reads `SOAR_OPENROUTER_ENABLED`. scripts/validate-readiness.mjs lists it, with the paid-cap settings, as an inactive runtime input. So decision 4's "No OpenRouter call" holds because no E0 path reads the OpenRouter or paid-cap settings, not because of the override. Every E0 command still sets `SOAR_OPENROUTER_ENABLED=false`, which nothing reads. In decision 5, "Decision 4 turns OpenRouter off for E0" now reads "No E0 path reads them (decision 4)".
+7. **The r3 run and the paid-exposure line** (finding 9).
+   - **Timing.** The r3 run started at 19:31:07 UTC on d92a3af, with `--arm local` and no cloud flag. That was after the owner's direction at about 19:05 UTC, and after E1-L's suite passed at 19:07:45 UTC. It was before BL-20261115-1938-e1-l-sandbox-suite-docker-verified recorded the suite's run, which was committed at 19:36:08 UTC.
+   - **Results.** The r3 runs' results are recorded in a later entry.
+   - **Paid exposure** of BL-20261115-1937-owner-adopts-standing-defaults now reads: "None. The doctor's one-token completion and the r3 runs are zero-fee requests to the owned endpoint. The labelling's USD 1.00 is approved but unspent. It runs only after its tool exists and its amendment is committed."
+8. **BL-20261115-1938-e1-l-sandbox-suite-docker-verified, corrected** (findings 7 and 8).
+   - "The other 17" listed 16. The missing one is the bounded file exchange between separate context filesystems.
+   - The heading "What the release does not do" now reads "What the release does and does not do". It lifts only E1's hold on E2 to E6's live runs and on harness loops, and each of those still needs its own card, cap and gates.
+9. **The IDs** (finding 14).
+   - **Later than their commit.** BL-20261115-1937-owner-adopts-standing-defaults and BL-20261115-1938-e1-l-sandbox-suite-docker-verified carry minutes one and two minutes later than their commit, 505ce70 at 19:36:08 UTC.
+   - **They stay as written.** Both IDs are UTC and come after the log's tail. A rename would have moved every citation in #114 and in #102's chained re-stamp.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The review.** One reviewer read #114 at 505ce70 against `main` at d92a3af. It reported a minor verdict, with no blocker, no major issue and no privacy issue, and CI green on 505ce70: check and electron-e2e.
+- **The session's checks:**
+  - The cited log lines of BL-20261114-1508-correction-concurrent-local-admission-review, BL-20261113-0920-assist-wrapper-design, BL-20261113-0922-correction-assist-core-review and BL-20261113-0925-correction-assist-core-rereview.
+  - BL-20261101-2120-fast-v3-artifact-trial-approved, BL-20261110-1509-host-flags-event-design and BL-20261113-0927-research-v5-design, all on `main`.
+  - A grep of src/ and scripts/ for `SOAR_OPENROUTER_ENABLED`, whose one hit is scripts/validate-readiness.mjs.
+  - The suite's run log, which names 18 tests.
+  - `git log` for the commit time.
+- **The reviewer's spot-checks,** which found nothing wrong:
+  - #98's four values; the ASSIST defaults; #104, #100, #92, E1-1, E1-2, E1-3 and E1-6; #89's other defaults; 7b.2's D4 clause and the 7100b7a2… hash;
+  - review §5.10 decisions 5, 11, 13's D20(b) and 2's last part;
+  - the PLAN.md quotes; every "no default" item; the E1 gate's release;
+  - the suite's log, the privacy of the added lines, and the field order.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **One reader.** No skeptic ran, because no finding was a blocker or major.
+- **What the log can't show.** The chat that holds the owner's answers. Decision 3 quotes the options the owner chose.
+- **The r3 results.** This entry does not record them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: None of its own. E0 continues as BL-20261115-1937-owner-adopts-standing-defaults decision 5 lists.
+
+References: BL-20261115-1937-owner-adopts-standing-defaults; BL-20261115-1938-e1-l-sandbox-suite-docker-verified; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261113-0920-assist-wrapper-design; BL-20261113-0922-correction-assist-core-review; BL-20261113-0925-correction-assist-core-rereview; BL-20261101-2120-fast-v3-artifact-trial-approved; BL-20261110-1509-host-flags-event-design; BL-20261113-0927-research-v5-design; BL-20261113-0836-infra-resume-design; scripts/validate-readiness.mjs; pull requests #102, #105, #110 and #114.
+
+### BL-20261116-0813-e0-r3-runs-index-and-harvest -- 2026-11-16 -- E0's r3 step: five zero-fee local research runs on r3, four ended research_extraction_incomplete and the fifth wrote the current-format index; the stage brief rebuilt and matched; 40 judge claims harvested
+
+Status: `Implemented`
+
+Scope or hypothesis: This is E0's second step, from docs/HANDOFF.md "Start here" §5 step 2. Zero-fee local research runs on the exposed r3 task produce two things:
+- the current-format research index, which the planner fixture pins;
+- the claims the judge fixture harvests.
+
+Each run used the headless driver as #95 specifies: `scripts/private-agent-local-screen.ts --execute-synthetic-local --profile heavy --claims-ledger true --pipeline research --arm local`. No run used a cloud flag or public retrieval. They ran on the owner's Mac against the owned endpoint whose identity the doctor confirmed (BL-20261115-1937-owner-adopts-standing-defaults). Hypothesis: a run reaches `research_packet_ready` and writes `index.json` and `coverage.json`.
+
+Decisions:
+1. **Five runs, not one.**
+   - **Why.** The first run ended incomplete. The session then ran a second with diagnostics retained (`--retain-diagnostics true`), then up to three more in sequence, stopping at the first that wrote the index.
+   - **Authority.** Each run had a git-ignored authority record stating its scope.
+   - **The index is a fixture input, not a measured outcome.** So a later success replaces nothing. Every run is recorded, and the selection is stated: run-5 supplies the index and the claims.
+2. **The planner fixture's inputs.** Its index is run-5's, and its brief is the stage brief (card Amendment 1, item 3).
+3. **The judge's claim set** is run-5's harvest. Run-5 was the only run that reached the finish-time claims check.
+4. **Registry rows.**
+   - **Runs 1 to 4** are rowed now: outcome `incomplete`, cause `task`, `verdictBy` `none`.
+   - **Run-5's row waits.** It ended `submitted`, pending independent acceptance. The row tool requires an outcome, which needs a verdict, and E0 gives none, since it makes no claim about product quality.
+
+Changes: docs/experiments/registry.jsonl gains four rows, batch `e0-2026-11-15`, arm `local-heavy-pipeline-research`. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **Common conditions.**
+  - All five ran on `main` at d92a3af, with a clean tracked tree and runtime hash `42f138aa8945905bb85b2fcabf893d4b7f55cb5e5124f7dda2bb718d4178a2b5`.
+  - They ran between 19:31 and 20:28 UTC on 2026-11-15.
+  - Every dispatch of every run went to the owned local model, settled at USD 0, with 0 disclosed bytes: 46, 43, 47, 39 and 116 dispatches.
+- **Per run** (the index stage, the plan stage, then extraction):
+  - **run-1:** 24 sources indexed. Both plan attempts were truncated with 0 reply bytes, so the host plan was used. 23 of 24 chunks completed. Ended `research_extraction_incomplete`.
+  - **run-2:** 24 indexed. The first plan attempt was truncated with 0 bytes, and the second was accepted. 22 of 24. Incomplete.
+  - **run-3:** 24 indexed. Both plan attempts were truncated empty, so the host plan was used. 20 of 24. Incomplete.
+  - **run-4:** 24 indexed. The first plan attempt was truncated empty, and the second was accepted. 22 of 24. Incomplete.
+  - **run-5:** 24 indexed. The first plan attempt was truncated empty, and the second was accepted. 24 of 24, so the stage ended `research_packet_ready`. Synthesis fell back to its skeleton after 2 calls. The run submitted after 29 minutes and is pending independent acceptance.
+- **Extraction reasons.** Run-2's retained diagnostics name them:
+  - `schema_too_big` on quote and conflict notes;
+  - `needs_followup` on questions;
+  - `quote_not_located`;
+  - `no_verified_evidence_with_quote`;
+  - `evidence_found_without_quote`.
+
+  Repair calls recovered most chunks. Those they did not recover ended each incomplete run.
+- **Run-5's index,** computed with #95's command:
+  - version 2;
+  - sha256 `af292cd940cf0bd1d23251a8b5192406185811f112414b447b38301d20d43d6d`;
+  - 24 sources, `sourceIdsSha256` `d4eceaed7578651faf551078e3cb4d95261b1532d3e27b8666b3be0b2f53f897`;
+  - 24 mandatory chunks, coverage version 2.
+- **The stage brief.**
+  - It was rebuilt from the r3 task with the driver's own functions: `loadPreparedOperatorTask`, then `withClaimsLedger`, then `withDeckValidity`.
+  - It is 3,904 bytes, sha256 `6f0a6d83323f2c740a3061aab569adf670ae69183c7b11e8b1845f0772d56a35`.
+  - It equals run-5's `coverage.json` `briefSha256` and `briefBytes`, and the session's recorded `originalGoalSha256`.
+  - It stays git-ignored.
+- **The harvest.** `pnpm fixture:judge -- harvest` over run-5 printed:
+  - 40 claims, 0 skipped, 0 duplicates and 0 runs without claims;
+  - sha256 `c1b630b3fd737a29aef8629b20e58466fe38a687036e6c9267b4d4727a402739`.
+
+  Both of its files are mode 0600 and git-ignored. No claim text was printed or sent.
+- **The four rows** were written by `scripts/registry-row.py --run-dir`. Each reads commit d92a3af from its run's freeze, records USD 0 and cause `task`, and holds no path.
+
+Failures or blockers:
+- **Four of five runs ended `research_extraction_incomplete`.** This is a negative result for the research pipeline on r3 with this model.
+- **The planner's first reply was truncated with no content in all five runs.**
+
+Limitations and non-claims:
+- **A small sample.** Five runs on one task, with one model, at one commit. One completion in five is not an estimate of anything beyond this sample.
+- **The empty planner replies.** They fit reasoning that fills the output cap, but this entry does not show that. The planner fixture measures it.
+- **No product quality.** Nothing here measures product quality, and run-5's report is not assessed.
+- **These runs predate 7b.2 (#102),** which merged after them. The index and the pins do not depend on it, because coverage version 3 keeps `chunks` and `briefSha256`.
+
+Paid exposure: None. Zero envelope spend: every request went to the owned endpoint.
+
+Next gate: The planner fixture runs under Amendment 1, after E0's probes. The judge waits for Amendment 2 and the labelling.
+
+References: BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1023-p10-align-implemented; BL-20261114-2250-judge-fixture-implemented; docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; pull requests #95 and #102.
+
+### BL-20261116-0814-e0-card-amendment-1 -- 2026-11-16 -- E0 card Amendment 1: the precondition hash after 7b.2, all twelve probes, the stage brief and run-5's index pinned, the judge's command and the labeller named; and the owner's merge go of 2026-11-16
+
+Status: `Approved`
+
+Scope or hypothesis: The card's "Role fixtures" rule lets only an amendment change the card. This entry records:
+- Amendment 1, appended to docs/experiments/e0-card-2026-11-13.md;
+- the planner manifest's pin.
+
+Both are committed before E0's export and before any fixture runs. The entry also records the owner's answers of 2026-11-16, at about 08:08 UTC.
+
+`Approved` covers two things: the owner's decisions the amendment applies, and the owner's merge go. Amendment items 2 and 6 are the orchestrating session's procedural choices (decision 4 of BL-20261115-1937-owner-adopts-standing-defaults). Beyond the documents, nothing here is implemented, verified or released.
+
+Decisions:
+1. **Amendment 1.** Its six items, as the card now states them:
+   - **(1) The precondition hash** becomes `7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5`, since 7b.2 merged first. The no-merge rule between the export and the assessment stands.
+   - **(2) The one probe invocation** runs all twelve probes, with the defaults. P1 alone runs first.
+   - **(3) The planner fixture** pins run-5's index and the stage brief. The amendment fixes its command and design flags.
+   - **(4) The judge fixture's command** is `pnpm fixture:judge`, and its claim set is run-5's harvest.
+   - **(5) The labeller** is `gpt-6-sol` through its API at `api.openai.com`, with key variable `SOAR_PHASE2_CLOUD_API_KEY`, under the USD 1.00 cap, charged to the synthetic-data line. This replaces "labelled by a separate session". Amendment 2 adds the tool, the minimum, the conditions and the repeats.
+   - **(6) The settings** are kept identical from the export onward: no reply contract, `SOAR_STREAMING` unset, the default cache salt.
+2. **The planner manifest is pinned now,** before the planner run. Decision 4 of BL-20261115-1937-owner-adopts-standing-defaults had said "with the results". The fixture does not record the manifest's digest, so only a commit made before the run shows that the pin preceded it.
+3. **The owner's answers of 2026-11-16.** The session wrote two questions and marked one option of each recommended; the owner chose the recommended option both times:
+   - **The merge go.** To "May I merge #114 now, then the E0 record PRs that follow it (#102 is a lane PR and merges under your standing go-ahead), each once its review is clean and CI is green?", the owner answered "Yes, merge them (Recommended)". #114 and #102 merged at 08:09 UTC under it.
+   - **#117's history.** The question explained that an earlier pushed commit of #117 held the owner's local account name in three test strings, which the latest commit replaces. To it, the owner answered "Squash-merge #117 (Recommended)".
+   - **What the merge go covers.** The orchestrating session's E0 record pull requests (amendments, run records and corrections), each once it has a clean light review and green CI. Lane pull requests keep the standing go-ahead. #117 merges by squash, a departure from the merge-commit practice for that pull request only.
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: the Amendment 1 section, appended. Nothing above it changes.
+- docs/experiments/e0-planner-fixture-v1.json: pinned. This sets the five hashes and counts, the status `pinned`, and a note naming the stage brief.
+- tests/unit/planner-fixture.test.ts: its template-refusal test read the committed manifest and asserted that it was still a template, so pinning the manifest, as the card always intended, was bound to break it. The test now asserts that the committed manifest is pinned, with three 64-hex hashes, and builds its template from that manifest with the pinned fields cleared. Its refusal checks are unchanged.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The protocol hash.** On `main` at b487f75, `researchProtocolSha256()` printed `7100b7a2…`, the value tests/helpers/research-protocol-pin.ts pins since #102.
+- **P1 alone,** at 08:10:39 UTC on b487f75:
+  - `/v1/models` returned 200, listing exactly one model, `RM-01 VLM`, with root basename Qwen3.8-Flash-Next-NVFP4 and max_model_len 262144.
+  - `/version` returned 200: 0.33.0rc1.dev617+g821038729.
+
+  Checked by hand against BL-20261104-0701-new-endpoint-metadata-and-deployment-drift. The card's stop rule does not trigger.
+- **The pin.** The manifest's values come from BL-20261116-0813-e0-r3-runs-index-and-harvest. `pnpm fixture:planner -- --dry-run`, with the pinned manifest, run-5's index and the stage brief, accepted the pin without sending a request: 3 conditions × 10 repeats over 6 brief units; request bodies `48016d5d…` (legacy-thinking, 69,594 bytes), `63b501ea…` (flash-thinking, 69,668 bytes) and `50332a55…` (thinking-off, 69,575 bytes), each with max_tokens 8,192.
+- **The export path.** scripts/serving-probe.py's `--schemas` defaults to `.soar/experiments/role-schemas.json`.
+- **Checks on this branch:**
+  - the planner-fixture suite and the five registry-row suites that read the registry: 6 files, 53 tests passed;
+  - `pnpm typecheck` passed;
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm --silent validate:readiness` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Pre-registration only.** The amendment runs nothing.
+- **Still to come:** Amendment 2 adds the labelling tool, the per-class minimum, the conditions and the repeats. A later amendment, after #116, adds the extractor fixture's command.
+- **The owner's words** are quoted from the orchestrating session's chat. This log cannot show the chat.
+
+Paid exposure: None.
+
+Next gate: In order:
+1. `pnpm probe:export-schemas`.
+2. The twelve probes, in one invocation.
+3. `pnpm probe:assess`.
+4. The card writer, with the `--compare-*` flags.
+5. The planner fixture.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-planner-fixture-v1.json; BL-20261113-0936-e0-card; BL-20261113-1003-e0-card-owner-answers; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261116-0813-e0-r3-runs-index-and-harvest; pull requests #91, #102, #114 and #117.
+
+### BL-20261116-0838-correction-e0-amendment-1-review -- 2026-11-16 -- Correction to BL-20261116-0812-correction-owner-defaults-review, BL-20261116-0813-e0-r3-runs-index-and-harvest and BL-20261116-0814-e0-card-amendment-1: #118's light review, four minor findings and two nits; run-5 rowed
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the light review of pull request #118 at 42e8f5a and its fixes. The review found no blocker, no major issue and no privacy issue. It made four minor findings and two nits, and it confirmed the entries' run facts against the runs' own records. The three entries stay as written; where this entry and any of them differ, this entry governs.
+
+The card's Amendment 1 is unchanged. It was committed before E0's export of 08:16:21 UTC, and an edit now would postdate the export. So none of these fixes touches the card.
+
+Decisions:
+1. **Finding 1, the question count in BL-20261116-0812-correction-owner-defaults-review.** That entry corrected a count and miscounted.
+   - HANDOFF §5 step 2 lists six bullets of questions open before E0, each the owner's to answer. The third bullet asks two questions, so there are seven:
+     - three went to the owner;
+     - three are the session's procedural choices;
+     - the seventh, whether E1's hold covers the r3 run, is moot.
+2. **Finding 2, run-5's registry row** (BL-20261116-0813-e0-r3-runs-index-and-harvest, decision 4). The stated reason for holding the row was wrong.
+   - scripts/registry-row.py does require `--outcome`. But its outcome check accepts `incomplete` with `--verdict-by none` for a submitted run that did not end on infrastructure. The registry already holds that shape (`p4claude-r3-grid-batteries-all-cloud-step1`), and docs/experiments/README.md describes it.
+   - So run-5 is rowed now, in that shape: outcome `incomplete`, verdict `none`. Its lesson states that it submitted, pending independent acceptance, and that E0 assesses no report.
+   - Decision 1's "every run is recorded" now holds in the registry too.
+3. **Finding 3, the scope of BL-20261116-0814-e0-card-amendment-1.**
+   - **The owner's decisions:** Amendment 1's items 1 and 5, and item 3's stage brief (decision 2 of BL-20261115-1937-owner-adopts-standing-defaults).
+   - **The session's procedural choices, under decision 4 of that entry:** items 2 and 6.
+   - **The session's choices from BL-20261116-0813-e0-r3-runs-index-and-harvest:** item 4, and item 3's choice of run-5's index.
+   - `Approved` covers the owner's decisions and the owner's merge go. Beyond the documents, nothing there is implemented, verified or released.
+4. **Finding 4, a non-claim missing from BL-20261116-0814-e0-card-amendment-1.** Squash-merging #117 keeps the owner's local account name out of `main`'s history only. #117's earlier commits stay readable in its history on GitHub, and the repository is public.
+5. **Nit 5, the same entry's scope sentence.** Amendment 1 and the pin were committed before E0's export and before any fixture sent a request. The planner fixture's dry run, in that entry's Evidence, sent none.
+6. **Nit 6, the planner-fixture test.** It now parses the committed manifest with `PlannerFixtureManifestSchema`, so the pinned `sourceCount` and `mandatorySourceChunks` are checked against the schema before the template is built from them.
+
+Changes:
+- docs/experiments/registry.jsonl: run-5's row (`e0-r3-grid-batteries-local-heavy-pipeline-run5`).
+- tests/unit/planner-fixture.test.ts: the schema parse of the committed manifest.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The review.** One reviewer read #118 at 42e8f5a against `main` at b487f75, with read-only access to the r3 runs' records. It reported a minor verdict, with CI green on 42e8f5a.
+- **What it confirmed against the runs' own records:**
+  - the dispatch counts (46, 43, 47, 39 and 116), all to the owned local model, with fee, reserved fee and disclosed bytes all 0;
+  - the per-run stage figures;
+  - run-5's index and stage-brief digests, recomputed with the repository's `digest` and `canonical`;
+  - the four rows already committed;
+  - that the card's diff only appends.
+- **Run-5's row,** written by `scripts/registry-row.py --run-dir`:
+  - outcome `incomplete`, verdict `none`;
+  - run status `submitted`, class cause `submitted`, not infrastructure;
+  - USD 0, commit d92a3af, and no path.
+- **Checks:** the planner-fixture suite passed 4 tests; `pnpm typecheck` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: One reader. No skeptic ran, because no finding was a blocker or major.
+
+Paid exposure: None.
+
+Next gate: None of its own. The E0 steps of BL-20261116-0814-e0-card-amendment-1 continue.
+
+References: BL-20261116-0812-correction-owner-defaults-review; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0814-e0-card-amendment-1; BL-20261115-1937-owner-adopts-standing-defaults; scripts/registry-row.py; docs/experiments/README.md; pull requests #117 and #118.

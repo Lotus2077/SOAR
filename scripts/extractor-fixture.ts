@@ -28,6 +28,7 @@ import { assessResearchPlanReply } from "../src/main/private-agent/research-plan
 import { OUTPUT_TOKENS, assessResearchExtractionReply, researchExtractionUserContent, researchProtocolSha256, type ResearchExtractionAssessment,
   type ResearchPlan } from "../src/main/private-agent/research-pipeline";
 import { servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
+import { readChatReply } from "./chat-reply";
 import { buildRoleRequest, requestSettingsOf, type RequestSettings } from "./export-role-schemas";
 
 export const EXTRACTOR_CONDITIONS = ["thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384"] as const;
@@ -240,30 +241,30 @@ export async function runExtractorFixture(options: ExtractorRunOptions): Promise
       writePrivate(join(replies, record.replyFile), bytes);
       if (response.status !== 200) record.classification = "request_rejected";
       else {
-        let reply: { choices?: { message?: unknown; finish_reason?: unknown }[]; usage?: unknown } | undefined;
+        let body: Buffer | undefined;
         try {
           // A streamed reply is reassembled by the broker's own assembler, into the JSON a plain reply has.
-          reply = JSON.parse((request.streamed ? assembleSseChatCompletion(bytes.toString("utf8")) : bytes).toString("utf8"));
+          body = request.streamed ? assembleSseChatCompletion(bytes.toString("utf8")) : bytes;
         } catch (error) {
-          record.classification = "malformed_reply";
-          if (request.streamed && error instanceof Error && /^[a-z_]+$/u.test(error.message)) record.streamError = error.message;
+          if (error instanceof Error && /^[a-z_]+$/u.test(error.message)) record.streamError = error.message;
         }
-        const choice = reply?.choices?.[0], message = typeof choice?.message === "object" && choice.message !== null ? choice.message as Record<string, unknown> : undefined;
-        // The model layer's decoder reads a missing or null content as empty, so the stage judges it, as here.
-        const content = message ? message.content ?? "" : undefined;
-        if (reply && typeof content === "string") {
-          const fields = (["reasoning", "reasoning_content"] as const).filter(field => typeof message?.[field] === "string" && (message[field] as string).length);
-          const finish = choice?.finish_reason;
+        // The reply as the model layer reads it (scripts/chat-reply.ts): one it would reject is malformed, and a missing or null content is
+        // empty text, which the stage judges.
+        const reply = body === undefined ? undefined : readChatReply(body);
+        if (reply === undefined) record.classification = "malformed_reply";
+        else {
+          const { content, message } = reply, finish = reply.finishReason;
+          const fields = (["reasoning", "reasoning_content"] as const).filter(field => typeof message[field] === "string" && (message[field] as string).length);
           record.finishReason = typeof finish === "string" ? (/^[a-z_]{1,32}$/u.test(finish) ? finish : "other") : null;
           record.contentBytes = Buffer.byteLength(content); record.usage = numericUsage(reply.usage) ?? null;
           if (!request.streamed) {
             record.reasoningField = fields.length === 0 ? "none" : fields.length === 1 ? fields[0]! : "mixed";
-            record.reasoningBytes = fields.reduce((n, field) => n + Buffer.byteLength(message![field] as string), 0);
+            record.reasoningBytes = fields.reduce((n, field) => n + Buffer.byteLength(message[field] as string), 0);
           }
           // The stage's own judgement of an initial attempt: truncated when the reply stopped at its cap, as the pipeline's call() reads it.
           judge(record, assessResearchExtractionReply({ content, truncated: finish === "length", questions: fixture.questions, source: { id: chunk.sourceId },
             chunk: { id: chunk.chunkId, sourceSha256: chunk.sourceSha256, startLine: chunk.startLine }, chunkText: chunk.text }));
-        } else if (reply) record.classification = "malformed_reply";
+        }
       }
     } catch (error) {
       // Only the error's class name: a transport error's message and cause can carry the address.

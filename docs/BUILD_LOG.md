@@ -44635,3 +44635,114 @@ References:
 - BL-20261110-0726-correction-research-tolerance-total-loss;
 - the light review of the extractor fixture;
 - lane S-harn's registry contract note.
+
+### BL-20261116-1127-correction-e0-extractor-fixture-restamp -- 2026-11-16 -- Correction: the extractor fixture's three entries are re-stamped after #122's tail, with their original IDs and authoring times; the source freeze and the manifest's digest are restated on the merged tree; the fixture reads replies through the shared reader; and the registry pin lane S-harn asked for
+
+Status: `Implemented`
+
+Scope or hypothesis: #116 (E0's extractor fixture, lane S-pipe) branched from `main` at d92a3af and had not merged `main` since. Its three entries were authored on 2026-11-15, earlier than the tail it now merges.
+- **The hold has ended.** The review Correction and the pull request held the merge with #103, #108 and #110 until E0's probe window closed. On 2026-11-16 the coordinating session reported the window closed: `pnpm probe:assess` at 09:34 UTC recorded schemasProtocolMatch true on 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+- **The tail.** The coordinating session's order is #121 (its E0 records), then #122 (the shared reply reader), then #116. As it asked, this merge takes #122's head 468a492, not `main`: `main` at 42b36e7 (#121), plus #122. Its log ends with BL-20261116-1122-correction-e0-planner-fixture-null-content-restamp.
+- **The rule.** BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates. The entries move after the tail, and their heading dates move with their IDs.
+
+Each entry, with its original ID and authoring time. None had been re-stamped before.
+- **The design entry** was authored at 20:06 UTC on 2026-11-15 as BL-20261115-2006 (commit afcd71a). It is now BL-20261116-1123-e0-extractor-fixture-design.
+- **The implemented entry** was authored at 20:23 UTC on 2026-11-15 as BL-20261115-2023 (commit d96eb89). It is now BL-20261116-1124-e0-extractor-fixture-implemented.
+- **The review Correction** was authored at 20:51 UTC on 2026-11-15 as BL-20261115-2051 (commit 18b062e). It is now BL-20261116-1125-correction-e0-extractor-fixture-review.
+
+Decisions:
+(1) **The re-stamp.**
+- The three headings take the first free minutes after the tail, in their order, and their dates move from 2026-11-15 to 2026-11-16. This entry takes its own authoring minute.
+- Only those headings and the references to the three IDs change. There are 11 in the log, the headings included.
+- Outside the log there are 4, all citing the design entry, one in each of these files:
+  - the manifest's note, in docs/experiments/e0-extractor-fixture-v1.json;
+  - comments in scripts/export-role-schemas.ts, scripts/extractor-fixture.ts and src/main/private-agent/research-pipeline.ts.
+- The bodies keep what they state as written. That includes the hold and the source-freeze digests; decision (2) restates the digests.
+
+(2) **Two digests restated.**
+- **The source freeze.** The implemented entry and the pull request said `localScreenSourceFreeze()` moves from 42f138aa8945905bb85b2fcabf893d4b7f55cb5e5124f7dda2bb718d4178a2b5 to 46971fde89dab5d15c971ce2c1c82222d9e0660587d6c594d2383e4bb765109d. Both digests were taken on d92a3af.
+  - Since then, #102 changed four files in src/main/private-agent/.
+  - On `main` at 42b36e7 the freeze is 5503a1c98430113a3e62e98f98cb413223630a84a4aaf562867bd1273ce7a2bd, and #122 changes nothing it hashes. On this merged tree it is 0de7a3baf0a44c811c81b3595e04dbb7005f69e1a2ce3fc71fdd44262b5e8bd4.
+  - The re-stamp is part of that move: a comment in research-pipeline.ts cites the design entry.
+  - A frozen run's `--runtime-sha256` is read again after this merges.
+- **The manifest's own digest.** The manifest's note cites the design entry by its full ID, so the re-stamp changes the note.
+  - digest(canonical(manifest)), which a run records as its summary's `manifest.sha256`, moves from ffcb1bbf1aa4f0eb1349ab1e959bf453fd9e2034af95ac80e152b36976b4dcc7 to 4ae19cd4cef6906d170942da253bd9d6ebeecea3ed324cd120e4b51f7b6fdb11.
+  - The file's own sha256 is now abe8277684340ebe2d376cf0013f6711b4d2c198ceb77c53c9d5528b3aa4f351.
+  - Every other field is unchanged: the file pins, the units, the chunk ids, the task, the exposure, the conditions and the repeats.
+  - No test or document pinned the old digest. The E0 card's amendment, which names the manifest, comes after this merge.
+
+(3) **The registry pin, which lane S-harn asked for.** #117 put registry-row.py's fixture mode on `main`, so this merge brings it in. tests/unit/extractor-fixture.test.ts gains two tests:
+- **The closed sets.** registry-row.py's `EXTRACTOR_CONDITIONS` and `EXTRACTOR_CLASSES`, read with `python3 -I` and importlib, equal the script's exports. tests/unit/registry-row-e0.test.ts reads the probe's sets the same way.
+- **A real run's summaries.** The real script runs against a loopback fake on the committed corpus: 2 conditions, 2 repeats, 12 calls. They include a rejected request, a dropped connection and a truncated reply.
+  - Its summary rows as `fixture_finished`. The row carries its classes, usage, manifest hashes, protocol hash, deployed cell and request-set digests, and none of the alias, the address, the source ids, the chunk ids or the replies' text.
+  - The summary as it stood after the fourth call (copied when the fifth request arrived) rows as `fixture_unfinished`, as `incomplete` only.
+  - The committed manifest's task and exposure (`e0-extractor-synthetic-v1`, `fresh`) are the flags the writer requires. Another task or exposure is refused.
+
+(3a) **The shared reader** (scripts/chat-reply.ts, from #122: BL-20261116-1050-correction-e0-planner-fixture-null-content-review).
+- The fixture now reads every reply, plain or reassembled from a stream, through the copy of the model layer's reply schema that the planner fixture uses.
+- A reply the model layer would reject is `malformed_reply`. That covers an array message, other than one choice, no `finish_reason`, no usage, and bytes that are not strict UTF-8 JSON.
+- #122's light review found the earlier inline reading open to an array message. This closes that.
+
+(3b) **The planner's empty truncation, pinned here.** E0's planner fixture recorded replies with `content: null` and `finish_reason: "length"`: the reasoning had used the whole cap. Its classification gap is fixed in its own pull request. This fixture already reads a missing or null content as empty text, as the model layer does. A test now pins the cases:
+- such a reply at the cap is `truncated`, with `contentBytes` 0 and its reasoning counted;
+- one that stopped for another reason is `invalid`;
+- a reply without a message, and one whose message is an array, are `malformed_reply`.
+
+The test fails under a string-only reading of the content, and under the earlier inline reading, which reads an array message as a message.
+
+(4) **The pin holds, at `main`'s value.** The design and implemented entries give the protocol hash as 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, `main`'s value at d92a3af. #102 has since moved the shared pin to 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 for its own reasons. On the merged tree, at the default budget, `researchProtocolSha256()` is 7100b7a2…, so #116 still leaves it unchanged. The fixture's test compares it with the shared pin.
+
+(5) **What the merge brought.**
+- docs/BUILD_LOG.md and package.json conflicted.
+  - The log keeps `main`'s log whole, as a byte prefix.
+  - package.json keeps both scripts: `fixture:extractor` and #115's `label:judge`.
+- **Shared files.** Since d92a3af, `main` and #122 changed four of #116's files besides the log: docs/experiments/README.md, package.json, scripts/export-role-schemas.ts and src/main/private-agent/research-pipeline.ts. All but package.json merged without a conflict. research-pipeline.ts now carries #102's trim beside #116's exported checks.
+
+Changes:
+- docs/BUILD_LOG.md: `main`'s log, then the three entries re-stamped, then this entry.
+- The 4 citations in the 4 files above.
+- scripts/extractor-fixture.ts: it reads replies through scripts/chat-reply.ts (decision (3a)).
+- tests/unit/extractor-fixture.test.ts: the two tests of decision (3) and the one of decision (3b).
+- package.json: the merge's resolution.
+
+Evidence:
+- **Byte identity.** With the three new IDs and their heading dates mapped back, the branch's three entries are byte-identical to 18b062e's.
+- **No original ID remains.** `git grep` finds none of the three original full IDs in the tree.
+- **The hashes.** On the merged tree:
+  - `researchProtocolSha256()` printed 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5;
+  - `localScreenSourceFreeze()` printed 0de7a3baf0a44c811c81b3595e04dbb7005f69e1a2ce3fc71fdd44262b5e8bd4;
+  - the manifest's digest is 4ae19cd4cef6906d170942da253bd9d6ebeecea3ed324cd120e4b51f7b6fdb11.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 against `main` 42b36e7. Its status was read directly.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The fixture's tests:** 15 pass, against loopback fakes only, including the three new ones. tests/unit/chat-reply.test.ts and S-harn's tests/unit/registry-row-e0.test.ts pass with them.
+- **Mutants.** Five single edits each fail the registry tests:
+  - the writer's condition order;
+  - its class order;
+  - a class added to the script;
+  - the per-call summary rewrite removed;
+  - a rejected request left out of the counts.
+- **The full suite.** `pnpm exec vitest run`, on the merged tree with the switch and the tests: 192 files passed and 13 skipped; 3,783 tests passed and 86 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction, plus 4 IDs in a note and in comments, the switch to the shared reader, and three tests. It implements, verifies and releases nothing new.
+- The entries keep their statuses: the design entry `Proposed`, the other two `Implemented`.
+- The commit messages keep the original IDs. #116's description is updated to the new ones.
+- If another entry reaches `main` before #116 merges, these four entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green on this head.
+- The coordinating session merges #122 and then #116, each on green CI with --match-head-commit. This head contains #122's head, so no further merge of `main` is needed.
+- The coordinating session's card amendment names the command, the manifest and the four conditions.
+- The run.
+
+References:
+- BL-20261116-1123-e0-extractor-fixture-design, BL-20261116-1124-e0-extractor-fixture-implemented and BL-20261116-1125-correction-e0-extractor-fixture-review (re-stamped here);
+- BL-20261116-1122-correction-e0-planner-fixture-null-content-restamp;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261116-0839-e0-registry-modes-design and BL-20261116-0840-e0-registry-modes-implemented (lane S-harn's registry modes, #117);
+- BL-20261115-1940-research-priority-trim-implemented (#102, which moved the freeze and the pin).

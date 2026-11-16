@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -289,6 +289,20 @@ describe("E0 extractor fixture: a run against a loopback endpoint", () => {
     expect(readFileSync(join(out, "replies", "r01-thinking-off-S1C1.sse"), "utf8")).toContain("data: [DONE]");
   });
 
+  it("classes a reply whose thinking spent the cap with no content as truncated, as the stage does, and a reply the model layer rejects as malformed", async () => {
+    // The shape E0's planner fixture recorded on the r3 index: content null and finish_reason "length", the reasoning having used the whole cap.
+    const spent = (finish: string) => ({ json: completion(undefined, finish, { content: null, reasoning_content: "r".repeat(9000) }) });
+    // Rejected by the model layer's reply schema (scripts/chat-reply.ts): a reply without a message, and one whose message is an array.
+    const usage = { prompt_tokens: 1500, completion_tokens: 2048 };
+    const server = await fakeServer(ordinal => ordinal === 2 ? spent("stop") : ordinal === 4 ? { json: { id: "x", choices: [{ index: 0, finish_reason: "stop" }], usage } }
+      : ordinal === 5 ? { json: { id: "x", choices: [{ index: 0, message: [], finish_reason: "length" }], usage } } : spent("length"));
+    const summary = await runExtractorFixture({ endpoint: { baseUrl: server.baseUrl }, settings: LEGACY, inputs: inputsWith(m => { m.conditions = ["thinking-on"]; m.repeats = 2; }),
+      out: join(tempDir(), "spent") });
+    const truncated = ["truncated", "length", 0, "reasoning_content", 9000];
+    expect(summary.calls.map(c => c.classification === "malformed_reply" ? [c.classification] : [c.classification, c.finishReason, c.contentBytes, c.reasoningField, c.reasoningBytes]))
+      .toEqual([truncated, ["invalid", "stop", 0, "reasoning_content", 9000], truncated, ["malformed_reply"], ["malformed_reply"], truncated]);
+    expect(summary.calls[0]!.reasons).toEqual([{ code: "truncated", path: [] }]); expect(summary.counts["thinking-on"]).toEqual({ truncated: 3, invalid: 1, malformed_reply: 2 });
+  });
   it("dry-runs: builds and hashes all 120 bodies, sends nothing and writes nothing", async () => {
     const server = await fakeServer(() => ({ json: completion(extraction({})) })), out = join(tempDir(), "dry");
     const summary = await runExtractorFixture({ endpoint: { baseUrl: server.baseUrl }, settings: LEGACY, inputs: committed(), out, dryRun: true });
@@ -371,5 +385,59 @@ describe("assessResearchExtractionReply: the extraction stage's checks of one re
     expect(followup.reasons).toEqual([{ code: "needs_followup", path: ["questions", 0] }]);
     expect(assess(reply([["Q1", "evidence_found"], ["Q1", "evidence_found"]]))).toMatchObject({ state: "invalid", reasons: [{ code: "question_set_mismatch", path: ["questions"] },
       { code: "evidence_found_without_quote", path: ["questions", 0] }, { code: "evidence_found_without_quote", path: ["questions", 1] }] });
+  });
+});
+
+describe("E0 extractor fixture: the registry's fixture mode (scripts/registry-row.py --fixture extractor)", () => {
+  const SCRIPT = join(ROOT, "scripts", "registry-row.py");
+  // The writer's other required flags, as tests/unit/registry-row-e0.test.ts gives them; --task and --exposure are the committed manifest's.
+  const FLAGS: Record<string, string> = { "--id": "e0-extractor-x", "--batch": "e0-2026-11", "--task": "e0-extractor-synthetic-v1", "--family": "research", "--exposure": "fresh",
+    "--arm": "local", "--verdict-by": "agent_diagnostic", "--lesson": "l" };
+  const writeRow = (dir: string, outcome: string, flags: Record<string, string> = {}) => execFileSync("python3", ["-I", SCRIPT, "--fixture-dir", dir, "--fixture", "extractor",
+    ...Object.entries({ ...FLAGS, ...flags, "--outcome": outcome }).flat()], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  function refusedRow(dir: string, outcome: string, flags: Record<string, string> = {}): string {
+    try { writeRow(dir, outcome, flags); } catch (error) { return String((error as { stderr?: unknown }).stderr ?? error); }
+    throw new Error("the row was written");
+  }
+
+  it("pins the writer's copies of the conditions and classes to this script's exports", () => {
+    const python = [
+      "import importlib.util, json, sys",
+      "spec = importlib.util.spec_from_file_location('registry_row', sys.argv[1]); row = importlib.util.module_from_spec(spec); spec.loader.exec_module(row)",
+      "print(json.dumps({'conditions': list(row.EXTRACTOR_CONDITIONS), 'classes': list(row.EXTRACTOR_CLASSES)}))"].join("\n");
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", python, SCRIPT], { encoding: "utf8" }))).toEqual({ conditions: [...EXTRACTOR_CONDITIONS], classes: [...EXTRACTOR_CLASSES] });
+  });
+
+  it("rows the summaries this script writes: a finished run, and the summary it had written when its fifth request went out", async () => {
+    let out = "", interim = "";
+    // Per (repeat, condition), three chunks: a rejected request, a dropped connection and a truncated reply in the first repeat; every other reply is complete.
+    const server = await fakeServer(ordinal => {
+      if (ordinal === 5) { mkdirSync(interim); copyFileSync(join(out, "summary.json"), join(interim, "summary.json")); }
+      return ordinal === 2 ? { status: 400, raw: "{\"error\":\"bad request\"}" } : ordinal === 3 ? { destroy: true }
+        : ordinal === 4 ? { json: completion(extraction({}).slice(0, 40), "length") } : { json: completion(extraction({})) };
+    });
+    const root = tempDir(); out = join(root, "e0-extractor-fixture-20261116T120000000Z"); interim = join(root, "interim");
+    const inputs = inputsWith(m => { m.conditions = ["thinking-off", "thinking-on"]; m.repeats = 2; }), fixture = verifyExtractorInputs(inputs);
+    const summary = await runExtractorFixture({ endpoint: { baseUrl: server.baseUrl }, settings: { vllm: { model: "Registry-Alias" }, streamingEnabled: false }, inputs, out });
+    const bytes = readFileSync(join(out, "summary.json")), line = writeRow(out, "accepted"), result = JSON.parse(line);
+    // Ten of the twelve calls were answered with usage; the rejected request and the dropped connection report none.
+    expect(result).toMatchObject({ modelCalls: 12, inputTokens: 10 * 1500, outputTokens: 10 * 90, cachedTokens: 10 * 1024, usd: 0, disclosedBytes: 0, terminalCause: "fixture_finished",
+      outcome: "accepted", task: "e0-extractor-synthetic-v1", exposure: "fresh", date: summary.startedUtc.slice(0, 10) });
+    expect(result.fixture).toEqual({ kind: "extractor", finished: true, version: 1, sha256: digest(bytes), conditions: ["thinking-off", "thinking-on"], repeats: 2,
+      manifest: { sha256: fixture.manifestSha256, briefSha256: fixture.manifest.brief.sha256, planSha256: fixture.manifest.plan.sha256, unitCount: 5, sourceCount: 3 },
+      protocolSha256: researchProtocolSha256(), deployedCondition: DEPLOYED_CONDITION, usageMissing: 0, cachedMissing: 0, usage: { calls: 10, inputTokens: 10 * 1500, outputTokens: 10 * 90 },
+      classes: { "thinking-off": { complete: 4, request_rejected: 1, transport_failed: 1 }, "thinking-on": { complete: 5, truncated: 1 } } });
+    expect(result.fixture.classes).toEqual(summary.counts);
+    expect(result.inputSha256).toBe(digest(canonical({ "thinking-off": summary.requests["thinking-off"]!.requestSetSha256, "thinking-on": summary.requests["thinking-on"]!.requestSetSha256 })));
+    for (const absent of ["Registry-Alias", "127.0.0.1", `:${server.port}`, "input/corpus", "e0-extractor-fixture-v1", "e0-extractor-fixture-2026", "S1C1", "bad request", "hidden usage text",
+      "Halverstrand", "repeat_condition_chunk"]) expect(line).not.toContain(absent);
+    expect(refusedRow(out, "accepted", { "--task": "e0-synthetic-extraction" })).toContain("--task must equal the fixture manifest's task");
+    expect(refusedRow(out, "accepted", { "--exposure": "exposed" })).toContain("--exposure must equal the fixture manifest's exposure");
+    // What an interrupted run leaves: the summary as rewritten after the fourth call, without finishedUtc.
+    const left = JSON.parse(readFileSync(join(interim, "summary.json"), "utf8")) as { finishedUtc?: string; calls: unknown[]; counts: unknown };
+    expect([left.finishedUtc, left.calls.length]).toEqual([undefined, 4]);
+    expect(JSON.parse(writeRow(interim, "incomplete"))).toMatchObject({ modelCalls: 4, inputTokens: 2 * 1500, wallSeconds: null, terminalCause: "fixture_unfinished",
+      fixture: { finished: false, classes: left.counts } });
+    expect(refusedRow(interim, "accepted")).toContain("did not finish");
   });
 });

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { BrokerError } from "./broker";
 import { canonical, digest, exactText } from "./contracts";
 import { DEADLINE_BEFORE_REQUEST_STOP, ModelRequestBodyTooLarge, type ModelResponseFormat, type PrivateAgentModel } from "./model";
+import { orderedPoolLimit, runOrderedPool, type PoolOutcome } from "./ordered-pool";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, RESEARCH_COVERAGE_POLICY, RESEARCH_PRESENTATION_POLICY, RESEARCH_SLOT_POLICY, RESEARCH_TOLERANCE_POLICY, type ResearchBudget } from "./research-contract";
 import type { ResearchAssistOutcome, ResearchAssists } from "./research-assist-contract";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "./dispatch-purposes";
@@ -171,7 +172,12 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
   /** 7(c): backlog item 10's assist hook (research-assist-contract.ts). Absent, no assist slot fires and every request is as without one. */
   assists?: ResearchAssists;
   /** 7a.2 and item 9: the role policy (an adopted serving card's caps, thinking and structured-output flags); absent is DEFAULT_RESEARCH_ROLE_POLICY, and every request is as without one. */
-  roles?: ResearchRolePolicy }
+  roles?: ResearchRolePolicy;
+  /**
+   * 8.2b: K, the serving card's `localStreams` (1 to MAX_LOCAL_STREAMS). The index and extraction loops run K calls at a time
+   * when the reader is zero-risk local, and one at a time otherwise. No part of the protocol hash, the budget or the counts; absent or out of range, 1.
+   */
+  localStreams?: number }
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
 /**
  * The protocol's digest. 7a.2: a role policy is bound only when nonDefaultRoleParameters finds a value (the predicate the serving-card
@@ -388,16 +394,17 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const record = (counts: ResearchStageCounts) => { stages.push(counts); input.record(counts); };
   // The user content is built inside the try: canonical() refuses text UTF-8 would change (a NUL a reply carried into a repair
   // payload, say), and that refusal must end the stage as a denied call with its row recorded, as it did before 7b.1.
+  // 8.2b: a loop's call gets its launch's own signal (the stage's, or the pool's sibling abort); plan and synthesis use the stage's.
   const call = async (model: PrivateAgentModel, system: string, userContent: () => string, maxOutputTokens: number, purpose: string, thinking: "disabled" | "model",
-    responseFormat?: ModelResponseFormat): Promise<CallResult> => {
-    if (input.signal.aborted) return { denied: "cancelled" };
+    responseFormat?: ModelResponseFormat, signal: AbortSignal = input.signal): Promise<CallResult> => {
+    if (signal.aborted) return { denied: "cancelled" };
     // A priced call (a cloud planner or synthesiser) that the deadline could cut is not started: its row would stay uncertain.
     if (input.deadlineMs !== undefined && model.deadlineRefuses(input.deadlineMs - performance.now())) return { denied: DEADLINE_BEFORE_REQUEST_STOP };
-    try { const reply = await model.complete([{ role: "system", content: system }, { role: "user", content: userContent() }], [], input.signal,
+    try { const reply = await model.complete([{ role: "system", content: system }, { role: "user", content: userContent() }], [], signal,
       { ...(thinking === "disabled" ? { thinking: "disabled" as const } : {}), maxOutputTokens, purpose, ...(responseFormat ? { responseFormat } : {}) });
       const usage = reply.usage; return { content: reply.content, truncated: reply.finishReason === "length", usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cacheReadTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0 },
         ...(responseFormat ? { structured: true as const } : {}) };
-    } catch (error) { return { denied: input.signal.aborted ? "cancelled" : error instanceof BrokerError ? error.code : error instanceof ModelRequestBodyTooLarge ? "request_body_size_exceeded" : error instanceof Error && /^[a-z_]+$/u.test(error.message) ? error.message : "request_failed" }; }
+    } catch (error) { return { denied: signal.aborted ? "cancelled" : error instanceof BrokerError ? error.code : error instanceof ModelRequestBodyTooLarge ? "request_body_size_exceeded" : error instanceof Error && /^[a-z_]+$/u.test(error.message) ? error.message : "request_failed" }; }
   };
   const settled = (counts: ResearchStageCounts, reply: Exclude<CallResult, { denied: string }>) => { counts.calls++; addUsage(counts.usage, reply.usage); if (reply.truncated) counts.truncatedReplies = (counts.truncatedReplies ?? 0) + 1;
     if (reply.structured) counts.structuredOutputCalls = (counts.structuredOutputCalls ?? 0) + 1; };
@@ -405,6 +412,30 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   /** Backlog item 4: a rejected or truncated settled reply (and since 7a.1 a kept reply with drops) goes to the sink with its content and reasons; counts and files never carry either. */
   const retain = (counts: ResearchStageCounts, purpose: string, reply: Exclude<CallResult, { denied: string }>, reasons: ResearchDiagnosticReason[], disposition?: "accepted_with_drops", ordinal = counts.calls) => {
     input.diagnostics?.retain({ stage: counts.stage, ordinal, purpose, replyContentSha256: digest(reply.content), replyBytes: Buffer.byteLength(reply.content), truncated: reply.truncated, content: reply.content, reasons, ...(disposition ? { disposition } : {}) });
+  };
+  /**
+   * 8.2b (BL-20261116-1213 decisions 1 and 2): a loop's calls run K at a time on the ordered pool and are applied strictly in
+   * item order, so the stage's state is the serial loop's. A genuine denial, any denied reply but a sibling stop (`cancelled`
+   * applied with `afterAbort`), stops launching and aborts the in-flight siblings as it settles. The stage's denial is the
+   * lowest-index genuine denial applied, and every settled reply is still applied in order. A pool stopped with the stage's
+   * signal aborted and no denial applied was cancelled. A throw from a call is rethrown after the drain, as the serial loop
+   * threw it. With K = 1 it is the serial loop.
+   */
+  const fanOut = async <T,>(items: readonly T[], limit: number, launch: (item: T, signal: AbortSignal) => Promise<CallResult>,
+    apply: (item: T, reply: Exclude<CallResult, { denied: string }>) => void): Promise<string | undefined> => {
+    let refused: string | undefined;
+    const pool = await runOrderedPool<T, CallResult>({ items, limit, signal: input.signal, launch: (item, _index, signal) => launch(item, signal),
+      // At settle time a `cancelled` reply is a stop that reached the call (the stage's or the pool's own), never one to act on.
+      interrupt: (outcome: PoolOutcome<CallResult>) => outcome.status === "rejected" || ("denied" in outcome.value && outcome.value.denied !== "cancelled") ? "abort" : undefined,
+      apply: (outcome, item, _index, { afterAbort }) => {
+        if (outcome.status === "rejected") throw outcome.error;
+        const reply = outcome.value;
+        if (!("denied" in reply)) { apply(item, reply); return undefined; }
+        if (afterAbort && reply.denied === "cancelled") return undefined;
+        refused ??= reply.denied;
+        return "abort";
+      } });
+    return refused ?? (pool.stopped && input.signal.aborted ? "cancelled" : undefined);
   };
   if (input.signal.aborted) return finish("incomplete", "research_cancelled");
   // 7(c): the hook object is the host's (item 10's wrapper). Its shape is checked here, once, so that reading it later can neither
@@ -454,12 +485,14 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // All mandatory work is known BEFORE the first model request. There is no sampled corpus fallback.
   if (inventory.sources.some(s => !s.readable)) return finish("incomplete", "research_source_unreadable");
   if (!researchMandatoryWorkFits({ batches: batches.length, chunks: inventory.chunks.length }, budget)) return finish("incomplete", "research_mandatory_budget_exceeded");
+  // 8.2b: the reader's loops run K at a time only when the reader is zero-risk local; otherwise one at a time, as before.
+  const readerStreams = input.localStreams !== undefined && input.models.reader.zeroRisk() ? orderedPoolLimit(input.localStreams) : 1;
   const indexCounts: ResearchStageCounts = { stage: "index", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0, sourcesSkipped: 0, batchesSkipped: 0 };
   const assessments = new Map<string, IndexSourceAssessment>(), attempts = new Map<string, number>(), batchAssessments: IndexBatchAssessment[] = [], deficient: ResearchSource[][] = [];
-  const indexBatch = async (batch: ResearchSource[], repair: boolean): Promise<string | undefined> => {
-    const attempt = repair ? 1 : 0;
-    const reply = await call(input.models.reader, INDEX_SYSTEM, () => canonical({ sources: batch.map(s => ({ id: s.id, bytes: s.bytes.length, previewTruncated: s.bytes.length > RESEARCH_INDEX_BATCH_BYTES, text: preview(s.bytes) })), repair }), applied.index.maxOutputTokens[attempt], PURPOSES.index, applied.index.thinking[attempt]);
-    if ("denied" in reply) return reply.denied;
+  // The index role has no reply schema (item 9), so its calls carry no response_format.
+  const indexLaunch = (batch: ResearchSource[], repair: boolean, signal: AbortSignal) => call(input.models.reader, INDEX_SYSTEM, () => canonical({ sources: batch.map(s => ({ id: s.id, bytes: s.bytes.length, previewTruncated: s.bytes.length > RESEARCH_INDEX_BATCH_BYTES, text: preview(s.bytes) })), repair }),
+    applied.index.maxOutputTokens[repair ? 1 : 0], PURPOSES.index, applied.index.thinking[repair ? 1 : 0], undefined, signal);
+  const indexApply = (batch: ResearchSource[], repair: boolean, reply: Exclude<CallResult, { denied: string }>) => {
     settled(indexCounts, reply); if (repair) indexCounts.repairCalls!++; else indexCounts.initialCalls!++;
     const assessed = assessIndexBatch({ content: reply.content, truncated: reply.truncated, expectedSourceIds: batch.map(s => s.id) }); batchAssessments.push(assessed);
     if (!assessed.exactCoverage) {
@@ -469,10 +502,13 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
         ...assessed.issues.filter(code => !assessed.sources.some(item => item.issues.includes(code))).map(code => ({ code }))]);
     }
     for (const item of assessed.sources) { attempts.set(item.sourceId, (attempts.get(item.sourceId) ?? 0) + 1); assessments.set(item.sourceId, item); }
-    return undefined;
   };
-  for (const batch of batches) { const refused = await indexBatch(batch, false); if (refused) return denied(indexCounts, refused); const missing = batch.filter(s => assessments.get(s.id)!.status !== "model_complete"); if (missing.length) deficient.push(missing); }
-  for (const batch of deficient) { if (indexCounts.calls >= budget.indexCalls) break; const refused = await indexBatch(batch, true); if (refused) return denied(indexCounts, refused); }
+  const indexRefused = await fanOut(batches, readerStreams, (batch, signal) => indexLaunch(batch, false, signal), (batch, reply) => {
+    indexApply(batch, false, reply); const missing = batch.filter(s => assessments.get(s.id)!.status !== "model_complete"); if (missing.length) deficient.push(missing); });
+  if (indexRefused) return denied(indexCounts, indexRefused);
+  // The repairs are cut to the slots left, so they are the ones the serial loop's per-call budget check ran.
+  const indexRepairRefused = await fanOut(deficient.slice(0, Math.max(0, budget.indexCalls - indexCounts.calls)), readerStreams, (batch, signal) => indexLaunch(batch, true, signal), (batch, reply) => indexApply(batch, true, reply));
+  if (indexRepairRefused) return denied(indexCounts, indexRepairRefused);
   const index = ordered.map(s => assembleIndexEntry(buildLiteralSourceCard({ sourceId: s.id, bytes: s.bytes }), assessments.get(s.id), attempts.get(s.id) ?? 0));
   Object.assign(indexCounts, summarizeIndexEntries(index, batchAssessments), { sourcesIndexed: index.filter(s => s.modelStatus === "model_complete").length }); record(indexCounts);
   const indexDocument = { version: 2 as const, sources: index }; put(RESEARCH_FILES.index, indexDocument);
@@ -557,12 +593,16 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
       if (keepUnrepaired && chunk.attempts.length === 1) { hold.keep(); chunk.status = "complete"; chunk.attempts[0]!.status = "complete"; } else hold.reject();
     }
   };
-  const extract = async (chunk: ResearchCoverage["chunks"][number], repair: boolean): Promise<string | undefined> => {
-    const source = ordered.find(s => s.id === chunk.sourceId)!, chunkText = source.bytes.subarray(chunk.startByte, chunk.endByte).toString("utf8");
-    const reply = await call(input.models.reader, EXTRACT_SYSTEM, () => researchExtractionUserContent({ ...stablePacket, source: { id: source.id, sha256: chunk.sourceSha256 },
+  const chunkSource = (chunk: ResearchCoverage["chunks"][number]) => { const source = ordered.find(s => s.id === chunk.sourceId)!; return { source, chunkText: source.bytes.subarray(chunk.startByte, chunk.endByte).toString("utf8") }; };
+  // A repair's request reads the status the initial pass left; that pass has drained before any repair launches.
+  const extractLaunch = (chunk: ResearchCoverage["chunks"][number], repair: boolean, signal: AbortSignal) => {
+    const { source, chunkText } = chunkSource(chunk);
+    return call(input.models.reader, EXTRACT_SYSTEM, () => researchExtractionUserContent({ ...stablePacket, source: { id: source.id, sha256: chunk.sourceSha256 },
       chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: repair ? `previous_${chunk.status}; return compact COMPLETE JSON for every question` : null }), applied.extract.maxOutputTokens[repair ? 1 : 0], PURPOSES.extract, applied.extract.thinking[repair ? 1 : 0],
-      responseFormatFor("extract", repair ? 1 : 0));
-    if ("denied" in reply) return reply.denied;
+      responseFormatFor("extract", repair ? 1 : 0), signal);
+  };
+  const extractApply = (chunk: ResearchCoverage["chunks"][number], repair: boolean, reply: Exclude<CallResult, { denied: string }>) => {
+    const { source, chunkText } = chunkSource(chunk);
     settled(extractCounts, reply); if (repair) extractCounts.repairCalls!++; else { extractCounts.initialCalls!++; extractCounts.pairsExtracted!++; }
     // Backlog item 4 and 7a.1: the reply's checks (assessResearchExtractionReply). Its reasons, by position only, reach the
     // diagnostics sink and nothing else; quotesDropped counts the quotes dropped from every parsed reply.
@@ -591,13 +631,14 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     // A held first attempt is settled later (settleHeld); a held chunk's own repair that fails counts and is retained now, as any other.
     if (state !== "complete" && (repair || !held.has(chunk.id))) { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons); }
     chunk.status = state; chunk.attempts.push({ responseSha256: digest(reply.content), status: state });
-    return undefined;
   };
-  for (const chunk of coverage.chunks) { const refused = await extract(chunk, false); if (refused) { settleHeld(false); return denied(extractCounts, refused); } }
-  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts.
-  for (const chunk of [...coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), ...coverage.chunks.filter(c => held.has(c.id))]) {
-    if (extractCounts.calls >= budget.extractionCalls) break; const refused = await extract(chunk, true); if (refused) { settleHeld(false); return denied(extractCounts, refused); }
-  }
+  const extractRefused = await fanOut(coverage.chunks, readerStreams, (chunk, signal) => extractLaunch(chunk, false, signal), (chunk, reply) => extractApply(chunk, false, reply));
+  if (extractRefused) { settleHeld(false); return denied(extractCounts, extractRefused); }
+  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts: the list is computed once,
+  // after the initial pass has drained, and cut to the slots left.
+  const repairs = [...coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), ...coverage.chunks.filter(c => held.has(c.id))];
+  const extractRepairRefused = await fanOut(repairs.slice(0, Math.max(0, budget.extractionCalls - extractCounts.calls)), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal), (chunk, reply) => extractApply(chunk, true, reply));
+  if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
   settleHeld(true);
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
   // 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): the packet keeps a prefix of the trim's priority

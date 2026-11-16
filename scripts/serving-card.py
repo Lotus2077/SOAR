@@ -153,6 +153,19 @@ def looks_like_path(text: str) -> bool:
     return text.startswith(("/", "~", ".")) or "\\" in text or ".." in text.split("/") or DRIVE_RE.match(text) is not None
 
 
+def refuse_ended_streams(probe: Dict[str, Any]) -> None:
+    """BL-20261116-1217-serving-probe-direct-transport-design (4): a P10 stream that ended before its finish reason measured the transport,
+    not the server, and the card has no class for it, so neither the Markdown card nor --policy-out's is written from that run.
+    The message names a fixed path only."""
+    p10 = probe.get("P10")
+    cells = p10.get("cells") if isinstance(p10, dict) else None
+    for cell in (cells.values() if isinstance(cells, dict) else ()):
+        calls = cell.get("calls") if isinstance(cell, dict) else None
+        if isinstance(calls, list) and any(isinstance(call, dict) and call.get("classification") == "stream_ended_early" for call in calls):
+            raise Refusal("refused: a P10 stream at $.P10.cells ended before its finish reason, so that call measured the transport, "
+                          "not the server; run the probe again (the card was not written)")
+
+
 def refuse_path_like_identity(probe: Dict[str, Any]) -> None:
     """Both outputs: every served alias and the engine version, named by JSON path, never by value."""
     p1 = probe.get("P1")
@@ -908,6 +921,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         hosts = configured_hosts(dict(os.environ), env_file)
         refuse_addresses(probe, hosts)
         refuse_path_like_identity(probe)
+        refuse_ended_streams(probe)
         card = render_card(probe, {"root": args.compare_root, "version": args.compare_version, "context": args.compare_context}, args.date)
         refuse_addresses({"card": card}, hosts)
         encode_card(card)

@@ -45953,6 +45953,672 @@ References:
 - BL-20261113-0937-owner-decision-restamp-unmerged-entries;
 - BL-20261113-0938-correction-restamp-rule-dates.
 
+### BL-20261116-1213-local-fanout-design -- 2026-11-16 -- Backlog item 8, part 2b (8.2b) decided: the index, extraction and judge loops run K zero-risk local calls at a time on the ordered pool, applied in item order, with K from the serving card's localStreams
+
+Status: `Proposed`
+
+Scope or hypothesis: Item 8's design, BL-20261114-1505-concurrent-local-admission-design, decided 8.2b in its decisions (6) to (9), and 8.1 is on `main` (c6192a4). This entry adopts those decisions for 8.2b, re-anchored to `main` at bc6c61b. It also decides the two things left to 8.2b:
+- the run class at K > 1 that BL-20261114-1508-correction-concurrent-local-admission-review recorded as open;
+- the obligations that #71's review and BL-20261110-0619-correction-ordered-pool-entry left to this PR.
+
+Hypothesis:
+- with K = 1 every loop is today's, byte for byte;
+- with K > 1 a stage's counts, files, packet bytes and diagnostics entries equal K = 1's for the same replies, whatever order the replies arrive in;
+- the exception is a stage that a denial ends (decision 2).
+
+Decisions:
+1. **The loops (1505 decision 6).** research-pipeline.ts runs four loops on `runOrderedPool` with limit K: the index pass and its repairs (:288-289), and the extraction pass and its repairs (:451-455).
+   - Each call splits into a launch and an apply. The launch is the request alone. The apply is everything that touches shared state:
+     - the counts and usage;
+     - `batchAssessments`, `deficient`, `assessments` and `attempts`;
+     - the evidence ids and quotes, and `conflicts`;
+     - chunk status and attempts, and `held`;
+     - the sink's ordinals (`retain`'s ordinal is `counts.calls`).
+
+     Applies run in item order, so this state equals the serial loop's. No launch reads state that an apply of the same pool writes: a repair's request reads the status that the initial pass, already drained, left.
+   - A repair list is computed once after its initial pass has drained, as today. It is cut to the slots left, the budget minus the calls applied, before its pool starts. The serial loop checks the budget before each repair, and its count rises only as replies settle, so it runs the same repairs.
+   - `call()` (:234-242) takes the launch's own signal for its early check, its request and its catch label, as #71's review asks.
+   - Plan and synthesis stay sequential.
+2. **A denial (1505 decision 7; ASSIST-1's default, abort and drain).**
+   - A genuine denial stops launching and aborts the in-flight siblings as it settles, at interrupt time. Any denied reply is genuine except a sibling stop: a `cancelled` reply applied with `afterAbort`, the rule of BL-20261110-0619.
+   - The stage's `denied` is the lowest-index genuine denial applied.
+   - The pool drains and applies every settled reply in item order, so `calls` counts the stage's settled replies.
+   - A pool that stopped with the stage's signal aborted and no denial applied ends `cancelled`, as #71's review asks.
+   - The cost, as 1505 recorded: a denied stage's `calls`, usage and `failed` rows differ from the serial loop's.
+3. **The judge (1505 decision 8; ASSIST-2's default, keep the verdicts).** claims.ts's `judgeClaims` (:59-93) takes a `limit`.
+   - A failed call stops launching. This uses the pool's `stop`, not `abort`, so the siblings finish and their verdicts are kept.
+   - Claims not launched take the stop label: the first one with context takes the reason of a pause or deadline that stopped the pass, and the rest `pass_stopped`.
+   - The pause and deadline checks run in `beforeLaunch`.
+   - A claim without context is answered in `launch`, without a call and without those checks, as today it is answered before them.
+   - A failed call is labelled in `launch` when it fails, because the pass signal may change before its apply.
+   - Verdicts stay in claim order, and `entailmentCalls` counts launched calls.
+4. **K (1505 decision 9).**
+   - `PrivateAgentModel.zeroRisk()` is factored out of `deadlineRefuses` (model.ts:345-351), which keeps its result. A model is zero-risk when every configured rate is zero, the long tier included, and its destination is a `local_model`.
+   - A loop runs K at a time only when its model is zero-risk; otherwise K is 1. The index and extraction loops use the reader; the judge uses its own model.
+   - K is a new optional session option, `research.localStreams`, beside `research.diagnostics`. Like that sink, it is no part of the session identity.
+   - The session passes K to the pipeline (session.ts:409) and to the judge (:235). The headless driver (scripts/private-agent-local-screen.ts:493) passes the card's `policy.localStreams`. The desktop passes none, and stays at K = 1 until item 13.
+   - `SERVING_CARD_CONSUMED.localStreams` flips to true (serving-card-flags.ts:16-17), with a test that a card's K reaches the loops.
+   - K is never in `researchProtocolSha256()`, `ResearchBudget`, `ResearchStageCounts`, summary.json, `freeze.pipeline` or the session identity.
+   - `servingCardFreeze()` (serving-card.ts:289-291) adds `localStreams` to freeze.json's `servingCard` record when a card is given, as ASSIST-M2's default says. Without a card, freeze.json is unchanged. The registry column waits for item 11.
+5. **The run class at K > 1: kept as infrastructure.** A run whose request allowance runs out at K > 1, because a sibling took the last request during a D4 backoff, is classed `research_request_failed`. On the same events, the serial loop would be denied `budget_denied` at a later item, a task class. Reasons:
+   - It can happen only through D4 retries. session.ts:289 refuses a session whose request pool is smaller than the stage budgets plus the writer's calls.
+   - Classing it as task would need one of two things:
+     - a broker code for a retry refused that way, which item 8's decision (4) declined;
+     - or the classifier reading the allowance, which would change the persisted classification contract in run-classification.ts and registry-row.py, written in two languages.
+   - The retry that the sibling's request cut short was caused by a transport failure, which the infrastructure class names.
+
+   It is recorded as a limitation. A later change may reclass it, with its own entry.
+6. **#71's obligations, from BL-20261110-0619:**
+   - The vacuous MaxListeners test (tests/unit/ordered-pool.test.ts:170) is replaced by direct listener counts, using `events.getEventListeners`: none on the stage's signal, and only the call's own on each launch signal.
+   - A test pins that nothing more is applied after a callback throws.
+   - A parity test checks that `ORDERED_POOL_MAX_LIMIT` (ordered-pool.ts:22) equals `MAX_LOCAL_STREAMS` (serving-card.ts:25).
+   - The listener comment in ordered-pool.ts (:54-55) is reworded, since no warning limit applies to these signals on Node 22.22.2.
+   - E1-T3's stop cases (#75), which assume one dispatch in flight per job, are rerun with K > 1, as #71's review asks.
+7. **Merge order and status.**
+   - serving-card-flags.ts and model.ts merge in the order 7a.2, then item 9, then 8.2b. So this pull request stays a draft until item 9 has merged, and then merges `main` in.
+   - Under ASSIST-S4, K > 1 stays `Implemented`, never `Verified`, until the owner's zero-fee run with an E0 card that sets K > 1.
+
+Changes: None in code with this entry. Planned:
+- src/main/private-agent/: research-pipeline.ts, claims.ts, session.ts, model.ts, serving-card-flags.ts, serving-card.ts and ordered-pool.ts (its comment);
+- scripts/private-agent-local-screen.ts;
+- their tests, and the tests of decision 6;
+- docs/BUILD_LOG.md: this entry, then the `Implemented` entry.
+
+Evidence: The code was read at bc6c61b for every anchor above:
+- research-pipeline.ts: `call()` :234-242, the index loop :274-289, the extraction loop :373-455;
+- claims.ts:59-93;
+- model.ts:345-351;
+- session.ts: the research options :62-68, the request pool check :289, the pipeline call :409-410, the judge :235;
+- serving-card-flags.ts:16-17, and serving-card.ts:25 and :287-291;
+- scripts/private-agent-local-screen.ts: the card :393, the freeze :482, the research options :493;
+- ordered-pool.ts:22 and :54-55;
+- tests/unit/ordered-pool.test.ts:170.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- 1505's limitations stand. Byte-identical packets can be shown only on fixture replies. A live server may answer differently under concurrent load, and concurrent calls can miss the shared prefix cache. A K beyond the server's capacity turns queue time into request timeouts.
+- A denied stage's counts differ from the serial loop's (decision 2).
+- The run class of decision 5 differs from the serial path's.
+- Every merge of this PR changes the harness source-freeze digest, because its files are under src/main/private-agent. No owner loop or E-run may span it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The code and tests on this branch, with the `Implemented` entry.
+- One light review.
+- A draft until item 9 merges; then CI, and a merge in the order of decision 7.
+
+References: BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented.
+
+### BL-20261116-1214-local-fanout-implemented -- 2026-11-16 -- Backlog item 8, part 2b (8.2b) implemented: the index and extraction loops and the claims judge run K zero-risk local calls at a time on the ordered pool, applied in item order, with K from the serving card's localStreams, now consumed
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261116-1213-local-fanout-design, decisions 1 to 6, on branch `feat/8.2b-local-fanout` from `main` at bc6c61b. The code is in aa4c08d and d1d960d, and the tests in d1d960d and e051596. The hypothesis is 1645's:
+- with K = 1 every loop is today's, byte for byte;
+- with K > 1 a stage's counts, files, packet bytes and diagnostics entries equal K = 1's for the same replies, whatever order the replies arrive in;
+- the exception is a stage that a denial ends.
+
+Decisions:
+1. **As designed.** 1645's decisions 1 to 6 are implemented as written:
+   - research-pipeline.ts runs the index pass, the index repairs, the extraction pass and the extraction repairs through one helper, `fanOut`, on `runOrderedPool`.
+     - Each call is split into a launch (`indexLaunch`, `extractLaunch`) and an apply (`indexApply`, `extractApply`).
+     - `call()` takes the launch's own signal for its early check, its request and its catch label.
+     - Each repair list is cut to the slots left before its pool starts.
+   - `fanOut` holds the denial rule:
+     - a sibling stop is a `cancelled` reply applied with `afterAbort`, and nothing else is;
+     - the stage's denial is the lowest-index denial that is not a sibling stop;
+     - every settled reply is applied in order;
+     - a pool stopped with the stage's signal aborted and no denial applied ends `cancelled`.
+   - claims.ts's `judgeClaims` takes a `limit`:
+     - a failed call stops the pool, which does not abort it;
+     - the pause and deadline checks run in `beforeLaunch`;
+     - a claim without context is answered in `launch` without a call;
+     - a failed call is labelled in `launch`;
+     - the claims never launched are labelled after the pool.
+   - `PrivateAgentModel.zeroRisk()` is factored out of `deadlineRefuses`, which keeps its result.
+   - The session's `research.localStreams` reaches the pipeline and the judge's `limit`, each only for a zero-risk model.
+   - `SERVING_CARD_CONSUMED.localStreams` is true, and `servingCardFreeze()` records `localStreams`.
+2. **One rule for a K out of range.**
+   - `orderedPoolLimit` (ordered-pool.ts) gives 1 for an absent, non-integer or out-of-range K, in the pipeline and the judge alike.
+   - Without it, the pipeline would have thrown `ordered_pool_limit_invalid` at its first loop, while the judge fell back to 1.
+   - The card reader already refuses such a K, so only a direct caller can pass one.
+3. **The driver's K.** `localScreenResearchStreams(servingCard)` in scripts/private-agent-local-screen.ts is the one place the driver turns the card into the session's K: the card's `policy.localStreams`, and nothing without a card. A unit test can therefore check it.
+4. **What K > 1 shows in the judge.**
+   - A cancel or pause that lands with several calls in flight labels each of them with its stop, and the claims never launched `pass_stopped`. At K = 1 one call is in flight, as before.
+   - A claim without context keeps its window slot until it is applied in turn, as the pool's rule of at most K launched and not yet applied requires.
+
+Changes:
+- src/main/private-agent/research-pipeline.ts: `fanOut`, the launch and apply split of the index and extraction loops, `call()`'s signal, the repair cut, and `ResearchPipelineInput.localStreams`.
+- src/main/private-agent/claims.ts: `judgeClaims` on the ordered pool, with `limit`.
+- src/main/private-agent/model.ts: `zeroRisk()`.
+- src/main/private-agent/session.ts: `research.localStreams`, passed to the pipeline and the judge.
+- src/main/private-agent/ordered-pool.ts: `orderedPoolLimit`, and the listener comment reworded (BL-20261110-0619).
+- src/main/private-agent/serving-card-flags.ts: `localStreams: true`.
+- src/main/private-agent/serving-card.ts: `ServingCardFreeze.localStreams`.
+- scripts/private-agent-local-screen.ts: `localScreenResearchStreams`, used in the research options.
+- Tests:
+  - tests/unit/ordered-pool.test.ts;
+  - tests/unit/private-agent-research-pipeline.test.ts;
+  - tests/unit/private-agent-claims.test.ts;
+  - tests/unit/private-agent-research-session.test.ts, whose loopback fixture gains an opt-in reply delay and a count of the calls in flight;
+  - tests/unit/serving-card-reader.test.ts;
+  - tests/unit/private-agent-local-role-config.test.ts.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The ordered pool** (#71's review, BL-20261110-0619): 12 tests, 2 of them new.
+  - Listener counts are taken with `events.getEventListeners` at K = 8 over 16 items. The stage's signal holds none throughout. Each launch has its own signal, and each holds only the 3 listeners its call adds. This replaces the MaxListeners test, which could not fail on Node 22.22.2.
+  - Nothing is applied after a callback throws: nothing after an apply or interrupt throw at item 0, and only item 0 after a `beforeLaunch` throw at item 3.
+  - `ORDERED_POOL_MAX_LIMIT` equals `MAX_LOCAL_STREAMS`, and `orderedPoolLimit` maps an absent, 0, 9, 1.5, NaN or -1 K to 1.
+  - Review F3's case: item 0 fails for its own reason, but its reaction comes after item 2's denial aborted it, so it is applied with `afterAbort`. It is still genuine under the sibling-stop rule.
+- **The pipeline at K > 1:** 8 tests. The fixture reader's broker dispatches at zero risk, holds each call, and honours its signal. The fixture has seven sources: three index batches and seven extraction chunks.
+  - **Equivalence.** The fixture has an index repair, two invalid extraction replies, a truncated one, and a held chunk that invents its only quote. With replies settling in reverse within each window of four, K = 4 and K = 1 give byte-identical:
+    - files and summary;
+    - recorded stage rows and retained diagnostics;
+    - request bodies, in launch order.
+
+    The calls in flight peak at 3 for the index and 4 for extraction at K = 4, and at 1 at K = 1. Plan and synthesis stay at 1.
+  - **The repair cut.** With 4 index calls and 10 extraction calls, and every first reply failing, both K = 4 and K = 1 run 1 index repair and 3 extraction repairs, with byte-identical output.
+  - **A denial (ASSIST-1).** Chunk 3 settles, then chunk 2 is denied `budget_denied` while chunks 0 and 1 are in flight.
+    - The two siblings' signals are aborted, nothing more launches, and chunk 3's reply is applied.
+    - The row records 1 call and `budget_denied`. The serial loop records 2 calls and never launches chunk 3, the difference that 1645 decision 2 records.
+  - **The lowest-index genuine denial.** Chunks 0 and 2 fail, 2 first. The stage's denial is chunk 0's `request_failed` in both orderings:
+    - in one synchronous block, where neither is marked;
+    - with chunk 0 one microtask later, where chunk 0 reads its signal before chunk 2's abort and is applied with `afterAbort`. This is review F3's case: only the sibling-stop rule keeps it genuine.
+  - **A cancel.** A cancel with four calls in flight ends `research_cancelled`, with 0 calls and no launch after it. A cancel inside chunk 0's apply ends `research_cancelled` with 1 call at K = 1, when nothing is in flight, and at K = 4.
+  - **Where K is 1.** A reader that is not zero-risk, no K, and a K of 0, 9 or 2.5 each run one call at a time. K = 8 leaves the summary, including the protocol hash, and the files unchanged.
+  - **`zeroRisk()`.** It is true only when every rate is zero, the long tier's included, and the broker dispatches the call at zero risk with a fee of 0.
+- **The judge at K > 1:** 8 tests.
+  - Verdicts stay in claim order when calls finish in reverse, with at most K in flight.
+  - **A failure.** At K = 4, claim 3 fails while 1, 2 and 4 are in flight.
+    - Nothing more launches, even when claim 1's verdict frees a slot before claim 3 is applied.
+    - Claim 4 is not aborted, and its verdict is kept.
+    - Claims 5 to 7 are `pass_stopped`.
+  - **A pause** stops at a free slot: the claims in flight keep their verdicts, and the first claim left is `paused`.
+  - **A deadline.** The claim a deadline stopped at keeps the deadline's label, though a pause arrives while the calls in flight finish.
+  - **A cancel.** One with two calls in flight labels both `deadline_or_cancelled`. A cancel or pause between claims at K = 1 labels the next claim as the serial pass did.
+  - **Claims without context** are answered without a call or a pause check.
+  - **An out-of-range K** runs one call at a time.
+- **The session** (tests/unit/private-agent-research-session.test.ts): 20 new tests.
+  - **K and the identity.** The fixture has four corpus sources and four verified claims, on the zero-fee local destination.
+    - With K = 3 the calls in flight peak at 2 for the index, 3 for extraction and 3 for the judge. Without K they peak at 1. With K = 3 and every model reported not zero-risk, they also peak at 1.
+    - The session identity is the same, and a resume with another K is no contract drift.
+    - The stage events, the receipts (purpose, status and response hash), and the entailment verdicts are equal with and without K.
+  - **E1-T3's stop cases (#75), rerun at K = 2,** as #71's review asks.
+    - The 16 single-call cases (four stages by four stops) pass unchanged.
+    - With both extraction calls in flight, a cancel, an external abort and a pause each leave:
+      - both rows `failed` with code `cancelled`, and none `unknown` or `committed`;
+      - a stage row with 0 calls and `denied: cancelled`;
+      - a resume that sends nothing again.
+- **The card:**
+  - Under the real flags, a card with K = 4 and its proven P11 burst loads, and its policy and freeze fragment carry K = 4. This is the positive case for the R2 row that 8.2b removed.
+  - Through the pair, the driver's `localScreenResearchStreams` gives `{ localStreams: 4 }` from a K = 4 card, and nothing without a card.
+- **Mutation check:** 26 single-change mutants of the new logic, each run against its test file. The source files were restored and checked by hash.
+  - The mutants: 15 in the pipeline, 6 in the judge, 2 in the session, and 1 each in model.ts, ordered-pool.ts and the driver.
+  - 22 were caught on the first run. Two of the four survivors showed gaps in the tests (Failures), and both are now caught: 24 of 26.
+  - The 2 left are equivalent:
+    - the interrupt also aborting on a `cancelled` reply;
+    - `call()`'s early check reading the stage's signal.
+
+    A `cancelled` reply, from `call()` or from the broker's only `cancelled` code (its external abort), arises only after that call's signal has aborted, by the stage or by the pool. The pool launches nothing once either has aborted.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref bc6c61b`: exit 0, append-only. bc6c61b is this branch's base.
+    - `main` has since moved to 6c5e931, which adds BL-20261114-1656-registry-row-git-racy-checkout. This branch does not hold that entry, so against `main` the validator exits 1, reporting the log as not append-only, until `main` is merged in.
+    - That entry also sorts after this branch's design entry, so the merge re-stamps this branch's entries after it.
+    - As the orchestrator set for #105, `main` is merged in and the entries re-stamped only when this PR's merge is scheduled.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - `pnpm exec vitest run` at e051596: 186 files passed and 13 skipped; 3,676 tests passed, 86 skipped and 0 failed.
+
+Failures or blockers:
+- Three test expectations were wrong at first, and each was corrected to the code's documented behaviour:
+  - A pool test expected `stopped: true` after a denial with every item launched. `stopped` means that some items were never launched.
+  - A `zeroRisk()` case built an invalid model config: a cache-write rate above four times a zero input rate. It was replaced by reachable cases. The cache-write terms in `zeroRisk()` cannot be reached under a valid config, and stay as a guard.
+  - A judge test assumed that a claim without context frees its slot at once. It holds its slot until it is applied in turn.
+- The first version of the judge's failure test could not detect an interrupt that failed to stop the pool: the failing claim was applied right after claim 1. It was reworked so that a slot frees while the failed claim is still unapplied.
+- The mutation check found two gaps:
+  - The F3 pipeline test first released both failures in one synchronous block. There the pool reads both labels before the abort, so it could not tell `afterAbort` alone from the sibling-stop rule. It now also releases chunk 0 one microtask later.
+  - Recording the judge's `beforeLaunch` stop was untested, because the post-pool loop recomputes the same label unless the stop changes. A test now has a pause arrive after a deadline stop.
+
+Limitations and non-claims:
+- **The fixtures.** Every test uses loopback or stub replies. As 1505 recorded:
+  - byte-identical output is shown on fixture replies only;
+  - a live server may answer differently under concurrent load, and concurrent calls can miss the shared prefix cache;
+  - a K beyond the server's capacity turns queue time into request timeouts.
+- **ASSIST-S4.** K > 1 stays `Implemented`, never `Verified`, until the owner's zero-fee run with an E0 card that sets K > 1. No live, Docker, cloud or paid call ran.
+- **A denied stage's counts** differ from the serial loop's (1645 decision 2), as a test pins.
+- **The run class at K > 1** stays infrastructure (1645 decision 5). No test reproduces the race itself: a D4 retry losing the last request to a sibling.
+- **Wiring the tests do not reach.** The driver passes `localScreenResearchStreams(servingCard)` into the session's research options in one line, which no unit test reaches: no unit test runs the driver end to end. The desktop passes no K, and stays at K = 1 until item 13.
+- **The source-freeze digest.** Every merge of this PR changes the harness source-freeze digest, because its files are under src/main/private-agent. No owner loop or E-run may span it.
+- **The validation base.** This push is validated against the branch's base, bc6c61b, not against `main` (Evidence).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- One light review.
+- A draft until item 9 merges, since serving-card-flags.ts and model.ts merge in the order 7a.2, then 9, then 8.2b.
+- Then `main` is merged in, this branch's entries are re-stamped after its tail, CI runs, and the PR merges.
+- K > 1 becomes `Verified` only after the owner's zero-fee E0 run.
+
+References: BL-20261116-1213-local-fanout-design; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1506-concurrent-local-admission-implemented; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261109-0456-ordered-pool-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented.
+
+### BL-20261116-1215-correction-local-fanout-review -- 2026-11-16 -- Correction to BL-20261116-1213-local-fanout-design and BL-20261116-1214-local-fanout-implemented after the light review of #110: at K > 1 the run class can flip in either direction, and K now reaches the claims judge in every run with a card
+
+Status: `Implemented`
+
+Scope or hypothesis: The light review of #110 at 3332919 is clean, with no blocker or major finding.
+- Its randomized check ran 1,200 pipeline runs over 150 corpora, at K = 2, 3, 4 and 8, with random reply delays.
+  - Every run matched K = 1 byte for byte, including the request bodies in launch order.
+  - The calls in flight never exceeded K.
+  - A completion-order mutant failed 31 of 32 runs.
+- It found two minors. This entry corrects both in one push, without a re-stamp, as the orchestrator asked. The code and tests are commit 2662aa9.
+
+Decisions:
+1. **The run class at K > 1 can flip in either direction** (the review's minor 1).
+   - 1645's decision 5 recorded one flip: a sibling takes the last request during a D4 backoff. That makes the run `research_request_failed` (infrastructure), where the serial loop is denied `budget_denied` (task).
+   - **The reverse also happens.** A higher-index call's genuine denial aborts the earlier calls still in flight. Each of them then answers `cancelled` after the abort, which is a sibling stop, so the earlier call's own denial never happens.
+   - **Example, now a test.** Chunk 0 fails `request_failed` after 30 ms, and chunk 2 is refused `budget_denied` at once:
+     - at K = 1 the extract row says `denied: request_failed` (infrastructure);
+     - at K = 4 it says `denied: budget_denied` (task).
+   - **For real:** a fresh call refused `budget_denied`, or a per-chunk `local_token_context_exceeded`, while an earlier call is in its D4 backoff or failing slowly.
+   - **The rule, stated plainly.** At K > 1 the stage's `denied` is the lowest-index denial among the calls that were not aborted. When two calls in one window would each be denied, the class depends on which settles first, in either direction.
+   - **The code is unchanged.** Abort and drain is ASSIST-1's default. Decision 5's reasons for not reclassing still hold: it would need a broker code or a change to the persisted classification contract.
+   - **What this corrects.** That the class at K > 1 may differ from the serial path's only in one direction. The places:
+     - 1645's decision 5 heading, "kept as infrastructure";
+     - 1645's limitation "The run class of decision 5 differs from the serial path's";
+     - 1729's limitation "The run class at K > 1 stays infrastructure".
+
+     Both entries stay as written. The orchestrator amends the owner's default line.
+2. **K reaches the claims judge in every run with a card** (the review's minor 2).
+   - **The gap.** The judge read K from `options.research`, which the headless driver builds only when `--pipeline research` is set. freeze.json, however, records the card's K for every run with a card. So a seeded H4 write phase with a claims ledger and no pipeline judged at K = 1 while its freeze.json said `localStreams: 4`.
+   - **The fix taken.** Of the review's two fixes, this takes the first:
+     - K moves from `research.localStreams` to a top-level session option, `localStreams`;
+     - the driver passes it in every run with a card, through `localScreenStreams`, which was named `localScreenResearchStreams`;
+     - the research pipeline and the judge read it as before, each only for a zero-risk model.
+   - K stays out of the session identity, the protocol hash, the budget and the counts.
+   - The comment on `ServingCardFreeze` in serving-card.ts now calls the field the card's K, which the loops and the judge apply on a zero-risk local model. Before, it said "the K the research loops ran at".
+   - **What this corrects.** Each place that names `research.localStreams` or `localScreenResearchStreams` now reads the top-level `localStreams` and `localScreenStreams`:
+     - 1645's decision 4, "a new optional session option, `research.localStreams`, beside `research.diagnostics`";
+     - 1729's decision 1;
+     - 1729's Changes;
+     - 1729's card evidence;
+     - 1729's limitation on the driver's wiring.
+
+Changes:
+- src/main/private-agent/session.ts: `localStreams` is a top-level option, and the research pipeline and the judge read it there.
+- scripts/private-agent-local-screen.ts: `localScreenStreams`, spread at the session's top level in every run with a card.
+- src/main/private-agent/serving-card.ts: the `ServingCardFreeze` comment.
+- Tests:
+  - tests/unit/private-agent-research-pipeline.test.ts: the reverse run-class case;
+  - tests/unit/private-agent-session.test.ts: a run with no research stage judges its claims K at a time;
+  - tests/unit/private-agent-research-session.test.ts and tests/unit/private-agent-local-role-config.test.ts: the option's new place and the helper's new name.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The reverse case.** At K = 1 the extract row records `calls: 0, denied: request_failed`. At K = 4 it records `calls: 0, denied: budget_denied`, and chunk 0's signal was aborted.
+- **A run with no research stage.** The general session fixture has two verified claims on a zero-fee local model, and the judge's calls are held 30 ms each.
+  - The judge's calls in flight peak at 1 without K, and at 2 with `localStreams: 2`.
+  - The `claims_entailment` events are equal.
+- **The research-session tests**, with K at its new place:
+  - K = 3 peaks at 2, 3 and 3, and at 1 when no model is zero-risk;
+  - the session identity is unchanged;
+  - E1-T3's 19 K = 2 cases pass.
+- **The nine affected test files:** 355 passed, 1 skipped.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref bc6c61b`: exit 0, append-only.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - `pnpm exec vitest run` at 2662aa9: 186 files passed and 13 skipped; 3,678 tests passed, 86 skipped and 0 failed.
+
+Failures or blockers:
+- 1645 recorded only one direction of the run-class flip, and 1729 repeated it. The review's scratch run found the other.
+- 1645 put K in the research options, so a run without a pipeline never applied it to the judge, though freeze.json recorded it. Neither 1645 nor 1729 noticed.
+
+Limitations and non-claims:
+- **Timing decides the class.** Which call settles first decides the class at K > 1, and on a live server that is timing. The tests pin one example in each direction, on fixture timing only.
+- **The driver's wiring.** Its top-level spread of `localScreenStreams` is still one line that no unit test reaches.
+- **1729's other limitations stand:**
+  - fixture replies only;
+  - K > 1 stays `Implemented` under ASSIST-S4 until the owner's zero-fee E0 run;
+  - no live, Docker, cloud or paid call ran;
+  - every merge changes the harness source-freeze digest, so no owner loop or E-run may span it.
+- **The validation base.** This push is validated against the branch's base, bc6c61b, as 1729's was. `main` has moved to 6c5e931. The merge of `main` and the re-stamp wait for the scheduled merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- #110 stays a draft until item 9 (#108) merges.
+- Then `main` is merged in, and 1645, 1729 and this entry are re-stamped after its tail with a Correction.
+- Then CI runs, and the PR merges.
+
+References: BL-20261116-1213-local-fanout-design; BL-20261116-1214-local-fanout-implemented; BL-20261114-1505-concurrent-local-admission-design; BL-20261114-1508-correction-concurrent-local-admission-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries.
+
+### BL-20261116-1216-correction-local-fanout-restamp -- 2026-11-16 -- Correction: 8.2b's three entries are re-stamped after #108's tail at this branch's merge of #108, and what the merge with item 9 keeps from each side
+
+Status: `Implemented`
+
+Scope or hypothesis: Branch `feat/8.2b-local-fanout` (#110) merges #108's head c3b2ae3, not `main`, in the merge commit that adds this entry. The orchestrator scheduled it that way: #110 merges last in the lane queue, chained on #108.
+- #108's last ID is BL-20261116-1212-correction-research-structured-output-restamp, which comes after this branch's three entries. The validator refuses an ID that moves backward.
+- So the three entries are re-stamped after that tail in the merge. This follows the owner's rule, BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+
+The entries, with their original IDs and authoring times (UTC, 2026-11-14):
+- **the design entry**, authored at 16:45 as BL-20261114-1645 in commit 59ec645, is now BL-20261116-1213-local-fanout-design;
+- **the Implemented entry**, authored at 17:29 as BL-20261114-1729 in commit 3332919, is now BL-20261116-1214-local-fanout-implemented;
+- **the review Correction**, authored at 18:01 as BL-20261114-1801 in commit d66ccab, is now BL-20261116-1215-correction-local-fanout-review.
+
+Decisions:
+1. **Only the IDs changed.** Each heading's ID and date moved, and so did every reference to the three IDs:
+   - 6 references inside the three entries;
+   - 5 short citations in code and tests: claims.ts, research-pipeline.ts, and the ordered-pool, research-pipeline and research-session tests.
+
+   Mapped back, the three entries equal d66ccab's byte for byte. Their prose names the originals by minute (for example "1645's decision 5"), and this entry maps those minutes.
+2. **The merge with item 9 keeps both sides.** #108 and this branch both changed the same places: the research pipeline's `call()`, the index and extraction loops, the consumed-flag pin, the session's research options, the driver's research option and four test files.
+   - **`call()`** takes item 9's optional `responseFormat`, then 8.2b's launch signal, which defaults to the stage's. Plan and synthesis pass no signal, as before.
+   - **The index and extraction launches** send 7a.2's cap and thinking for the attempt. An extraction launch also sends item 9's `response_format` for its attempt. The index role has no reply schema, so its calls send none, as on #108.
+   - **At K > 1 the bodies are the same as at K = 1.** Each request is still built at launch from its item and attempt alone. `structuredOutputCalls` is counted in `settled`, which runs at apply time, in item order.
+   - **The consumed flags.** `SERVING_CARD_CONSUMED` now consumes caps, thinking, structured output and K, and leaves only admission unconsumed.
+     - The reader test's pin names the item that flipped each.
+     - The flags' doc comment gains a sentence for 8.2b beside 7a.2's and item 9's.
+   - **The session** passes both the role policy (`research.roles`) and K (`localStreams`) to the pipeline.
+   - **The driver** builds its research option with 7a.2's `localScreenResearchOption`, and spreads `localScreenStreams(servingCard)` at the session's top level.
+   - **The tests:**
+     - the research-session fixture records the body fields that 7a.2 and item 9 added, and 8.2b's delays and flights;
+     - the reader's unconsumed-parameter table drops the K row, since K is consumed, and keeps #111's drift rows;
+     - the claims and local-role-config tests keep both sides' additions.
+   - **Two test changes go beyond the conflicts.**
+     - Item 9's reader test "R2 since 7a.2 and item 9" asserted that a card setting K is still refused. K is consumed now, so it asserts that a flagged card with K = 4 resolves to both.
+     - A new session test runs one card's caps and extraction flag at K = 1 and at K = 3. The request bodies are equal as sorted lists. Extraction sends the 1,024 cap and `research_extraction` (strict) in both. The stage rows are equal, with `structuredOutputCalls: 4` on extraction.
+3. **The owner adopted the defaults this branch follows.** BL-20261114-1505-concurrent-local-admission-design decision (10) recorded ASSIST-1, ASSIST-2, ASSIST-M1 and ASSIST-M2 as `Proposed`, and the design entry follows them. BL-20261115-1937-owner-adopts-standing-defaults adopts all four. This branch does what each says:
+   - abort and drain, at interrupt time;
+   - the judge keeps the verdicts that arrive;
+   - only zero-risk `local_model` calls run K at a time;
+   - K goes in freeze.json only, and the registry column waits for item 11.
+
+Changes:
+- docs/BUILD_LOG.md: the three headings and their references, and this entry.
+- The merge resolution in the files listed in decision 2. It adds no behaviour beyond the two pull requests' own.
+- The 5 citations in code and tests.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref c3b2ae3` (#108's head) and `-- --base-ref origin/main` (267a288) each exit 0: 703 entries, append-only against each.
+- **Typecheck and readiness.** `pnpm typecheck` and `pnpm validate:readiness` exit 0, on Node 22.22.2 and pnpm 10.12.4.
+- **The affected tests.** The eight affected test files, the build-log validator's included: 444 passed and 1 skipped.
+- **The full suite.** `pnpm exec vitest run`: 193 files passed and 13 skipped; 3,848 tests passed, 86 skipped and 0 failed.
+- **The hashes.**
+  - `researchProtocolSha256()` is 7100b7a2… both at #108's head and at this merge.
+  - The harness source freeze is 7d30d96b… at #108's head and 04174684… at this merge.
+- **Byte identity.** Mapped back, the three entries equal d66ccab's byte for byte.
+- **The trial.** A trial of this merge on a local, unpushed build of #108 found the same nine conflicts. On #108's head, this branch's changes are the trial's line for line, apart from #108's own IDs in one test title.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This records a re-stamp and a merge. Nothing live ran.
+- **K > 1 stays `Implemented` under ASSIST-S4.** The serving card of 2026-11-16 (BL-20261116-0939-e0-probes-serving-card) proposes one local stream. Its P11 ran K at 1, 2, 4 and 8 with no errors, but that is a probe, not an adopted K.
+- **The judge stays evidence-only.** E0's judge fixture (BL-20261116-1020-e0-judge-fixture-result) agreed exactly on 38 of 60 claims (63.3%). The judge's K > 1 pass changes when its calls run, not what they send, so it does not change that reading.
+- **No owner loop or E-run may span this merge.** Every merge under src/main/private-agent changes the harness source-freeze digest.
+- Commit messages keep the original IDs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on this head, then the orchestrator's merge after #108, under the standing go-ahead.
+
+References: BL-20261116-1213-local-fanout-design; BL-20261116-1214-local-fanout-implemented; BL-20261116-1215-correction-local-fanout-review; BL-20261116-1212-correction-research-structured-output-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1505-concurrent-local-admission-design; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0939-e0-probes-serving-card; BL-20261116-1020-e0-judge-fixture-result.
+
+### BL-20261116-1217-serving-probe-direct-transport-design -- 2026-11-16 -- The serving probe connects directly whatever the proxy settings, a P10 stream that ends early gets its own class, and a probe row is not accepted when its records show a transport failure
+
+Status: `Proposed`
+
+Scope or hypothesis: E0's serving-probe runs 1 and 2 dropped partway (BL-20261116-0939 and its correction BL-20261116-1017, on #121).
+- **The path.** Both runs inherited the shell's proxy variables, and E0's endpoint is outside the shell's `no_proxy`. scripts/serving-probe.py opens its requests with urllib's `urlopen`, which takes a proxy from the environment, or on macOS from the system settings. So its requests went through the shell's loopback proxy.
+- **The cause is an inference, not shown.** That the proxy caused the drops is inferred from the failures below and from run 3.
+- **The failures.**
+  - In both runs, the first sign of failure was an open stream that ended early with no finish reason. The probe counted it `invalid_json`, since it has no class for a stream that ends early.
+  - After it, every request raised URLError in 0.0 s.
+  - Run 2's P8 was cut at 120.9 s (RemoteDisconnected), a separate earlier failure.
+- **Run 3** ran with `NO_PROXY='*'` for the probe process only. It completed every probe, and its 120 P10 replies all ran to a finish reason.
+- **The app** opens its own requests from Node, which takes no proxy; those never failed.
+- **Approval.** The coordinator approved this change on 2026-11-16, to start once #117 had merged and E0's probe window had closed. Both hold.
+
+Decisions:
+- **(1) The probe connects directly.**
+  - Every request goes through `urllib.request.build_opener(urllib.request.ProxyHandler({}))` instead of `urlopen`, at the four call sites: `Endpoint.get`, `post`, `post_stream` and `stream`.
+  - Only the proxy choice changes. `urlopen` itself opens through a default opener, so every request, status and exception is as before.
+  - A refused or unreachable endpoint records exactly as today. A GET's status is -1. A POST's status is -1, with `transport_error` set to the exception class (URLError for a refused connection). A stream's `error` is that class.
+  - No run depends on the caller's `NO_PROXY` any more.
+- **(2) `stream_ended_early`.**
+  - A P10 reply that was streamed, answered 200 and ended with no finish reason is classed `stream_ended_early`, where it was `invalid_json`. The class comes after `request_rejected` in the probe's order, and before `truncated`.
+  - The probe and scripts/assess-probe-replies.ts apply the same rule, so assessing a probe keeps the class. Both class lists gain it, and a test keeps them equal.
+  - A reply that was not streamed is classed as before. A stream cut by an exception still records status -1 with its `transport_error`, and is classed `request_rejected` as today.
+- **(3) The probe version stays 2.**
+  - **The direct connection** changes no field and no field's meaning.
+  - **The new class** adds one value a call's `classification` can take, and one key to each cell's `counts`. Every reader is in this repository and changes with it. The assessor, the card writer and the registry writer read version 2 with or without that key.
+  - **Old records.** A record never says which code wrote it, so a version-2 `invalid_json` written before this change may be an early-ended stream; runs 1 and 2 hold one each. The new assessor reclasses such a call if the probe is assessed again, since the rule reads the call's recorded status and finish reason and the cell's `streamed` flag.
+  - **Why not 3.** A new version would make every reader accept both 2 and 3 for E0's run 3, and no reader needs to tell them apart.
+- **(4) The card writer refuses a probe in which a P10 stream ended early.**
+  - Such a call measured the transport, not the server.
+  - The card's format does not change. ServingCardV1, whose reader holds seven class counts per cell, stays as it is, and so does the app's reader.
+  - **A card written from run 3 is unchanged.** None of its 120 P10 replies ended early, so none is `stream_ended_early`. The card writer recounts the classes from the calls, so the new key in each cell's `counts` changes nothing on the card.
+  - A P10 call that failed at transport with status -1 is still counted as `requestRejected`, as before.
+- **(5) The registry writer's transport-failure guard.**
+  - **The gap #117 shipped with.** `--outcome accepted` for a probe row was refused only for an unfinished run, a failed probe, an unassessed P10 or a protocol mismatch. The probe catches a transport failure per request, so a run whose requests all failed at transport could be rowed accepted. A local test run on 2026-11-16 was: none of its 47 requests reached the test's fake (BL-20261116-0900, decision (4)).
+  - **The guard.** A probe row records `probe.transportFailures`, the probes whose records show a transport failure, in the probe order. `--outcome accepted` is refused when it is not empty.
+  - **A transport failure** is any of:
+    - a `transport_error`, recorded with status -1 by a POST;
+    - a stream's `error` naming an exception class. A stream's HTTP error code is the server's answer, not a transport failure.
+    - a status of -1, as a GET records: P1's `models_status` and `version_status`, and the adapter's `/openapi.json` status and `chat_status`;
+    - a status naming an exception class, as a P11 cache-layout row records;
+    - a P11 K burst whose `errors` count is above 0;
+    - a stream that answered 200 and ended with no finish reason: a P10 call classed `stream_ended_early`, or a stream's own record.
+  - **P6 and P8, after checking their record shapes.**
+    - P6's deliberate abort is recorded as `aborted_after_s`, never as an error, so it needs no exception. P6's other stream is checked like any other.
+    - P8's record is excepted. Its long request ending in a cut connection (status -1 with `transport_error`) is what P8 measures.
+- **(6) Tests.**
+  - The P10-align test's environment gets dead-port proxies (`http_proxy`, `https_proxy` and their upper-case forms), so every request must still reach its loopback fake.
+  - **Each request path** reaches a loopback server with dead-port proxies set. A refused endpoint records as today, with and without them.
+  - **`stream_ended_early`:**
+    - the classifier's order;
+    - a P10 run whose loopback server ends a stream early;
+    - the assessor keeping the class;
+    - the two class lists equal.
+  - **The card writer:** its refusal, and an unchanged card when each cell's counts carry the new key.
+  - **The guard:** case by case, with P6's and P8's shapes included.
+  - tests/helpers/serving-probe-fake.py runs its probe copy with dead-port proxies, in place of `no_proxy=*`.
+
+Changes: None yet. This entry precedes the code.
+
+Evidence: The record shapes and readers are read from 6a96098:
+- scripts/serving-probe.py: `Endpoint`, `post_record`, `reassemble_stream`, `classify_reply`, `summarize_cell`, `aggregate_streams` and `inspect_sse`, and the P1, P6, P8, P10, P11 and adapter probes;
+- the readers: scripts/assess-probe-replies.ts, scripts/serving-card.py, src/main/private-agent/serving-card.ts and scripts/registry-row.py.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- That the proxy caused runs 1 and 2 to drop is an inference, not shown.
+- **P11's cache-layout rows** keep no finish reason. So a layout stream that ends early without an error shows only as missing usage, and the guard cannot see it.
+- **Old rows.** Rows that #117's writer wrote carry no `transportFailures`, so `--supersedes` cannot repeat the new refusal for them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, a light review with privacy checked, then the pull request. The entries are re-stamped once at merge, after #121.
+
+References: BL-20261116-0839-e0-registry-modes-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.
+
+### BL-20261116-1218-serving-probe-direct-transport-implemented -- 2026-11-16 -- The serving probe connects directly, a P10 stream whose connection closed with no finish reason is `stream_ended_early`, and a probe row is not accepted when its records show a transport failure: implemented, with changes from the design after its tests and a light review
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261116-1217-serving-probe-direct-transport-design, which stays as written.
+- **Held as designed:** decisions (1) and (4).
+- **Changed:** decisions (2), (3) and (5), after the tests and one light review, as recorded below.
+
+Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) As designed.**
+  - **The direct connection.** scripts/serving-probe.py opens every request through `DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))`, at its four call sites. The review confirmed that only the proxy choice changes. The HTTPS handler, the one opener shared by P7's and P11's threads, and every status and exception are as before.
+  - **The card writer** refuses a probe in which a P10 call is `stream_ended_early`. It refuses at its entry, before either the Markdown or the `--policy-out` card is rendered.
+- **(2) Changed: how a stream ended (the review's finding 2).**
+  - **The problem.** vLLM ends a stream that failed inside the server with an error event and then `[DONE]`, under HTTP 200, with no finish reason. The design's rule would have classed that server failure `stream_ended_early`. The card writer would then have refused the run as a transport failure, again on every rerun if the fault repeats.
+  - **What the probe records now:** `stream_end`, on every streamed record. It is:
+    - `done` at `[DONE]`;
+    - `error` after an error event (`{"error": ...}` or `{"object": "error", ...}`);
+    - `eof` when the connection closed first.
+
+    P10's streamed calls carry it. So do the stream records of P2, P3 and P4, P6's next request, P7, P11's sizes and the adapter's streamed replies.
+  - **The class.** `stream_ended_early` is now a streamed reply that answered 200 with no finish reason and `stream_end` `eof`. A server's error event is read as before: `invalid_json` when its content does not parse.
+- **(3) Changed: each P11 K burst records `transport_errors` (the tests' finding).**
+  - **The problem.** The design read a burst's `errors` count. That count also counts a stream without usage, or one whose elapsed time rounds to 0 s. The test's fake answers at once, so the guard listed P11 for a clean run.
+  - **The new count.** `transport_errors` counts the burst's streams that raised, or that ended with no finish reason and `stream_end` `eof`.
+- **(4) Changed: the version stays 2, but every reader decides from what a record holds (the review's finding 3).**
+  - **The challenge.** A reader built for the new records misreads a record written before this change, and a reader from before this change misreads a new record. Nothing refuses either.
+  - **New readers on old records.** E0's run 3 is a version 2 record written before this change. The readers now read such a record by what it holds:
+    - **The assessor** applies the new class only to a call that records `stream_end` `eof`, so an old record is classed as before.
+    - **The registry writer's guard** counts a streamed reply that answered 200 with no finish reason unless its `stream_end` says the server ended it. So such a reply in an old record counts.
+    - **Bursts.** A burst without `transport_errors` is read by its `errors` count.
+
+    Both readings are conservative.
+  - **Old readers on new records.** An assessor or card writer from before this change, run from an older checkout on a new probe file, reads `stream_ended_early` as an unknown class.
+    - The old assessor reclasses it `invalid_json` and leaves the probe's own counts summing past the total.
+    - The old card writer then counts it as `invalidJson`.
+
+    That is the reading from before this change, not a new error. Reading a probe with the tools of the checkout that ran it avoids it.
+  - **Why not version 3.** The machine-readable card records `probeVersion` 2, and the app's reader pins it to 2 (src/main/private-agent/serving-card.ts, ServingCardV1). A version 3 would change the app's persisted card contract, for a risk limited to reading a new probe with an older checkout's tools. That change is left to a decision of its own.
+  - **A card written from run 3 is unchanged.** Its records hold no `stream_ended_early`, the card writer recounts the classes from the calls, and the card's format does not change.
+- **(5) Changed: P8's exception is narrower (the review's finding 1).**
+  - **Listed:** a P8 whose `transport_error` is `URLError`. urllib raises URLError only when it cannot connect or send, so that request never reached the server.
+  - **Excepted:** a connection cut after the request was sent (RemoteDisconnected, a timeout, a reset). That remains P8's measured finding.
+- **(6) The registry writer's guard, as implemented** (`transport_failed` in scripts/registry-row.py, and docs/experiments/README.md). A transport failure is any of:
+  - a POST's `transport_error`;
+  - a stream's `error` naming an exception class;
+  - a status of -1, or one naming an exception class: a GET's, the adapter's `chat_status`, or a P11 cache-layout row's;
+  - a burst's `transport_errors`, or its `errors` where it has no `transport_errors`;
+  - a streamed reply that answered 200 with no finish reason, unless its `stream_end` says the server ended it;
+  - a P10 call classed `stream_ended_early`.
+
+  P6's abort is recorded as `aborted_after_s`, and is none of these.
+- **(7) The review's nits:**
+  - the README lists the refusals in the order the code applies them, and names the adapter's `chat_status` as a chat call's status, not a GET's;
+  - the card writer's second refusal, which no caller reached, is removed;
+  - the probe's comment calls the proxy's part an inference;
+  - the probe tests await their servers' close.
+- **(8) The tests, and what each shows.**
+  - **tests/unit/serving-probe-helpers.test.ts:**
+    - **Each request path** reaches a loopback server, both with dead-port proxies set and with no proxy variable at all.
+      - A stream the server ended with an error event records `stream_end` `error`.
+      - A refused endpoint records a GET's -1; a POST's and a streamed POST's -1 with `transport_error` URLError; and a stream's `error` URLError.
+    - **The P10-align tests'** `python()` sets dead-port proxies in every form urllib reads.
+    - **The helpers:**
+      - the classifier with `streamed` and `stream_end`;
+      - reassembly's `done`, `error` (both shapes) and `eof`;
+      - a burst's `transport_errors` beside its `errors`;
+      - `summarize_cell`'s new key;
+      - the probe's class list, equal to the assessor's.
+    - **A P10 run with two bad streams.** The loopback server closes the first streamed reply after one chunk: `stream_ended_early`, with `eof`. It ends the second with an error event: `invalid_json`, with `error`. Assessing the probe keeps both.
+  - **tests/unit/assess-probe-replies.test.ts:**
+    - the rule applies before the content is read;
+    - a server's error event, `done`, and a record without `stream_end` are read as before;
+    - the counts include the class.
+  - **tests/unit/serving-card-writer.test.ts:**
+    - the refusal for both outputs, with no `--policy-out` file left;
+    - with every cell's counts carrying the new key at 0, the Markdown keeps W1's pinned digest, and the machine-readable card is equal but for the probe file's digest.
+  - **tests/unit/registry-row-e0.test.ts:** the guard, case by case.
+    - **Listed:**
+      - a P8 that never reached the server;
+      - records from before this change: a stream with no `stream_end`, a P10 streamed call, and a burst with `errors` only;
+      - a stream whose connection closed (`eof`).
+    - **Not listed:**
+      - P8's cut after sending;
+      - P6's abort;
+      - a stream's HTTP error;
+      - a server's error event;
+      - a burst's `errors` beside its `transport_errors`.
+  - **tests/helpers/serving-probe-fake.py** runs its probe copy with dead-port proxies, so the real-probe row test shows every request reaching the fake.
+
+Changes:
+- scripts/serving-probe.py, scripts/assess-probe-replies.ts, scripts/serving-card.py and scripts/registry-row.py;
+- docs/experiments/README.md ("E0 rows");
+- the tests above, and tests/helpers/serving-probe-fake.py;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref 6a96098` exits 0 (672 entries, append-only against this branch's base). `main` has since moved to 42b36e7 with #121, so the merge re-stamps these entries after its tail. `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On Node 22.22.2 and pnpm 10.12.4, the registry-row, fixture, probe, serving-card and labelling-tool suites pass 323 of 323, in 20 files.
+- **Mutants.** Single-edit mutants, each run against the tests that cover it: 33 of 33 fail them at this code. At c9085a1, before the review's fixes, 21 of 21 failed them, one only after a case was added for it. The 33 cover the opener and its four call sites; the early-end rule, its `stream_end` condition, and how P10 records and passes `stream_end`; how reassembly and streams record `[DONE]` and both error-event shapes; the burst count; the assessor's rule and its cell flag; the card writer's refusal; each guard rule and its readings of older records; and P8's exception.
+- **Today's record of a refused endpoint, on 6a96098.** The same driver as the new test was run against a loopback port nothing listens on.
+  - **With `no_proxy='*'`,** that probe records:
+    - a GET's -1;
+    - a POST's and a streamed POST's -1, with `transport_error` URLError;
+    - a stream's `error` URLError.
+
+    The fixed probe records the same values with dead-port proxies set and with none.
+  - **With no proxy variable at all,** on the machine that ran these checks, that probe went through the macOS system proxy, which answered the refused port with HTTP 503. So a refused endpoint read as a server error. The fixed probe never takes that path.
+- **The light review.** One reviewer, with privacy checked. Its verdict: needs fixes, with four minor findings and some nits, and no blocker or major. Decisions (2), (4), (5) and (7) address the findings and nits, and this entry is the fourth finding's record. Privacy was clean.
+
+Failures or blockers: The design was wrong in three places. Its burst rule listed P11 for a clean run of the test's fake (decision (3)). Its early-end rule would have classed a server's in-band error as a transport failure (decision (2)). Its P8 exception would have accepted a P8 that never reached the server (decision (5)).
+
+Limitations and non-claims:
+- **Not `Verified`.** Tested on loopback fakes only. No probe ran against a real endpoint.
+- **The cause is still an inference.** That the proxy caused runs 1 and 2 to drop is not shown.
+- **Old records are read conservatively.** A burst whose `errors` count is above 0, or a streamed reply with no finish reason, lists its probe even where the transport was not the cause. So before E0's run 3 is rowed `accepted`, its `P11.k_streams[*].errors` should be 0 and its streamed replies should carry finish reasons. Otherwise the writer refuses `accepted`.
+- **What the guard cannot see:**
+  - a P11 cache-layout stream that ended early without an error, since those rows keep no finish reason;
+  - rows that #117's writer wrote, which carry no `transportFailures`.
+- **Old readers.** An older checkout's assessor or card writer reads a new record as it did before this change (decision (4)).
+- **Optional, from the review.** The card writer still counts a P10 call that failed at transport with status -1 as `requestRejected`, and shows a P11 size stream that ended early as answered.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the pull request. The entries are re-stamped once at merge, after #121, and the coordinator merges under the standing go-ahead.
+
+References: BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-0900-correction-e0-registry-modes-restamp-labelling-pin; BL-20261116-0939 and BL-20261116-1017 (#121); pull requests #117 and #121.
+
+### BL-20261116-1230-correction-serving-probe-direct-transport-restamp -- 2026-11-16 -- Correction: #123's two entries are re-stamped after #110's tail, now that #123 is chained on #110; their original IDs and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinator chained #123 on #110, which merges first. This branch merged #110's head 5aaeb0a at 6bd268d, with no force-push. #110's last ID is BL-20261116-1216-correction-local-fanout-restamp. So this branch's two entries move after it, under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates).
+
+Each entry, with its original ID and authoring time, both on 2026-11-16 UTC:
+- **The design entry.** Authored at 10:33 as BL-20261116-1033. It is now BL-20261116-1217-serving-probe-direct-transport-design.
+- **The implemented entry.** Authored at 11:28 as BL-20261116-1128. It is now BL-20261116-1218-serving-probe-direct-transport-implemented.
+
+Decisions:
+- **(1) The re-stamp.**
+  - **What changes.** Only the two headings' IDs change, with the references to them: two in the implemented entry's body, and 15 in comments, test titles and the README.
+  - **The 15 references** are across 10 files: scripts/serving-probe.py, scripts/assess-probe-replies.ts, scripts/serving-card.py, scripts/registry-row.py, docs/experiments/README.md, tests/helpers/serving-probe-fake.py and four test files.
+  - **The log.** No entry before them cites the original IDs. #110's log is kept whole, as a byte prefix of this branch's.
+- **(2) The chain merge.**
+  - **The conflict.** Only docs/BUILD_LOG.md conflicted. It is resolved by appending: #110's log whole, then this branch's two entries.
+  - **The merged tree** differs from #110's head only in this branch's 11 files. Compared line by line, each carries exactly this branch's edits from 6a96098 to 0ff0a83.
+- **(3) The shared rerere cache.** The coordinator reported a git rerere cache shared in this repository from 11:23 to 12:23 UTC. This branch made no merge before this one, and this merge ran with `rerere.enabled=false`. Its output shows no reused resolution.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, their references, and this entry.
+- The files that cite the entries, as listed in decision (1).
+
+No behaviour changes.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref 5aaeb0a` exits 0 (706 entries, append-only against #110's head). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On the merged tree, on Node 22.22.2 and pnpm 10.12.4, the registry-row, fixture, probe, serving-card and labelling-tool suites pass 341 of 341, in 21 files.
+- **The re-stamp.** With the two new IDs mapped back, the log before this entry is byte-identical to the merge commit's. `git grep` finds the original IDs only in this entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- If #110 or #108 changes before it merges, this branch merges the new head and re-stamps again, under the same rule.
+- Commit messages and #123's earlier description keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #123, then the merge after #110 under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1216-correction-local-fanout-restamp; BL-20261116-1217-serving-probe-direct-transport-design; BL-20261116-1218-serving-probe-direct-transport-implemented; pull requests #110 and #123.
+
 ### BL-20261116-1253-e0-planner-structured-condition-design -- 2026-11-16 -- E0 planner fixture designed for the serving card's plan call: `response_format` with thinking on, at 8,192 and 16,384 tokens, in a v2 manifest beside the call without a card
 
 Status: `Proposed`

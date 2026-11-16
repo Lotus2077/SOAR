@@ -259,6 +259,13 @@ export function researchPipelineFreeze(planner: "cloud" | "local", roles?: Resea
     planner, writer: "local" as const, ...(roles && nonDefaultRoleParameters(roles).length ? { roles } : {}) };
 }
 /**
+ * 8.2b: the session's K, the pair's card's `localStreams`, in every run with a card: the research loops and the claims judge run that
+ * many zero-risk local calls at a time. Without a card, none, so they run one call at a time. freeze.json records the same value.
+ */
+export function localScreenStreams(servingCard: LoadedServingCard | undefined): { localStreams?: number } {
+  return servingCard ? { localStreams: servingCard.policy.localStreams } : {};
+}
+/**
  * The CLI's one failure line. A serving-card refusal adds its fixed code and allowlisted key path; every other failure prints
  * the bytes it printed before SC.
  */
@@ -524,6 +531,8 @@ configOptions?: LoadConfigOptions) {
       ...(cloud ? { cloudArm: { destinationId: cloud.destination.id, maxFeeMicrousd: cloud.maxFeeMicrousd },
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
       ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, cloud?.modelConfig, { ...(diagnostics ? { diagnostics } : {}), ...(roles ? { roles } : {}) }) } : {}),
+      // 8.2b: the card's K reaches the research loops and the claims judge, with or without a pipeline; freeze.json records it (servingCardFreeze).
+      ...localScreenStreams(servingCard),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;

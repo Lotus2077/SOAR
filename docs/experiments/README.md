@@ -322,12 +322,43 @@ after `pnpm probe:assess`.
     built-in exceptions and the probe's library classes), else `other`;
   - `finished`;
   - `assessed`, and `schemasProtocolMatch` from the assessment, both null without P10;
-  - `calls` per probe, and `usage`.
+  - `calls` per probe, and `usage`;
+  - `transportFailures`: the probes, in the probe order, whose records show a transport
+    failure (BL-20261116-1217-serving-probe-direct-transport-design, as implemented). The writer decides from
+    what each record holds, so a record written before this change is read conservatively:
+    - a POST's `transport_error`, recorded with status -1;
+    - a stream's `error` naming an exception class (a stream's HTTP error code is the
+      server's answer);
+    - a status of -1, as a GET records (P1's `models_status` and `version_status`, the
+      adapter's `/openapi.json` status) and as the adapter's plain chat call records
+      (`chat_status`), or a status naming an exception class, as a P11 cache-layout row
+      records;
+    - a P11 K burst whose `transport_errors` count is above 0. A record from before that
+      count has none, so its `errors` count is read instead, which also counts a stream that
+      reported no usage or no elapsed time;
+    - a streamed reply that answered 200 with no finish reason, unless its `stream_end` says
+      the server ended it (`done` at `[DONE]`, or `error` after an error event). A record
+      from before `stream_end` has none, so such a reply counts. A P10 call classed
+      `stream_ended_early` is one.
+
+    P8 is listed only when its `transport_error` is `URLError`: urllib raises that only when
+    it cannot connect or send, and a connection cut after the request was sent is what P8
+    measures. P6's deliberate abort is recorded as `aborted_after_s`, which is none of these.
+
+    **Older records.** A probe.json written before these records existed has no
+    `stream_end` on its streamed records and no `transport_errors` on its K bursts, so the
+    writer reads it conservatively. Such a run can be refused `accepted` where a newer run
+    would not be: a burst whose `errors` count is above 0, or a streamed reply that
+    answered 200 with no finish reason, lists its probe even when the transport was not the
+    cause. Rerunning the probe with the current scripts/serving-probe.py records what tells
+    the two apart.
 - **`terminalCause`:** `probe_finished`, or `probe_unfinished` when probe.json has no
   `finished_utc`.
 - **Outcome:** `--outcome accepted` is refused when:
   - the run did not finish;
   - a probe failed;
+  - `transportFailures` is not empty. Rows that #117's writer wrote carry no
+    `transportFailures`, so `--supersedes` cannot repeat this refusal for them;
   - P10 is unassessed;
   - P10 was assessed under another research protocol than its export's.
 

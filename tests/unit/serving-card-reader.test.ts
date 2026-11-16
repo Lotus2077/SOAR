@@ -139,7 +139,6 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_streams_unproven", "one error", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].errors = 1; }))],
     ["serving_card_streams_unproven", "3 streams", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].streams = 3; }))],
     ["serving_card_streams_unproven", "K 2 without P11", loadFrom(edited(card => { card.concurrency.localStreams = 2; card.evidence.p11 = null; card.evidence.bounds = null; }))],
-    ["serving_card_parameter_unconsumed", "K", loadFrom(edited(card => { card.concurrency.localStreams = 4; })), "concurrency.localStreams"],
     ["serving_card_p10_settings_drift", "a run without the cache salt P10's bodies carried", loadFrom(edited(flag("extract", true, false)),
       { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, cacheSalt: false } }), "roles.extract.structuredOutput.thinkingOff"],
     // #111's review: under the same Flash contract, the context alone differs.
@@ -160,15 +159,17 @@ describe("serving-card reader (SC)", () => {
     if (parameter !== undefined) expect(error.parameter).toBe(parameter);
   });
 
-  it("R2 since 7a.2 (BL-20261116-1203-research-role-policy-design) and item 9 (BL-20261116-1208-research-structured-output-design): caps, per-attempt thinking and structured output are consumed, so a card that sets them resolves; K is still refused", () => {
+  it("R2 since 7a.2 (BL-20261116-1203-research-role-policy-design) and item 9 (BL-20261116-1208-research-structured-output-design): caps, per-attempt thinking and structured output are consumed, so a card that sets them resolves; since 8.2b, K too", () => {
     const loaded = loadFrom(edited(card => { card.roles.plan.maxOutputTokens = [4096, 8192]; card.roles.plan.thinking = ["disabled", "model"]; card.roles.extract.maxOutputTokens = [1024, 2048]; }))(workspace());
     expect(loaded.policy.roles.plan).toEqual({ maxOutputTokens: [4096, 8192], thinking: ["disabled", "model"], structuredOutput: null });
     expect(loaded.policy.roles.extract.maxOutputTokens).toEqual([1024, 2048]);
     const flagged = loadFrom(edited(card => { card.roles.plan.thinking = ["disabled", "model"]; flag("extract", true, true)(card); }))(workspace());
     expect(flagged.policy.roles.extract.structuredOutput).toEqual({ variant: "strict", thinkingOff: true, thinkingOn: true });
     expect(flagged.policy.roles.plan.thinking).toEqual(["disabled", "model"]);
-    expect(refusal(() => loadFrom(edited(card => { flag("extract", true, true)(card); card.concurrency.localStreams = 4; }))(workspace())))
-      .toMatchObject({ code: "serving_card_parameter_unconsumed", parameter: "concurrency.localStreams" });
+    // 8.2b consumes K, so a flagged card with K = 4 and its proven burst resolves to both.
+    const both = loadFrom(edited(card => { flag("extract", true, true)(card); card.concurrency.localStreams = 4; }))(workspace());
+    expect(both.policy.roles.extract.structuredOutput).toEqual({ variant: "strict", thinkingOff: true, thinkingOn: true });
+    expect(both.policy.localStreams).toBe(4);
   });
   it("R2 since item 9's review: an attempt that sends the format must use the cap its P10 cell measured; another attempt may change its cap", () => {
     // Plan sends the format with thinking on only; its first attempt has thinking off, so its cap may differ from the plan/on cell's 8,192.
@@ -247,8 +248,8 @@ describe("serving-card reader (SC)", () => {
     expect(Object.isFrozen(DEFAULT_RESEARCH_ROLE_POLICY.plan.maxOutputTokens) && Object.isFrozen(DEFAULT_SERVING_POLICY.admission)).toBe(true);
     expect(DEFAULT_SERVING_POLICY).toEqual({ roles: DEFAULT_RESEARCH_ROLE_POLICY, localStreams: 1, admission: { basis: "none" } });
     // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b). 7a.2 flipped the caps and thinking,
-    // item 9 structured output.
-    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: true, localStreams: false, admission: false });
+    // item 9 structured output, and 8.2b consumes K.
+    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: true, localStreams: true, admission: false });
     const writer = JSON.parse(execFileSync("python3", ["-I", "-c", ["import importlib.util, json, sys",
       "spec = importlib.util.spec_from_file_location('serving_card', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
       "print(json.dumps({'minCalls': module.P10_MIN_CALLS, 'minValidPercent': module.P10_RULE_PERCENT}))"].join("\n"), SERVING_CARD_WRITER],
@@ -282,10 +283,17 @@ describe("serving-card reader (SC)", () => {
     }
   });
 
+  it("8.2b: under the real flags, a card with K = 4 and its proven P11 burst loads, and its K reaches the policy and the freeze fragment", () => {
+    // The positive case for the removed R2 row: localStreams is consumed, so only the evidence gates refuse a K now.
+    const dir = workspace(), written = writeCard(dir, edited(card => { card.concurrency.localStreams = 4; })), loaded = loadServingCard(written, EXPECT);
+    expect(loaded.policy.localStreams).toBe(4);
+    expect(servingCardFreeze(loaded)).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 4 } });
+  });
+
   it("R7: the freeze fragment is empty without a card and holds the digest, version, date and entry, never the path, with one", () => {
     expect(servingCardFreeze(undefined)).toEqual({});
     const dir = workspace(), written = writeCard(dir, allDefault()), fragment = servingCardFreeze(loadServingCard(written, EXPECT));
-    expect(fragment).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY } });
+    expect(fragment).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 1 } });
     expect(canonical(fragment)).not.toContain(written.path); expect(canonical(fragment)).not.toContain(dir);
   });
 

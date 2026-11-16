@@ -132,8 +132,6 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_streams_unproven", "one error", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].errors = 1; }))],
     ["serving_card_streams_unproven", "3 streams", loadFrom(edited(card => { card.concurrency.localStreams = 4; card.evidence.p11.kStreams["4"].streams = 3; }))],
     ["serving_card_streams_unproven", "K 2 without P11", loadFrom(edited(card => { card.concurrency.localStreams = 2; card.evidence.p11 = null; card.evidence.bounds = null; }))],
-    ["serving_card_parameter_unconsumed", "caps", loadFrom(edited(card => { card.roles.plan.maxOutputTokens = [4096, 8192]; })), "roles.plan.maxOutputTokens"],
-    ["serving_card_parameter_unconsumed", "thinking", loadFrom(edited(card => { card.roles.plan.thinking = ["disabled", "model"]; })), "roles.plan.thinking"],
     ["serving_card_parameter_unconsumed", "structured output", loadFrom(edited(flag("extract", true, true))), "roles.extract.structuredOutput"],
     ["serving_card_parameter_unconsumed", "K", loadFrom(edited(card => { card.concurrency.localStreams = 4; })), "concurrency.localStreams"],
     ["serving_card_p10_settings_drift", "a run without the cache salt P10's bodies carried", loadFrom(edited(flag("extract", true, false)),
@@ -156,6 +154,13 @@ describe("serving-card reader (SC)", () => {
     if (parameter !== undefined) expect(error.parameter).toBe(parameter);
   });
 
+  it("R2 since 7a.2 (BL-20261116-1203-research-role-policy-design): caps and per-attempt thinking are consumed, so a card that sets them resolves; structured output is still refused", () => {
+    const loaded = loadFrom(edited(card => { card.roles.plan.maxOutputTokens = [4096, 8192]; card.roles.plan.thinking = ["disabled", "model"]; card.roles.extract.maxOutputTokens = [1024, 2048]; }))(workspace());
+    expect(loaded.policy.roles.plan).toEqual({ maxOutputTokens: [4096, 8192], thinking: ["disabled", "model"], structuredOutput: null });
+    expect(loaded.policy.roles.extract.maxOutputTokens).toEqual([1024, 2048]);
+    expect(refusal(() => loadFrom(edited(card => { card.roles.plan.thinking = ["disabled", "model"]; flag("extract", true, true)(card); }))(workspace())))
+      .toMatchObject({ code: "serving_card_parameter_unconsumed", parameter: "roles.extract.structuredOutput" });
+  });
   it("R2 since BL-20261114-2301-serving-card-request-settings-design: a structured-output flag needs P10's request settings to be the run's; a card without flags does not", () => {
     // Under the run's settings, the writer's card reaches today's fail-closed step: structured output is not consumed on this branch.
     const writer = adopt(proposed());
@@ -214,7 +219,7 @@ describe("serving-card reader (SC)", () => {
     expect(() => pinned(relative(process.cwd(), written.path), written.sha256)).toThrow(LocalTokenAdmissionError);
   });
 
-  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, every flag is false and the rule matches the writer", () => {
+  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, only 7a.2's flags are true and the rule matches the writer", () => {
     for (const role of RESEARCH_ROLES) {
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].maxOutputTokens).toEqual([OUTPUT_TOKENS[role], OUTPUT_TOKENS[role]]);
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].thinking).toEqual([THINKING[role], THINKING[role]]);
@@ -223,8 +228,8 @@ describe("serving-card reader (SC)", () => {
     for (const role of STRUCTURED_OUTPUT_ROLES) expect(DEFAULT_RESEARCH_ROLE_POLICY[role].structuredOutput).toBeNull();
     expect(Object.isFrozen(DEFAULT_RESEARCH_ROLE_POLICY.plan.maxOutputTokens) && Object.isFrozen(DEFAULT_SERVING_POLICY.admission)).toBe(true);
     expect(DEFAULT_SERVING_POLICY).toEqual({ roles: DEFAULT_RESEARCH_ROLE_POLICY, localStreams: 1, admission: { basis: "none" } });
-    // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b).
-    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: false, thinking: false, structuredOutput: false, localStreams: false, admission: false });
+    // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b). 7a.2 flipped the caps and thinking.
+    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: false, localStreams: false, admission: false });
     const writer = JSON.parse(execFileSync("python3", ["-I", "-c", ["import importlib.util, json, sys",
       "spec = importlib.util.spec_from_file_location('serving_card', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
       "print(json.dumps({'minCalls': module.P10_MIN_CALLS, 'minValidPercent': module.P10_RULE_PERCENT}))"].join("\n"), SERVING_CARD_WRITER],

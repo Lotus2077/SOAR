@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_POLICY_APPLICATION, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
 import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
@@ -13,6 +13,8 @@ import { ResearchPlanAttemptSchema, ResearchPlanSchema } from "../../src/main/pr
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 import { F2_SHAPE_KIB, inventedCorpus, previewBoundarySource } from "../helpers/research-corpus";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import { researchSynthesisLengthCap as lengthCapFor } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_TRIM_POLICY, researchTrimOrder } from "../../src/main/private-agent/research-trim";
 import { researchPresentationBytes } from "../../src/main/private-agent/research-presentation";
 import { RESEARCH_PRESENTATION_POLICY } from "../../src/main/private-agent/research-contract";
@@ -54,6 +56,8 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged",
   // 7(c) (BL-20261113-0927-research-v5-design): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
   "fallback", "synthesisAttempts",
+  // 7a.2 (BL-20261116-1203-research-role-policy-design): attempt 2's synthesis length cap, only when a role policy makes it differ; a count.
+  "secondAttemptLengthCapWords",
   // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
   "questionsTrimmed", "quotesLeftByPresentation"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
@@ -1346,5 +1350,91 @@ describe("item 7b.2: the priority trim and the presentation guard (BL-20261115-1
     // Q1's fifteen notes take the other eleven places; its last four, from sources 3 and 4, are disclosed, in the order they were noted.
     expect(coverage.conflictOmissions.map((o: any) => o.noteSha256)).toEqual(["3-2", "4-0", "4-1", "4-2"].map(k => digest(`Unverified conflict ${k}`)));
     expect(RESEARCH_TRIM_POLICY.conflicts.chosen).toBe("before_quotes");
+  });
+});
+
+/** Item 7a.2 (BL-20261116-1203-research-role-policy-design): a role policy as an adopted serving card resolves it. */
+const rolePolicy = (edit: (roles: any) => void = () => {}): ResearchRolePolicy => { const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as any; edit(roles); return roles; };
+const CARD = rolePolicy(r => { r.index.maxOutputTokens = [1024, 1536]; r.plan.maxOutputTokens = [4096, 8192]; r.plan.thinking = ["disabled", "model"];
+  r.extract.maxOutputTokens = [1024, 2048]; r.synthesis.maxOutputTokens = [8192, 6000]; r.synthesis.thinking = ["disabled", "model"]; });
+/** A model of the fixture's shape with another configuration, on the same fixture broker. */
+const modelOf = (m: ReturnType<typeof models>, change: Record<string, unknown>) => new PrivateAgentModel({ request: m.request } as unknown as PrivateAgentBroker,
+  { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", ...change }, "job", "reader");
+/** The first attempt of every stage is broken, so each role sends attempt 1 and attempt 2. */
+const twoAttempts = (stage: Stage, input: any, n: number, system: string) => n === 0 && stage !== "extract" ? "not json" : stage === "extract" && n === 0 ? "not json" : happy(stage, input, n, system);
+const sent = (m: ReturnType<typeof models>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => [c.body.max_tokens, c.body.reasoning_effort ?? "off", c.body.chat_template_kwargs?.enable_thinking ?? null]);
+
+describe("item 7a.2: per-role caps and per-attempt thinking from an adopted card (BL-20261116-1203-research-role-policy-design)", () => {
+  it("sends each local role's attempt 1 and attempt 2 their caps and thinking, and each synthesis attempt its own length cap", async () => {
+    const m = models(twoAttempts), events: ResearchStageCounts[] = [], result = await run(m, { roles: CARD }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(sent(m, "index")).toEqual([[1024, "off", false], [1536, "off", false]]);
+    expect(sent(m, "plan")).toEqual([[4096, "off", false], [8192, "medium", null]]);
+    // Two chunks: the first one's initial call is broken and repaired after the second's.
+    expect(sent(m, "extract")).toEqual([[1024, "off", false], [1024, "off", false], [2048, "off", false]]);
+    expect(sent(m, "synthesise")).toEqual([[8192, "off", false], [6000, "medium", null]]);
+    const caps = [lengthCapFor(RESEARCH_V4_TEST_BRIEF, { maxOutputTokens: 8192, thinking: "disabled" }).words, lengthCapFor(RESEARCH_V4_TEST_BRIEF, { maxOutputTokens: 6000, thinking: "model" }).words];
+    expect(caps).toEqual([5757, 1200]);
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap.words)).toEqual(caps);
+    expect(events[3]).toMatchObject({ stage: "synthesise", lengthCapWords: 5757, secondAttemptLengthCapWords: 1200 }); for (const event of events) hashOnlyStageRow(event);
+    expect(result.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD)); expect(result.summary.protocolSha256).not.toBe(RESEARCH_PROTOCOL_SHA256);
+  });
+  it("keeps today's values for a cloud planner and synthesiser while the local reader follows the card", async () => {
+    const m = models(twoAttempts), priced = { inputUsdPerMillion: 1, outputUsdPerMillion: 1 };
+    // A synthesis ceiling below the floor would refuse a local synthesiser; a cloud one never reads the policy.
+    const card = rolePolicy(r => { Object.assign(r, structuredClone(CARD)); r.synthesis.maxOutputTokens = [1100, 1100]; });
+    const result = await run(m, { roles: card, models: { reader: m.models.reader, planner: modelOf(m, priced), synthesiser: modelOf(m, priced) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(sent(m, "index")).toEqual([[1024, "off", false], [1536, "off", false]]); expect(sent(m, "extract").map(row => row[0])).toEqual([1024, 1024, 2048]);
+    expect(sent(m, "plan")).toEqual([[8192, "medium", null], [8192, "medium", null]]); expect(sent(m, "synthesise")).toEqual([[8192, "medium", null], [8192, "medium", null]]);
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap.words)).toEqual([1200, 1200]);
+  });
+  it("refuses before any request a cap above its role model's limit, a synthesis ceiling below the floor, and a malformed policy", async () => {
+    const cases: [Parameters<typeof runResearchPipeline>[0]["roles"], (m: ReturnType<typeof models>) => Partial<Parameters<typeof runResearchPipeline>[0]>][] = [
+      // A 4,096-token role model under a non-default policy: plan's 8,192 would be cut silently, so it is refused even though only extract changed.
+      [rolePolicy(r => { r.extract.maxOutputTokens = [1024, 2048]; }), m => ({ models: { reader: modelOf(m, { maxOutputTokens: 4096 }), planner: modelOf(m, { maxOutputTokens: 4096 }), synthesiser: modelOf(m, { maxOutputTokens: 4096 }) } })],
+      // 1,100 tokens leave floor((1,100 - 1,024) / 1.245) = 61 words, below the 100-word floor.
+      [rolePolicy(r => { r.synthesis.maxOutputTokens = [8192, 1100]; }), () => ({})],
+      [{ ...rolePolicy(), extract: { maxOutputTokens: [0, 2048], thinking: ["disabled", "disabled"], structuredOutput: null } } as unknown as ResearchRolePolicy, () => ({})],
+    ];
+    for (const [roles, extra] of cases) {
+      const m = models(), events: ResearchStageCounts[] = [], result = await run(m, { roles, ...extra(m) }, events);
+      expect(result).toMatchObject({ status: "incomplete", reason: "research_role_policy_invalid" });
+      expect(m.request).not.toHaveBeenCalled(); expect(events).toEqual([]); expect(result.files.map(f => f.path)).toEqual([RESEARCH_FILES.summary]);
+    }
+    // The same 4,096-token models without a card run as they always did: the default policy is never checked.
+    const m = models(), result = await run(m, { models: { reader: modelOf(m, { maxOutputTokens: 4096 }), planner: modelOf(m, { maxOutputTokens: 4096 }), synthesiser: modelOf(m, { maxOutputTokens: 4096 }) } });
+    expect(result.status).toBe("completed");
+  });
+  it("binds the policy into the protocol only when it is not the default: without a card every body, row and hash is byte-identical", async () => {
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY)).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, rolePolicy())).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD)).not.toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, rolePolicy(r => { r.plan.thinking = ["model", "disabled"]; }))).not.toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD));
+    const bare = models(twoAttempts), carded = models(twoAttempts), bareEvents: ResearchStageCounts[] = [], cardEvents: ResearchStageCounts[] = [];
+    const without = await run(bare, {}, bareEvents), withDefault = await run(carded, { roles: rolePolicy() }, cardEvents);
+    expect(carded.calls.map(c => canonical(c.body))).toEqual(bare.calls.map(c => canonical(c.body)));
+    expect(canonical(cardEvents)).toBe(canonical(bareEvents)); expect(canonical(withDefault.files.map(f => [f.path, f.bytes.toString()]))).toBe(canonical(without.files.map(f => [f.path, f.bytes.toString()])));
+  });
+  it("reserves the presentation guard's argument room for the larger of the two synthesis attempts' length caps, whichever attempt carries it", async () => {
+    // 7b.2's shrink corpus with shorter paths: the guard binds under a 5,757-word reserve (8,192 tokens without thinking) and not under
+    // a 1,200-word one (6,000 tokens with thinking).
+    const sources = trimCorpus(24, 900, String.fromCharCode(0x4e2d)).map(s => ({ ...s, bytes: Buffer.from(s.bytes.toString().split("\n").slice(0, 8).join("\n")) }));
+    const packet = async (maxOutputTokens: [number, number], thinking: [string, string]) => {
+      const m = models(everyRow(() => ["Q1"])), events: ResearchStageCounts[] = [];
+      const result = await run(m, { sources, roles: rolePolicy(r => { r.synthesis.maxOutputTokens = maxOutputTokens; r.synthesis.thinking = thinking; }) }, events);
+      expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+      expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
+      return [events[2]!.quotesInPacket, events[2]!.quotesLeftByPresentation];
+    };
+    const largerSecond = await packet([6000, 8192], ["model", "disabled"]), largerFirst = await packet([8192, 6000], ["disabled", "model"]);
+    const bothSmall = await packet([6000, 6000], ["model", "model"]);
+    // The same reserve, 5,757 words, whichever attempt carries the larger cap; two 1,200-word attempts keep the whole 64 KiB prefix.
+    expect(largerSecond).toEqual(largerFirst); expect(bothSmall[1]).toBe(0);
+    expect(largerSecond[0]).toBeLessThan(bothSmall[0]!); expect(largerSecond[1]).toBeGreaterThan(bothSmall[1]!);
+    // Exactly the larger cap, not a sum: two 5,757-word attempts reserve the same room.
+    expect(largerSecond).toEqual(await packet([8192, 8192], ["disabled", "disabled"]));
+    expect(RESEARCH_ROLE_POLICY_APPLICATION.presentationReserve).toBe("larger_attempt_length_cap");
   });
 });

@@ -17,6 +17,7 @@ import { ResearchPlanSchema, ResearchEvidenceSchema, ResearchCoverageSchema, Res
 import { RESEARCH_PLAN_JSON_SCHEMA, RESEARCH_PLAN_DIAGNOSTIC_POLICY, ResearchPlanAttemptSchema, assessResearchPlanReply, buildResearchPlanRepair, type ResearchPlanAttempt, type ResearchPlanRepair } from "./research-plan";
 import { INDEX_LIMITS, assessIndexBatch, assembleIndexEntry, buildLiteralSourceCard, summarizeIndexEntries, parseJsonReply, type IndexSourceAssessment, type IndexBatchAssessment } from "./research-index";
 import { RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, planResearchIndexBatches, researchIndexPreviewEnd, researchMandatoryWorkFits, researchSynthesisLengthCap, researchWordCount, type ResearchSynthesisLengthCap } from "./research-admission";
+import { DEFAULT_RESEARCH_ROLE_POLICY, ResearchRolePolicySchema, nonDefaultRoleParameters, type ResearchRolePolicy } from "./research-roles";
 export { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, type ResearchBudget } from "./research-contract";
 export { ResearchPlanSchema, normalizeQuoteText, locateChunkQuote, locateQuote, researchSourceText, type ResearchPlan } from "./research-coverage";
 export { parseJsonReply } from "./research-index";
@@ -66,9 +67,29 @@ export function researchExtractionUserContent(request: ResearchExtractionRequest
   const line = (keys: readonly (keyof ResearchExtractionRequest)[]) => canonical(Object.fromEntries(keys.map(key => [key, request[key]])));
   return `${line(RESEARCH_EXTRACTION_LAYOUT.stable)}${RESEARCH_EXTRACTION_LAYOUT.separator}${line(RESEARCH_EXTRACTION_LAYOUT.perChunk)}`;
 }
-/** The synthesis length cap under the pipeline's synthesis output cap and thinking (research-admission.ts); the pipeline and the P10 export both use it. */
+/** The synthesis length cap under the default policy's synthesis output cap and thinking (research-admission.ts); the P10 export uses it. */
 export function synthesisLengthCap(brief: string): ResearchSynthesisLengthCap {
   return researchSynthesisLengthCap(brief, { maxOutputTokens: OUTPUT_TOKENS.synthesis, thinking: THINKING.synthesis });
+}
+/**
+ * Item 7a.2 (BL-20261116-1203-research-role-policy-design, finding D6): how a role policy (an adopted serving card's per-role caps
+ * and per-attempt thinking, research-roles.ts) reaches the requests. Attempt 1 is a role's initial call, attempt 2 its repair or
+ * second call; an assist slot never reads the policy; a role whose model is not the owned local shape at zero fee keeps today's
+ * values. Under a non-default policy a cap above its role model's limit, or a synthesis ceiling below the length floor, is refused
+ * before any request. 7b.2's presentation guard reserves room for the larger of the two synthesis attempts' length caps. Bound into
+ * researchProtocolSha256 with the policy, and only when the policy is not the default.
+ */
+export const RESEARCH_ROLE_POLICY_APPLICATION = Object.freeze({ version: 1, attempts: "initial_call_then_repair_or_second_call", assists: "never",
+  appliesTo: "local_vllm_shape_zero_fee_role_models", otherRoles: "default_values", capAboveRoleModel: "refused_not_clamped",
+  synthesisCeilingBelowFloor: "refused", lengthCap: "per_attempt", presentationReserve: "larger_attempt_length_cap", refusal: "research_role_policy_invalid" });
+/**
+ * 7a.2: true when either synthesis attempt's length ceiling (research-admission.ts) falls below the 100-word floor. The ceiling depends
+ * only on the attempt's cap, its thinking and three protocol constants, so the pipeline refuses such a policy before any request and
+ * the headless driver before any output exists.
+ */
+export function researchSynthesisBelowFloor(synthesis: Pick<ResearchRolePolicy["synthesis"], "maxOutputTokens" | "thinking">): boolean {
+  return ([0, 1] as const).some(attempt => researchSynthesisLengthCap("", { maxOutputTokens: synthesis.maxOutputTokens[attempt], thinking: synthesis.thinking[attempt] }).ceilingWords <
+    RESEARCH_SYNTHESIS_LENGTH_POLICY.minimumWords);
 }
 export interface ResearchSource { id: string; path: string; bytes: Buffer }
 export interface ResearchModels { reader: PrivateAgentModel; planner: PrivateAgentModel; synthesiser: PrivateAgentModel }
@@ -88,6 +109,8 @@ export interface ResearchStageCounts {
   quotesMerged?: number;
   /** 7(c): a stage that accepted no attempt and used the host fallback; the synthesis stage's attempts, hash-only. */
   fallback?: "host_plan" | "skeleton"; synthesisAttempts?: ResearchSynthesisAttempt[];
+  /** 7a.2: the synthesis length cap of attempt 2, only when a role policy makes it differ from attempt 1's (lengthCapWords). */
+  secondAttemptLengthCapWords?: number;
   /** 7b.2: plan questions with a verified quote and none in the packet, and the omissions only the presentation guard made (also counted in quotesLeftByCap). */
   questionsTrimmed?: number; quotesLeftByPresentation?: number;
 }
@@ -111,10 +134,16 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
   /** Receives every rejected or truncated settled reply and every kept extraction reply with a drop or a correction (never a denied call); absent, the pipeline is byte-identical. */
   diagnostics?: ResearchDiagnosticsSink;
   /** 7(c): backlog item 10's assist hook (research-assist-contract.ts). Absent, no assist slot fires and every request is as without one. */
-  assists?: ResearchAssists }
+  assists?: ResearchAssists;
+  /** 7a.2: the role policy (an adopted serving card's caps and thinking); absent is DEFAULT_RESEARCH_ROLE_POLICY, and every request is as without one. */
+  roles?: ResearchRolePolicy }
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
-export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET): string {
-  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
+/**
+ * The protocol's digest. 7a.2: a role policy is bound only when nonDefaultRoleParameters finds a value (the predicate the serving-card
+ * reader's fail-closed step shares), so without a card, or under a card whose values are all default, the value is unchanged.
+ */
+export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY): string {
+  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(nonDefaultRoleParameters(roles).length ? { rolePolicy: { roles, application: RESEARCH_ROLE_POLICY_APPLICATION } } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING, limits: LIMITS, indexLimits: INDEX_LIMITS, coveragePolicy: RESEARCH_COVERAGE_POLICY, presentationPolicy: RESEARCH_PRESENTATION_POLICY, planDiagnostics: RESEARCH_PLAN_DIAGNOSTIC_POLICY,
     schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, planAttempt: z.toJSONSchema(ResearchPlanAttemptSchema), synthesisAttempt: z.toJSONSchema(ResearchSynthesisAttemptSchema), evidence: z.toJSONSchema(ResearchEvidenceSchema), coverage: z.toJSONSchema(ResearchCoverageSchema), extraction: z.toJSONSchema(ExtractReplySchema), synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
     schemaVersions: { plan: 2, evidence: 2, coverage: 3, synthesis: 1, seed: 2 }, packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
@@ -308,7 +337,9 @@ export function assessResearchExtractionReply(input: { content: string; truncate
 export async function runResearchPipeline(input: ResearchPipelineInput): Promise<ResearchPipelineOutcome> {
   const parsedBudget = z.object({ indexCalls: z.number().int().min(1).max(24), extractionCalls: z.number().int().min(1).max(40), plannerCalls: z.number().int().min(1).max(2), synthesisCalls: z.number().int().min(1).max(2) }).strict().safeParse(input.budget === undefined ? RESEARCH_PIPELINE_BUDGET : input.budget);
   const budget = parsedBudget.success ? parsedBudget.data : RESEARCH_PIPELINE_BUDGET, stages: ResearchStageCounts[] = [], files = new Map<string, Buffer>();
-  const protocolSha256 = researchProtocolSha256(budget), summary = (): ResearchSummary => ({ version: RESEARCH_PIPELINE_VERSION, protocolSha256, budget, stages });
+  const parsedRoles = input.roles === undefined ? undefined : ResearchRolePolicySchema.safeParse(input.roles);
+  const roles: ResearchRolePolicy = parsedRoles?.success ? parsedRoles.data : DEFAULT_RESEARCH_ROLE_POLICY;
+  const protocolSha256 = researchProtocolSha256(budget, roles), summary = (): ResearchSummary => ({ version: RESEARCH_PIPELINE_VERSION, protocolSha256, budget, stages });
   let coverage: ResearchCoverage | undefined;
   const put = (path: string, value: unknown) => files.set(path, Buffer.from(`${canonical(value)}\n`));
   const finish = (status: "completed" | "incomplete", reason: string): ResearchPipelineOutcome => {
@@ -346,6 +377,21 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     }
   } catch { return finish("incomplete", "research_assists_invalid"); }
   if (!parsedBudget.success) return finish("incomplete", "research_budget_invalid");
+  // 7a.2: the policy each stage sends. A role whose model is not the owned local shape at zero fee (a cloud planner or synthesiser)
+  // keeps today's values: a disabled thinking mode would throw on the Anthropic shape, and a card measures the local server only.
+  // The default policy reads no model configuration at all, so a run without a card sends exactly what it sent before 7a.2.
+  const local = (model: PrivateAgentModel) => { const config = model.config as PrivateAgentModel["config"] | undefined;
+    return config !== undefined && (config.api === undefined || config.api === "vllm") && config.inputUsdPerMillion === 0 && config.outputUsdPerMillion === 0; };
+  const roleModels = { index: input.models.reader, plan: input.models.planner, extract: input.models.reader, synthesis: input.models.synthesiser } as const;
+  const roleNames = Object.keys(roleModels) as (keyof typeof roleModels)[], policySet = nonDefaultRoleParameters(roles).length > 0;
+  const applied: Pick<ResearchRolePolicy, keyof typeof roleModels> = policySet ? Object.fromEntries(roleNames.map(role => [role, local(roleModels[role]) ? roles[role] : DEFAULT_RESEARCH_ROLE_POLICY[role]])) as Pick<ResearchRolePolicy, keyof typeof roleModels> : DEFAULT_RESEARCH_ROLE_POLICY;
+  const lengthCaps = ([0, 1] as const).map(attempt => researchSynthesisLengthCap(input.brief, { maxOutputTokens: applied.synthesis.maxOutputTokens[attempt], thinking: applied.synthesis.thinking[attempt] }));
+  // Under a non-default policy every cap is sent exactly or the run is refused before any request: the model layer would cut a cap
+  // above its role model's limit silently, and a synthesis ceiling below the floor cannot hold an argument (BL-20261109-0334-research-
+  // request-shapes-design). The default policy is never checked, so a run without a card is never refused here.
+  if ((parsedRoles && !parsedRoles.success) || (policySet && (roleNames.some(role => local(roleModels[role]) && applied[role].maxOutputTokens.some(cap => cap > roleModels[role].config.maxOutputTokens)) ||
+      (local(roleModels.synthesis) && researchSynthesisBelowFloor(applied.synthesis)))))
+    return finish("incomplete", "research_role_policy_invalid");
   let inventory: ReturnType<typeof inventoryResearchSources>;
   try { inventory = inventoryResearchSources(input.sources); coverage = { version: 3, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),
     sourceManifestSha256: inventory.sourceManifestSha256, units: deriveBriefUnits(input.brief), sources: inventory.sources, chunks: inventory.chunks, omissions: [], conflictOmissions: [], unresolved: [],
@@ -360,7 +406,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const indexCounts: ResearchStageCounts = { stage: "index", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0, sourcesSkipped: 0, batchesSkipped: 0 };
   const assessments = new Map<string, IndexSourceAssessment>(), attempts = new Map<string, number>(), batchAssessments: IndexBatchAssessment[] = [], deficient: ResearchSource[][] = [];
   const indexBatch = async (batch: ResearchSource[], repair: boolean): Promise<string | undefined> => {
-    const reply = await call(input.models.reader, INDEX_SYSTEM, () => canonical({ sources: batch.map(s => ({ id: s.id, bytes: s.bytes.length, previewTruncated: s.bytes.length > RESEARCH_INDEX_BATCH_BYTES, text: preview(s.bytes) })), repair }), OUTPUT_TOKENS.index, PURPOSES.index, THINKING.index);
+    const attempt = repair ? 1 : 0;
+    const reply = await call(input.models.reader, INDEX_SYSTEM, () => canonical({ sources: batch.map(s => ({ id: s.id, bytes: s.bytes.length, previewTruncated: s.bytes.length > RESEARCH_INDEX_BATCH_BYTES, text: preview(s.bytes) })), repair }), applied.index.maxOutputTokens[attempt], PURPOSES.index, applied.index.thinking[attempt]);
     if ("denied" in reply) return reply.denied;
     settled(indexCounts, reply); if (repair) indexCounts.repairCalls!++; else indexCounts.initialCalls!++;
     const assessed = assessIndexBatch({ content: reply.content, truncated: reply.truncated, expectedSourceIds: batch.map(s => s.id) }); batchAssessments.push(assessed);
@@ -407,7 +454,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     let repair: ResearchPlanRepair | null = null;
     for (let attempt = 0; !plan && attempt < budget.plannerCalls; attempt++) {
       const reply = await call(input.models.planner, PLAN_SYSTEM, () => canonical({ authoritativeSchema: RESEARCH_PLAN_JSON_SCHEMA, brief: input.brief, units: coverage!.units, sourceIndex: indexDocument,
-        mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: budget.extractionCalls, repair }), OUTPUT_TOKENS.plan, PURPOSES.plan, THINKING.plan);
+        mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: budget.extractionCalls, repair }), applied.plan.maxOutputTokens[attempt ? 1 : 0], PURPOSES.plan, applied.plan.thinking[attempt ? 1 : 0]);
       if ("denied" in reply) return reply.denied; settled(planCounts, reply);
       const assessed = assessResearchPlanReply({ content: reply.content, truncated: reply.truncated, ordinal: planCounts.calls, units: coverage!.units, sources: inventory.sources });
       planCounts.planAttempts!.push(assessed.attempt); plan = assessed.plan;
@@ -461,7 +508,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const extract = async (chunk: ResearchCoverage["chunks"][number], repair: boolean): Promise<string | undefined> => {
     const source = ordered.find(s => s.id === chunk.sourceId)!, chunkText = source.bytes.subarray(chunk.startByte, chunk.endByte).toString("utf8");
     const reply = await call(input.models.reader, EXTRACT_SYSTEM, () => researchExtractionUserContent({ ...stablePacket, source: { id: source.id, sha256: chunk.sourceSha256 },
-      chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: repair ? `previous_${chunk.status}; return compact COMPLETE JSON for every question` : null }), OUTPUT_TOKENS.extract, PURPOSES.extract, THINKING.extract);
+      chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: repair ? `previous_${chunk.status}; return compact COMPLETE JSON for every question` : null }), applied.extract.maxOutputTokens[repair ? 1 : 0], PURPOSES.extract, applied.extract.thinking[repair ? 1 : 0]);
     if ("denied" in reply) return reply.denied;
     settled(extractCounts, reply); if (repair) extractCounts.repairCalls!++; else { extractCounts.initialCalls!++; extractCounts.pairsExtracted!++; }
     // Backlog item 4 and 7a.1: the reply's checks (assessResearchExtractionReply). Its reasons, by position only, reach the
@@ -527,15 +574,18 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     return { evidence, omissions, chunks };
   };
   const packetFit = researchLargestFitting(0, verified.length, n => Buffer.byteLength(renderResearchEvidence(evidenceAt(n), plan!)) <= RESEARCH_PACKET_MAX_BYTES) ?? 0;
-  const lengthCap = synthesisLengthCap(input.brief), planBytes = Buffer.from(`${canonical(plan)}\n`);
+  // 7a.2: each synthesis attempt carries the length cap of its own cap and thinking (lengthCaps); without a policy both are today's.
+  const [lengthCap, secondLengthCap] = lengthCaps as [ResearchSynthesisLengthCap, ResearchSynthesisLengthCap], planBytes = Buffer.from(`${canonical(plan)}\n`);
   /**
    * 7b.2's presentation guard, before synthesis: the writer's presentation (research-presentation.ts) as it would stand at completion,
    * with upper bounds for what synthesis adds. The argument is the host skeleton's or 8 bytes per word of the length cap, whichever is
    * larger; the synthesis section lists every packet id under each question, with the longest disposition and the skeleton's markers.
+   * 7a.2: the length cap is the larger of the two attempts' (RESEARCH_ROLE_POLICY_APPLICATION.presentationReserve), so the packet leaves
+   * room for whichever attempt's argument is kept; the two differ only under a role policy.
    */
   const presentationBound = (n: number): number => {
     const candidate = packetAt(n, packetFit), skeleton = hostSkeletonSynthesis(plan!, candidate.evidence);
-    const reserve = lengthCap.words * RESEARCH_TRIM_POLICY.presentation.argumentReserveBytesPerWord;
+    const reserve = Math.max(lengthCap.words, secondLengthCap.words) * RESEARCH_TRIM_POLICY.presentation.argumentReserveBytesPerWord;
     const argument = Buffer.byteLength(JSON.stringify(skeleton.argument)) - 2 >= reserve ? skeleton.argument : "x".repeat(reserve);
     const bound = { ...coverage!, chunks: candidate.chunks, omissions: candidate.omissions, status: "ready", fallbacks: { ...coverage!.fallbacks, synthesis: "skeleton" },
       synthesis: { status: "skeleton", argumentSha256: digest(Buffer.from(argument)), questions: plan!.questions.map(q => ({ questionId: q.id, disposition: "unresolved",
@@ -560,7 +610,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   if (!evidence.quotes.length) return finish("incomplete", "research_no_evidence");
   if (kept === undefined) return finish("incomplete", "research_presentation_too_large");
   const synthesisCounts: ResearchStageCounts = { stage: "synthesise", calls: 0, invalidReplies: 0, usage: zeroUsage(), citationsStripped: 0, argumentBytes: 0,
-    lengthCapWords: lengthCap.words, ...(lengthCap.briefWordLimit !== undefined ? { briefWordLimit: lengthCap.briefWordLimit } : {}), argumentWords: 0, headingsNormalised: 0, synthesisAttempts: [] };
+    lengthCapWords: lengthCap.words, ...(lengthCap.briefWordLimit !== undefined ? { briefWordLimit: lengthCap.briefWordLimit } : {}),
+    ...(secondLengthCap.words !== lengthCap.words ? { secondAttemptLengthCapWords: secondLengthCap.words } : {}), argumentWords: 0, headingsNormalised: 0, synthesisAttempts: [] };
   let argument: string | undefined;
   /** The presentation's exact bytes with this argument and these synthesis questions: the coverage as finish() would write it. */
   const presentationWith = (text: string, synthesisQuestions: ResearchCoverage["synthesis"]["questions"]) => researchPresentationBytes([{ path: RESEARCH_FILES.argument, bytes: Buffer.from(text) },
@@ -608,8 +659,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // The stage attempts; after an assist the first starts fresh, without a repair reason.
   const synthesisStage = async (): Promise<string | undefined> => {
     for (let attempt = 0; argument === undefined && attempt < budget.synthesisCalls; attempt++) {
-      const reply = await call(input.models.synthesiser, SYNTHESIS_SYSTEM, () => canonical({ brief: input.brief, units: coverage!.units, plan, evidence, coverage, lengthCap: { words: lengthCap.words },
-        repairReason: attempt ? "previous_synthesis_incomplete_or_invalid; return complete concise structure with both sections" : null }), OUTPUT_TOKENS.synthesis, PURPOSES.synthesis, THINKING.synthesis);
+      const reply = await call(input.models.synthesiser, SYNTHESIS_SYSTEM, () => canonical({ brief: input.brief, units: coverage!.units, plan, evidence, coverage, lengthCap: { words: lengthCaps[attempt ? 1 : 0]!.words },
+        repairReason: attempt ? "previous_synthesis_incomplete_or_invalid; return complete concise structure with both sections" : null }), applied.synthesis.maxOutputTokens[attempt ? 1 : 0], PURPOSES.synthesis, applied.synthesis.thinking[attempt ? 1 : 0]);
       if ("denied" in reply) return reply.denied; settled(synthesisCounts, reply);
       conclude(reply, judge(reply, packetIds), PURPOSES.synthesis);
     }

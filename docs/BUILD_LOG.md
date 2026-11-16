@@ -47817,3 +47817,113 @@ Paid exposure: None.
 Next gate: The owner's go for this pull request. Then the owner's answers to the questions the section lists, which gate E5, E2, E6, E3 and the serving card's adoption.
 
 References: docs/HANDOFF.md; BL-20261115-1112-handoff-start-here-restated; BL-20261116-1357-e0-verified; BL-20261116-1356-e0-extractor-fixture-result; BL-20261116-1441-e0-card-amendment-4; BL-20261116-1546-e0-structured-fixtures-result; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0812-correction-owner-defaults-review; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-1331-correction-local-fanout-skeptic-followups; BL-20261116-1431-correction-run-row-card-and-doctor-sources-restamp; BL-20261116-1539-correction-e0-planner-fixture-salt-pin; pull requests #113 to #131.
+
+### BL-20261116-1636-e0-amendment-4-runs-verified -- 2026-11-16 -- Amendment 4's two fixture runs verified: an independent recomputation of every figure in BL-20261116-1546 and its two rows from the runs' own records found no mismatch
+
+Status: `Verified`
+
+Scope or hypothesis: E0 card Amendment 4, item 8, and the Next gate of BL-20261116-1546-e0-structured-fixtures-result ask for a later entry that says whether the amendment's two runs are verified. This is that entry.
+
+- **What `Verified` covers.** One thing: the two rowed runs happened as BL-20261116-1546 records, and its figures and both registry rows are a correct transcription of the runs' own records.
+- **What it rests on.** One read-only verifier, independent of the entry's author and of its pre-commit reviewers, recomputed every figure from the two summaries after the entry was on `main`.
+- **What it does not cover.** The readings in decisions 2 to 5 of that entry, which stay the session's. What the session states and no file retains (decision 2). Product quality, and anything about the serving card.
+
+Decisions:
+1. **The two runs are verified, in that sense.** Every figure in the entry and in both rows recomputes from the runs' records, and both runs meet every condition of the amendment's item 7 and item 6.
+2. **Stated by the session and not recomputable.** These stand on BL-20261116-1546's own account:
+   - the doctor's two runs, that they were read-only, and what they reported;
+   - what each dry run printed, and that each run's command line was its dry run's without `--dry-run`;
+   - that the main checkout was at 7e75a47 with a clean tracked tree. The rows' `git` is the commit each row was written at, and neither summary records a commit. The request digests equal the amendment's fixed values, and the fixture scripts, the manifests and the protocol pin are unchanged between 7e75a47 and `main`, so the commit is supported only indirectly;
+   - that the planner's calls were unstreamed and shared one salt. The planner's summary records neither, only the request digests;
+   - that the session sent nothing else to the endpoint during either run.
+3. **What the recomputation does not show.** It shows the record is consistent and correctly transcribed. It does not show that the request bodies were what the digests are said to bind. For that the record has the two dry runs, which the session read and no file retains.
+4. **Three notes on BL-20261116-1546,** none a mismatch:
+   - **The planner's start.** Its summary records 14:54:19.965 UTC. The entry's 14:54:19 is that time truncated.
+   - **USD 0** on both rows is the row writer's fixed value for a run sent to the owned endpoint outside the broker. No summary records a cost.
+   - **#129's CI.** The entry says the session re-ran the cancelled job once. That re-run was cancelled the same way before the entry's commit, and a third attempt after it. Decision 3 of BL-20261116-1600-handoff-start-here-restated records how #129 reached `main`.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The verifier** worked in the main checkout at 7ef19ea, read-only. It read numbers, enums, digests and field names from the two summaries, and opened no reply file.
+- **The extractor run.** It recomputed the times and duration, `dryRun`, the manifest digest, the call count, the protocol hash, both request-set digests, the statuses and finish reasons, the classes by condition and by chunk, the calls and instances that carry `schema_too_big`, the held replies' reason codes, the replies kept with a reason, the largest completion-token count, the elapsed totals and the cached tokens. All match.
+- **The planner run.** It recomputed the times and duration, the conditions, repeats and call count, the protocol hash, the three request digests, the caps, the call order, the classes, the empty truncations and those with content, the prompt and cached tokens, the completion-token sums, the reasoning tokens of the empty truncations, the median and longest elapsed, the tokens per second, and the valid plans' tokens in the 16,384 cell. All match.
+- **The exact tests.** It implemented Fisher's test itself in exact arithmetic and recomputed all eight p values the entry and the rows state, and the amendment's thresholds. All match; the held comparison is 0.0575.
+- **The comparisons with the first runs.** The extractor control's 30 request digests equal the first run's, call by call. The class counts the entry compares match.
+- **The rows.** It regenerated both rows with the repository's own writer as it stood at 7e75a47, from each summary and the row's own arguments. Each regenerated line equals the committed line byte for byte. Each row's `fixture.sha256` equals the sha256 of its summary file. Neither row holds a path, an address, an account name or a model alias.
+- **The reply files,** listed and not opened: 60 and 30 regular files, all mode 0600, with the names and sizes the summaries record.
+- **From git and GitHub:** the amendment's commit daab44e at 14:41:24 UTC, pull request #129 opened with that head at 14:41:30 UTC, and the extractor's first request at 14:42:05 UTC. So the amendment was pushed before the first request.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **One verifier.** No skeptic checked its report.
+- **The session's own statements** in decision 2 are not verified by anything here.
+- **No reading is verified.** Whether a difference is "shown" follows from the counts and the amendment's rule, and the p values recompute. What the counts mean for the serving card is the owner's call.
+- **No product claim.**
+
+Paid exposure: None.
+
+Next gate: None for these two runs. The owner's calls on the serving card stand as BL-20261116-1546-e0-structured-fixtures-result lists them.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendment 4, items 5 to 8); docs/experiments/registry.jsonl; scripts/registry-row.py; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1441-e0-card-amendment-4; BL-20261116-1357-e0-verified; BL-20261116-1600-handoff-start-here-restated; pull requests #129 and #131.
+
+### BL-20261116-1637-correction-handoff-start-here-final-check -- 2026-11-16 -- Correction to BL-20261116-1600-handoff-start-here-restated and BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution: the final check of pull request #132, with the adoption question's state, one record the reading left out, and what was written after the first review
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the final check of pull request #132 at 45301a2 and its fixes. Two read-only reviewers checked the section as committed and the two entries, and a skeptic tried to refute the one major finding and could not. The two entries stay as written. Where this entry differs from either, this entry governs. The section, docs/HANDOFF.md "Start here", is corrected in place, since it is a current-state document and not a log.
+
+Decisions:
+1. **The adoption question's state** (the major finding). The section said two incompatible things: "In brief" told the next session to put the serving card's adoption to the owner, and §4 and §5 said it had been put.
+   - **What happened.** After the two runs, the session rewrote question 6 of its git-ignored owner-facing summary around the results, and added questions 13 to 15: whether the serving card is adopted and when; whether the reader should refuse a flagged card at K above 1 until a burst is measured with `response_format`; and whether the session may merge a handoff restatement on a clean review and green CI.
+   - **How they were put.** The session sent the updated summary to the owner as a file in its chat on 2026-11-16 at 15:48 UTC, and stated its recommendation on question 6 there. None of the fifteen questions is answered at this entry's time.
+   - **Not put yet:** whether E0 shows a role-level gap.
+   - **The fix.** "In brief" now says to ask the owner for the two answers, and §4 and §5 cite this entry. This is a fourth fact of 2026-11-16 that no entry held, beside the three in decision 3 of BL-20261116-1600-handoff-start-here-restated.
+2. **Decision 1 of BL-20261116-1600 left out one record.** It said what is left of E0 is the serving card's adoption. Amendment 4's item 8, and step 4 of the Next gate of BL-20261116-1546-e0-structured-fixtures-result, also asked for an entry that says whether the amendment's two runs are verified.
+   - That entry is BL-20261116-1636-e0-amendment-4-runs-verified, in this pull request. An independent verifier recomputed every figure of the committed record and found no mismatch.
+   - So the reading stands with one addition: Amendment 4's two runs are verified, and what is left of E0 is the adoption.
+3. **#129 reached `main` on #130's green run, not on one of its own.**
+   - No attempt of #129's CI finished green. Its third attempt was cancelled the same way as the first two, at 16:03:15 UTC, after #130 had carried its commit to `main`. So the job was cancelled four times that day while it waited for a macOS runner: `main`'s run at 100e00a and all three attempts of #129's run.
+   - The merge go for E0 record pull requests asks for green CI (decision 3 of BL-20261116-0814-e0-card-amendment-1). That #130's run, at a head containing #129's commit, meets it is the session's reading. The owner may replace it.
+4. **What was written after the first review** is more than BL-20261116-1600's Evidence lists. Beside the merges of #126 to #131, the two runs' results and the source-freeze digest, the session added:
+   - the three questions added to the owner's summary and what was put to the owner (§4, §5 step 2);
+   - what the two results leave open for the plan cap, and a schema-export option as possible lane work (§4, §5 step 2);
+   - the practice of stating a reading rule before a run (§6);
+   - the cancelled electron-e2e jobs (§7).
+
+   The final check covered all of these.
+5. **Smaller corrections to the section:**
+   - The electron-e2e record: three reruns passed, and two failures were never rerun, #104's at 7eb5499 and `main`'s at 42b36e7.
+   - The results passage adds held replies, 3 and 10 (p = 0.057), and says what the 16,384 cell's one empty truncation is compared with.
+   - Topic 1 quotes the owner's words, "keep continue the experiments".
+   - The lane-work bullet no longer lists, as needing no owner answer, a schema-export option that waits for one. It adds lane S-pipe's three small points.
+   - §2 says issue #57's resolution predates Amendment 4's two runs.
+   - docs/README.md and docs/PLAN.md pointed to "Start here (2026-11-07)". Both now point to "Start here", with no date.
+6. **Smaller corrections to the two entries:**
+   - **BL-20261116-1600, Limitations.** Of the two git-ignored files the section names, the lane plan's is carried forward from the earlier section. The summary's file name is the session's own of 2026-11-16, and no reviewer opened either.
+   - **BL-20261116-1600, References.** The twenty-three merged pull requests are #102, #103, #108, #110 and #113 to #131.
+   - **BL-20261116-1559, Evidence.** The reviewer's seven further edits were all killed. One more, a change to the literal of `FIXTURE_JOB_ID`, passed all eleven tests, as that entry's decision 4 says.
+
+Changes:
+- docs/HANDOFF.md: the "Start here" section, as decisions 1 to 5 say.
+- docs/README.md and docs/PLAN.md: one pointer each.
+- docs/BUILD_LOG.md: this entry, after BL-20261116-1636-e0-amendment-4-runs-verified.
+
+Evidence:
+- **The check** ran three read-only agents on pull request #132 at 45301a2: two reviewers and one skeptic. It found one major issue, seven minor and twelve nits.
+- **What the reviewers found correct:** every pull request number, merge commit and date in the merge table; every count and p in the results passage against BL-20261116-1546-e0-structured-fixtures-result; the source-freeze digest, which one reviewer recomputed with the repository's own function; the twelve topics against decision 5 of BL-20261116-1131-owner-directions-merge-and-continue; that every entry ID the section names exists in the log, apart from the one on draft #86; and the privacy of the section and both entries.
+- **#129's third attempt** was read from GitHub: the job started at 15:48:15 UTC and was cancelled at 16:03:15 UTC with no step run.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **The owner's summary is git-ignored.** No reviewer opened it, so what it says is the session's own account.
+- **The fixes of this entry were not reviewed again.** They are the reviewers' replacement texts, applied by the session.
+
+Paid exposure: None.
+
+Next gate: The owner's go for pull request #132.
+
+References: docs/HANDOFF.md; docs/README.md; docs/PLAN.md; BL-20261116-1600-handoff-start-here-restated; BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1441-e0-card-amendment-4; BL-20261116-1357-e0-verified; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1636-e0-amendment-4-runs-verified; pull requests #129, #130 and #132.

@@ -14,13 +14,15 @@ role.
   exists for E5, E2, E6, E3 or E4, and each waits for an owner answer (§4).
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5
   origin/main` and the log's tail (`grep -n '^### BL-' docs/BUILD_LOG.md | tail -5`).
-  Ask the owner which of the twelve questions (§4) now has an answer. Record each answer
-  in an `Approved` entry, quoted, before acting on it.
-- **Second,** put the serving card's adoption to the owner with Amendment 4's two
-  results (§5 step 2).
+  Ask the owner which of the fifteen questions (§4: the twelve topics and questions 13
+  to 15) now has an answer. Record each answer in an `Approved` entry, quoted, before
+  acting on it.
+- **Second,** ask the owner for the serving card's two answers: whether it is adopted,
+  and with which planner settings. Both were put on 2026-11-16 with Amendment 4's two
+  results, as questions 6 and 13 of the summary, and neither is answered (§5 step 2).
 - **Third,** do the work that needs no owner answer: lane pull requests under the
-  standing go-ahead, and the E5, E2 and E6 cards as `Proposed` drafts with every open
-  value marked.
+  standing go-ahead, and the E5, E2 and E6 cards as `Proposed` drafts with every
+  open value marked.
 - **Not without the owner:** a run in E5, E2, E6, E3 or E4; a card value with no sourced
   default; merging an experiment's card or the adoption commit; K above 1; the three
   Docker-gated suites not yet run; #105's residues; anything paid beyond an approved
@@ -120,7 +122,8 @@ tests/helpers/research-protocol-pin.ts.
      BL-20261107-0718-correction-owner-decisions-record: what is approved and what
      gates each experiment.
 4. E0's card with its four amendments (docs/experiments/e0-card-2026-11-13.md), the
-   serving card (docs/experiments/serving-card-2026-11-16.md and .json) and issue #57.
+   serving card (docs/experiments/serving-card-2026-11-16.md and .json) and issue #57,
+   whose resolution predates Amendment 4's two runs.
 
 ### 3. Decided
 
@@ -267,14 +270,15 @@ of BL-20261115-1937-owner-adopts-standing-defaults).
 **The twelve owner questions of 2026-11-16.** None is answered. They are in the
 git-ignored `.soar/next-milestones/owner-questions-2026-11-16.md` of the owner's
 checkout, which the session updated after the two runs and which now holds three more
-(below the table); decision 5 of BL-20261116-1131-owner-directions-merge-and-continue lists the
-topics. The finer wording below is the summary's, which the log does not hold. Train
+(below the table); decision 5 of BL-20261116-1131-owner-directions-merge-and-continue
+lists the topics. The finer wording below is the summary's, which the log does not
+hold. Train
 1's list and the summary of 2026-11-15 are git-ignored there too; the blanket answer
 covered the summary's defaulted questions.
 
 | Topic | Blocks |
 | --- | --- |
-| 1. How far "keep continuing the experiments" reaches for card values with no default | Whether the session may fill such values in E5's, E2's and E6's cards |
+| 1. How far the second direction of 2026-11-16 ("keep continue the experiments") reaches for card values with no default | Whether the session may fill such values in E5's, E2's and E6's cards |
 | 2. E5: which build, the row conventions, what "3 of 5" counts, the stop rule, how a job that never submits is recorded | E5's card and its start |
 | 3. E2's card values, with writer-2's bound, which E0's card does not give | E2's card (#62) |
 | 4. E6's card values and its planted-defect scorer | E6's card (#54) |
@@ -289,8 +293,10 @@ covered the summary's defaulted questions.
 
 Added to the summary after the two runs, as its questions 13 to 15, with question 6
 rewritten around the results: whether the serving card is adopted and with which
-planner settings (put to the owner on 2026-11-16 as questions 6 and 13 of the updated summary; not answered, and no entry records them yet); whether the reader should refuse a flagged card at K above 1 until a
-burst is measured with `response_format`, the choice lane S-assist left open
+planner settings (put to the owner on 2026-11-16 as questions 6 and 13 of the updated
+summary, and not answered; BL-20261116-1637-correction-handoff-start-here-final-check
+records that they were put); whether the reader should refuse a flagged card at K above
+1 until a burst is measured with `response_format`, the choice lane S-assist left open
 (BL-20261116-1331-correction-local-fanout-skeptic-followups); and whether the session
 may merge a handoff restatement on a clean review and green CI. The first blocks the
 adoption commit. Not put to the owner yet: whether E0 shows a role-level gap (Next
@@ -310,10 +316,12 @@ gate, step 7, of BL-20261116-1357-e0-verified).
     also edits this section, so it resolves that conflict and re-stamps at merge. §7
     notes its entry.
 - **Lane work that needs no owner answer:** 7b.3 (card-derived admission), not started,
-  with no blocker named in any entry now that 7a.2, item 9 and 8.2b are merged. A
-  schema-export option for a P10 plan cell at 16,384 tokens would be new lane work, and
-  it waits for the owner's answer on the planner's settings (topic 6). Blocked: 10.b
-  and RA, behind #105 (topic 7).
+  with no blocker named in any entry now that 7a.2, item 9 and 8.2b are merged; and lane
+  S-pipe's three small points from #130's review (decision 4 of
+  BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution).
+- **Waiting on topic 6:** a schema-export option for a P10 plan cell at 16,384 tokens,
+  which would be new lane work.
+- **Blocked:** 10.b and RA, behind #105 (topic 7).
 
 ### 5. Act next, in this order
 
@@ -338,7 +346,8 @@ Follow the order in review §5.6. Each step is done when its condition holds.
      card derives no writer, judge, critique or repair bound (decision 2). E2's and
      E6's cards still need a writer bound that E0 does not give (step 5). What is left
      of E0 is the adoption below, which waits for the owner; drafting the next cards
-     does not wait on it.
+     does not wait on it. Amendment 4's two runs are verified
+     (BL-20261116-1636-e0-amendment-4-runs-verified).
    - **The second done condition is met:** #57's resolution, posted on 2026-11-16 as a
      comment on the issue, records that the judge did not reach its level.
    - **Amendment 4's two runs** (pull request #129; BL-20261116-1441-e0-card-amendment-4):
@@ -349,10 +358,12 @@ Follow the order in review §5.6. Each step is done when its condition holds.
        90 calls were answered, and no planner call met the client's 300 s limit.
      - **Extractor:** the format removed `schema_too_big` on the fixture's chunks, 7 of
        30 calls to 0, a shown difference (Fisher's exact test, p = 0.011). No other
-       difference is shown: complete first attempts were 8 and 12 of 30.
+       difference is shown: complete first attempts were 8 and 12 of 30, and held
+       replies 3 and 10 (p = 0.057).
      - **Planner, registered questions:** no difference is shown. At 8,192 tokens the
        plan call gave 4 valid plans of 10 without the format and 3 with it, with 4 and
-       5 empty truncations. At 16,384 it gave 1 empty truncation.
+       5 empty truncations. At 16,384 with the format it gave 1 empty truncation,
+       against 5 at 8,192 (p = 0.14).
      - **Planner, post hoc:** with the format at 16,384 tokens, 9 plans of 10 were
        valid. The comparison was chosen after the counts were seen, the cell is a
        calibration cell no card can send today, and 16,384 without the format was not
@@ -361,11 +372,13 @@ Follow the order in review §5.6. Each step is done when its condition holds.
        plan cap at 8,192 tokens, where the planner failed 6 and 7 times in 10. A
        flagged plan call at 16,384 needs a P10 cell measured at that cap, which the
        schema export cannot build today.
-   - **What BL-20261116-1357's Next gate still leaves,** in the order the session takes
-     them. All wait for the owner:
+   - **What the Next gates of BL-20261116-1357 and BL-20261116-1546 still leave,** in the
+     order the session takes them. All wait for the owner:
      1. The owner's calls on the serving card: the planner's settings (topic 6 of §4),
         whether adoption waits for anything more, and whether the card is adopted as
-        written (put to the owner on 2026-11-16 as questions 6 and 13 of the updated summary; not answered, and no entry records them yet).
+        written. They were put to the owner on 2026-11-16 as questions 6 and 13 of the
+        updated summary and are not answered
+        (BL-20261116-1637-correction-handoff-start-here-final-check).
      2. The adoption commit, in its own reviewed pull request, merged on the owner's
         own go. It sets `decision` in docs/experiments/serving-card-2026-11-16.json to
         `adopted`, with BL-20261116-1357-e0-verified as its entry. A reviewer checks
@@ -535,8 +548,8 @@ the session's choice, and no entry records it.
 
 ### 7. Known limits
 
-- **What is `Verified` among the entries dated 2026-11-08 or later:** three entries,
-  each of narrow scope. Amendment 4's two runs are `Implemented`, not `Verified`.
+- **What is `Verified` among the entries dated 2026-11-08 or later:** four entries,
+  each of narrow scope.
   - In CI only: E1's four gate clauses
     (BL-20261114-2306-e1-recoverability-gate-ci-verified).
   - Against Docker on the owner's Mac, with no model request: E1-L's sandbox suite, 18
@@ -547,6 +560,9 @@ the session's choice, and no entry records it.
     the one paid labelling request. Reviewers recomputed the figures from the runs'
     records, with the one exception that entry names. It does not cover the card's
     hypothesis, product quality, the serving card's adoption or Amendment 4's two runs.
+  - Amendment 4's two runs: a read-only verifier recomputed the committed entry's and
+    rows' figures from the two summaries (BL-20261116-1636-e0-amendment-4-runs-verified).
+    That covers the runs and their measurements, not the readings.
 - **No other work merged since then is `Verified`.** The code is `Implemented` on
   offline tests, 7b.2, 7a.2, item 9, 8.2b and 7d.D included. No run under an adopted
   card exists. K above 1 stays `Implemented` until the owner's zero-fee run (ASSIST-S4).
@@ -580,10 +596,12 @@ the session's choice, and no entry records it.
   log; its re-stamp correction will record the ID they cite.
 - **The electron-e2e job** has failed five times, each time with the Git-review test
   (tests/e2e/electron.spec.ts:510): three on 2026-11-14 and two on 2026-11-16, the last
-  two on GitHub only. Every rerun passed; `main`'s run at 42b36e7 was never rerun.
-  - Separately, on 2026-11-16 the job was cancelled three times by its 15-minute
+  two on GitHub only. Three reruns passed. Two failures were never rerun: #104's at
+  7eb5499 and `main`'s at 42b36e7.
+  - Separately, on 2026-11-16 the job was cancelled four times by its 15-minute
     timeout while it waited for a macOS runner, with no step run: `main`'s run at
-    100e00a and #129's first two attempts. That is not a test failure. Re-run the job.
+    100e00a, never re-run, and all three attempts of #129's run at daab44e. That is
+    not a test failure. Re-run the job.
 - **E0's limits that later experiments inherit** (Limitations of
   BL-20261116-1357-e0-verified):
   - One endpoint, two days and one accepted run of all twelve probes: its rates and
@@ -594,8 +612,9 @@ the session's choice, and no entry records it.
     prompts, exact native-token admission under `flash_next_v1`, and synthesis on a real
     packet.
   - The planner and the extractor with `response_format`: measured once each, on one
-    exposed index and three synthetic chunks, first attempts only (BL-20261116-1546-e0-structured-fixtures-result). The
-    planner's cells hold 10 calls, sent unstreamed.
+    exposed index and three synthetic chunks, first attempts only
+    (BL-20261116-1546-e0-structured-fixtures-result). The planner's cells hold 10 calls,
+    sent unstreamed.
   - Four of five r3 runs ended `research_extraction_incomplete`, and the planner's
     first reply was truncated with no content in all five.
   - P9: the server answered a request whose prompt plus `max_tokens` exceeded the

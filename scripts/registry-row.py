@@ -1618,6 +1618,28 @@ def probe_requests(name: str, record):
         (1 if isinstance(tokenize, dict) and "chat_status" in tokenize else 0)
 
 
+def transport_failed(value) -> bool:
+    """Whether a probe record shows a transport failure anywhere in it (BL-20261116-1033-serving-probe-direct-transport-design, decision (5)): a POST's
+    transport_error (status -1), a stream's error naming an exception class (an HTTP error code is the server's answer), a status of -1 or
+    one naming an exception class (a GET's, or a P11 cache-layout row's), a P11 K burst whose transport_errors count is above 0 (its
+    errors count also counts a stream that reported no usage or no elapsed time, so it is not read), or a stream that
+    answered 200 and ended with no finish reason (a P10 call classed stream_ended_early, or a stream's own record). P6's deliberate abort
+    is recorded as aborted_after_s and is none of these."""
+    if isinstance(value, list):
+        return any(transport_failed(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    if "transport_error" in value or isinstance(value.get("error"), str) or value.get("classification") == "stream_ended_early":
+        return True
+    if any((key == "status" or key.endswith("_status")) and not isinstance(item, bool) and (item == -1 or isinstance(item, str)) for key, item in value.items()):
+        return True
+    if isinstance(value.get("transport_errors"), int) and not isinstance(value["transport_errors"], bool) and value["transport_errors"] > 0:
+        return True
+    if "chunks" in value and value.get("status") == 200 and "finish_reason" in value and value["finish_reason"] is None:
+        return True
+    return any(transport_failed(item) for item in value.values())
+
+
 def probe_names(probe: dict, key: str) -> list:
     value = probe.get(key)
     if not isinstance(value, list) or not all(isinstance(name, str) and name in PROBE_NAMES for name in value) or len(set(value)) != len(value):
@@ -1653,6 +1675,8 @@ def probe_row(args) -> dict:
             usage["calls"] += 1
             usage["inputTokens"] += tokens[0]
             usage["outputTokens"] += tokens[1]
+    # P8 measures whether a long non-streaming request survives, so its own cut connection is its finding, not a transport failure.
+    transport = [name for name in PROBE_NAMES if name in ran and name != "P8" and transport_failed(probe.get(name))]
     roles = probe.get("roles")
     protocol = roles.get("protocol_sha256") if isinstance(roles, dict) else None
     if protocol is not None and not is_digest(protocol):
@@ -1685,7 +1709,7 @@ def probe_row(args) -> dict:
             "probe": {"version": PROBE_VERSION, "sha256": hashlib.sha256(raw).hexdigest(), "protocolSha256": protocol, "selected": selected, "run": ran,
                       "skipped": skipped, "failed": {name: error if error in PROBE_FAILURE_CLASSES else "other" for name, error in sorted(failed.items())},
                       "finished": finished is not None, "assessed": assessed, "schemasProtocolMatch": protocol_match, "calls": calls,
-                      "usage": usage}}
+                      "usage": usage, "transportFailures": transport}}
 
 
 def fixture_usage(calls: list) -> dict:
@@ -2042,6 +2066,8 @@ def check_e0_outcome(outcome, row: dict) -> None:
             sys.exit("the probe run did not finish (probe.json has no finished_utc): --outcome accepted is refused")
         if probe.get("failed"):
             sys.exit(f"probes failed ({', '.join(sorted(probe['failed']))}): --outcome accepted is refused")
+        if probe.get("transportFailures"):
+            sys.exit(f"probe records show a transport failure ({', '.join(probe['transportFailures'])}): --outcome accepted is refused")
         if probe.get("assessed") is False:
             sys.exit("P10 has not been assessed: run pnpm probe:assess on probe.json first, or record another outcome")
         if probe.get("schemasProtocolMatch") is False:

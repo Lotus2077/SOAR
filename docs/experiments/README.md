@@ -274,14 +274,32 @@ after `pnpm probe:assess`.
     built-in exceptions and the probe's library classes), else `other`;
   - `finished`;
   - `assessed`, and `schemasProtocolMatch` from the assessment, both null without P10;
-  - `calls` per probe, and `usage`.
+  - `calls` per probe, and `usage`;
+  - `transportFailures`: the probes, in the probe order, whose records show a transport
+    failure (BL-20261116-1033-serving-probe-direct-transport-design):
+    - a POST's `transport_error`, recorded with status -1;
+    - a stream's `error` naming an exception class (a stream's HTTP error code is the
+      server's answer);
+    - a status of -1, as a GET records (P1's `models_status` and `version_status`, the
+      adapter's `/openapi.json` status and `chat_status`), or one naming an exception
+      class, as a P11 cache-layout row records;
+    - a P11 K burst whose `transport_errors` count is above 0. The probe records that count
+      from this change on. A burst's `errors` count also counts a stream that reported no
+      usage or no elapsed time, so the writer does not read it.
+    - a stream that answered 200 and ended with no finish reason: a P10 call classed
+      `stream_ended_early`, or a stream's own record.
+
+    P8 is never listed: its long request ending in a cut connection is what it measures.
+    P6's deliberate abort is recorded as `aborted_after_s`, which is none of these.
 - **`terminalCause`:** `probe_finished`, or `probe_unfinished` when probe.json has no
   `finished_utc`.
 - **Outcome:** `--outcome accepted` is refused when:
   - the run did not finish;
   - a probe failed;
   - P10 is unassessed;
-  - P10 was assessed under another research protocol than its export's.
+  - P10 was assessed under another research protocol than its export's;
+  - `transportFailures` is not empty. Rows that #117's writer wrote carry no
+    `transportFailures`, so `--supersedes` cannot repeat this refusal for them.
 
 **`--fixture-dir DIR --fixture planner|judge|extractor`** reads `summary.json`
 (scripts/planner-fixture.ts, scripts/judge-fixture.ts, and lane S-pipe's

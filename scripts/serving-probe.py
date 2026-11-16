@@ -4,7 +4,8 @@
 Reads SOAR_VLLM_BASE_URL (and the optional SOAR_VLLM_API_KEY, SOAR_VLLM_MODEL,
 SOAR_VLLM_COST_POLICY and SOAR_ALLOW_INSECURE_VLLM_HTTP) from the environment or from
 the repository's ignored .env.local, and only when run: nothing reads the environment
-at import, so the pure helpers can be imported without an endpoint. The address and
+at import, so the pure helpers can be imported without an endpoint. Requests go straight
+to the endpoint: no proxy from the environment or the system settings is used. The address and
 the key are never printed or stored. Server error bodies are stored as status, length
 and sha256 only. The probe JSON and the retained P10 replies go under the ignored
 .soar/experiments/serving-probe-<ts>/ and the printed summary carries no address.
@@ -59,7 +60,8 @@ P10_MODES = ("on", "off")
 # P10-align (BL-20261113-1011-p10-align-design): the export version that carries the pipeline's request bodies.
 P10_EXPORT_VERSION = 2
 P10_SCHEMA_NAMES = {"plan": "research_plan", "extract": "research_extraction", "synthesis": "research_synthesis"}
-P10_CLASSES = ("request_rejected", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed")
+# BL-20261116-1033-serving-probe-direct-transport-design (2): a streamed reply that ended with no finish reason is stream_ended_early, not invalid_json.
+P10_CLASSES = ("request_rejected", "stream_ended_early", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed")
 P11_SIZES = (20_000, 60_000, 120_000)
 P11_MAX_TOKENS = 300
 P11_KS = (1, 2, 4, 8)
@@ -296,10 +298,14 @@ def parse_json_reply(content: Optional[str]) -> Optional[Any]:
         return None
 
 
-def classify_reply(status: int, finish_reason: Optional[str], content: Optional[str], assessment: Optional[str] = None) -> str:
-    """P10 order: request_rejected, truncated, invalid_json, then the schema verdict (assessed in TypeScript)."""
+def classify_reply(status: int, finish_reason: Optional[str], content: Optional[str], assessment: Optional[str] = None,
+                   streamed: bool = False) -> str:
+    """P10 order: request_rejected, stream_ended_early (a streamed reply that ended with no finish reason: its connection closed
+    before the server finished), truncated, invalid_json, then the schema verdict (assessed in TypeScript)."""
     if status != 200:
         return "request_rejected"
+    if streamed and finish_reason is None:
+        return "stream_ended_early"
     if finish_reason == "length":
         return "truncated"
     if parse_json_reply(content) is None:
@@ -345,12 +351,15 @@ def summarize_cell(calls: List[Dict[str, Any]], thinking: str) -> Dict[str, Any]
 
 
 def aggregate_streams(results: Sequence[Dict[str, Any]], running_samples: Sequence[Optional[float]]) -> Dict[str, Any]:
-    """Per-K view of a burst: per-stream decode, aggregate tokens/s over the burst's wall time, load during it."""
+    """Per-K view of a burst: per-stream decode, aggregate tokens/s over the burst's wall time, load during it. `errors` counts every
+    stream without usage or elapsed time; `transport_errors` only those that failed at transport: an exception, or a stream that
+    answered 200 and ended with no finish reason (BL-20261116-1033-serving-probe-direct-transport-design)."""
     ok = [r for r in results if "error" not in r and r.get("completion_tokens") and r.get("total_s")]
     decode = [r["decode_tok_s"] for r in ok if r.get("decode_tok_s") is not None]
     ttft = [r["ttft_s"] for r in ok if r.get("ttft_s") is not None]
     load = [s for s in running_samples if s is not None]
-    return {"streams": len(results), "errors": len(results) - len(ok),
+    transport = sum(1 for r in results if isinstance(r.get("error"), str) or (r.get("status") == 200 and r.get("finish_reason") is None))
+    return {"streams": len(results), "errors": len(results) - len(ok), "transport_errors": transport,
             "per_stream_decode_tok_s": decode, "median_decode_tok_s": round(statistics.median(decode), 2) if decode else None,
             "aggregate_tok_s": round(sum(r["completion_tokens"] for r in ok) / max(r["total_s"] for r in ok), 2) if ok else None,
             "max_ttft_s": round(max(ttft), 3) if ttft else None, "max_total_s": round(max(r["total_s"] for r in ok), 2) if ok else None,
@@ -481,6 +490,11 @@ def strip_reasoning_fields(raw: bytes) -> bytes:
 
 # --- endpoint access (the only place the address is used; never returned or printed) ---------------------------
 
+# Every request goes straight to the endpoint (BL-20261116-1033-serving-probe-direct-transport-design). urlopen's default opener would take a proxy from the environment's
+# *_proxy variables or, on macOS, from the system settings: a hop the app's own requests never take, and one that made two of
+# E0's probe runs drop partway. Only the proxy choice differs from urlopen: every request, status and exception is as before.
+DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 class Endpoint:
     def __init__(self, config: Dict[str, Any]) -> None:
@@ -496,7 +510,7 @@ class Endpoint:
     def get(self, path: str, at_origin: bool = False, timeout: float = 15) -> Tuple[int, str]:
         request = urllib.request.Request((self.origin if at_origin else self.base) + path, headers=self.headers)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 return response.status, response.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as error:
             return error.code, ""
@@ -535,7 +549,7 @@ class Endpoint:
         started = time.monotonic()
         request = urllib.request.Request((self.origin if at_origin else self.base) + path, data=json.dumps(body).encode(), headers=self.headers)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 raw = response.read()
                 try:
                     parsed: Any = json.loads(raw)
@@ -554,7 +568,7 @@ class Endpoint:
         started = time.monotonic()
         request = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers=self.headers)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 status = response.status
                 lines = [raw.decode("utf-8", "replace") for raw in response]
         except urllib.error.HTTPError as error:
@@ -584,7 +598,7 @@ class Endpoint:
         model_chunks = model_mismatch = chunk_count = 0
         finish = None
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 for raw in response:
                     if abort_after is not None and time.monotonic() - started > abort_after:
                         return {"aborted_after_s": round(time.monotonic() - started, 2)}
@@ -869,7 +883,7 @@ def probe_p10(ep: Endpoint, card: dict, ctx: dict) -> dict:
                     retained = strip_reasoning_fields(result["raw"]) if args.strip_reasoning else result["raw"]
                     record["reply_file"] = file_name
                     record["body_sha256"] = write_private(os.path.join(p10_dir, file_name), retained)
-                record["classification"] = classify_reply(result["status"], finish, content)
+                record["classification"] = classify_reply(result["status"], finish, content, streamed=streamed)
                 calls.append(record)
             out["cells"][f"{role}/{thinking}"] = {"role": role, "thinking": thinking, "strict": variant, "max_tokens": exported.get("max_tokens"),
                                                  "streamed": streamed, "request_body_sha256": schemas["requests"][role][thinking].get("bodySha256"),

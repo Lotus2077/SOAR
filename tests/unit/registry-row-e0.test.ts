@@ -14,7 +14,7 @@ import { JUDGE_CONDITIONS, runJudgeFixture } from "../../scripts/judge-fixture";
 import { CALL_KINDS, CALL_STATES, CallRecordSchema, ENVELOPE_LINE, LABELLER_MODEL, LABELLING_FAILURES, LABELLING_OUTCOMES, LOCK_NAME, LabellingSummarySchema,
   PLANT_REJECTIONS, SECOND_REQUEST_VALUES, TOKEN_FIELDS, UNBILLED_STATUSES, runLabelling, type LabellingSummary } from "../../scripts/judge-labeller";
 import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, runPlannerFixture } from "../../scripts/planner-fixture";
-import { syntheticProbe } from "../helpers/serving-probe-fixture";
+import { syntheticProbe, syntheticStream } from "../helpers/serving-probe-fixture";
 
 /**
  * E0's registry modes (BL-20261116-0839-e0-registry-modes-design): a serving-probe run from its probe.json, the real probe's included; a
@@ -144,6 +144,41 @@ describe("E0 registry modes: serving-probe runs", () => {
     expect(refused(["--probe-dir", scratch()], "rejected")).toContain("probe.json is missing");
   }, 60_000);
 
+  it("refuses accepted when a probe's records show a transport failure, except P8's measured cut and P6's deliberate abort (BL-20261116-1033-serving-probe-direct-transport-design)", () => {
+    const ranToo = (probe: Record<string, any>, name: string, record: unknown) => {
+      probe.probes_selected = [...new Set([...probe.probes_selected, name])]; probe.probes_skipped = probe.probes_skipped.filter((other: string) => other !== name);
+      delete probe.probes_failed[name]; probe.probes_run = [...new Set([...probe.probes_run, name])]; probe[name] = record;
+    };
+    const p6 = (next: unknown) => ({ running_before: 0, abort: { aborted_after_s: 4.01 }, running_after_abort_1s_steps: [1, 0], next_request: next });
+    const cases: [string, (probe: Record<string, any>) => void, string[]][] = [
+      ["a POST's transport_error", probe => { probe.P5 = { ...probe.P5, status: -1, transport_error: "URLError" }; }, ["P5"]],
+      ["a transport_error whatever the status beside it", probe => { probe.P9 = { ...probe.P9, transport_error: "RemoteDisconnected" }; }, ["P9"]],
+      ["a stream's exception", probe => { probe.P2.kwargs_low = { error: "URLError", elapsed_s: 0 }; }, ["P2"]],
+      ["a GET's -1", probe => { probe.P1.models_status = -1; }, ["P1"]],
+      ["the adapter's chat_status -1", probe => { probe.adapter.tokenize.chat_status = -1; }, ["adapter"]],
+      ["a cache-layout row's exception", probe => { probe.P11.cache_layouts.layouts.sorted_keys.requests[0].status = "URLError"; }, ["P11"]],
+      ["a K burst's transport error", probe => { probe.P11.k_streams["2"].transport_errors = 1; }, ["P11"]],
+      ["a P10 stream that ended early", probe => { probe.P10.cells["plan/on"].calls[0].classification = "stream_ended_early"; }, ["P10"]],
+      ["a stream that ended with no finish reason", probe => { probe.P3.prose_no_think.finish_reason = null; }, ["P3"]],
+      ["P6's next request", probe => ranToo(probe, "P6", p6({ error: "RemoteDisconnected", elapsed_s: 1 })), ["P6"]],
+      ["two probes, in the probe order", probe => { probe.adapter.openapi.status = -1; probe.P2.thinking_disabled = { error: "timeout", elapsed_s: 600 }; }, ["P2", "adapter"]],
+    ];
+    for (const [name, plant, expected] of cases) {
+      const { dir } = probeDir(probe => { complete(probe); plant(probe); });
+      expect(row(["--probe-dir", dir], "infra_invalid").probe.transportFailures, name).toEqual(expected);
+      expect(refused(["--probe-dir", dir], "accepted"), name).toContain(`probe records show a transport failure (${expected.join(", ")})`);
+    }
+    // P8 measures whether a long request survives, so its cut is its finding; P6's abort is recorded as aborted_after_s; a stream's HTTP
+    // error and a burst's errors count (which also counts a stream with no elapsed time) are not transport failures.
+    const measured = probeDir(probe => {
+      complete(probe);
+      ranToo(probe, "P8", { status: -1, elapsed_s: 120.9, transport_error: "RemoteDisconnected", completion_tokens: null });
+      ranToo(probe, "P6", p6(syntheticStream(20, 2, 0.1, 30)));
+      probe.P2.kwargs_low = { error: 500, error_bytes: 10, error_sha256: h("a"), elapsed_s: 1 }; probe.P11.k_streams["4"].errors = 2;
+    });
+    expect(row(["--probe-dir", measured.dir], "accepted").probe).toMatchObject({ transportFailures: [], run: expect.arrayContaining(["P6", "P8"]) });
+  }, 60_000);
+
   it("rows the probe's real output against a loopback fake: one model call per chat request the fake received, after the real assessor", () => {
     const result = JSON.parse(execFileSync("python3", ["-I", join(ROOT, "tests", "helpers", "serving-probe-fake.py"), ROOT, join(scratch(), "probe"), researchProtocolSha256()],
       { encoding: "utf8", timeout: 240_000 }));
@@ -153,7 +188,7 @@ describe("E0 registry modes: serving-probe runs", () => {
     const line = run(["--probe-dir", result.runDir], "accepted"), probeRow = JSON.parse(line);
     expect(probeRow.modelCalls).toBe(result.received.chat);
     expect(probeRow.probe.calls).toEqual({ P1: 0, P2: 5, P3: 3, P4: 1, P5: 1, P7: 3, P8: 1, P9: 1, P10: 6 + 12, P11: 1 + 4 + 3, adapter: 6 });
-    expect(probeRow.probe).toMatchObject({ assessed: true, schemasProtocolMatch: true, failed: {}, finished: true, skipped: ["P6"] });
+    expect(probeRow.probe).toMatchObject({ assessed: true, schemasProtocolMatch: true, failed: {}, finished: true, skipped: ["P6"], transportFailures: [] });
     expect(probeRow.inputSha256).toMatch(/^[0-9a-f]{64}$/u);
     expectAbsent(line, ...(result.leaks as string[]), basename(result.runDir));
   }, 240_000);

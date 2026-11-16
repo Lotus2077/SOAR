@@ -77,6 +77,21 @@ describe("serving-card writer", () => {
     expect(card(syntheticProbe(), COMPARE).stdout).toBe(text);
   });
 
+  it("refuses a probe whose P10 stream ended before its finish reason, and writes the same card when the counts carry that class at 0 (BL-20261116-1033-serving-probe-direct-transport-design)", () => {
+    // A probe written or assessed after this change carries stream_ended_early in every cell's counts; the writer recounts from the calls,
+    // so the card keeps W1's digest: a card from E0's run 3, none of whose replies ended early, is unchanged.
+    const counted = syntheticProbe();
+    for (const cell of Object.values(counted.P10.cells) as { counts: Record<string, unknown> }[]) cell.counts.stream_ended_early = 0;
+    const same = card(counted, COMPARE);
+    expect(same.status).toBe(0); expect(digest(same.stdout)).toBe("5cf363caa1c6d62bc2719501979a9056569f21c394afaac806f86ba12536f426");
+    expect(runCardWriter(counted).status).toBe(0);
+    const ended = syntheticProbe(); ended.P10.cells["synthesis/off"].calls[3].classification = "stream_ended_early";
+    for (const result of [card(ended, COMPARE), runCardWriter(ended)]) {
+      expect(result.status).toBe(2); expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("refused: a P10 stream at $.P10.cells ended before its finish reason");
+    }
+  });
+
   it("marks unassessed P10 cells and a missing P11 instead of evaluating the rule or deriving bounds", () => {
     const probe = syntheticProbe();
     delete probe.P10.assessed; probe.P10.cells["plan/on"].counts.unassessed = 20; probe.P10.cells["plan/on"].counts.valid = 0;

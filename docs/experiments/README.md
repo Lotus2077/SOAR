@@ -116,14 +116,17 @@ This folder holds the committed, sanitized record of live trials (see
   2026-11-16, when it was pinned under E0 card Amendment 1
   (BL-20261116-0814-e0-card-amendment-1); the index and the brief stay under the ignored
   `.soar/`.
-- `e0-planner-fixture-v2.json`: v1's pins, with the serving card's plan call as two
-  conditions beside `legacy-thinking`, the call without a card. They are
-  `legacy-thinking-structured`, the strict `research_plan` response_format item 9
-  sends, with thinking on, at 8,192 tokens; and the same call at 16,384. That makes
-  10 repeats and 30 calls (BL-20261116-1253-e0-planner-structured-condition-design).
-  Each of the conditions and the repeats comes from the manifest unless its own flag
-  (`--conditions`, `--repeats`) is given, and each repeat runs every condition in
-  turn.
+- `e0-planner-fixture-v2.json`: v1's pins, with two structured conditions beside
+  `legacy-thinking`, the call without a card. `legacy-thinking-structured` is the
+  serving card's plan call: the strict `research_plan` response_format item 9 sends,
+  with thinking on, at 8,192 tokens. `legacy-thinking-structured-16384` is the same
+  request at 16,384 tokens, a calibration cell: no card can send it until P10
+  measures plan at 16,384. That makes 10 repeats and 30 calls
+  (BL-20261116-1253-e0-planner-structured-condition-design). Each of the conditions
+  and the repeats comes from the manifest unless its own flag (`--conditions`,
+  `--repeats`) is given, and each repeat runs every condition in turn. With
+  `--cache-salt` every body carries the fixture's one salt, on every repeat; without
+  it, none does.
 - `e0-judge-fixture-v1.json`: the hashes-only manifest of the E0 judge fixture
   (`scripts/judge-fixture.ts`). It holds the claim set's and the labels' sha256, the
   claim, class and planted counts, the card's agreement measure and level, and the

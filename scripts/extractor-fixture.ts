@@ -13,6 +13,9 @@
  * The conditions and repeats come only from the manifest. Each (repeat, condition) is salted as one research job is, and runs its
  * chunks in order, so a chunk's call reuses only the job's cached system message and stable packet line, as the stage's calls do.
  * Every refusal happens before any request is sent or any file is written.
+ *
+ * The serving card's extract call (BL-20261116-1256-e0-extractor-structured-condition-design): `thinking-off-structured` is the
+ * deployed call plus the strict `research_extraction` response_format item 9 sends; manifest v2 pins it beside `thinking-off`.
  */
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -25,24 +28,28 @@ import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { deriveBriefUnits, inventoryResearchSources, type BriefUnit } from "../src/main/private-agent/research-coverage";
 import { assertRunDirectoryIgnored } from "../src/main/private-agent/research-diagnostics";
 import { assessResearchPlanReply } from "../src/main/private-agent/research-plan";
-import { OUTPUT_TOKENS, assessResearchExtractionReply, researchExtractionUserContent, researchProtocolSha256, type ResearchExtractionAssessment,
+import { OUTPUT_TOKENS, RESEARCH_ROLE_SCHEMAS, assessResearchExtractionReply, researchExtractionUserContent, researchProtocolSha256, type ResearchExtractionAssessment,
   type ResearchPlan } from "../src/main/private-agent/research-pipeline";
+import type { ModelResponseFormat } from "../src/main/private-agent/model";
 import { servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
 import { readChatReply } from "./chat-reply";
 import { buildRoleRequest, requestSettingsOf, type RequestSettings } from "./export-role-schemas";
 
-export const EXTRACTOR_CONDITIONS = ["thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384"] as const;
+export const EXTRACTOR_CONDITIONS = ["thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384", "thinking-off-structured"] as const;
 export type ExtractorCondition = (typeof EXTRACTOR_CONDITIONS)[number];
 /**
  * Each condition's call on top of the stage's own extraction request. thinking-off is the stage's call as deployed today
  * (THINKING.extract is "disabled", so call() sends that override, with OUTPUT_TOKENS.extract); the others take the role model's
  * thinking at today's cap, at the plan and synthesis cap, and at the Heavy profile's ceiling, caps 7a.2's role policy admits.
+ * thinking-off-structured is the serving card's extract call: the deployed call with item 9's strict `research_extraction` format.
  */
-export const CONDITION_CALLS: Readonly<Record<ExtractorCondition, Readonly<{ thinking?: "disabled"; maxOutputTokens: number }>>> = Object.freeze({
+export const CONDITION_CALLS: Readonly<Record<ExtractorCondition, Readonly<{ thinking?: "disabled"; maxOutputTokens: number; responseFormat?: ModelResponseFormat }>>> = Object.freeze({
   "thinking-off": Object.freeze({ thinking: "disabled" as const, maxOutputTokens: OUTPUT_TOKENS.extract }),
   "thinking-on": Object.freeze({ maxOutputTokens: OUTPUT_TOKENS.extract }),
   "thinking-on-8192": Object.freeze({ maxOutputTokens: 8192 }),
   "thinking-on-16384": Object.freeze({ maxOutputTokens: 16384 }),
+  "thinking-off-structured": Object.freeze({ thinking: "disabled" as const, maxOutputTokens: OUTPUT_TOKENS.extract,
+    responseFormat: Object.freeze({ ...RESEARCH_ROLE_SCHEMAS.extract, strict: true }) }),
 });
 /** The cell that matches the extraction stage's call as deployed today; the other cells are calibration against it. */
 export const DEPLOYED_CONDITION: ExtractorCondition = "thinking-off";

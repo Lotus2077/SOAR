@@ -101,6 +101,13 @@ This folder holds the committed, sanitized record of live trials (see
   2026-11-16, when it was pinned under E0 card Amendment 1
   (BL-20261116-0814-e0-card-amendment-1); the index and the brief stay under the ignored
   `.soar/`.
+- `e0-planner-fixture-v2.json`: v1's pins, with the serving card's plan call as two
+  conditions beside `legacy-thinking`, the call without a card. They are
+  `legacy-thinking-structured`, the strict `research_plan` response_format item 9
+  sends, with thinking on, at 8,192 tokens; and the same call at 16,384. That makes
+  10 repeats and 30 calls (BL-20261116-1253-e0-planner-structured-condition-design).
+  The command line takes a manifest's conditions and repeats unless `--conditions`
+  or `--repeats` is given.
 - `e0-judge-fixture-v1.json`: the hashes-only manifest of the E0 judge fixture
   (`scripts/judge-fixture.ts`). It holds the claim set's and the labels' sha256, the
   claim, class and planted counts, the card's agreement measure and level, and the
@@ -122,6 +129,11 @@ This folder holds the committed, sanitized record of live trials (see
   2,048, 8,192 and 16,384 output tokens. It judges each reply with the stage's own
   checks (`assessResearchExtractionReply`). It holds no gold: no reply is scored
   against an expected answer.
+- `e0-extractor-fixture-v2.json`: v1's corpus and pins, exposed now that v1's run has
+  seen them. It pins `thinking-off` beside `thinking-off-structured`, the serving
+  card's extract call: the deployed call with the strict `research_extraction`
+  response_format item 9 sends. That makes 10 repeats and 60 calls
+  (BL-20261116-1256-e0-extractor-structured-condition-design).
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan

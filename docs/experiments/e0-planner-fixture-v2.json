@@ -1,0 +1,21 @@
+{
+ "schemaVersion": 1,
+ "name": "e0-planner-fixture-v2",
+ "status": "pinned",
+ "note": "Pinned with v1's hashes (E0 card Amendment 1): the same exposed r3 index of e0-r3/run-5, the same stage brief, source ids, chunk count and extraction budget, so v1 and its run record stay as they are. The conditions are the serving card's plan call: legacy-thinking-structured (the strict research_plan response_format item 9 sends, thinking on, 8,192 tokens) and the same call at 16,384 tokens, legacy-thinking-structured-16384, a calibration cell a card cannot send until P10 measures plan at 16,384. legacy-thinking, the plan call without a card, is the control within the run. 10 repeats, 30 calls. Endpoint time, at the 2026-11-04 qualification's ~154 decode tokens/s (BL-20261104-1419): a reply that runs to its cap decodes for about 53 s at 8,192 and 107 s at 16,384, and the prompt is prefilled once per condition when the fixture's salt lets the server reuse it; so at most about 45 minutes. Proposed by BL-20261116-1253-e0-planner-structured-condition-design; the E0 card's amendment names the command before the run. The command line takes these conditions and repeats from the manifest.",
+ "task": "r3-grid-batteries",
+ "exposure": "exposed",
+ "indexVersion": 2,
+ "indexSha256": "af292cd940cf0bd1d23251a8b5192406185811f112414b447b38301d20d43d6d",
+ "briefSha256": "6f0a6d83323f2c740a3061aab569adf670ae69183c7b11e8b1845f0772d56a35",
+ "sourceIdsSha256": "d4eceaed7578651faf551078e3cb4d95261b1532d3e27b8666b3be0b2f53f897",
+ "sourceCount": 24,
+ "mandatorySourceChunks": 24,
+ "extractionCallBudget": 40,
+ "conditions": [
+  "legacy-thinking",
+  "legacy-thinking-structured",
+  "legacy-thinking-structured-16384"
+ ],
+ "repeats": 10
+}

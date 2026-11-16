@@ -155,7 +155,7 @@ the ignored `.soar/`, and no address is printed or stored):
 | `pnpm dev` | Run the desktop app |
 | `pnpm check` | Readiness and build-log validation, typecheck, tests, build |
 | `pnpm test:e2e` | Electron end-to-end tests (after `pnpm build`) |
-| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint, the endpoint's identity (served alias, model root basename, engine version, context window) and its window against the profile, and, with the serving-card pair set, the adopted card compared field by field; `--write` records the image id and profile in the app's user-data settings |
+| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint, the endpoint's identity (served alias, model root basename, engine version, context window) and its window against the profile, and, with the serving-card pair set, the adopted card compared field by field; `--write` records the image id and profile in the app's user-data settings; the serving card is checked as the headless driver reads it, from the process environment, `SOAR_ENV_FILE` and the repository's `.env.local`, never the user-data file |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
 | `pnpm probe:export-schemas` / `pnpm probe:assess` | Write the role schemas probe P10 sends; validate its retained replies with the real schemas |
 | `scripts/with-cloud-key.sh pnpm --silent label:judge` | Label the E0 judge claim set and plant its negatives through `gpt-6-sol`, under the USD 1.00 total cap (paid; the E0 card's amendment names it first); `--dry-run` prints the projected fee and sends nothing |

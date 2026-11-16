@@ -8,9 +8,9 @@ import { promisify } from "node:util";
 import { dirname } from "node:path";
 import { QUALIFIED_IMAGE } from "../src/main/private-agent/capabilities";
 import { DockerSandbox } from "../src/main/private-agent/sandbox";
-import { loadEnvironmentFiles, vllmEndpointPolicyIssue } from "../src/main/config";
+import { loadConfig, loadEnvironmentFiles, vllmEndpointPolicyIssue, type SoarConfig } from "../src/main/config";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, isCoordinatorProfileName } from "../src/main/private-agent/profiles";
-import { loadServingCard, looksLikePath, servingCardRefusal, servingCardRequestSettings, type LoadedServingCard, type ServingCardExpectation } from "../src/main/private-agent/serving-card";
+import { loadServingCard, looksLikePath, servingCardExpectation, servingCardRefusal, type LoadedServingCard } from "../src/main/private-agent/serving-card";
 
 /**
  * `pnpm setup:general`: a read-only doctor for the general task runtime, plus `--write` to record the
@@ -19,7 +19,9 @@ import { loadServingCard, looksLikePath, servingCardRefusal, servingCardRequestS
  * identity (served alias, model root basename, engine version, context window) as probe P1 derives it, checks the
  * window against what the profile's request guard can send and, under flash_next_v1, the configured context, and, when
  * the serving-card pair is set, compares the identity with the adopted card through the pinned reader; never the card's
- * path.
+ * path. The card is checked as the headless driver reads it, its only consumer: the pair and the expectation come from the driver's
+ * sources through its own loadConfig() (the process environment, SOAR_ENV_FILE, then the working directory's .env.local and .env;
+ * never the user-data file), BL-20261116-1358-run-row-card-and-doctor-sources-design.
  */
 export const GENERAL_SETUP_KEYS = ["SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL", "SOAR_VLLM_API_KEY", "SOAR_VLLM_COST_POLICY", "SOAR_ALLOW_INSECURE_VLLM_HTTP", "SOAR_GENERAL_TASK_IMAGE_ID", "SOAR_GENERAL_TASK_PROFILE",
   "SOAR_VLLM_REPLY_CONTRACT", "SOAR_VLLM_CONTEXT_TOKENS", "SOAR_STREAMING", "SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256"] as const;
@@ -43,8 +45,13 @@ export interface GeneralSetupReport {
     identity?: EndpointIdentity;
     /** The window against the larger of the profile's request guard and, under flash_next_v1, the configured context; ok is null when the endpoint reports no max_model_len, false when the contract and context settings are ones the app refuses. */
     window?: { requiredTokens: number; ok: boolean | null; reason?: string } };
-  card: { configured: boolean; sha256?: string; date?: string; entry?: string; status?: "matches" | "differs" | "refused" | "unchecked" | "incomplete";
-    code?: string; fields?: IdentityComparison[]; reason?: string };
+  /**
+   * The card as the headless driver reads it (BL-20261116-1358-run-row-card-and-doctor-sources-design, decision (2)): its pair and expectation come from
+   * the driver's sources (`sources`), with the cache salt the driver assumes (`cacheSalt`); `appDiffers` names the card-relevant keys whose
+   * value the app's sources give differently, never a value.
+   */
+  card: { configured: boolean; sources: "headless_driver"; cacheSalt?: "assumed_on"; appDiffers?: CardKey[]; sha256?: string; date?: string; entry?: string;
+    status?: "matches" | "differs" | "refused" | "unchecked" | "incomplete"; code?: string; fields?: IdentityComparison[]; reason?: string };
   ready: boolean;
 }
 export const IDENTITY_FIELDS = ["servedModel", "modelRootBasename", "engineVersion", "contextTokens"] as const;
@@ -95,18 +102,6 @@ export function configuredContext(settings: Partial<Record<GeneralSetupKey, stri
   return Number.isSafeInteger(tokens) && tokens > 16_384 ? { tokens }
     : { issue: "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1 requires SOAR_VLLM_CONTEXT_TOKENS, an integer above 16,384." };
 }
-/**
- * What the headless driver's reader expects (servingCardExpectation): the configured alias, under a valid flash_next_v1 pair the
- * configured context, and the run's request settings, which a flagged structured-output mode must equal
- * (BL-20261114-2301-serving-card-request-settings-design). SOAR_STREAMING is read as the app reads it (default true), and the cache
- * salt is the driver's default, on, the only one the role export measures.
- */
-function cardExpectation(settings: Partial<Record<GeneralSetupKey, string>>): ServingCardExpectation {
-  const model = settings.SOAR_VLLM_MODEL ?? "", context = configuredContext(settings).tokens;
-  const flash = context !== undefined ? { localReplyContract: "flash_next_v1" as const, localContextTokens: context } : {};
-  return { model, ...(context !== undefined ? { contextTokens: context } : {}),
-    requestSettings: servingCardRequestSettings({ vllm: { model, ...flash }, streamingEnabled: (settings.SOAR_STREAMING ?? "true") === "true" }, true) };
-}
 const PRINT_RULE: Record<IdentityField, { max: number; kind: "text" | "basename" }> = { servedModel: { max: 256, kind: "text" }, modelRootBasename: { max: 256, kind: "basename" },
   engineVersion: { max: 128, kind: "text" }, contextTokens: { max: 0, kind: "text" } };
 /** Compares raw endpoint values with the adopted card's identity; prints both sides only through printableIdentity. */
@@ -130,9 +125,26 @@ export function parseEnvFile(text: string): Partial<Record<GeneralSetupKey, stri
   }
   return values;
 }
+/**
+ * The settings a card depends on: its pair, the streaming switch, and the endpoint, alias and reply contract its expectation and
+ * comparison read (BL-20261116-1358-run-row-card-and-doctor-sources-design).
+ */
+export const CARD_KEYS = ["SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256", "SOAR_STREAMING", "SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL",
+  "SOAR_VLLM_REPLY_CONTRACT", "SOAR_VLLM_CONTEXT_TOKENS", "SOAR_VLLM_COST_POLICY", "SOAR_ALLOW_INSECURE_VLLM_HTTP"] as const satisfies readonly GeneralSetupKey[];
+export type CardKey = typeof CARD_KEYS[number];
 /** Exactly the app's own loader and precedence (SOAR_ENV_FILE, user data, cwd, app path), so the doctor sees what the app sees. */
 export function resolveSettings(env: NodeJS.ProcessEnv, userDataFile: string, cwdFile: string): Partial<Record<GeneralSetupKey, string>> {
   const merged = loadEnvironmentFiles({ cwd: dirname(cwdFile), appPath: dirname(cwdFile), userDataPath: dirname(userDataFile), environment: env });
+  const resolved: Partial<Record<GeneralSetupKey, string>> = {};
+  for (const key of GENERAL_SETUP_KEYS) if (merged[key] !== undefined) resolved[key] = merged[key];
+  return resolved;
+}
+/**
+ * The headless driver's sources, as its loadConfig() call reads them: the same loader with no user-data path, so the process
+ * environment, SOAR_ENV_FILE, then the working directory's .env.local and .env. The card is the driver's alone; the desktop passes none.
+ */
+export function resolveDriverSettings(env: NodeJS.ProcessEnv, cwdFile: string): Partial<Record<GeneralSetupKey, string>> {
+  const merged = loadEnvironmentFiles({ cwd: dirname(cwdFile), appPath: dirname(cwdFile), environment: env });
   const resolved: Partial<Record<GeneralSetupKey, string>> = {};
   for (const key of GENERAL_SETUP_KEYS) if (merged[key] !== undefined) resolved[key] = merged[key];
   return resolved;
@@ -211,7 +223,7 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
       } catch { model.reason = "The one-token completion probe failed."; }
     }
   } else model.reason = "Set SOAR_VLLM_BASE_URL and SOAR_VLLM_MODEL in the user-data .env.local (never in the repository).";
-  const card = checkServingCard(settings, model.configured, raw, model.identity, host);
+  const card = checkServingCard(input.env, input.cwd, input.userDataFile, settings, raw, model.identity, host);
   const wrote: GeneralSetupKey[] = [];
   if (input.write) {
     const additions: [GeneralSetupKey, string][] = [];
@@ -231,24 +243,50 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
 }
 
 /**
- * The pair as the app reads it, through the pinned reader the headless driver uses (loadServingCard), then a field-by-field
+ * The pair as the headless driver reads it, through the pinned reader the driver uses (loadServingCard), then a field-by-field
  * comparison with the endpoint. Reports the card's sha256, date and adopting entry, a fixed refusal code or field names; never
  * the path.
  */
-function checkServingCard(settings: Partial<Record<GeneralSetupKey, string>>, configured: boolean, raw: RawIdentity | undefined, printable: EndpointIdentity | undefined, host: string): GeneralSetupReport["card"] {
-  const file = settings.SOAR_SERVING_CARD_FILE, sha256 = settings.SOAR_SERVING_CARD_SHA256;
-  if (file === undefined && sha256 === undefined) return { configured: false };
+/** The app's loader for one set of sources; undefined when it refuses them (its message can echo a value, so it never leaves). */
+function tryLoadConfig(options: Parameters<typeof loadConfig>[0]): SoarConfig | undefined {
+  try { return loadConfig(options); } catch { return undefined; }
+}
+function checkServingCard(env: NodeJS.ProcessEnv, cwd: string, userDataFile: string, app: Partial<Record<GeneralSetupKey, string>>, raw: RawIdentity | undefined, printable: EndpointIdentity | undefined, host: string): GeneralSetupReport["card"] {
+  const driver = resolveDriverSettings(env, join(cwd, ".env.local"));
+  const paired = (settings: Partial<Record<GeneralSetupKey, string>>) => settings.SOAR_SERVING_CARD_FILE !== undefined || settings.SOAR_SERVING_CARD_SHA256 !== undefined;
+  // Only names leave this comparison, and only when either side sets a card pair: the report never prints either side's value.
+  const differs = CARD_KEYS.filter(key => driver[key] !== app[key]);
+  const base = { sources: "headless_driver" as const, ...(differs.length && (paired(driver) || paired(app)) ? { appDiffers: differs } : {}) };
+  const file = driver.SOAR_SERVING_CARD_FILE, sha256 = driver.SOAR_SERVING_CARD_SHA256;
+  if (file === undefined && sha256 === undefined) return { configured: false, ...base };
+  const head0 = { configured: true, ...base, cacheSalt: "assumed_on" as const };
   if (!file || !sha256 || !/^[a-f0-9]{64}$/u.test(sha256)) {
-    return { configured: true, status: "incomplete", reason: "Set SOAR_SERVING_CARD_FILE (an absolute path) and SOAR_SERVING_CARD_SHA256 together, or neither." };
+    return { ...head0, status: "incomplete", reason: "Set SOAR_SERVING_CARD_FILE (an absolute path) and SOAR_SERVING_CARD_SHA256 together, or neither." };
   }
-  if (!configured) return { configured: true, sha256, status: "unchecked", reason: "The model endpoint is not configured, so the card was not read." };
+  // The driver's own call (loadConfig() with no user-data path): its defaults, its endpoint policy and its pair's validation. The pair
+  // read above is the one that call validates; only the driver's builder takes the descriptor from the config (the reader's R10).
+  const config = tryLoadConfig({ cwd, environment: env });
+  if (!config) {
+    return { ...head0, sha256, status: "refused", code: "driver_settings_refused",
+      reason: "The app's loader refuses the headless driver's settings, so the driver would stop before it read the card." };
+  }
   let loaded: LoadedServingCard;
-  try { loaded = loadServingCard({ path: file, sha256 }, cardExpectation(settings)); }
+  try { loaded = loadServingCard({ path: file, sha256 }, servingCardExpectation(config, true)); }
   catch (error) {
     const code = servingCardRefusal(error)?.code ?? "serving_card_unreadable";
-    return { configured: true, sha256, status: "refused", code, reason: `The serving-card reader refuses the pinned card (${code}), as the headless driver would.` };
+    return { ...head0, sha256, status: "refused", code, reason: `The serving-card reader refuses the pinned card (${code}), as the headless driver would.` };
   }
-  const head = { configured: true, sha256, date: loaded.date, entry: loaded.entry };
+  const head = { ...head0, sha256, date: loaded.date, entry: loaded.entry };
+  // The doctor probed the app's endpoint and alias; when the driver's are others (its defaults included), that probe says nothing about them.
+  const appConfig = tryLoadConfig({ cwd, userDataPath: dirname(userDataFile), environment: env });
+  const otherEndpoint = (["SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL"] as const).filter(key => !appConfig
+    || (key === "SOAR_VLLM_BASE_URL" ? appConfig.vllm.baseUrl !== config.vllm.baseUrl : appConfig.vllm.model !== config.vllm.model));
+  if (otherEndpoint.length) {
+    const defaulted = otherEndpoint.some(key => driver[key] === undefined);
+    return { ...head, status: "unchecked", reason: `The headless driver's ${otherEndpoint.join(" and ")} ${otherEndpoint.length === 1 ? "differs" : "differ"} from the app's`
+      + `${defaulted ? " (the driver uses its default where none of its sources sets one)" : ""}, so the card was not compared with the endpoint the doctor probed. `
+      + "SOAR_ENV_FILE set to the user-data .env.local gives the driver the app's settings." };
+  }
   if (!raw || !printable) return { ...head, status: "unchecked", reason: "The endpoint's identity is unknown, so the card was not compared." };
   const fields = compareIdentity(loaded.identity, raw, printable, host);
   const differing = fields.filter(item => item.state === "differs" || item.state === "endpoint_unknown").map(item => item.field);

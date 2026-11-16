@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
 import { canonical } from "../../src/main/private-agent/contracts";
 import { PROMPT_LAYOUT_VERSIONS, promptProtocol, type PromptProtocolOptions } from "../../src/main/private-agent/runner";
+import { MAX_LOCAL_STREAMS, ServingCardV1Schema } from "../../src/main/private-agent/serving-card";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 /**
@@ -20,13 +21,14 @@ const SCRIPT = join(ROOT, "scripts", "registry-row.py");
 const h = (n: string) => n.repeat(64);
 function scratch() { const dir = realpathSync(mkdtempSync(join(tmpdir(), "soar-columns-"))); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return dir; }
 const time = (minute: number) => `2026-11-14T10:${String(minute).padStart(2, "0")}:00.000Z`;
-interface Run { status?: string; reason?: string; dispatches?: Record<string, unknown>[]; events?: Record<string, unknown>[]; start?: number; end?: number; jobId?: string }
+interface Run { status?: string; reason?: string; dispatches?: Record<string, unknown>[]; events?: Record<string, unknown>[]; start?: number; end?: number; jobId?: string;
+  freeze?: Record<string, unknown> }
 /** A run directory as the driver leaves one: its freeze, its result and its ledger's events and dispatch rows. */
 function runDirectory(root: string, name: string, input: Run = {}) {
   const dir = join(root, name); mkdirSync(dir, { recursive: true });
   const jobId = input.jobId ?? `job-${name.replace(/[^A-Za-z0-9_-]/gu, "-")}`, dispatches = input.dispatches ?? [];
   writeFileSync(join(dir, "freeze.json"), `${canonical({ version: 1, jobId, startedAt: time(input.start ?? 0), sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") },
-    profile: "heavy", modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, limits: { feeMicrousd: 0 }, arm: { arm: "local" } })}\n`);
+    profile: "heavy", modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, limits: { feeMicrousd: 0 }, arm: { arm: "local" }, ...input.freeze })}\n`);
   writeFileSync(join(dir, "result.json"), `${canonical({ status: input.status ?? "submitted", reason: input.reason ?? "independent_acceptance_pending", finishedAt: time(input.end ?? 5),
     snapshotSha256: h("7"), candidateFiles: [], dispatches: dispatches.map(row => ({ ...row, jobId })) })}\n`);
   const db = new Database(join(dir, "state.sqlite")), store = new PrivateAgentStore(db);
@@ -53,6 +55,41 @@ const tool = (operationId: string, name?: string) => [...(name ? [{ type: "tool_
 const stage = (name: string, over: Record<string, unknown> = {}) => ({ type: "research_stage", contextId: "r", stage: name, calls: 1, invalidReplies: 0, usage: { inputTokens: 10, outputTokens: 1 }, ...over });
 
 describe("registry columns (plan 11.4)", () => {
+  it("records the run's research protocol hash, the serving card the driver loaded and its K, and refuses a card record of another shape (BL-20261116-1358-run-row-card-and-doctor-sources-design)", () => {
+    const card = { sha256: h("c"), version: 1, date: "2026-11-16", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 4 };
+    const pipeline = { name: "research", version: 3, protocolSha256: h("d"), planner: "local", writer: "local" }, root = scratch();
+    // The card's sha256 and adopting entry only: never its version, date or path.
+    const carded = row(["--run-dir", runDirectory(root, "carded", { freeze: { servingCard: card, pipeline } })], "accepted");
+    expect([carded.researchProtocolSha256, carded.servingCard, carded.localStreams]).toEqual([h("d"), { sha256: h("c"), entry: card.entry }, 4]);
+    // Without a card or a research pipeline, and with a card recorded before 8.2b gave it a K: the session ran one call at a time.
+    const plain = row(["--run-dir", runDirectory(root, "plain")], "accepted");
+    expect([plain.researchProtocolSha256, plain.servingCard, plain.localStreams]).toEqual([null, null, 1]);
+    const { localStreams: _k, ...older } = card;
+    expect(row(["--run-dir", runDirectory(root, "older", { freeze: { servingCard: older } })], "accepted")).toMatchObject({ servingCard: { sha256: h("c") }, localStreams: 1 });
+    // A present value of another shape refuses the row; the refusal names the field and never prints the value.
+    const cases: [Record<string, unknown>, string][] = [
+      [{ servingCard: { ...card, sha256: "/Users/someone/card.json" } }, "servingCard does not record"], [{ servingCard: "/Users/someone/card.json" }, "servingCard does not record"],
+      [{ servingCard: { ...card, entry: "/Users/someone/entry" } }, "servingCard does not record"], [{ servingCard: { ...card, entry: `${card.entry}\n` } }, "servingCard does not record"],
+      [{ servingCard: { ...card, entry: null } }, "servingCard does not record"],
+      ...[0, 9, 4.5, true, "4"].map(value => [{ servingCard: { ...card, localStreams: value } }, "localStreams is not a whole number from 1 to 8"] as [Record<string, unknown>, string]),
+      [{ pipeline: { ...pipeline, protocolSha256: "/Users/someone/protocol" } }, "pipeline.protocolSha256 is not a sha256"],
+    ];
+    // The writer's copies of the card reader's K bound and entry pattern equal the reader's: K at the bound is copied, one above refused,
+    // and the two patterns agree on edge strings.
+    expect(row(["--run-dir", runDirectory(root, "bound", { freeze: { servingCard: { ...card, localStreams: MAX_LOCAL_STREAMS } } })], "accepted").localStreams).toBe(MAX_LOCAL_STREAMS);
+    cases.push([{ servingCard: { ...card, localStreams: MAX_LOCAL_STREAMS + 1 } }, `localStreams is not a whole number from 1 to ${MAX_LOCAL_STREAMS}`]);
+    const entries = [card.entry, `${card.entry}\n`, card.entry.toUpperCase(), "BL-20261116-1203-a--b", "BL-20261116-1203-a-", "BL-2026111-1203-a", "BL-20261116-120-a",
+      `BL-${String.fromCharCode(0xff12)}0261116-1203-a`, "BL-20261116-1203-", "BL-20261116-1203-a1-b2-c3"];
+    const python = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('row', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+      "print(json.dumps({'max': m.MAX_LOCAL_STREAMS, 'entries': [m.CARD_ENTRY.fullmatch(e) is not None for e in json.loads(sys.argv[2])]}))"].join("\n");
+    const mirrored = JSON.parse(execFileSync("python3", ["-I", "-c", python, SCRIPT, JSON.stringify(entries)], { encoding: "utf8" }));
+    expect(mirrored).toEqual({ max: MAX_LOCAL_STREAMS, entries: entries.map(entry => ServingCardV1Schema.shape.decision.shape.entry.safeParse(entry).success) });
+    cases.forEach(([freeze, message], index) => {
+      const stderr = refused(["--run-dir", runDirectory(root, `bad-${index}`, { freeze })], "accepted");
+      expect(stderr, message).toContain(message); expect(stderr).not.toContain("/Users/someone");
+    });
+  }, 60_000);
+
   it("keys actions.tools by the runner's closed set of tool names, which the registry script mirrors exactly", () => {
     // Every tool the runner can offer: its base tools, with public fetches, a consultation and the claims check all enabled.
     const options = { contract: { version: 1, goal: "Synthetic.", requiredArtifacts: [{ path: "output.txt", description: "Output" }], requiredChecks: [CLAIMS_LEDGER_CHECK_ID],

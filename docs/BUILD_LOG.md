@@ -47468,3 +47468,66 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #128, then the coordinator's merge under the standing go-ahead.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261116-1357-e0-verified; BL-20261116-1358-run-row-card-and-doctor-sources-design; BL-20261116-1359-run-row-card-and-doctor-sources-implemented; pull requests #125, #126, #127 and #128.
+
+### BL-20261116-1539-correction-e0-planner-fixture-salt-pin -- 2026-11-16 -- Correction to BL-20261116-1330-e0-structured-conditions-implemented after the coordinating session's review of #125: tests now pin what `--cache-salt` does, and the README no longer calls the 16,384 cell the card's plan call
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261116-1330-e0-structured-conditions-implemented, which is not edited. The coordinating session's light review of #125 left two points to lane S-pipe, and E0 card Amendment 4 (pull request #129) lists them as open. The session asked for both in one pull request on `main` (da30c9d).
+- **No test pinned `--cache-salt`.** 1330's decision (6) says that with `--cache-salt` the bodies "carry one salt for every condition and repeat", and that without it they carry none. No test set `cacheSalt: true` on `runPlannerFixture`. So dropping the option where the bodies are built, or salting per repeat, passed every test. The code itself was right, and the amendment's planner run passed the flag.
+- **The README's v2 bullet** (docs/experiments/README.md) called both structured cells the serving card's plan call. Only `legacy-thinking-structured`, at 8,192 tokens, is a call a card can send. `legacy-thinking-structured-16384` is a calibration cell: the card reader refuses a flagged plan attempt at a cap P10 did not measure (`serving_card_structured_output_cap_unmeasured`). BL-20261116-1253-e0-planner-structured-condition-design says so in its body.
+
+Decisions:
+(1) **Two tests pin `--cache-salt`** (tests/unit/planner-fixture.test.ts, in the manifest-v2 block).
+- **The run.** Over all six conditions and two repeats:
+  - each salted body is the plain body plus `cache_salt`, the fixture's one salt (`vllmCacheSalt(FIXTURE_JOB_ID)`), with nothing else changed;
+  - a dry run records the plain bodies' digests, sizes and caps without the option and with it false, and the salted bodies' with it;
+  - a run against a loopback fake records the same, and sends those bodies byte for byte: the salted body on every call of both repeats with the option, and the plain body without it.
+- **The command line.** The script's dry run prints the salted request digests with `--cache-salt` and the plain ones without it, for v2's three conditions.
+- The loopback fake now also keeps each request's raw body, for the byte comparison. The other tests do not read it.
+
+(2) **The README's v2 planner bullet** names `legacy-thinking-structured` alone as the card's plan call, and `legacy-thinking-structured-16384` as a calibration cell that no card can send until P10 measures plan at 16,384. It also says what `--cache-salt` does.
+
+(3) **The same short form elsewhere stays as it is.**
+- The headings of 1253 and 1330 speak of the card's call at both caps. So do the comment on `buildPlannerBody` in scripts/planner-fixture.ts and the title of the test that builds both cells.
+- The entries' bodies say the 16,384 cell is a calibration cell, and they hold.
+- Committed entries are not edited, and this change touches no script.
+
+Changes:
+- tests/unit/planner-fixture.test.ts: the two tests of decision (1), and the fake's raw body.
+- docs/experiments/README.md: decision (2).
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: On this branch, from `main` at da30c9d:
+- **Mutants.** Seven single edits of scripts/planner-fixture.ts, each run against the planner test file:
+  - the option dropped where the bodies are built;
+  - a salt per repeat;
+  - a salt per condition;
+  - the salt sent whatever the option;
+  - another job's salt;
+  - the command line's flag not passed to the run;
+  - the salted digest recorded while the plain body is sent.
+- With the new tests, each of the seven fails a test. With `main`'s tests, six survive. Only "whatever the option" fails, through the existing loopback test's plain digests.
+- **The planner test file** passes: 11 tests, 2 of them new.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+- **The hashes.** `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. The source freeze is `main`'s, because no file of src/ or scripts/ changes.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- Tests and documentation only. No script changes, so E0's runs and their request digests are unaffected.
+- **A synthetic index.** The tests use a two-source synthetic index, because the real r3 index is not in the repository. The request digests of E0's run are the ones Amendment 4 fixes, not this test's.
+- **A mistyped flag.** The command line still refuses no unknown flag, so a mistyped `--cache-salt` runs unsalted, as Amendment 4 notes. That is not changed here.
+- **Not asked now; recorded for a later change.**
+  - The coordinating session's reviewer found that Node cuts the planner fixture's unstreamed `fetch` at about 300 s if no response headers have come. That is before the fixture's own 900 s signal (the Heavy profile's `requestTimeoutMs`); the reviewer measured about 302 s.
+  - It did not bite E0's run, whose longest call took 155 s.
+  - A run at larger caps needs a streamed call or its own transport.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green, then the coordinating session's review and merge.
+
+References:
+- BL-20261116-1330-e0-structured-conditions-implemented (corrected);
+- BL-20261116-1253-e0-planner-structured-condition-design;
+- E0 card Amendment 4, pull request #129.

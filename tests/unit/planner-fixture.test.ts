@@ -33,7 +33,7 @@ function fixtureInputs() {
 const plan = (sourceIds: string[]) => JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What do the surveys establish?", requirementIds: ["U1", "U2"], sourceIds, lookFor: [] }], conflictsToCheck: [], deliverableNotes: "" });
 
 /** A loopback fake of the chat-completions route that answers a scripted reply per call and records every request. */
-async function fakeServer(script: (ordinal: number) => { content?: unknown; finish: string; status?: number }) {
+async function fakeServer(script: (ordinal: number) => { content?: unknown; finish?: string; status?: number; body?: unknown }) {
   const requests: { url: string; headers: Record<string, string | string[] | undefined>; body: any }[] = [];
   const server: Server = createServer((request, response) => {
     let data = ""; request.on("data", chunk => { data += chunk; });
@@ -41,7 +41,9 @@ async function fakeServer(script: (ordinal: number) => { content?: unknown; fini
       requests.push({ url: request.url ?? "", headers: request.headers, body: JSON.parse(data) });
       const reply = script(requests.length);
       response.writeHead(reply.status ?? 200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ id: "x", model: "Synthetic", choices: [{ index: 0, message: { role: "assistant", ...(reply.content === undefined ? {} : { content: reply.content }), reasoning_content: "hidden thoughts" }, finish_reason: reply.finish }],
+      // A script's `body` replaces the whole reply, envelope included.
+      response.end(JSON.stringify("body" in reply ? reply.body : { id: "x", model: "Synthetic", choices: [{ index: 0, message: { role: "assistant",
+        ...(reply.content === undefined ? {} : { content: reply.content }), reasoning_content: "hidden thoughts" }, finish_reason: reply.finish ?? "stop" }],
         usage: { prompt_tokens: 1200, completion_tokens: 80, completion_tokens_details: { reasoning_tokens: 40 } } }));
     });
   });
@@ -141,19 +143,25 @@ describe("planner fixture request builder", () => {
     expect(dry).toMatchObject({ dryRun: true, calls: [], counts: {} }); expect(Object.keys(dry.requests)).toEqual([...DEFAULT_CONDITIONS]); expect(server.requests).toHaveLength(4); expect(existsSync(join(out, "dry"))).toBe(false);
   });
 
-  it("reads a missing or null content as the model layer does: a reply whose thinking spent the cap is truncated, and only content that is neither text nor null is malformed", async () => {
+  it("reads a reply as the model layer does: a cap spent on thinking with no content is truncated, and a reply the model layer rejects is malformed", async () => {
     // The shape E0's planner fixture recorded on the r3 index: content null and finish_reason "length", the reasoning having used the whole cap.
-    const f = fixtureInputs();
-    const server = await fakeServer(ordinal => [{ content: null, finish: "length" }, { content: null, finish: "stop" }, { finish: "length" },
-      { content: [{ type: "text", text: "parts" }], finish: "stop" }][ordinal - 1]!);
+    const f = fixtureInputs(), usage = { prompt_tokens: 1200, completion_tokens: 80 };
+    const envelope = (choices: unknown, rest: Record<string, unknown> = { usage }) => ({ body: { id: "x", model: "Synthetic", choices, ...rest } });
+    const message = { role: "assistant", content: null };
+    const replies = [{ content: null, finish: "length" }, { content: null, finish: "stop" }, { finish: "length" },
+      // Rejected by the model layer's reply schema: a parts array, no message, an array or null message, two choices, no finish_reason, no usage, a null body.
+      { content: [{ type: "text", text: "parts" }] }, envelope([{ index: 0, finish_reason: "length" }]), envelope([{ index: 0, message: [], finish_reason: "length" }]),
+      envelope([{ index: 0, message: null, finish_reason: "stop" }]), envelope([{ index: 0, message, finish_reason: "length" }, { index: 1, message, finish_reason: "length" }]),
+      envelope([{ index: 0, message }]), envelope([{ index: 0, message, finish_reason: "length" }], {}), { body: null }];
+    const server = await fakeServer(ordinal => replies[ordinal - 1]!);
     const summary = await runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: { index: f.index, brief: f.briefBytes, manifest: f.manifest },
-      out: join(outDir(), "null-content"), repeats: 4, conditions: ["legacy-thinking"] });
-    expect(summary.calls.map(c => c.classification)).toEqual(["truncated", "invalid_json", "truncated", "malformed_reply"]);
-    // The attempt records no reply bytes, which tells a cap spent on thinking from an answer cut off midway; the reasoning is counted, never kept.
+      out: join(outDir(), "null-content"), repeats: replies.length, conditions: ["legacy-thinking"] });
+    expect(summary.calls.map(c => c.classification)).toEqual(["truncated", "invalid_json", "truncated", ...Array(8).fill("malformed_reply")]);
+    // The attempt records no reply bytes, which tells a cap spent on thinking from an answer cut off midway; the reasoning is counted, never kept in the summary.
     expect(summary.calls[0]).toMatchObject({ finishReason: "length", reasoningField: "reasoning_content", reasoningBytes: Buffer.byteLength("hidden thoughts"),
       usage: { completion_tokens: 80 }, attempt: { truncated: true, replyBytes: 0, accepted: false, errors: [{ code: "truncated", path: [] }] } });
-    expect(summary.calls[3]).not.toHaveProperty("attempt");
-    expect(summary.counts).toEqual({ "legacy-thinking": { truncated: 2, invalid_json: 1, malformed_reply: 1 } });
+    expect(summary.calls.slice(3).every(c => !("attempt" in c) && !("usage" in c))).toBe(true);
+    expect(summary.counts).toEqual({ "legacy-thinking": { truncated: 2, invalid_json: 1, malformed_reply: 8 } });
   });
   it("runs from the command line through loadConfig with a dry run that prints no address", () => {
     const f = fixtureInputs(), root = outDir();

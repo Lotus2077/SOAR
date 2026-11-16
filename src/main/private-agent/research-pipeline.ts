@@ -76,11 +76,12 @@ export function synthesisLengthCap(brief: string): ResearchSynthesisLengthCap {
  * and per-attempt thinking, research-roles.ts) reaches the requests. Attempt 1 is a role's initial call, attempt 2 its repair or
  * second call; an assist slot never reads the policy; a role whose model is not the owned local shape at zero fee keeps today's
  * values. Under a non-default policy a cap above its role model's limit, or a synthesis ceiling below the length floor, is refused
- * before any request. Bound into researchProtocolSha256 with the policy, and only when the policy is not the default.
+ * before any request. 7b.2's presentation guard reserves room for the larger of the two synthesis attempts' length caps. Bound into
+ * researchProtocolSha256 with the policy, and only when the policy is not the default.
  */
 export const RESEARCH_ROLE_POLICY_APPLICATION = Object.freeze({ version: 1, attempts: "initial_call_then_repair_or_second_call", assists: "never",
   appliesTo: "local_vllm_shape_zero_fee_role_models", otherRoles: "default_values", capAboveRoleModel: "refused_not_clamped",
-  synthesisCeilingBelowFloor: "refused", lengthCap: "per_attempt", refusal: "research_role_policy_invalid" });
+  synthesisCeilingBelowFloor: "refused", lengthCap: "per_attempt", presentationReserve: "larger_attempt_length_cap", refusal: "research_role_policy_invalid" });
 /**
  * 7a.2: true when either synthesis attempt's length ceiling (research-admission.ts) falls below the 100-word floor. The ceiling depends
  * only on the attempt's cap, its thinking and three protocol constants, so the pipeline refuses such a policy before any request and
@@ -579,10 +580,12 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
    * 7b.2's presentation guard, before synthesis: the writer's presentation (research-presentation.ts) as it would stand at completion,
    * with upper bounds for what synthesis adds. The argument is the host skeleton's or 8 bytes per word of the length cap, whichever is
    * larger; the synthesis section lists every packet id under each question, with the longest disposition and the skeleton's markers.
+   * 7a.2: the length cap is the larger of the two attempts' (RESEARCH_ROLE_POLICY_APPLICATION.presentationReserve), so the packet leaves
+   * room for whichever attempt's argument is kept; the two differ only under a role policy.
    */
   const presentationBound = (n: number): number => {
     const candidate = packetAt(n, packetFit), skeleton = hostSkeletonSynthesis(plan!, candidate.evidence);
-    const reserve = lengthCap.words * RESEARCH_TRIM_POLICY.presentation.argumentReserveBytesPerWord;
+    const reserve = Math.max(lengthCap.words, secondLengthCap.words) * RESEARCH_TRIM_POLICY.presentation.argumentReserveBytesPerWord;
     const argument = Buffer.byteLength(JSON.stringify(skeleton.argument)) - 2 >= reserve ? skeleton.argument : "x".repeat(reserve);
     const bound = { ...coverage!, chunks: candidate.chunks, omissions: candidate.omissions, status: "ready", fallbacks: { ...coverage!.fallbacks, synthesis: "skeleton" },
       synthesis: { status: "skeleton", argumentSha256: digest(Buffer.from(argument)), questions: plan!.questions.map(q => ({ questionId: q.id, disposition: "unresolved",

@@ -45409,3 +45409,104 @@ References:
 - BL-20261109-0334-research-request-shapes-design;
 - the light review of #103;
 - #106.
+
+### BL-20261116-1207-correction-research-role-policy-restamp -- 2026-11-16 -- Correction: 7a.2's three entries are re-stamped after #119's tail, with their original IDs and authoring times; 7b.2's presentation guard reserves room for the larger of the two synthesis attempts' length caps; and what the merge of #119's head brought
+
+Status: `Implemented`
+
+Scope or hypothesis: #103 (item 7a.2, lane S-pipe) branched from `main` at 19d7826 and had not merged `main` since. Its three entries were authored on 2026-11-14, earlier than the tail it now merges.
+- **The order and the hold.** #106's BL-20261114-2258-correction-handoff-hash-line-e0-steps holds the merge order: 7a.2 after 7b.2, then item 9, before 10.b. #103 was also held with #108, #110 and #116 until E0's probe window closed. On 2026-11-16 the coordinating session reported the window closed and queued #103 after #119.
+- **The tail.** As the coordinating session asked, this merge takes #119's head 3fdeaee, not `main`: `main` at 42b36e7 plus #122, #116, #124 and #119. Its log ends with BL-20261116-1202-correction-host-flags-trimmed-counts-review-restamp.
+- **The rule.** BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates.
+- **The debt the merge settles.** 7b.2 (BL-20261115-1939-research-priority-trim-design) is on `main`. Its presentation guard reserves argument room from one synthesis length cap, while 7a.2 gives each synthesis attempt its own.
+
+Each entry, with its original ID and authoring time. None had been re-stamped before.
+- **The design entry** was authored at 13:46 UTC on 2026-11-14 as BL-20261114-1346 (commit 7adf9bd). It is now BL-20261116-1203-research-role-policy-design.
+- **The implemented entry** was authored at 14:05 UTC on 2026-11-14 as BL-20261114-1405 (commit 0e4635b). It is now BL-20261116-1204-research-role-policy-implemented.
+- **The review Correction** was authored at 14:47 UTC on 2026-11-14 as BL-20261114-1447 (commit bf8855d). It is now BL-20261116-1205-correction-research-role-policy-review.
+
+Decisions:
+(1) **The re-stamp.**
+- The three headings take the first free minutes after the tail, in their order, and their dates move from 2026-11-14 to 2026-11-16. This entry takes its own authoring minute.
+- Only those headings and the references to the three IDs change. There are 11 in the log, the headings included.
+- Outside the log there are 15 in 11 files:
+  - docs/experiments/README.md;
+  - scripts/private-agent-local-screen.ts;
+  - research-admission.ts, research-pipeline.ts, research-seed.ts and serving-card-flags.ts in src/main/private-agent/;
+  - five test files.
+- The bodies keep what they state as written.
+
+(2) **The presentation guard reserves room for the larger attempt's length cap.**
+- **The rule.** 7b.2's guard runs once, before synthesis, and fixes the packet that both synthesis attempts read. For the argument, it reserves 8 bytes per word of the synthesis length cap. Under a role policy, 7a.2 gives each attempt the length cap of its own output cap and thinking. The guard now reserves for the larger of the two, so the packet leaves room for whichever attempt's argument is kept.
+- **Without a role policy** the two caps are equal, so the packet, every request, every row and the hash are unchanged.
+- **The record.** `RESEARCH_ROLE_POLICY_APPLICATION` gains `presentationReserve: "larger_attempt_length_cap"`.
+  - It is bound into `researchProtocolSha256()` only under a non-default policy. So the default hash stays 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5, and a non-default policy's hash moves.
+  - No test or document pinned a non-default policy's hash. The P10 export and the E0 card use the default.
+- **Why the larger, and not the attempt's own.** The packet is one for both attempts. Reserving only the first attempt's cap would let a larger second-attempt argument break the presentation cap. The reply check then rejects that argument as `presentation_too_large`, so the larger cap could never be used.
+
+(3) **The pin holds.** On the merged tree, at the default budget and without a card, `researchProtocolSha256()` is still 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+
+(4) **What the merge brought.** The resolutions:
+- **docs/BUILD_LOG.md**: 3fdeaee's log whole, as a byte prefix, then the re-stamped block and this entry.
+- **src/main/private-agent/research-pipeline.ts**:
+  - the stage counts keep both 7a.2's `secondAttemptLengthCapWords` and 7b.2's `questionsTrimmed` and `quotesLeftByPresentation`;
+  - 7a.2's two length caps now sit where 7b.2 computes the cap, before the guard, and 7b.2's `research_presentation_too_large` return keeps its place;
+  - the synthesis stage and its counts read the same two caps as before.
+- **scripts/private-agent-local-screen.ts**:
+  - the serving card's comment keeps both statements;
+  - #111's `buildLocalScreenServingCard(config, input.cacheSalt !== false)` is followed by 7a.2's role-policy lines.
+- **The tests:**
+  - the pipeline test keeps both import groups and both stage-count names;
+  - the seed test keeps 7a.2's and 7b.2's tests whole;
+  - the session test's fixture takes `main`'s `reply(system, user)` and keeps 7a.2's record of each body's cap and thinking;
+  - the serving-card reader test keeps both R2 tests.
+- **Shared files.** Two more of #103's files changed on the base and merged without a conflict: docs/experiments/README.md and tests/unit/private-agent-local-role-config.test.ts. #119's change to the session test's expectations also merged without a conflict.
+
+(5) **The new test** (tests/unit/private-agent-research-pipeline.test.ts, in 7a.2's block). It uses 7b.2's shrink corpus with 900-character paths:
+- A policy whose synthesis attempts carry 1,200 and 5,757 words keeps the same packet whichever attempt carries the larger cap: 74 quotes, with 47 left by the guard.
+- Two 1,200-word attempts keep the whole 64 KiB prefix: 121 quotes, none left by the guard.
+- Each run completes, and its presentation stays within the cap.
+- Two 5,757-word attempts keep exactly the same packet as a 1,200-and-5,757 pair, so the reserve is the larger cap, not a sum.
+- `RESEARCH_ROLE_POLICY_APPLICATION.presentationReserve` is `larger_attempt_length_cap`.
+
+Changes:
+- src/main/private-agent/research-pipeline.ts: decision (2) and the merge's resolution.
+- scripts/private-agent-local-screen.ts and four test files: the merge's resolution.
+- tests/unit/private-agent-research-pipeline.test.ts: the test of decision (5).
+- docs/BUILD_LOG.md: 3fdeaee's log, then the three entries re-stamped, then this entry.
+- The 15 citations of decision (1).
+
+Evidence:
+- **Byte identity.** With the three new IDs and their heading dates mapped back, the branch's three entries are byte-identical to bf8855d's.
+- **No original ID remains.** `git grep` finds none of the three original full IDs in the tree.
+- **The pin.** `researchProtocolSha256()` printed 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 on the merged tree.
+- **The source freeze.** On this head it is bc9deb1e480fdebaa6737ac338050d21870ac014ddadad4bf3e231a84ea1e946. On #119's head 3fdeaee it is 1fb7931e0a9be6a0e56ecb4fdf990b27d85eb936f46e8f9d2540b8ff652a83c3.
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 against `main` 42b36e7. Its status was read directly.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Mutants.** Five single edits each fail the new test: attempt 1's cap only, attempt 2's only, the smaller of the two, their sum, and the record's `presentationReserve` field deleted.
+- **The full suite.** `pnpm exec vitest run` on this head: 192 files passed and 13 skipped; 3,797 tests passed and 86 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called.
+- **A budget of one synthesis call** still reserves room for the larger cap, although only attempt 1 runs. That can trim more quotes than needed, under a non-default policy only.
+- The entries keep their statuses: the design entry `Proposed`, the other two `Implemented`.
+- The commit messages keep the original IDs. #103's description is updated to the new ones.
+- If another entry reaches `main` before #103 merges, these four entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green on this head.
+- The coordinating session merges #119, then #103, each on green CI with --match-head-commit. This head contains #119's head.
+- Then #108 (item 9) chains on this head and re-stamps after this entry.
+
+References:
+- BL-20261116-1203-research-role-policy-design, BL-20261116-1204-research-role-policy-implemented and BL-20261116-1205-correction-research-role-policy-review (re-stamped here);
+- BL-20261116-1202-correction-host-flags-trimmed-counts-review-restamp;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261114-2258-correction-handoff-hash-line-e0-steps;
+- BL-20261115-1939-research-priority-trim-design;
+- BL-20261114-2301-serving-card-request-settings-design.

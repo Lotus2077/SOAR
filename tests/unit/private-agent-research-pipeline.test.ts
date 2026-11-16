@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_POLICY_APPLICATION, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
 import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
@@ -1416,5 +1416,25 @@ describe("item 7a.2: per-role caps and per-attempt thinking from an adopted card
     const without = await run(bare, {}, bareEvents), withDefault = await run(carded, { roles: rolePolicy() }, cardEvents);
     expect(carded.calls.map(c => canonical(c.body))).toEqual(bare.calls.map(c => canonical(c.body)));
     expect(canonical(cardEvents)).toBe(canonical(bareEvents)); expect(canonical(withDefault.files.map(f => [f.path, f.bytes.toString()]))).toBe(canonical(without.files.map(f => [f.path, f.bytes.toString()])));
+  });
+  it("reserves the presentation guard's argument room for the larger of the two synthesis attempts' length caps, whichever attempt carries it", async () => {
+    // 7b.2's shrink corpus with shorter paths: the guard binds under a 5,757-word reserve (8,192 tokens without thinking) and not under
+    // a 1,200-word one (6,000 tokens with thinking).
+    const sources = trimCorpus(24, 900, String.fromCharCode(0x4e2d)).map(s => ({ ...s, bytes: Buffer.from(s.bytes.toString().split("\n").slice(0, 8).join("\n")) }));
+    const packet = async (maxOutputTokens: [number, number], thinking: [string, string]) => {
+      const m = models(everyRow(() => ["Q1"])), events: ResearchStageCounts[] = [];
+      const result = await run(m, { sources, roles: rolePolicy(r => { r.synthesis.maxOutputTokens = maxOutputTokens; r.synthesis.thinking = thinking; }) }, events);
+      expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+      expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
+      return [events[2]!.quotesInPacket, events[2]!.quotesLeftByPresentation];
+    };
+    const largerSecond = await packet([6000, 8192], ["model", "disabled"]), largerFirst = await packet([8192, 6000], ["disabled", "model"]);
+    const bothSmall = await packet([6000, 6000], ["model", "model"]);
+    // The same reserve, 5,757 words, whichever attempt carries the larger cap; two 1,200-word attempts keep the whole 64 KiB prefix.
+    expect(largerSecond).toEqual(largerFirst); expect(bothSmall[1]).toBe(0);
+    expect(largerSecond[0]).toBeLessThan(bothSmall[0]!); expect(largerSecond[1]).toBeGreaterThan(bothSmall[1]!);
+    // Exactly the larger cap, not a sum: two 5,757-word attempts reserve the same room.
+    expect(largerSecond).toEqual(await packet([8192, 8192], ["disabled", "disabled"]));
+    expect(RESEARCH_ROLE_POLICY_APPLICATION.presentationReserve).toBe("larger_attempt_length_cap");
   });
 });

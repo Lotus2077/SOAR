@@ -43665,3 +43665,313 @@ Paid exposure: USD 0.067876, as the tool computes it, on PLAN.md §4's line "Syn
 Next gate: The judge fixture, reading this commit's manifest: `--dry-run` first, then the run. The dry run must print `manifestSha256` 2d5b505d….
 
 References: docs/experiments/e0-judge-fixture-v1.json; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/e0-card-2026-11-13.md; BL-20261116-0941-e0-card-amendment-2; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261115-1956-e0-judge-labeller-design; BL-20261115-2044-e0-judge-labeller-implemented; BL-20261116-0839-e0-registry-modes-design; pull requests #115, #117 and #121.
+
+### BL-20261116-1017-correction-e0-probes-serving-card-review -- 2026-11-16 -- Correction to BL-20261116-0939-e0-probes-serving-card: the serving card's review found two major errors in its hand-written conclusions and sixteen smaller points; a skeptic pass confirmed all eighteen, and they are fixed before merge
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the light review of pull request #120 at 7bb3c73, the skeptic pass on it, and the fixes.
+
+The review's verdict was major: it found that the probe records contradict or undercut two claims in the serving card's hand-written "Consequences for the plan" section. It also made sixteen smaller findings, minor or nits, and found no privacy issue. A major finding calls for a skeptic, so a workflow of four skeptics, one per evidence source, checked all eighteen findings against the probe records and the sources. All eighteen held.
+
+What changes:
+- **Not touched:** the card's measured tables and its JSON, which are the card writer's output.
+- **Corrected in place,** because they were not on `main`: the Markdown card's hand-written section, and the four probe rows.
+- **Corrected here:** BL-20261116-0939-e0-probes-serving-card stays as written, and where this entry differs from it, this entry governs.
+
+The fixes ride in pull request #121, which contains #120's commit.
+
+Decisions:
+1. **The card's two major errors,** corrected in its hand-written section.
+   - **Why replies ran to the cap.** The card said thinking-on replies lost their room to reasoning. That holds for extraction only.
+     - The two extract failures spent all 2,048 tokens on reasoning and returned no content.
+     - The synthesis failures did not run out on reasoning: the three with thinking on spent 548, 630 and 731 reasoning tokens, and the one with thinking off spent none. Each filled the rest of its 8,192 tokens with content.
+     - The card does not show why those replies ran to the cap.
+   - **The planner contrast.** The card set P10's plan replies against the r3 runs' empty planner replies as if only `response_format` differed.
+     - P10's plan cells send the pipeline's own planner body with only `response_format` added, on the export's synthetic payload of two short sources: 1,744 prompt tokens with thinking on and 1,746 with thinking off. The r3 runs sent the same body shape without `response_format`, on a 24-source index. So the two differ in input as well.
+     - `response_format` does not rule the failure out. In probe run 1, P10's plan cell with thinking on had 12 complete replies. One of them, call 4, finished `length` with 8,192 completion tokens, all of them reasoning, and 0 content bytes, in 98.5 s. The eight calls after it completed normally.
+     - No plan reply was truncated in run 2 or run 3, each with 20 thinking-on and 20 thinking-off calls. So 1 of 52 complete thinking-on plan replies sent with `response_format` was truncated with no content.
+     - Run 1 stays outside the card's evidence. The card cites that reply only to show that `response_format` does not rule the failure out.
+2. **The card's smaller fixes,** also in its hand-written section:
+   - **Clocks.** The derived ceilings are 27,830 to 28,001 tokens at 300 s and 85,067 to 86,816 at 900 s. The 170.9 s reply was not long thinking: it reached its 8,192-token cap at about 48 tokens per second, with 548 reasoning tokens.
+   - **Throughput.** Single-stream decode ran at 81.1 to 144.5 tokens per second, depending on the prompt.
+   - **Speculative decoding.** The 54% is one server-wide count over the whole run, and no identity check covers the decoding configuration.
+   - **Prefix caching.** The two requests of a layout carry different chunks, so the most the second could reuse is what comes ahead of its chunk. Neither reused anything.
+   - **Identity** is stated as P1's three fields equalling the qualification's, with the owner's answer of 2026-11-13.
+   - **Status.** The section now says the card is `proposed`.
+   - **Synthesis with thinking off** passes the 95% rule at exactly 19 of 20.
+   - **The measurement path.** Runs 1 and 2 "failed at transport partway", not "lost the endpoint". P1 alone also ran without the bypass, and its reading is identical to run 3's.
+3. **Where runs 1 and 2 began to fail.** In both, the first sign was an open stream ending early, not a refused request.
+   - **Run 1.** P10's first cell (plan, thinking on) got 12 replies that ran to a finish reason: 11 `stop` and 1 `length`. The 13th stream returned status 200 and ended after 35.7 s with no finish reason and no usage. The probe has no class for that and counted it `invalid_json`, and the entry's "13 of 20 replies" counts that stream. From the 14th call on, every request failed at once at transport (`URLError`, 0.0 s).
+   - **Run 2.** P10's plan and extract cells got all 80 replies. Synthesis with thinking on got 9 replies that ran to a finish reason. The 10th stream ended after 17.1 s in the same way, and the entry's "10 of 20" counts it. From the 11th call on, every request failed at once at transport.
+   - **Run 2's P8 cut-off** at 120.9 s was a separate, earlier failure. Requests were answered for about 21 minutes after it. Run 1's P8, on the same route, completed in 135.2 s, so the records do not point to a fixed time limit on that route.
+4. **The proxy is the route; the cause is an inference.**
+   - **The heading** "Why runs 1 and 2 failed" reads as "why this entry attributes the failures of runs 1 and 2 to the proxy: an inference, not shown". "Through the loopback proxy", in the entry's title and its Failures line, names the route the probe's requests took.
+   - **The broker connects directly.** It opens each request itself, with no connection pool and no proxy agent, to the address it resolved (src/main/private-agent/broker.ts). On Node 22 it does not read `HTTP_PROXY`. The research driver sends through that broker.
+   - **The 291 dispatches** were made on 2026-11-15 between 19:31 and 20:28 UTC, and every one settled (BL-20261116-0813-e0-r3-runs-index-and-harvest). That shows the direct path working then, not during the probe window.
+   - **The doctor** does not use that same path. It calls Node's `fetch`, which is direct only while `NODE_USE_ENV_PROXY` is unset. It was unset in this Mac's shell when checked afterwards.
+   - **The attribution rests on four things:**
+     - the route;
+     - the form of the failures: every later request raised `URLError` in 0.0 s, which urllib raises when it cannot connect or send, and on a proxied plain-HTTP route its only peer is the proxy;
+     - direct answers close to both failures: the doctor 30 s after run 1 ended, and the direct reads from 08:56 UTC, with run 2 ending at 08:57:40 UTC;
+     - run 3 completing with the proxy bypassed, a single run.
+   - **What the entry lacks.** It holds no reading of the proxy itself. It records no change between run 1's end and run 2's start two minutes later, when requests were answered again.
+5. **Revision and tree state.**
+   - **Revision.** P1 alone, the export, all three runs and the assessment ran in the main checkout while its HEAD was b487f75. Its reflog moves HEAD there at 08:10:19 UTC and on to a355074 at 09:35:55 UTC. scripts/serving-probe.py is the same file at b487f75 and at 6a96098.
+   - **Tree state.** No retained record states it. The session's run logs noted no tracked changes at the start of each probe run, and those logs are not retained evidence.
+6. **Paid exposure, restated.** None.
+   - Every request was synthetic, addressed to the owned endpoint and zero-fee: all four probe records carry the cost policy `local_zero_cost`, and no key was configured.
+   - Run 3's connections went directly to the endpoint.
+   - P1 alone and runs 1 and 2 ran without the bypass. So by this entry's route finding, their connections went to this Mac's loopback proxy, whose onward route is not shown. Their answered requests returned the same P1 identity as run 3's.
+7. **The four probe rows,** rewritten by the row writer before merge:
+   - **Exposure** is now `exposed`. The probe's prompts are fixed in the script, and runs 2 and 3 resent run 1's requests, so `fresh` was false under the README's definition.
+   - **Family** stays `serving`. A serving probe has no task family, and docs/experiments/README.md's `family` row now names the value for serving-probe rows. The row writer checks no family value, and no test reads the registry's.
+   - **Lessons.** Runs 1 and 2's lessons no longer say the endpoint became unreachable, and they carry decision 3's counts. Each lesson names b487f75.
+8. **Three decisions of BL-20261116-0939-e0-probes-serving-card, qualified.**
+   - **Decision 1.** "The card's Records section" means the E0 card's (docs/experiments/e0-card-2026-11-13.md). The serving card has no such section.
+   - **Decision 4.** Neither #115 nor #118 touches src/, so neither changes `researchProtocolSha256()`.
+     - #115's files are documentation, the labelling script, its test and its script line in package.json.
+     - #118's files are documentation, the pinned planner manifest, five registry rows and a test.
+   - **Decision 5.**
+     - Runs 1 and 2 could not have been rowed `accepted` as they stand: neither was assessed, and the writer refuses `accepted` when P10 is unassessed.
+     - The writer has no guard yet for requests that failed at transport inside a probe the run recorded as run.
+     - "A lane fix adds that guard" stated an intention, not a change.
+9. **The two lane fixes are tracked here.** No pull request for either is open yet. Lane S-harn has agreed to take both in one pull request after this one merges:
+   - the probe connecting directly whatever the shell's proxy settings;
+   - the row writer refusing `accepted` for a run whose requests failed at transport.
+
+Changes:
+- docs/experiments/serving-card-2026-11-16.md: the hand-written section only.
+- docs/experiments/registry.jsonl: the four probe rows, replaced before merge.
+- docs/experiments/README.md: the `family` row of the registry table.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The review.** One reviewer read #120 at 7bb3c73 with read-only access to the four probe records. It recomputed the card's JSON from run 3's record with the writer's own functions and found it byte-identical.
+- **The skeptic pass.** Four agents, read-only, each read the probe records and sources itself. They confirmed all eighteen findings, and corrected the reviewer's own text in several places. Examples: the thinking-off prompt size, the doctor's path, and what the two cache-layout requests share.
+- **Run 3's P10 records:**
+  - extract with thinking on, the two failures: 2,048 completion tokens, all reasoning, 0 content bytes;
+  - synthesis with thinking on, the three failures: 548, 630 and 731 reasoning tokens, with 7,736, 10,137 and 129,770 content bytes;
+  - synthesis with thinking off, the one failure: no reasoning, 10,163 content bytes;
+  - valid synthesis replies with thinking on used 499 to 1,164 reasoning tokens.
+- **The 170.9 s reply** is the longest of the 120 P10 calls: 8,192 tokens at 47.9 tokens per second.
+- **The speculative-decoding figure.** scripts/serving-probe.py reads the server's drafted and accepted counters once before the first probe and once after the last. Run 3's ratio is 0.537.
+- **P11's cache layouts in run 3:**
+  - a packet of 20,198 bytes, and chunks of 65,530 and 65,534 bytes;
+  - prompt tokens 14,321 and 14,356 (`sorted_keys`), 14,323 and 14,358 (`stable_prefix`);
+  - 0 cached tokens on all four requests.
+- **The rows** were regenerated by `scripts/registry-row.py --probe-dir` at a89c0bd. Their computed fields are unchanged.
+
+Failures or blockers: The card's first hand-written conclusions carried two errors that a reader could have acted on. The review caught them before the card reached `main`.
+
+Limitations and non-claims:
+- **The proxy as cause** remains an inference from one bypassed run, as decision 4 says.
+- **Not explained here:** why the synthesis replies ran to the cap, and why prefix reuse was zero.
+- **The card's tables** are one run's measurements.
+
+Paid exposure: None.
+
+Next gate: Lane S-harn's probe fix. E0's `Verified` entry uses the corrected card.
+
+References: BL-20261116-0939-e0-probes-serving-card; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261113-1023-p10-align-implemented; BL-20261113-1003-e0-card-owner-answers; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261116-0839-e0-registry-modes-design; docs/experiments/serving-card-2026-11-16.md; docs/experiments/README.md; scripts/serving-probe.py; src/main/private-agent/broker.ts; pull requests #115, #118, #120 and #121.
+
+### BL-20261116-1018-correction-e0-amendment-2-review -- 2026-11-16 -- Correction to BL-20261116-0941-e0-card-amendment-2: the review of Amendment 2, eleven points: what a second request carries, the price recheck made after the run, whose choice the judge's design is, and smaller ones
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the review of pull request #121 at c6da620, which held Amendment 2 and its entry.
+
+The review was a workflow of three reviewers, each with its own lens: accuracy against the sources, pre-registration and procedure, and privacy with the log rules. A skeptic then tried to refute the two most serious findings of each lens. A tenth agent prepared the judge manifest's pin recipe.
+
+The review found no blocker, no major issue and no privacy issue. The points below are its minor findings and nits, merged where two lenses made the same point.
+
+The card's Amendment 2 section and BL-20261116-0941-e0-card-amendment-2 stay as written: the labelling started at 09:52:10 UTC, and neither may change after the first claim was sent. Where this entry differs from either, this entry governs. It corrects the record and pre-registers nothing.
+
+Decisions:
+1. **What a second request carries** (Amendment 2, item 1, "Requests"). The card says "A second request carries only the counts still to plant." Read alone, that says the second request holds the counts and nothing else. It does not.
+   - **When it is sent.** A second request goes out only if partial, unsupported or contradicted is still below the minimum after the first reply, and only if the cap admits it. There is no third request.
+   - **What it carries.** It is a new, stateless request. It carries the same instructions and the same `claims.json` as the first, in the tool's same fixed framing. In place of the sentence that states the minimum, it carries the counts still to plant per class.
+   - **What it never carries.** No label, and no planted sentence or note from the first reply.
+   - **The consequence.** `claims.json` may reach the labeller twice, and nothing of a new kind leaves the machine. This is the protocol's wording, and decision 6 of BL-20261115-1956-e0-judge-labeller-design.
+   - **What happened.** The labelling of 2026-11-16 sent one request and no second (BL-20261116-1013-e0-judge-labelling-and-pin).
+2. **What each request carries besides** (the same item, "What it sends"). Besides the instructions, the per-class minimum and `claims.json`, each request carries the tool's fixed framing, as the protocol's Roles section states:
+   - one sentence that the claims are untrusted text;
+   - one sentence that states the minimum (in a second request, the counts still to plant);
+   - the reply's JSON schema.
+
+   The framing carries no sidecar, verdict, grade, path or address.
+3. **The price recheck was not recorded before the labelling.**
+   - **The obligation.** docs/PLAN.md's Economics paragraph says: "Recheck the price on the day it is used." The Next gates of BL-20261115-1956-e0-judge-labeller-design and BL-20261115-2044-e0-judge-labeller-implemented both put that recheck in the card's amendment, ahead of the labelling.
+   - **What was missed.** Amendment 2 and its entry record no recheck, and the labelling started without one. The labelling protocol's list of what the amendment names does not include prices, so the Amendment 2 section stands as written.
+   - **What the cap rested on.** scripts/judge-labeller.ts counts every fee at its own constants, OpenAI's published `gpt-6-sol` prices as read on 2026-10-22. Per million tokens they are:
+     - 2.00 input, 0.20 cached input, 2.50 for a 30-minute cache write and 10.00 output;
+     - 4.00, 0.40, 5.00 and 15.00 above 272K input tokens.
+
+     The tool cannot see the provider's bill.
+   - **The recheck, made after the run.** The session read the published prices on 2026-11-16 at about 10:10 UTC. They equal those constants (BL-20261116-1013-e0-judge-labelling-and-pin).
+   - **"At most USD 1.00", restated.** In BL-20261116-0941-e0-card-amendment-2's Paid exposure it means as the tool's ledger counts it at those constants.
+4. **The labeller's name.** The provider is OpenAI and the model is `gpt-6-sol`.
+   - Amendment 1, item 5, and Amendment 2, item 1, name them by the model and the provider's public API host. Neither writes the string `openai/gpt-6-sol`, which the tool's entries expected the amendment to name.
+   - That string is what the tool writes as `labeller` in labels.json and in its summary. It is the tool's form of the provider and model that Amendment 1 named before the first claim was sent.
+5. **What `Implemented` covers, and whose choice the design is.**
+   - **The status.** In BL-20261116-0941-e0-card-amendment-2, `Implemented` covers the amendment's text in the card and nothing else. Nothing there is approved item by item, run, verified or released.
+   - **The choice.** The minimum of 10, the condition `["j1-legacy"]` and the 1 repeat are the orchestrating session's choice of the judge manifest template's values. The template's note calls the minimum and the condition proposals; `repeats: 1` is only its field value.
+   - **Why the session made it.** BL-20261115-1937-owner-adopts-standing-defaults does not list these three among its adopted defaults, and docs/HANDOFF.md §5 step 2 lists them as the owner's to answer. The session reads the owner's blanket answer as covering them because the template states them.
+   - **What stays open.** The minimum has gone to the labeller and stands for this labelled set. The owner may add conditions or repeats through a further amendment and a new manifest.
+6. **The adapter finding's source.**
+   - That both reply shapes were consistent is the serving card's reply-contract row (docs/experiments/serving-card-2026-11-16.md), on a few synthetic replies. The probe does not establish the contract. BL-20261116-0939-e0-probes-serving-card's own text does not state it.
+   - The activation cell is `j1-legacy` because the configuration sets no reply contract (Amendment 1, item 6), not because of the probe.
+7. **The pin is committed first.**
+   - "Pinned" in Amendment 2, item 3, means committed and pushed before the judge fixture sends any request. Step 4 of the labelling protocol and BL-20261114-2253-correction-judge-fixture-review-fixes require that.
+   - It was: a89c0bd at 10:13:00 UTC, before the dry run of 10:13:16 UTC and the run of 10:13:28 UTC.
+   - The pin's commit also changed tests/unit/judge-fixture.test.ts, as the planner's pin changed its test.
+8. **The exit codes.** The sentence under "Commands" describes the labelling run, command 3.
+   - The dry run exits 0 when the first request would be admitted, and 2 when it would not.
+   - `scripts/with-cloud-key.sh --check` always exits 0. Its printed HTTP status, 200, is what shows that the key was accepted.
+9. **The fee's projection.** The tool projects the fee from the first request's body bytes (the instructions, `claims.json`, the framing and the schema) at the dearer of the input and cache-write rates, plus the output cap at the output rate. So "from the claim set's bytes" was imprecise.
+10. **Not measured by this design, and exit 3.**
+    - With `j1-legacy` alone, the fixture reports no option-order flip rate and nothing about the judge under `flash_next_v1`. A later change of reply contract needs a `j1-flash` run under a new manifest.
+    - Had the labelling exited 3, the labels would have been written with a class short and the fixture would have refused the set. The owner would decide what follows, and the minimum is not lowered without a further amendment. It exited 0.
+11. **Merge order.** The card's Amendment 2 cites its entry by ID.
+    - So pull request #121, which contains #120's commit, merges before any other pull request that adds entries.
+    - If a re-stamp still becomes necessary, the card's citation stays as written and the re-stamp's Correction maps the ID, as BL-20261113-0938-correction-restamp-rule-dates allows for an ID already cited.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing else.
+
+Evidence:
+- **The workflow** ran ten agents: three reviewers, six skeptics and the pin-recipe agent, all read-only. None read the claim set, the labels or any `.env.local`.
+- **What the skeptics confirmed,** each against the tool's code and tests at c6da620:
+  - decision 1: scripts/judge-labeller.ts builds the second request from the same instructions and `claims.json`, and tests/unit/judge-labeller.test.ts asserts that body;
+  - decision 3, raised by all three lenses: the obligation's three sources, and that the amendment, its entry and the pull request hold no mention of prices;
+  - decision 2, together with decision 1's privacy reading.
+- **Decision 4** was confirmed as a nit. Decisions 5 to 11 were checked by the session against the lines the reviewers cited.
+- **The reviewers found correct:** the tool's flags, exit codes, model, API and host; the ledger and the cap; the instructions digest; the template's values; the fixture's rule on the activation cell; the cited entries; the privacy of the added lines; the field order; and the ID's time against its commit.
+- **The price page** was read through a fetch tool, as BL-20261116-1013-e0-judge-labelling-and-pin records.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **The recheck follows the first request.** It does not show the prices at the moment that request was sent.
+- **Unverified nits.** The skeptics covered at most two findings per lens. The session checked the remaining nits itself, without an independent pass.
+- **No change to the tool.** This entry changes no code and no behaviour of the labelling tool.
+
+Paid exposure: None in this entry.
+
+Next gate: None of its own.
+
+References: BL-20261116-0941-e0-card-amendment-2; BL-20261116-1013-e0-judge-labelling-and-pin; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0939-e0-probes-serving-card; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261115-1956-e0-judge-labeller-design; BL-20261115-2044-e0-judge-labeller-implemented; BL-20261114-2253-correction-judge-fixture-review-fixes; BL-20261113-0938-correction-restamp-rule-dates; docs/PLAN.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/e0-card-2026-11-13.md; scripts/judge-labeller.ts; pull requests #120 and #121.
+
+### BL-20261116-1019-e0-planner-fixture-result -- 2026-11-16 -- E0's planner fixture: with thinking, 11 of 20 plans valid and 8 of 20 replies at the 8,192-token cap, 6 of them with no content; with thinking off, 1 of 10 valid
+
+Status: `Implemented`
+
+Scope or hypothesis: The planner fixture of E0's card, as Amendment 1 (item 3) fixes it: 3 conditions × 10 repeats of the pipeline's planner request on run-5's r3 index and the stage brief. The card reads the thinking policy for the planner from it, with P10 and P11. `Implemented` covers the run and its record.
+
+Decisions:
+1. **None on the pipeline.** This entry records the measurement. The proposals below are for E0's `Verified` entry.
+2. **What the fixture's `malformed_reply` is here.** All six such replies are the event the research stage logs as a truncated reply with no content: the reasoning used the whole output cap. The lane owning the fixture is asked to count that shape as truncated.
+3. **Proposals for E0's `Verified` entry,** not decisions:
+   - With thinking on, the planner's 8,192-token output cap is too tight for an r3-sized index: 8 of 20 replies reached it.
+   - Turning thinking off without structured output is not a fix: 1 of 10 plans was valid.
+   - The planner with `response_format` on the real index is not measured. The fixture has no such condition.
+
+Changes: docs/experiments/registry.jsonl gains the row `e0-planner-fixture-2026-11-16`. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **The run.**
+  - The manifest was pinned on `main` since #118. A dry run with the same flags sent nothing and printed the request digests that BL-20261116-0814-e0-card-amendment-1 records.
+  - The run went from 09:36:14 to 09:58:29 UTC, from the main checkout at a355074 with a clean tracked tree, under research protocol 7100b7a2….
+  - It made 30 calls, all HTTP 200, each with about 24,000 prompt tokens.
+- **legacy-thinking,** the pipeline's request today:
+  - 6 valid;
+  - 1 truncated at the cap with part of a plan (3,070 bytes of content);
+  - 3 `malformed_reply`.
+- **flash-thinking:**
+  - 5 valid;
+  - 1 truncated with part of a plan (2,574 bytes);
+  - 3 `malformed_reply`;
+  - 1 `schema_invalid` (a plan over the schema's size limits).
+- **thinking-off:**
+  - 1 valid;
+  - 5 `invalid_json`;
+  - 2 `schema_invalid` (size);
+  - 2 `binding_invalid` (a plan that omitted a requirement).
+
+  These calls took 9 to 16 s and used 1,194 to 2,108 completion tokens.
+- **The six `malformed_reply` calls.** A structure-only read of their retained replies (field names, lengths and enums, no text) shows the same shape in all six: `content` null, `finish_reason` `length`, 8,192 completion tokens, and 22 to 26 KB of reasoning.
+- **The valid thinking-on plans** used 3,396 to 8,176 completion tokens, with 4.6 to 20.8 KB of reasoning, in 26 to 73 s.
+- **The row** was written by `scripts/registry-row.py --fixture-dir … --fixture planner`: 30 calls, USD 0, and the classes above.
+
+Failures or blockers: None in the run.
+
+Limitations and non-claims:
+- **One input.** One task, one index and one brief, at ten repeats per condition, with the profile's sampling.
+- **The r3 runs.** Their first planner reply came back empty in 5 of 5 runs (BL-20261116-0813-e0-r3-runs-index-and-harvest). In this fixture 3 of 10 legacy-thinking replies were empty, and one more was cut short. This entry does not explain the difference.
+- **Not a like-for-like comparison with P10.** P10's plan cells add `response_format` to the planner's body, but on the export's small synthetic input.
+- **No product claim.**
+
+Paid exposure: None. Thirty zero-fee requests went to the owned endpoint.
+
+Next gate: E0's `Verified` entry states the planner's thinking policy from this run, P10 and P11.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-planner-fixture-v1.json; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0939-e0-probes-serving-card; BL-20261113-1023-p10-align-implemented; BL-20261116-0839-e0-registry-modes-design.
+
+### BL-20261116-1020-e0-judge-fixture-result -- 2026-11-16 -- E0's judge fixture: exact agreement with the cloud labels on 38 of 60 claims (63.3%), below the 95% level, so by the card's rule the judge stays evidence-only
+
+Status: `Implemented`
+
+Scope or hypothesis: The judge fixture of E0's card (item 2; Amendment 1, item 4; Amendment 2), run on the labelled set that BL-20261116-1013-e0-judge-labelling-and-pin pinned. Hypothesis, from the card: today's judge agrees exactly with the labels on at least 95% of the labelled claims. `Implemented` covers the run and its record. E0's `Verified` entry is still to come.
+
+Decisions:
+1. **The judge did not reach its level.** It agreed exactly on 38 of 60 claims, 63.3%, against the 95% the owner set (BL-20261113-1003-e0-card-owner-answers). The fixture's own `meetsLevel` is false.
+2. **The card's decision rule applies as written.** This entry decides nothing new.
+   - Criterion 8's judge threshold does not apply in E3 and E4, and criterion 3's does not apply in E4.
+   - The judge stays evidence-only.
+   - Under the stop list, cloud claim verification is reconsidered. That reconsideration is the owner's, with E3's and E4's cards.
+3. **The row's outcome is `rejected`,** by that rule. The run itself was valid: every call was answered.
+
+Changes: docs/experiments/registry.jsonl gains the row `e0-judge-fixture-2026-11-16`. docs/BUILD_LOG.md gains this entry.
+
+Evidence:
+- **The pin came first.** The manifest was committed and pushed in a89c0bd at 10:13:00 UTC. The run passed `--manifest` a copy of that commit's blob.
+- **The dry run,** at 10:13:16 UTC, sent nothing. It printed:
+  - `manifestSha256` 2d5b505db708e5d80dae0bed03113cf1d8d143ecb9c2c2bc55afcdb7509f44cb, the committed blob's canonical digest;
+  - the legacy reply contract, with `j1-legacy` as the activation cell;
+  - 60 requests at 256 output tokens;
+  - the judge's system-prompt digest b183eeeb…, and `requestSetSha256` c070c00e3bca931343a7500a4edbe02961be24cae79fecf96e774dac47b691fa.
+- **The run,** from 10:13:28 to 10:14:06 UTC, from the main checkout at a355074 with a clean tracked tree. The fixture, claims, model and config sources are identical between a355074 and a89c0bd. The command was Amendment 1's item 4, with `--manifest` added.
+  - It printed the same manifest digest and request-set digest as the dry run.
+  - 60 calls, all HTTP 200, with no transport error and no reasoning. The median call took 0.6 s.
+  - 58 replies were judged. 2 could not be read as a verdict (`judge_reply_invalid`) and count as disagreements.
+- **Agreement with the labels:**
+  - exact: 38 of 60, 0.6333; of the 58 judged, 0.6552;
+  - established or not (supported and partial against unsupported and contradicted): 47 of 60, 0.7833;
+  - Cohen's kappa 0.5072;
+  - recall of the established classes 0.95, of the not-established classes 0.45, and of contradicted 0.80;
+  - AUROC for not-established 0.8374.
+- **The confusion matrix,** label to verdict:
+  - supported (21): 14 supported, 7 partial;
+  - partial (19): 2 supported, 15 partial, 1 unsupported, 1 not judged;
+  - unsupported (10, all planted): 8 partial, 1 unsupported, 1 not judged;
+  - contradicted (10, all planted): 2 partial, 8 contradicted.
+- **Where the 22 disagreements are:**
+  - 9 on the line between supported and partial;
+  - 10 planted negatives that the judge called partial: 8 unsupported and 2 contradicted;
+  - 1 partial that it called unsupported;
+  - 2 not judged.
+- **The row** was written by `scripts/registry-row.py --fixture-dir … --fixture judge`. It recomputes `meetsLevel` as false from the manifest's measure and level, and records USD 0 and no text.
+
+Failures or blockers: None in the run. The judge's result is the negative finding.
+
+Limitations and non-claims:
+- **The reference is one cloud labeller.** Agreement here measures the judge against `gpt-6-sol`'s labels, not against truth. Nobody has checked the labels by hand.
+- **One condition, one repeat.** The fixture reports no consistency between repeats, no option-order effect, and nothing under `flash_next_v1`.
+- **A small, narrow set.** 60 claims: 40 from one run of one task, and 20 negatives that the labeller wrote under the protocol's planting rules.
+- **Both measures fall short.** The exact measure counts a supported-against-partial difference as a miss. The coarser established measure, 78.3%, is also below 95%.
+- **No product claim.** This says nothing about report quality.
+
+Paid exposure: None. Sixty zero-fee requests went to the owned endpoint.
+
+Next gate: E0's `Verified` entry and issue #57 record that the judge did not reach its level. E3's and E4's cards treat the judge as evidence-only.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/e0-judge-fixture-v1.json; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; BL-20261116-1013-e0-judge-labelling-and-pin; BL-20261116-0941-e0-card-amendment-2; BL-20261116-0814-e0-card-amendment-1; BL-20261113-1003-e0-card-owner-answers; BL-20261114-2250-judge-fixture-implemented; BL-20261116-0839-e0-registry-modes-design; issue #57.

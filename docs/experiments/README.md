@@ -129,7 +129,7 @@ unresolved outcomes. H4/H5 acceptance remains unestablished.
 | `gitDirty` | Whether a checkout of `git` would not reproduce the frozen sources when the run started: the repository's clean test failed (anything staged, unstaged, or untracked and not ignored by the repository's own rules; the user's global ignore file is not read, as in scripts/verify-release-head.ts), an index entry is one the status does not compare (skip-worktree, assume-unchanged, a sparse checkout), or a frozen file's bytes were not the ones the source freeze hashed or not its committed blob. `false` means the commit reproduces the run's `sourceFreezeSha256`, since a checkout writes blobs unchanged under this repository's `.gitattributes`. A repository with a configured filter command records `git: null` instead of running it. A loop row is `true` if any stage was dirty and `null` if any stage's state is unknown; `null` on `row_written` rows |
 | `batch` | Experiment card or batch name |
 | `task` | Task id; `taskJobSha256` binds the exact inputs |
-| `family` | research, document_review, website, deck, admin, coding or audit |
+| `family` | research, document_review, website, deck, admin, coding or audit; `serving` on a serving-probe row (`--probe-dir`), which has no task family |
 | `exposure` | `fresh` (never seen by any run or prompt tuning) or `exposed` |
 | `arm` | Route and profile, for example `local-standard` or `local-heavy` |
 | `profile`, `thinking`, `maxOutputTokens` | Coordinator profile the run was frozen with |

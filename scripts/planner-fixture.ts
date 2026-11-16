@@ -13,6 +13,14 @@
  *
  * The three conditions and the 3 x 10 design are a proposal for the E0 card. The committed manifest is a template until the
  * owner fills its hashes from the exposed r3 index; the fixture refuses a template or a mismatch before any request.
+ *
+ * The serving card's plan call (BL-20261116-1253-e0-planner-structured-condition-design): `legacy-thinking-structured` adds the
+ * strict `research_plan` response_format item 9 sends (model.ts's jsonSchemaResponseFormat over RESEARCH_ROLE_SCHEMAS.plan) at the
+ * plan cap, and `legacy-thinking-structured-16384` the same call at the Heavy profile's ceiling. Manifest v2 pins them beside
+ * `legacy-thinking`. Each of the conditions and the repeats comes from the manifest unless its own flag is given, and each repeat
+ * runs every condition in turn. With --cache-salt every body carries the fixture's one salt, as a run under the card carries one:
+ *
+ *   pnpm fixture:planner -- --index <run-5 index.json> --brief <stage brief> --manifest docs/experiments/e0-planner-fixture-v2.json [--cache-salt]
  */
 import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -20,18 +28,22 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { loadConfig, loadEnvironmentFiles } from "../src/main/config";
 import { canonical, digest, sha256Schema } from "../src/main/private-agent/contracts";
-import { vllmCacheSalt } from "../src/main/private-agent/model";
+import { jsonSchemaResponseFormat, vllmCacheSalt } from "../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { deriveBriefUnits, type BriefUnit } from "../src/main/private-agent/research-coverage";
 import { RESEARCH_PLAN_JSON_SCHEMA, assessResearchPlanReply, type ResearchPlanAttempt } from "../src/main/private-agent/research-plan";
-import { OUTPUT_TOKENS, PLAN_SYSTEM, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
+import { OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_ROLE_SCHEMAS, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
 import { readChatReply } from "./chat-reply";
 
-export const FIXTURE_CONDITIONS = ["legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off"] as const;
+export const FIXTURE_CONDITIONS = ["legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off", "legacy-thinking-structured", "legacy-thinking-structured-16384"] as const;
 export type FixtureCondition = (typeof FIXTURE_CONDITIONS)[number];
 /** Proposal for the E0 card: the legacy shape with thinking, the flash_next_v1 shape with thinking, and thinking off. */
 export const DEFAULT_CONDITIONS: readonly FixtureCondition[] = ["legacy-thinking", "flash-thinking", "thinking-off"];
 export const FIXTURE_JOB_ID = "e0-planner-fixture";
+/** The serving card's plan call adds this format (item 9): the strict `research_plan` schema, as the pipeline sends it under the card. */
+export const PLAN_RESPONSE_FORMAT = Object.freeze({ ...RESEARCH_ROLE_SCHEMAS.plan, strict: true });
+/** Each condition's output cap: the plan cap, except the 16,384-token cell (the Heavy profile's ceiling). */
+export function plannerConditionCap(condition: FixtureCondition): number { return condition === "legacy-thinking-structured-16384" ? 16384 : OUTPUT_TOKENS.plan; }
 
 export const PlannerFixtureManifestSchema = z.object({
   schemaVersion: z.literal(1), name: z.string().min(1), status: z.enum(["template", "pinned"]), note: z.string().optional(),
@@ -70,10 +82,15 @@ export function buildPlannerMessages(fixture: VerifiedFixture): { role: "system"
     sourceIndex: fixture.indexDocument, mandatorySourceChunks: fixture.manifest.mandatorySourceChunks, extractionCallBudget: fixture.manifest.extractionCallBudget, repair: null }) }];
 }
 
-/** The exact vLLM body of model.ts for the owned destination, non-streaming, no tools: legacy or flash_next_v1 shape. */
+/**
+ * The exact vLLM body of model.ts for the owned destination, non-streaming, no tools: legacy or flash_next_v1 shape, and for the
+ * structured conditions the serving card's plan call (item 9's response_format) at the condition's cap.
+ */
 export function buildPlannerBody(condition: FixtureCondition, model: string, messages: readonly { role: string; content: string }[], options: { cacheSalt?: string } = {}): string {
   const thinking = condition === "thinking-off" || condition === "flash-thinking-off" ? "disabled" : "medium", flash = condition.startsWith("flash");
-  return canonical({ model, messages, stream: false, max_tokens: OUTPUT_TOKENS.plan,
+  const structured = condition === "legacy-thinking-structured" || condition === "legacy-thinking-structured-16384";
+  return canonical({ model, messages, stream: false, max_tokens: plannerConditionCap(condition),
+    ...(structured ? { response_format: jsonSchemaResponseFormat(PLAN_RESPONSE_FORMAT) } : {}),
     ...(thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...COORDINATOR_PROFILES.heavy.sampling }),
     ...(flash ? { chat_template_kwargs: { enable_thinking: thinking !== "disabled", preserve_thinking: false } } : {}),
     ...(options.cacheSalt ? { cache_salt: options.cacheSalt } : {}) });
@@ -114,15 +131,17 @@ export async function runPlannerFixture(options: FixtureRunOptions): Promise<Fix
   const summary: FixtureSummary = { version: 1, startedUtc: new Date().toISOString(), protocolSha256: researchProtocolSha256(), model: options.endpoint.model, conditions, repeats: options.repeats, dryRun: options.dryRun === true,
     manifest: { name: fixture.manifest.name, task: fixture.manifest.task, exposure: fixture.manifest.exposure, indexSha256: fixture.indexSha256, briefSha256: fixture.briefSha256, sourceIdsSha256: fixture.sourceIdsSha256,
       sourceCount: fixture.sourceIds.length, mandatorySourceChunks: fixture.manifest.mandatorySourceChunks!, extractionCallBudget: fixture.manifest.extractionCallBudget },
-    units: fixture.units.length, requests: Object.fromEntries(conditions.map(condition => [condition, { requestSha256: digest(bodies[condition]), requestBytes: Buffer.byteLength(bodies[condition]), maxTokens: OUTPUT_TOKENS.plan }])),
+    units: fixture.units.length, requests: Object.fromEntries(conditions.map(condition => [condition, { requestSha256: digest(bodies[condition]), requestBytes: Buffer.byteLength(bodies[condition]), maxTokens: plannerConditionCap(condition) }])),
     calls: [], counts: {} };
   if (options.dryRun) return summary;
   const replies = join(options.out, "replies");
   mkdirSync(replies, { recursive: true, mode: 0o700 });
   const headers: Record<string, string> = { "content-type": "application/json", ...(options.endpoint.apiKey ? { authorization: `Bearer ${options.endpoint.apiKey}` } : {}) };
   const timeoutMs = options.endpoint.timeoutMs ?? COORDINATOR_PROFILES.heavy.requestTimeoutMs, sources = fixture.sourceIds.map(id => ({ id }));
-  for (const condition of conditions) {
-    for (let ordinal = 1; ordinal <= options.repeats; ordinal++) {
+  // Each repeat runs every condition in turn (BL-20261116-1253-e0-planner-structured-condition-design, review), so drift at the
+  // endpoint over the run falls on every condition alike, as the extractor fixture orders its calls.
+  for (let ordinal = 1; ordinal <= options.repeats; ordinal++) {
+    for (const condition of conditions) {
       const started = performance.now();
       const record: FixtureCallRecord = { condition, ordinal, status: null, elapsedMs: 0, replyFile: null, bodySha256: null, bodyBytes: 0, classification: "transport_failed" };
       try {
@@ -164,16 +183,20 @@ function argument(name: string): string | undefined { const index = process.argv
 async function main(): Promise<number> {
   const index = argument("--index"), brief = argument("--brief"), manifest = argument("--manifest") ?? "docs/experiments/e0-planner-fixture-v1.json";
   if (!index || !brief) { process.stderr.write("usage: --index <index.json> --brief <brief> [--manifest <json>] [--repeats N] [--conditions a,b] [--out <dir>] [--cache-salt] [--dry-run]\n"); return 2; }
-  const conditionsArgument = argument("--conditions"), conditions = conditionsArgument ? conditionsArgument.split(",").map(s => s.trim()).filter(Boolean) : [...DEFAULT_CONDITIONS];
+  // The design comes from the manifest (its conditions and repeats) unless --conditions or --repeats overrides it; a manifest the schema
+  // refuses keeps the built-in default here and is refused by the run before any request.
+  const manifestJson: unknown = JSON.parse(readFileSync(manifest, "utf8")), pinned = PlannerFixtureManifestSchema.safeParse(manifestJson);
+  const conditionsArgument = argument("--conditions"), conditions = conditionsArgument ? conditionsArgument.split(",").map(s => s.trim()).filter(Boolean)
+    : pinned.success ? [...pinned.data.conditions] : [...DEFAULT_CONDITIONS];
   const unknown = conditions.filter(c => !(FIXTURE_CONDITIONS as readonly string[]).includes(c));
   if (unknown.length) { process.stderr.write(`unknown condition(s): ${unknown.join(", ")}\n`); return 2; }
-  const repeats = Number(argument("--repeats") ?? "10");
+  const repeats = Number(argument("--repeats") ?? (pinned.success ? pinned.data.repeats : 10));
   const environment = loadEnvironmentFiles({});
   if (!environment.SOAR_VLLM_BASE_URL) { process.stderr.write("SOAR_VLLM_BASE_URL is not set (environment or .env.local).\n"); return 2; }
   const config = loadConfig();
   const out = argument("--out") ?? join(".soar", "experiments", `e0-planner-fixture-${new Date().toISOString().replace(/[:.]/gu, "")}`);
   const summary = await runPlannerFixture({ endpoint: { baseUrl: config.vllm.baseUrl, apiKey: config.vllm.apiKey, model: config.vllm.model, timeoutMs: COORDINATOR_PROFILES.heavy.requestTimeoutMs },
-    inputs: { index: readFileSync(index), brief: readFileSync(brief), manifest: JSON.parse(readFileSync(manifest, "utf8")) },
+    inputs: { index: readFileSync(index), brief: readFileSync(brief), manifest: manifestJson },
     out, repeats, conditions: conditions as FixtureCondition[], cacheSalt: process.argv.includes("--cache-salt"), dryRun: process.argv.includes("--dry-run") });
   process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, conditions: summary.conditions, repeats: summary.repeats, units: summary.units, requests: summary.requests, counts: summary.counts,
     retained: summary.dryRun ? null : `${basename(out)}/replies` })}\n`);

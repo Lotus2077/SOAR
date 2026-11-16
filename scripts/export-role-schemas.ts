@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import { loadConfig, type SoarConfig } from "../src/main/config";
 import type { PrivateAgentBroker } from "../src/main/private-agent/broker";
 import { canonical, digest } from "../src/main/private-agent/contracts";
-import { PrivateAgentModel } from "../src/main/private-agent/model";
+import { PrivateAgentModel, type ModelResponseFormat } from "../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { researchSynthesisLengthCap } from "../src/main/private-agent/research-admission";
 import { ResearchCoverageSchema, ResearchEvidenceSchema, deriveBriefUnits, inventoryResearchSources } from "../src/main/private-agent/research-coverage";
@@ -78,11 +78,14 @@ const ROLE_SYSTEMS: Readonly<Record<RoleWithSchema, string>> = Object.freeze({ p
  * never called: requestBody only builds, and it never reads the model's context id.
  */
 export function buildRoleRequest(settings: RequestSettings, jobId: string, role: RoleWithSchema, userContent: string,
-  overrides: { thinking?: "disabled"; maxOutputTokens?: number } = {}): P10Request {
+  overrides: { thinking?: "disabled"; maxOutputTokens?: number; responseFormat?: ModelResponseFormat } = {}): P10Request {
   const config = buildLocalScreenModelConfig({ vllm: settings.vllm as SoarConfig["vllm"], streamingEnabled: settings.streamingEnabled }, COORDINATOR_PROFILES.heavy, true);
   const model = new PrivateAgentModel({} as PrivateAgentBroker, config, jobId, jobId);
   const { body } = model.requestBody([{ role: "system", content: ROLE_SYSTEMS[role] }, { role: "user", content: userContent }], [],
-    { maxOutputTokens: overrides.maxOutputTokens ?? OUTPUT_TOKENS[role], ...(overrides.thinking ? { thinking: overrides.thinking } : {}) });
+    { maxOutputTokens: overrides.maxOutputTokens ?? OUTPUT_TOKENS[role], ...(overrides.thinking ? { thinking: overrides.thinking } : {}),
+      // The serving card's call adds item 9's response_format (E0's fixtures, BL-20261116-1256-e0-extractor-structured-condition-design);
+      // P10's own cells never pass it, so their bodies are unchanged.
+      ...(overrides.responseFormat ? { responseFormat: overrides.responseFormat } : {}) });
   return { body: JSON.parse(body) as Record<string, unknown>, bodySha256: digest(body) };
 }
 

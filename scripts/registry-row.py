@@ -1445,13 +1445,13 @@ PROBE_VERSION = 2
 P10_ROLES = ("plan", "extract", "synthesis")
 P10_MODES = ("on", "off")
 # The fixtures' closed sets; tests pin each copy to scripts/planner-fixture.ts and scripts/judge-fixture.ts.
-PLANNER_CONDITIONS = ("legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off")
+PLANNER_CONDITIONS = ("legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off", "legacy-thinking-structured", "legacy-thinking-structured-16384")
 PLANNER_CLASSES = ("valid", "binding_invalid", "schema_invalid", "invalid_json", "truncated", "request_rejected", "transport_failed", "malformed_reply")
 JUDGE_CONDITIONS = ("j1-legacy", "j1-flash", "j1-legacy-reversed", "j1-flash-reversed")
 JUDGE_VERDICTS = ("supported", "partial", "unsupported", "contradicted")
 JUDGE_FAILURES = ("request_rejected", "transport_failed", "malformed_reply", "judge_reply_invalid")
 # Lane S-pipe's extractor fixture (scripts/extractor-fixture.ts, pull request #116 at 18b062e): EXTRACTOR_CONDITIONS and EXTRACTOR_CLASSES.
-EXTRACTOR_CONDITIONS = ("thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384")
+EXTRACTOR_CONDITIONS = ("thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384", "thinking-off-structured")
 EXTRACTOR_CLASSES = ("complete", "held", "needs_followup", "invalid", "truncated", "request_rejected", "malformed_reply", "transport_failed")
 FIXTURE_KINDS = ("planner", "judge", "extractor")
 # The reply files each fixture writes (planner `<condition>-NN.json`, judge `<condition>-r<repeat>-<claim id>.json`), longest names first.

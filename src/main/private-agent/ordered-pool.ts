@@ -1,8 +1,9 @@
 /**
  * Backlog item 8 (finding D12 of docs/PROJECT_REVIEW_2026-11-05.md; §5.2 "Local fan-out"): independent zero-risk local calls
  * run K at a time while their results are applied strictly in item order, so a stage's counts, ids and files come out as the
- * serial loop would make them. This module is the pool only. It dispatches nothing itself and has no caller until item 8's
- * loops adopt it (8.2b), under the ledger's concurrent admission (8.1); with K = 1 it is exactly the serial loop.
+ * serial loop would make them. This module is the pool only and dispatches nothing itself. Since 8.2b
+ * (BL-20261116-1213-local-fanout-design) the research index and extraction loops and the claims judge run on it, under the
+ * ledger's concurrent admission (8.1); with K = 1 it is exactly the serial loop.
  *
  * Rules:
  * - Items launch in item order. At most `limit` items are launched and not yet applied at any time, so a slot is refilled only

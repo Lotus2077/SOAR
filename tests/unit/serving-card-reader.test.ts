@@ -8,7 +8,7 @@ import { LocalTokenAdmissionError, pinned } from "../../src/main/private-agent/f
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { OUTPUT_TOKENS, THINKING } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, RESEARCH_ROLES, STRUCTURED_OUTPUT_ROLES, nonDefaultRoleParameters, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
-import { DEFAULT_SERVING_POLICY, P10_RULE, RESEARCH_ROLE_MAX_OUTPUT_TOKENS, SERVING_CARD_CODES, SERVING_CARD_CONSUMED, SERVING_CARD_PARAMETER_PATHS,
+import { DEFAULT_SERVING_POLICY, MAX_LOCAL_STREAMS, P10_RULE, RESEARCH_ROLE_MAX_OUTPUT_TOKENS, SERVING_CARD_CODES, SERVING_CARD_CONSUMED, SERVING_CARD_PARAMETER_PATHS,
   ServingCardError, currentRoleSchemaSha256, isServingCardParameterPath, loadServingCard, nonDefaultParameters, parseServingCard, servingCardFreeze,
   servingCardRefusal, type ServingCardCode, type ServingCardExpectation, type ServingCardRequestSettings, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { buildRoleSchemaExport } from "../../scripts/export-role-schemas";
@@ -238,7 +238,7 @@ describe("serving-card reader (SC)", () => {
     expect(() => pinned(relative(process.cwd(), written.path), written.sha256)).toThrow(LocalTokenAdmissionError);
   });
 
-  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, only 7a.2's and item 9's flags are true and the rule matches the writer", () => {
+  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, only 7a.2's, item 9's and 8.2b's flags are true and the rule matches the writer", () => {
     for (const role of RESEARCH_ROLES) {
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].maxOutputTokens).toEqual([OUTPUT_TOKENS[role], OUTPUT_TOKENS[role]]);
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].thinking).toEqual([THINKING[role], THINKING[role]]);
@@ -289,8 +289,15 @@ describe("serving-card reader (SC)", () => {
     expect(loaded.policy.localStreams).toBe(4);
     expect(servingCardFreeze(loaded)).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 4 } });
   });
+  it("8.2b, #110's skeptic check: K = 8, the bound, loads with its proven burst; K = 9 is invalid even with a proven burst", () => {
+    // Since K is consumed, MAX_LOCAL_STREAMS is the reader's only gate against a K above 8: the evidence gate alone takes a proven K = 9.
+    expect(MAX_LOCAL_STREAMS).toBe(8);
+    expect(loadFrom(edited(card => { card.concurrency.localStreams = 8; }))(workspace()).policy.localStreams).toBe(8);
+    const nine = edited(card => { card.concurrency.localStreams = 9; card.evidence.p11.kStreams["9"] = { ...card.evidence.p11.kStreams["8"], streams: 9 }; });
+    expect(refusal(() => loadFrom(nine)(workspace()))).toMatchObject({ code: "serving_card_invalid" });
+  });
 
-  it("R7: the freeze fragment is empty without a card and holds the digest, version, date and entry, never the path, with one", () => {
+  it("R7: the freeze fragment is empty without a card and, with one, holds the digest, version, date, entry and K, never the path", () => {
     expect(servingCardFreeze(undefined)).toEqual({});
     const dir = workspace(), written = writeCard(dir, allDefault()), fragment = servingCardFreeze(loadServingCard(written, EXPECT));
     expect(fragment).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY, localStreams: 1 } });

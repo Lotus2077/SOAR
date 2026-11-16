@@ -46868,3 +46868,103 @@ References:
 - BL-20261116-1017-correction-e0-probes-serving-card-review;
 - BL-20261116-1208-research-structured-output-design;
 - BL-20261116-0840-e0-registry-modes-implemented.
+
+### BL-20261116-1331-correction-local-fanout-skeptic-followups -- 2026-11-16 -- Correction to BL-20261116-1213-local-fanout-design and BL-20261116-1214-local-fanout-implemented after the orchestrator's skeptic check of #110: a stale K pin and stale docs, four untested gates now tested, and a flagged card at K above 1 recorded as unmeasured
+
+Status: `Implemented`
+
+Scope or hypothesis: The orchestrator ran a skeptic check of #110's final head, 5aaeb0a, which merged as 36e194b. It used three agents and a second skeptic.
+- **No blocker.** Its one major was downgraded to minor.
+- **What it confirmed:**
+  - the merge keeps both sides across all nine files;
+  - every `call()` site passes its arguments in the right order;
+  - at K = 1 the calls, request bodies, rows and the protocol hash (7100b7a2…) are unchanged;
+  - E0's card still resolves at K = 1.
+- **What it asked for:** one follow-up pull request on four points, and it noted a fifth for information.
+
+This entry corrects the design and Implemented entries for those points. Both stay as written.
+
+Decisions:
+1. **A stale Docker-gated pin.**
+   - tests/integration/private-agent-runtime.test.ts expected the four-key `servingCard` freeze record.
+   - Since 8.2b, `servingCardFreeze` records `localStreams` for every card, so an all-default card records `localStreams: 1`. The pin now expects it.
+   - That suite needs Docker and CI skips it, so this pull request fixes the expectation without running it. The unit test R7 pins the same fragment for an all-default card.
+2. **Stale docs and comments.** These still said nothing reads K, or that a card with K above 1 is refused, or gave the four-key record:
+   - docs/experiments/README.md: the adopted-cards bullet now names only admission as unconsumed. A new bullet says how K is read and what gates it. The run record names `localStreams`.
+   - README.md: the serving-card paragraph.
+   - scripts/private-agent-local-screen.ts: two comments, on the card loader and on the freeze fragment.
+   - src/main/private-agent/ordered-pool.ts: the module comment, which said the pool had no caller.
+   - Two test titles in tests/unit/serving-card-reader.test.ts: R4's consumed flags and R7's fragment.
+
+   Two dated records keep their lines, written before 8.2b merged:
+   - docs/experiments/e0-card-2026-11-13.md, which says the refusal lasts until 8.2b merges;
+   - docs/experiments/serving-card-2026-11-16.md, which says K above 1 waits for 8.2b's own decision.
+3. **Four gates had no test.**
+   - **The reader's upper bound on K.** K is consumed, so the schema's `max(MAX_LOCAL_STREAMS)` (8) is the only gate against a K above 8; the evidence gate alone would take a K = 9 with a proven burst. A new reader test loads K = 8, and refuses K = 9 with a proven burst as `serving_card_invalid`.
+   - **Each attempt's own values at K > 1, under a policy whose two attempts differ.** A new pipeline test sets:
+     - index and extract thinking to ["disabled", "model"], with a different cap per attempt;
+     - an extract flag on thinking off only;
+     - one repair each, for index batch 1 and extraction chunk 3.
+
+     At K = 1 and at K = 4, each first attempt sends its own cap with thinking off, and every first extraction attempt also sends the strict `research_extraction` format. Each repair sends its own cap with the model's thinking and no format. Files, stage rows, diagnostics and bodies are equal between K = 1 and K = 4.
+   - **The first-pass index launch's signal.** A new pipeline test refuses index batch 1 at K = 3 while batches 0 and 2 are held. Both held batches are aborted, and the stage records batch 1's denial.
+   - **The repair passes at K > 1.** A new pipeline test gives each repair pass two calls: index batches 0 and 1, and extraction chunks 0 and 1. At K = 4 one repair in each pass is refused at once while the other is held. The held repair is aborted, so each repair pass runs at K and on the pool's signals.
+4. **A flagged card at K above 1 is unmeasured.** Since #110 merged, the reader accepts a card with a structured-output flag and a K above 1. No probe has measured that combination: P10 sends its calls one at a time, and P11's bursts carry no `response_format`.
+   - **Decision.** It is recorded as unmeasured. ASSIST-S4's zero-fee owner run at K above 1 must be a research run whose card flags extract for its extraction calls' effective thinking mode, so that the extract row's `structuredOutputCalls` is above 0.
+     - Only extraction can send a format concurrently. Index has no schema, plan and synthesis run one call at a time, and the judge sends none.
+     - So a card flagged on plan alone would meet a looser rule without one concurrent flagged call.
+     - Until that run, the combination stays unmeasured and K > 1 stays `Implemented`. docs/experiments/README.md states the requirement.
+   - **Not proposed: a reader refusal of the combination.** A refusal is one fail-closed reader rule and needs no probe change. Only lifting it later would need a P11 burst that carries `response_format`, which changes the probe and the card's evidence under SC's contract. It is not proposed because:
+     - no adopted card sets K above 1, and E0's card of 2026-11-16 (BL-20261116-0939-e0-probes-serving-card) proposes one stream;
+     - ASSIST-S4 already gates any claim about K above 1;
+     - the run this decision requires is itself the measurement, and a refusal would block it until that probe change lands.
+
+     If the owner prefers the refusal, the orchestrator puts it to the owner.
+5. **For information: token admission at K > 1.** Under `flash_next_v1` local token admission (8.1), the broker awaits the admission (broker.ts:487) before it commits a row (broker.ts:535). So one loop's dispatch rows commit in the order its admissions finish, not in item order.
+   - No test runs K > 1 on that path. E0 ran the legacy path, and #110's tests use the legacy shape.
+   - It is recorded as a limitation, and ASSIST-S4's run states which path it ran.
+
+Changes:
+- tests/integration/private-agent-runtime.test.ts: the pin.
+- README.md, docs/experiments/README.md, scripts/private-agent-local-screen.ts and src/main/private-agent/ordered-pool.ts: text only.
+- tests/unit/serving-card-reader.test.ts: two titles and the K-bound test.
+- tests/unit/private-agent-research-pipeline.test.ts: three tests, for each attempt's values, the first-pass sibling abort and the repair passes.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **Mutation.** Eleven single-edit mutants, all killed by the new tests:
+  - the four the skeptic check found surviving: index repair thinking read from attempt 0, extraction repair thinking read from attempt 0, the index launch without its signal, and the extraction repair's format from attempt 0;
+  - the reader's bound removed;
+  - index or extraction repair cap read from attempt 0, which 7a.2's tests also kill;
+  - the four the light review found surviving: the index or extraction repair pass on the stage's signal, and either repair pass at a limit of 1.
+
+  The light review's own three further mutants were killed too: the bound off by one, `responseFormatFor`'s mode read from attempt 0, and the first-pass index launch on the stage's signal.
+- **The light review.** One reviewer ran it before the pull request opened. It found no blocker or major. This entry takes its four minors and three nits: the repair-pass gap, decision 4's narrower requirement and corrected reasons, the K bullet's caveat for a denial, and the wording.
+- **Checks**, on Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` (2e2d75c): exit 0, 707 entries, append-only.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - The affected test files (the reader, the pipeline and the build-log validator): 257 passed.
+  - `pnpm exec vitest run`: 192 files passed and 13 skipped; 3,857 tests passed, 86 skipped and 1 failed.
+    - The failure is the bounded-cost test of document-review-flags, whose python3 subprocess timed out under the suite's load (`spawnSync python3 ETIMEDOUT`).
+    - That file passes alone three times out of three (154 tests), and this branch changes none of its code.
+- **The hashes.**
+  - `researchProtocolSha256()` stays 7100b7a2….
+  - The harness source freeze moves from 04174684… on `main` (2e2d75c) to 4455ed4f…, through the comment changes in ordered-pool.ts and the driver.
+
+Failures or blockers:
+- The design and Implemented entries left the runtime pin, the docs and three comments stale. They also left the K bound and each attempt's values at K > 1 untested. The skeptic check's mutants found both.
+- This follow-up's first draft tested only the first pass. Its light review found the repair passes untested, with four mutants surviving, and the repair-pass test now kills them.
+
+Limitations and non-claims:
+- The Docker-gated runtime test was not run here.
+- No test runs K > 1 under `flash_next_v1` token admission, as decision 5 records.
+- K > 1 stays `Implemented` under ASSIST-S4, and a flagged card at K > 1 stays unmeasured until that run.
+- Every merge under src/main/private-agent changes the harness source-freeze digest, so no owner loop or E-run may span this one.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's merge, under the standing go-ahead.
+- ASSIST-S4's zero-fee run at K above 1, with a card that flags extract.
+
+References: BL-20261116-1213-local-fanout-design; BL-20261116-1214-local-fanout-implemented; BL-20261116-1216-correction-local-fanout-restamp; BL-20261114-1505-concurrent-local-admission-design; BL-20261116-1208-research-structured-output-design; BL-20261116-0939-e0-probes-serving-card.

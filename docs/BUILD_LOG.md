@@ -43541,3 +43541,46 @@ Next gate:
 5. E0's `Verified` entry, and the card's adoption.
 
 References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/serving-card-2026-11-16.md; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261113-1003-e0-card-owner-answers; BL-20261104-0701-new-endpoint-metadata-and-deployment-drift; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0839-e0-registry-modes-design; pull requests #115, #117 and #118; issue #57.
+
+### BL-20261116-0941-e0-card-amendment-2 -- 2026-11-16 -- E0 card Amendment 2: the labelling tool, the per-class minimum, the condition and the repeats, fixed before the first claim is sent
+
+Status: `Implemented`
+
+Scope or hypothesis: Item 5 of BL-20261116-0814-e0-card-amendment-1 named the labeller, `gpt-6-sol` under the USD 1.00 cap, the owner's decision 2(b) of BL-20261115-1937-owner-adopts-standing-defaults. It left the rest to Amendment 2: the tool, the per-class minimum, the conditions and the repeats. The judge labelling protocol requires them fixed by a committed amendment before the first claim is sent, and this entry records that amendment, appended to docs/experiments/e0-card-2026-11-13.md.
+
+The amendment adds no new owner decision. Its design values are the judge manifest template's own proposals, taken under the owner's blanket "all go by default".
+
+Decisions:
+1. **The labelling tool is `pnpm label:judge`,** merged with #115. The amendment names:
+   - its runbook: the key check, then a dry run that sends nothing, then the run;
+   - its exit codes;
+   - the instructions sha256 the dry run must print: `0184b561b5cee866c56fcda7321095a719a522d529b5a46158856d6fa2d3f9d2`.
+2. **The design:** a per-class minimum of 10, the condition `["j1-legacy"]` and 1 repeat. These are the template's proposals.
+   - `j1-legacy` is the activation cell of the legacy reply contract, which E0 keeps. BL-20261116-0939-e0-probes-serving-card's adapter probe found both reply shapes consistent.
+   - With one repeat, the fixture reports no consistency between repeats.
+3. **The judge manifest's pin** follows the labelling and precedes the judge fixture's run. It sets the claim-set and label digests, the counts, `agreement` `{"measure": "exact", "level": 0.95}` (the card's item 2), and the design values above.
+
+Changes: docs/experiments/e0-card-2026-11-13.md (the Amendment 2 section, appended; nothing above it changes); docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **The tool.** scripts/judge-labeller.ts on `main` names `gpt-6-sol`, the Responses API and the envelope line `synthetic_data`, and holds the USD 1.00 total in its ledger.
+- **The template.** docs/experiments/e0-judge-fixture-v1.json's template proposes a minimum of 10, `["j1-legacy"]` and 1 repeat.
+- **The claim set** is the harvest of BL-20261116-0813-e0-r3-runs-index-and-harvest: 40 claims, sha256 c1b630b3fd737a29aef8629b20e58466fe38a687036e6c9267b4d4727a402739. It is unchanged since that harvest.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Pre-registration only.** The amendment sends nothing.
+- **The design** is the template's, and the owner did not choose it item by item.
+- **The fee.** The tool projects it from the claim set's bytes. This entry does not state the actual fee, which the labelling's own summary records.
+
+Paid exposure: None in this entry. The labelling that follows spends at most USD 1.00, charged to PLAN.md §4's synthetic-data line.
+
+Next gate:
+1. `scripts/with-cloud-key.sh --check`.
+2. The dry run. Its instructions sha256 must equal the one above.
+3. The labelling run.
+4. The judge manifest's pin.
+5. The judge fixture.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md; docs/experiments/e0-judge-fixture-v1.json; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0939-e0-probes-serving-card; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-1003-e0-card-owner-answers; BL-20261115-1956-e0-judge-labeller-design; BL-20261115-2044-e0-judge-labeller-implemented; BL-20261115-2049-correction-e0-judge-labeller-duplicate-plants; pull requests #115 and #120.

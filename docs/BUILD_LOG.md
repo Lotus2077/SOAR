@@ -48444,3 +48444,66 @@ Paid exposure: None.
 Next gate: Pull request #134's merge, on green CI, under the session's reading in decision 5 of BL-20261117-0940-owner-direction-decisions-delegated.
 
 References: docs/PLAN.md §4; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261008-1210-owner-v0-1-released; pull request #134; issue #53.
+
+### BL-20261117-1030-general-task-progress-e2e-runnable -- 2026-11-17 -- #72's progress e2e spec made runnable: Playwright's output under .soar/, the standard profile pinned in the spec, and a refusal when the checkout holds an environment file
+
+Status: `Implemented`
+
+Scope or hypothesis: #72's assertion has never run on the owner's Mac.
+- **The assertion.** `expect(value.record.reason).toBe(progressStop)` in tests/e2e/general-task-progress.spec.ts. Only the case "blocks the third unchanged failed command before execution and denies replay after restart" reaches it.
+- **Where it came from.** It tests backlog item 6's stored stop reason (BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented).
+- **What stood in the way.** On 2026-11-17 the runner found four obstacles by reading the code (BL-20261117-0942-document-review-and-runtime-suites-docker-verified, "Failures or blockers").
+- **The assignment.** The coordinating session asked lane S-desk to fix what belongs to the spec, and to give the exact command to run it, build step included. Plan ID 72.E2E.
+
+Decisions:
+
+(1) **The output directory (obstacle 3).** playwright.config.ts now sets `outputDir: ".soar/test-results"`.
+- **Why.** Three general-task specs refuse an output directory outside the ignored `.soar/`: progress, request-size and observations. With the new setting, the documented `pnpm test:e2e <spec>` passes their guard without `--output`.
+- **The cost.** Every spec's failure artifacts move from `test-results/` to `.soar/test-results/`. Both are ignored, and CI uploads neither.
+
+(2) **The profile (obstacle 4).** The spec's environment now sets `SOAR_GENERAL_TASK_PROFILE` to `standard`, as general-task-request-size.spec.ts already does.
+- That is the profile its budget assertions describe: 20 model calls, 40 broker requests and 30 tool calls.
+- The app's default has been `heavy` since 4806282.
+
+(3) **The configuration (obstacle 2).** The spec refuses to start, with `fixture_requires_no_checkout_environment_file`, when `.env.local` or `.env` exists in the checkout.
+- **Why.** The app fills every setting the spec's environment leaves unset from those two files in its working directory and its app path (`loadEnvironmentFiles`, src/main/config.ts). The spec launches it with the checkout as both.
+- **What is already hermetic.** The run's user-data directory is its own temporary one, and the spec does not pass `SOAR_ENV_FILE` on.
+- **Not chosen:**
+  - setting every configuration variable in the spec, which breaks each time the schema grows;
+  - an app switch that skips the files. That is a product change, and it would move `localScreenSourceFreeze()`, which hashes src/main/config.ts.
+- **The guard only tests that the files exist.** It never opens them.
+
+(4) **The build (obstacle 1).** The spec runs the built app in `out/`, so the command builds first, as CI's electron-e2e job does.
+- Running in a fresh worktree keeps the build out of the owner's main checkout, which is also where the environment files are.
+
+Changes: One pull request on `fix/72-progress-e2e-runnable`, from `main` at c02366a:
+- playwright.config.ts: `outputDir`.
+- tests/e2e/general-task-progress.spec.ts: the profile and the guard.
+
+Evidence:
+- **Checks.** `pnpm typecheck` passes. After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm validate:readiness` passes.
+- **The configuration resolves as intended.** `pnpm exec playwright test --list` lists the spec's two cases, and resolves the output directory to `.soar/test-results` in the checkout.
+- **The gate still holds.** `pnpm test:e2e tests/e2e/general-task-progress.spec.ts` without `SOAR_RUN_GENERAL_TASK_E2E` skips both cases and launches no app.
+- **The command for the orchestrating session,** each step run from the worktree it creates:
+  1. `git worktree add --detach <a new directory> <the commit to test>`;
+  2. `pnpm install --frozen-lockfile`;
+  3. `pnpm build`;
+  4. `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=<the installed image id> pnpm test:e2e tests/e2e/general-task-progress.spec.ts`.
+- **Not run:** either case. Both need Docker, the installed general-task image and a desktop session, and lane S-desk runs nothing Docker-dependent.
+
+Failures or blockers: None in the checks above. Whether the two cases pass is shown only by the run.
+
+Limitations and non-claims:
+- **The obstacles were found by reading the code.** Whether another obstacle stands behind these four is shown only by a run.
+- **The guard covers the checkout's environment files only.** It does not cover the names the spec passes on from the shell (`HOME`, `PATH`, the `DOCKER_*` variables and the rest), or the keychain.
+- **The sibling specs are unchanged.** request-size and observations also launch the app on the checkout, so the same files reach them. They now pass the output guard through (1), but this pull request gives them no environment-file guard. That is a follow-up.
+- **Not `Verified`.** A pass on the owner's Mac would be the orchestrating session's `Verified` entry for #72's assertion.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. One light review, then CI.
+2. The coordinator merges.
+3. The orchestrating session runs the command above on the owner's Mac.
+
+References: BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented.

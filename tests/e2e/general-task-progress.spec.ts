@@ -29,7 +29,10 @@ function environment(root: string, origin: string): Record<string, string> {
     SOAR_DB_PATH: path.join(root, "desktop.sqlite"), SOAR_VLLM_BASE_URL: `${origin}/v1`, SOAR_VLLM_MODEL: progressModel,
     SOAR_VLLM_API_KEY: "", SOAR_VLLM_COST_POLICY: "local_zero_cost", SOAR_ALLOW_INSECURE_VLLM_HTTP: "true",
     SOAR_MAX_OUTPUT_TOKENS: "4096", SOAR_REQUEST_TIMEOUT_MS: "30000", SOAR_GENERAL_TASK_IMAGE_ID: imageId,
-    SOAR_PATCH_MODE: "scripted", SOAR_PATCH_API_KEY: "", SOAR_PATCH_LOCAL_API_KEY: "", SOAR_TEST_WORKSPACE: "" };
+    SOAR_PATCH_MODE: "scripted", SOAR_PATCH_API_KEY: "", SOAR_PATCH_LOCAL_API_KEY: "", SOAR_TEST_WORKSPACE: "",
+    // The budget assertions below are the standard profile's: 20 model calls, 40 broker requests and 30 tool calls. The app's default
+    // profile has been heavy since 4806282.
+    SOAR_GENERAL_TASK_PROFILE: "standard" };
 }
 async function bounded<T>(promise: Promise<T>, ms: number, code: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -89,6 +92,10 @@ test.describe("desktop execution progress intervention", () => {
 async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
   const relative = path.relative(path.join(projectRoot, ".soar"), testInfo.outputDir);
   if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("fixture_requires_ignored_output_directory");
+  // The app fills every setting the environment above leaves unset from .env.local and .env in its working directory and its app path
+  // (loadEnvironmentFiles in src/main/config.ts). Both are this checkout, so a run is hermetic only in a checkout that has neither file,
+  // such as a fresh worktree. The files are tested for existence only, never opened.
+  if ([".env.local", ".env"].some(name => existsSync(path.join(projectRoot, name)))) throw new Error("fixture_requires_no_checkout_environment_file");
   const expectedCalls = scenario === "recover" ? 4 : 3, expectedTools = scenario === "recover" ? 4 : 2;
   const runtimeSha256 = generalTaskRuntimeIdentity(projectRoot);
   const root = await mkdtemp(path.join(tmpdir(), "soar-progress-e2e-")), model = await generalTaskProgressFixture(scenario);

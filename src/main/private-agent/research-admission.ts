@@ -2,11 +2,14 @@
  * Research admission (backlog item 7(b); review section 5.2, stage S1): what the host decides from the inputs before the
  * first research request. Part 1 (BL-20261109-0334-research-request-shapes-design) holds the index batches by preview size
  * (finding D8's batching), the mandatory-work ceilings and the synthesis length cap taken from the brief (finding D13); part 3
- * (7b.3) adds the card-derived ceilings, the reserved repair budget and the wall-clock feasibility estimate.
+ * (7b.3, BL-20261117-1131-research-card-admission-design) adds, under a card whose admission basis is `serving_card` only, the
+ * reserved repair budget and the wall-clock feasibility estimate (researchCardAdmission).
  * Pure: no I/O, no clock, no model text. Every policy here is bound into researchProtocolSha256 (research-pipeline.ts), so a
- * changed value or pattern is a protocol change. This module must not import research-pipeline.ts, which imports it, and may
- * import serving-card.ts for types only (serving-card.ts imports research-pipeline.ts); role values are passed in as arguments.
+ * changed value or pattern is a protocol change; RESEARCH_ADMISSION_POLICY is bound only under such a card. This module must not
+ * import research-pipeline.ts, which imports it, and may import serving-card.ts for types only (serving-card.ts imports
+ * research-pipeline.ts); role values are passed in as arguments.
  */
+import { z } from "zod";
 import type { ResearchBudget } from "./research-contract";
 import { INDEX_LIMITS } from "./research-index";
 
@@ -42,6 +45,90 @@ export function planResearchIndexBatches<T extends { bytes: Uint8Array }>(ordere
 /** All mandatory work is known before the first request (S1): every batch and every chunk must fit the budget's index and extraction calls. */
 export function researchMandatoryWorkFits(work: { batches: number; chunks: number }, budget: Pick<ResearchBudget, "indexCalls" | "extractionCalls">): boolean {
   return work.batches <= budget.indexCalls && work.chunks <= budget.extractionCalls;
+}
+
+/**
+ * 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission, applied only under a serving card whose admission
+ * basis is `serving_card`, and bound into researchProtocolSha256 then and only then. The run keeps room for repair calls, and is
+ * refused before any request only when its expected time exceeds its share of the session clock. The share is
+ * used only in that test: an admitted stage may still use the whole remaining clock.
+ */
+// Version 2 (item (ii), BL-20261117-1143-research-second-repair-design): a chunk still unfinished after its one repair gets one more.
+export const RESEARCH_ADMISSION_POLICY = Object.freeze({ version: 2, basis: "serving_card", repairReserve: Object.freeze({ chunksPerRepair: 4, minimum: 1 }), repairsPerChunk: 2,
+  stageShare: Object.freeze({ numerator: 1, denominator: 2 }), bytesPerToken: 4, refusal: "expected_estimate_above_share" } as const);
+
+const positiveFinite = z.number().positive().finite();
+const rateSpan = z.object({ fastest: positiveFinite, slowest: positiveFinite }).strict().refine(span => span.fastest >= span.slowest);
+/**
+ * The card's measured rates, which the serving-card reader derives from the card's evidence (`servingCardAdmissionRates`): prefill and
+ * single-stream decode across P11's sizes, the decode the index and extraction loops run at under the card's K, and P10's mean
+ * completion tokens per call for the roles with a reply schema.
+ */
+export const ResearchAdmissionRatesSchema = z.object({ prefillTokensPerSecond: rateSpan, decodeTokensPerSecond: rateSpan, fanOutDecodeTokensPerSecond: rateSpan,
+  expectedOutputTokens: z.object({ plan: positiveFinite, extract: positiveFinite, synthesis: positiveFinite }).strict() }).strict();
+export type ResearchAdmissionRates = z.infer<typeof ResearchAdmissionRatesSchema>;
+
+/** The repair calls admission keeps room for (finding D3): one per four chunks, rounded up, and at least one. */
+export function researchRepairReserve(chunks: number): number {
+  return Math.max(RESEARCH_ADMISSION_POLICY.repairReserve.minimum, Math.ceil(chunks / RESEARCH_ADMISSION_POLICY.repairReserve.chunksPerRepair));
+}
+
+/** What admission knows before the first request: each index batch's preview bytes and each chunk's text bytes. */
+export interface ResearchAdmissionWork { batchPreviewBytes: readonly number[]; chunkBytes: readonly number[] }
+/** The larger of each role's two attempt caps. */
+export type ResearchAdmissionCaps = Readonly<Record<"index" | "plan" | "extract" | "synthesis", number>>;
+export type ResearchAdmissionDecision = "admitted" | "refused_budget" | "refused_clock";
+/** summary.json's `admission` under a `serving_card` basis; never written without one. Seconds are rounded to tenths. */
+export interface ResearchAdmissionRecord {
+  basis: "serving_card"; policy: typeof RESEARCH_ADMISSION_POLICY; rates: ResearchAdmissionRates;
+  work: { batches: number; chunks: number; reservedRepairs: number; indexCalls: number; extractionCalls: number };
+  estimate: { expectedSeconds: number; capBoundSeconds: number; shareSeconds: number | null };
+  decision: ResearchAdmissionDecision;
+}
+/** The record as summary.json holds it, for the readers that parse a summary strictly (the ready-packet gate). */
+const count = z.number().int().nonnegative(), seconds = z.number().nonnegative().finite();
+export const ResearchAdmissionRecordSchema = z.object({ basis: z.literal("serving_card"),
+  policy: z.object({ version: z.literal(RESEARCH_ADMISSION_POLICY.version), basis: z.literal(RESEARCH_ADMISSION_POLICY.basis),
+    repairReserve: z.object({ chunksPerRepair: z.literal(RESEARCH_ADMISSION_POLICY.repairReserve.chunksPerRepair), minimum: z.literal(RESEARCH_ADMISSION_POLICY.repairReserve.minimum) }).strict(),
+    repairsPerChunk: z.literal(RESEARCH_ADMISSION_POLICY.repairsPerChunk),
+    stageShare: z.object({ numerator: z.literal(RESEARCH_ADMISSION_POLICY.stageShare.numerator), denominator: z.literal(RESEARCH_ADMISSION_POLICY.stageShare.denominator) }).strict(),
+    bytesPerToken: z.literal(RESEARCH_ADMISSION_POLICY.bytesPerToken), refusal: z.literal(RESEARCH_ADMISSION_POLICY.refusal) }).strict(),
+  rates: ResearchAdmissionRatesSchema,
+  work: z.object({ batches: count, chunks: count, reservedRepairs: count, indexCalls: count, extractionCalls: count }).strict(),
+  estimate: z.object({ expectedSeconds: seconds, capBoundSeconds: seconds, shareSeconds: seconds.nullable() }).strict(),
+  decision: z.enum(["admitted", "refused_budget", "refused_clock"]) }).strict();
+const tenths = (value: number) => Math.round(value * 10) / 10;
+
+/**
+ * The admission test under a card, before any request (S1). Pure: the caller passes the session's remaining milliseconds, or undefined
+ * when the run has no session deadline, and then there is no share and never a refusal on the clock.
+ * - The budget: batches within indexCalls, and chunks plus the reserve within extractionCalls (D3), else `refused_budget`.
+ * - The expected estimate: each batch's previews and each chunk's text prefilled once at the fastest rate, each
+ *   chunk's expected extraction output at the fastest fan-out rate, and one plan and one synthesis call's expected output at the fastest
+ *   single-stream rate, with P10's mean outputs. It leaves out index output, repairs and every prompt part not known before the first
+ *   request, so it tends to fall below the run's time. No call ceiling is derived from the rates: they enter only this clock test.
+ * - The cap-bound estimate, disclosed only: every call the budget allows for the work (at most two per batch, and per chunk its first
+ *   attempt and `repairsPerChunk` repairs), prefilled
+ *   at the slowest rate and decoding its role's larger cap at the slowest rate, plus every planner and synthesiser call.
+ * - `refused_clock` when the expected estimate exceeds the share, half the remaining clock, both in tenths of a second.
+ */
+export function researchCardAdmission(work: ResearchAdmissionWork, budget: ResearchBudget, caps: ResearchAdmissionCaps, rates: ResearchAdmissionRates,
+  remainingMs: number | undefined): ResearchAdmissionRecord {
+  const policy = RESEARCH_ADMISSION_POLICY, tokens = (bytes: number) => Math.ceil(bytes / policy.bytesPerToken), sum = (values: readonly number[]) => values.reduce((a, b) => a + b, 0);
+  const batches = work.batchPreviewBytes.length, chunks = work.chunkBytes.length, reservedRepairs = researchRepairReserve(chunks);
+  const previewTokens = sum(work.batchPreviewBytes.map(tokens)), chunkTokens = sum(work.chunkBytes.map(tokens)), expectedOutput = rates.expectedOutputTokens;
+  const expected = (previewTokens + chunkTokens) / rates.prefillTokensPerSecond.fastest + chunks * expectedOutput.extract / rates.fanOutDecodeTokensPerSecond.fastest
+    + (expectedOutput.plan + expectedOutput.synthesis) / rates.decodeTokensPerSecond.fastest;
+  const indexCalls = Math.min(budget.indexCalls, 2 * batches), extractCalls = Math.min(budget.extractionCalls, (1 + policy.repairsPerChunk) * chunks);
+  const capPromptTokens = (batches ? previewTokens * indexCalls / batches : 0) + (chunks ? chunkTokens * extractCalls / chunks : 0);
+  const capBound = capPromptTokens / rates.prefillTokensPerSecond.slowest + (indexCalls * caps.index + extractCalls * caps.extract) / rates.fanOutDecodeTokensPerSecond.slowest
+    + (budget.plannerCalls * caps.plan + budget.synthesisCalls * caps.synthesis) / rates.decodeTokensPerSecond.slowest;
+  const shareSeconds = remainingMs === undefined || !Number.isFinite(remainingMs) ? null
+    : tenths(Math.max(0, remainingMs) / 1000 * policy.stageShare.numerator / policy.stageShare.denominator);
+  const estimate = { expectedSeconds: tenths(expected), capBoundSeconds: tenths(capBound), shareSeconds };
+  const decision: ResearchAdmissionDecision = !researchMandatoryWorkFits({ batches, chunks: chunks + reservedRepairs }, budget) ? "refused_budget"
+    : shareSeconds !== null && estimate.expectedSeconds > shareSeconds ? "refused_clock" : "admitted";
+  return { basis: "serving_card", policy, rates, work: { batches, chunks, reservedRepairs, indexCalls: budget.indexCalls, extractionCalls: budget.extractionCalls }, estimate, decision };
 }
 
 /**

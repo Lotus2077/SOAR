@@ -56,10 +56,47 @@ This folder holds the committed, sanitized record of live trials (see
   - **Audit.** A reviewer re-runs the writer on the retained probe with the same
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
-  - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 7(b) for admission. Until
-    then, adopt a card that keeps admission at its default, or leave the pair
-    unset.
+  - **Only adopted cards are read.** Every value a card sets is now read: 7b.3
+    consumed the last one, admission.
+  - **Admission is read since 7b.3** (BL-20261117-1131-research-card-admission-design).
+    Under `admission.basis: serving_card` the reader derives rates from the card's
+    evidence:
+    - P11's fastest and slowest prefill and decode;
+    - the decode of the K burst for K above 1;
+    - P10's mean completion tokens for plan, extract and synthesis.
+
+    It refuses the card with `serving_card_admission_unmeasured` when any rate is
+    missing. Before any request, the reading stage then:
+    - keeps room for max(1, ceil(chunks/4)) repair calls inside the extraction
+      budget, so at most 32 chunks, or ends `research_mandatory_budget_exceeded`;
+    - ends `research_infeasible_in_clock` when its expected time
+      exceeds half the session's remaining clock. That estimate uses the fastest
+      measured rates and P10's mean outputs, and it leaves out what is not known
+      before the first request. Without a session deadline it never ends on the
+      clock. The share is used only in that test: an admitted stage may still use
+      the whole remaining clock.
+
+    No call ceiling is derived from the card. The ceilings are the budget's, less
+    the reserve, and the rates enter only the clock test. A refusal's record is
+    written to the run's events as `research_admission`, since a refused stage
+    leaves no file.
+
+    summary.json records the admission, including the expected and cap-bound
+    estimates. The protocol hash binds the admission policy, the session identity
+    binds the rates, and freeze.json's pipeline block names them. With admission
+    `none`, nothing changes, and summary.json has no admission record.
+  - **A second repair under the same basis** (item (ii),
+    BL-20261117-1143-research-second-repair-design).
+    - **What it does.** Under `admission.basis: serving_card`, a chunk still
+      unfinished after its one repair gets one more, at the role policy's second
+      attempt slot, while extraction calls are left.
+    - **What records it.** coverage.json (version 4) holds that chunk's three
+      attempts. The extract row counts `secondRepairCalls` and
+      `secondRepairsComplete`. A chunk the second repair saved has three attempts,
+      the last `complete`; one it did not save has three, the last not `complete`.
+    - **It moved the default research protocol hash** for every run, so it was
+      re-pinned. A card whose P10 evidence predates it is refused for protocol
+      drift until P1, P10, P11 and the adapter are re-run.
   - **Caps and thinking are read since 7a.2** (BL-20261116-1203-research-role-policy-design).
     The research stage sends each local role's attempts the card's caps and
     thinking: attempt 1 is a role's first call, attempt 2 its repair or second
@@ -177,6 +214,10 @@ This folder holds the committed, sanitized record of live trials (see
 - `phase4-tasks-v1.json`: the hashes-only manifest of the three fresh Phase 4 research
   tasks for H5 (same fields, plus the scorer and checks versions), authored by a separate
   session; tasks, gold and scorer stay under the ignored `.soar/experiments/phase4-v1/`.
+- `e2-tasks-v1.json`: the hashes-only manifest of E2's two fresh synthetic research tasks
+  (Phase 4's fields, plus each task's exposure), authored by a separate session (lane S-e1)
+  that holds their gold and scorer; tasks, gold and scorer stay under the ignored
+  `.soar/experiments/e2-v1/`.
 - `e6-tasks-v1.json`: the hashes-only manifest of E6's three fresh planted-defect review
   tasks (Phase 2's document-review fields, plus exposure, the planted counts by class, the
   control count and the pinned scorer), authored by a separate session (lane S-e1) that

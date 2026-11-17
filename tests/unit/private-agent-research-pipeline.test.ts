@@ -4,7 +4,7 @@ import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-age
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_POLICY_APPLICATION, RESEARCH_ROLE_SCHEMAS, RESEARCH_STRUCTURED_OUTPUT_APPLICATION, SYNTHESIS_SYSTEM, normalizeQuoteText, researchRolePolicyBinding, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
-import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
+import { RESEARCH_ADMISSION_POLICY, planResearchIndexBatches, researchCardAdmission, researchIndexPreviewEnd, researchRepairReserve, researchWordCount, type ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
 import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
@@ -61,7 +61,9 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   // Item 9 (BL-20261116-1208-research-structured-output-design): the stage's calls that carried a response_format, only when one did; a count.
   "structuredOutputCalls",
   // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
-  "questionsTrimmed", "quotesLeftByPresentation"]);
+  "questionsTrimmed", "quotesLeftByPresentation",
+  // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, the extract row's second repairs and those that completed their chunk; counts.
+  "secondRepairCalls", "secondRepairsComplete"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
     expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
@@ -732,7 +734,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // A settled assist is one of the stage's calls, its usage summed with the stage's; a no_reply outcome is counted nowhere.
     expect(stage.usage.inputTokens).toBe(stageCount * 100 + (settledAssist ? usage.inputTokens : 0));
     const coverage = parsed(result, RESEARCH_FILES.coverage), plan = parsed(result, RESEARCH_FILES.plan);
-    expect(coverage.version).toBe(3); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
+    expect(coverage.version).toBe(4); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
     // An accepted assist plan is kept with its aliases translated to the real ids; otherwise the host fallback plan.
     if (kind === "accepted") expect(plan.questions[0].sourceIds).toEqual(["input/corpus/beta.md", "input/corpus/alpha.md"]);
     else expect(plan).toEqual(hostFallbackPlan(coverage.units));
@@ -831,7 +833,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // Synthesis requests differ from 7a.1's only by coverage: its version, `fallbacks` and the protocol hash.
     const clean = models(); await run(clean); const synthesis = clean.calls.find(c => c.stage === "synthesise")!.input;
     expect(Object.keys(synthesis)).toEqual(["brief", "coverage", "evidence", "lengthCap", "plan", "repairReason", "units"]);
-    expect(synthesis.coverage).toMatchObject({ version: 3, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
+    expect(synthesis.coverage).toMatchObject({ version: 4, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
     // With coverage put back in 7a.1's shape (version 1, no fallbacks, 7a.1's protocol), the request is 7a.1's byte for byte
     // (captured at #76's head 2fe1ec8, whose protocol is 05f342b2...).
     const v4 = JSON.parse(clean.calls.find(c => c.stage === "synthesise")!.body.messages[1].content as string);
@@ -1735,5 +1737,211 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
     expect(extracted.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
     expect(extract.calls.filter(c => c.stage === "extract" && c.n >= 7).map(c => [c.n, c.signal.aborted])).toEqual([[7, false], [8, true]]);
     expect(extracted.events.at(-1)).toMatchObject({ stage: "extract", calls: 7, repairCalls: 0, denied: "budget_denied" });
+  });
+});
+
+// 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission under a `serving_card` basis.
+describe("7b.3: card-derived admission", () => {
+  const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+    fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+  const hour = () => performance.now() + 3_600_000;
+  const chunkCount = () => inventoryResearchSources(researchV4Sources()).chunks.length;
+  const bodies = (m: ReturnType<typeof models>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => c.body);
+  // The fixture broker has no clock accessors, so a run with a session deadline stubs every role's per-call guard (as finding A8's test does).
+  const clocked = (m: ReturnType<typeof models>) => { for (const model of Object.values(m.models)) vi.spyOn(model, "deadlineRefuses").mockReturnValue(false); return m; };
+
+  it("records no admission and keeps the pinned protocol without a card's rates", async () => {
+    const outcome = await run(models()), summary = parsed(outcome, RESEARCH_FILES.summary);
+    expect(summary).not.toHaveProperty("admission"); expect(Object.keys(summary).sort()).toEqual(["budget", "protocolSha256", "stages", "version"]);
+    expect(summary.protocolSha256).toBe(RESEARCH_PROTOCOL_SHA256);
+  });
+
+  it("admits under a card's rates with time to spare, records the admission, and sends the same index, plan and extraction requests", async () => {
+    const plain = models(), carded = clocked(models());
+    const without = await run(plain), withRates = await run(carded, { admission: rates, deadlineMs: hour() });
+    expect(withRates.status).toBe(without.status); expect(withRates.reason).toBe(without.reason);
+    // Admission decides only whether the stage runs: no index, plan or extraction body changes (synthesis carries the protocol hash in its coverage).
+    for (const stage of ["index", "plan", "extract"] as const) { expect(bodies(carded, stage)).toEqual(bodies(plain, stage)); expect(bodies(carded, stage).length).toBeGreaterThan(0); }
+    const summary = parsed(withRates, RESEARCH_FILES.summary), sources = researchV4Sources(), inventory = inventoryResearchSources(sources);
+    const ordered = inventory.sources.map(s => sources.find(item => item.id === s.id)!), batches = planResearchIndexBatches(ordered);
+    const work = { batchPreviewBytes: batches.map(batch => batch.reduce((bytes, source) => bytes + researchIndexPreviewEnd(source.bytes), 0)), chunkBytes: inventory.chunks.map(c => c.endByte - c.startByte) };
+    const expected = researchCardAdmission(work, RESEARCH_PIPELINE_BUDGET, { index: 1536, plan: 8192, extract: 2048, synthesis: 8192 }, rates, undefined);
+    expect(summary.admission).toMatchObject({ basis: "serving_card", policy: RESEARCH_ADMISSION_POLICY, rates, decision: "admitted",
+      work: { batches: batches.length, chunks: chunkCount(), reservedRepairs: researchRepairReserve(chunkCount()), indexCalls: 24, extractionCalls: 40 },
+      estimate: { expectedSeconds: expected.estimate.expectedSeconds, capBoundSeconds: expected.estimate.capBoundSeconds } });
+    // The share is half the remaining hour, less the moments the test took.
+    expect(summary.admission.estimate.shareSeconds).toBeGreaterThan(1790); expect(summary.admission.estimate.shareSeconds).toBeLessThanOrEqual(1800);
+    expect(summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true));
+    // Without a session deadline there is no share, and never a refusal on the clock.
+    const unbounded = parsed(await run(models(), { admission: rates }), RESEARCH_FILES.summary).admission;
+    expect(unbounded).toMatchObject({ decision: "admitted", estimate: { shareSeconds: null } });
+  });
+
+  it("refuses before any request when the expected estimate exceeds half the remaining clock (research_infeasible_in_clock)", async () => {
+    const m = models(), outcome = await run(m, { admission: rates, deadlineMs: performance.now() + 1_000 });
+    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_infeasible_in_clock" }); expect(m.request).not.toHaveBeenCalled();
+    const summary = parsed(outcome, RESEARCH_FILES.summary);
+    expect(summary.admission).toMatchObject({ decision: "refused_clock", estimate: { shareSeconds: 0.5 } }); expect(summary.admission.estimate.expectedSeconds).toBeGreaterThan(30);
+    expect(summary.stages).toEqual([]); expect(parsed(outcome, RESEARCH_FILES.coverage).unresolved).toContain("research_infeasible_in_clock");
+  });
+
+  it("keeps room for repairs: the budget must hold the chunks plus the reserve, or the run ends research_mandatory_budget_exceeded before any request", async () => {
+    const chunks = chunkCount(), reserve = researchRepairReserve(chunks), tight = { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks };
+    // Without a card the chunks alone must fit, as before.
+    expect((await run(models(), { budget: tight })).reason).not.toBe("research_mandatory_budget_exceeded");
+    const m = clocked(models()), refused = await run(m, { budget: tight, admission: rates, deadlineMs: hour() });
+    expect(refused).toMatchObject({ status: "incomplete", reason: "research_mandatory_budget_exceeded" }); expect(m.request).not.toHaveBeenCalled();
+    expect(parsed(refused, RESEARCH_FILES.summary).admission).toMatchObject({ decision: "refused_budget", work: { chunks, reservedRepairs: reserve, extractionCalls: chunks } });
+    const room = { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks + reserve };
+    expect(parsed(await run(clocked(models()), { budget: room, admission: rates, deadlineMs: hour() }), RESEARCH_FILES.summary).admission.decision).toBe("admitted");
+  });
+
+  it("lets a ready packet's summary carry only an admitted record: the gate refuses a refused or malformed one", async () => {
+    const outcome = await run(models(), { admission: rates }), files = outcome.files;
+    expect(() => validateReadyResearchPacket(files, { protocolSha256: outcome.summary.protocolSha256 })).not.toThrow();
+    const withSummary = (edit: (summary: any) => void) => files.map(f => { if (f.path !== RESEARCH_FILES.summary) return f; const summary = JSON.parse(f.bytes.toString()); edit(summary);
+      return { path: f.path, bytes: Buffer.from(`${canonical(summary)}\n`) }; });
+    for (const edit of [(s: any) => { s.admission.decision = "refused_clock"; }, (s: any) => { s.admission.decision = "refused_budget"; }, (s: any) => { s.admission.policy.bytesPerToken = 3; },
+      (s: any) => { s.admission.rates.extra = 1; }, (s: any) => { s.admission.estimate.shareSeconds = -1; }])
+      expect(() => validateReadyResearchPacket(withSummary(edit), { protocolSha256: outcome.summary.protocolSha256 })).toThrow();
+  });
+
+  it("refuses rates it cannot read before any request, and binds the admission policy into the protocol only with a card's rates", async () => {
+    const m = models(), outcome = await run(m, { admission: { ...rates, decodeTokensPerSecond: { fastest: 0, slowest: 0 } } as ResearchAdmissionRates, deadlineMs: hour() });
+    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_admission_invalid" }); expect(m.request).not.toHaveBeenCalled();
+    expect(parsed(outcome, RESEARCH_FILES.summary)).not.toHaveProperty("admission");
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy; roles.extract.maxOutputTokens = [1024, 2048];
+    const hashes = [researchProtocolSha256(), researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, false), researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true),
+      researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, false), researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, true)];
+    expect(hashes[0]).toBe(RESEARCH_PROTOCOL_SHA256); expect(hashes[1]).toBe(RESEARCH_PROTOCOL_SHA256); expect(new Set(hashes.slice(1)).size).toBe(4);
+  });
+});
+
+// Item (ii) (BL-20261117-1143-research-second-repair-design): a second repair under a card's admission rates.
+describe("item (ii): a second repair for a chunk its one repair left unfinished", () => {
+  const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+    fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+  const target = () => inventoryResearchSources(researchV4Sources()).chunks[0]!.id;
+  // The target chunk's extraction replies fail until its attempt number exceeds `failures`; every other reply is the fixture's.
+  const failing = (failures: number) => { const tries = new Map<string, number>();
+    return (stage: Stage, input: any, n: number, system: string) => {
+      if (stage !== "extract" || input.chunk.id !== target()) return happy(stage, input, n, system);
+      const attempt = (tries.get(input.chunk.id) ?? 0) + 1; tries.set(input.chunk.id, attempt);
+      return attempt <= failures ? "not json" : happy(stage, input, n, system);
+    }; };
+  const extractRow = (outcome: Awaited<ReturnType<typeof runResearchPipeline>>) => outcome.summary.stages.find(row => row.stage === "extract")!;
+  const attemptsOf = (outcome: Awaited<ReturnType<typeof runResearchPipeline>>) => parsed(outcome, RESEARCH_FILES.coverage).chunks.find((c: any) => c.id === target()).attempts.map((a: any) => a.status);
+
+  it("saves a chunk whose first repair failed: three attempts in coverage.json, and the extract row counts the second repair and its success", async () => {
+    const m = models(failing(2)), outcome = await run(m, { admission: rates });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(attemptsOf(outcome)).toEqual(["invalid", "invalid", "complete"]);
+    const chunks = inventoryResearchSources(researchV4Sources()).chunks.length;
+    expect(extractRow(outcome)).toMatchObject({ calls: chunks + 2, initialCalls: chunks, repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 1, chunksComplete: chunks, invalidReplies: 2 });
+    // The second repair asks again, from the state the first repair left.
+    const repairs = m.calls.filter(c => c.stage === "extract" && c.input.chunk.id === target() && c.input.repairReason !== null).map(c => c.input.repairReason);
+    expect(repairs).toEqual(["previous_invalid; return compact COMPLETE JSON for every question", "previous_invalid; return compact COMPLETE JSON for every question"]);
+    for (const row of outcome.summary.stages) for (const key of Object.keys(row)) expect(DOCUMENTED_STAGE_KEYS.has(key), key).toBe(true);
+  });
+
+  it("sends no second repair to a chunk its first repair completed", async () => {
+    const m = models(failing(1)), outcome = await run(m, { admission: rates });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(attemptsOf(outcome)).toEqual(["invalid", "complete"]);
+    expect(extractRow(outcome)).toMatchObject({ repairCalls: 1, secondRepairCalls: 0, secondRepairsComplete: 0 });
+  });
+
+  it("records a chunk the second repair also failed, and the run still ends research_extraction_incomplete", async () => {
+    const outcome = await run(models(failing(3)), { admission: rates });
+    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(attemptsOf(outcome)).toEqual(["invalid", "invalid", "invalid"]);
+    expect(extractRow(outcome)).toMatchObject({ repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 0 });
+  });
+
+  it("sends no second repair without a card's rates: the chunk ends after one repair, and the row carries no new key", async () => {
+    const m = models(failing(2)), outcome = await run(m);
+    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(attemptsOf(outcome)).toEqual(["invalid", "invalid"]);
+    expect(m.calls.filter(c => c.stage === "extract").length).toBe(inventoryResearchSources(researchV4Sources()).chunks.length + 1);
+    expect(extractRow(outcome)).not.toHaveProperty("secondRepairCalls"); expect(extractRow(outcome)).not.toHaveProperty("secondRepairsComplete");
+  });
+
+  it("sends the second repair at the role policy's second slot, only while extraction calls are left", async () => {
+    const chunks = inventoryResearchSources(researchV4Sources()).chunks.length, roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy;
+    roles.extract.maxOutputTokens = [1024, 1536];
+    const m = models(failing(2)), outcome = await run(m, { admission: rates, roles });
+    expect(m.calls.filter(c => c.stage === "extract" && c.input.chunk.id === target()).map(c => c.body.max_tokens)).toEqual([1024, 1536, 1536]);
+    expect(outcome.status).toBe("completed");
+    // The reserve's one spare call pays the first repair, so none is left for a second.
+    const tight = await run(models(failing(2)), { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks + researchRepairReserve(chunks) } });
+    expect(researchRepairReserve(chunks)).toBe(1);
+    expect(tight).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" }); expect(extractRow(tight)).toMatchObject({ repairCalls: 1, secondRepairCalls: 0, secondRepairsComplete: 0 });
+  });
+
+  // Item (ii)'s review: the budget's last call, a denial in either second pass, the order, a held chunk, and the passes' priority.
+  const chunkIds = () => inventoryResearchSources(researchV4Sources()).chunks.map(c => c.id);
+  const invented = "Invented evidence that never occurred in the supplied source.";
+  const scripted = (reply: (chunk: string, attempt: number, input: any, n: number, system: string) => string | Error | undefined) => { const tries = new Map<string, number>();
+    return (stage: Stage, input: any, n: number, system: string) => {
+      if (stage !== "extract") return happy(stage, input, n, system);
+      const attempt = (tries.get(input.chunk.id) ?? 0) + 1; tries.set(input.chunk.id, attempt);
+      return reply(input.chunk.id, attempt, input, n, system) ?? happy(stage, input, n, system);
+    }; };
+  const heldFirst = (input: any, n: number, system: string) => { const r = JSON.parse(happy("extract", input, n, system)); r.quotes[0].quote = invented; return JSON.stringify(r); };
+
+  it("sends a second repair with the budget's last call", async () => {
+    const chunks = chunkIds().length, outcome = await run(models(failing(2)), { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks + 2 } });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(extractRow(outcome)).toMatchObject({ calls: chunks + 2, repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 1 });
+  });
+
+  it("ends the stage on a denied second repair, plain or held, with both counts on the denied row", async () => {
+    const [a] = chunkIds();
+    const plain = await run(models(scripted((chunk, attempt) => chunk !== a ? undefined : attempt <= 2 ? "not json" : new BrokerError("synthetic_destination_private_data_denied"))), { admission: rates });
+    expect(plain).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(extractRow(plain)).toMatchObject({ denied: "synthetic_destination_private_data_denied", repairCalls: 1, secondRepairCalls: 0, secondRepairsComplete: 0 });
+    const held = await run(models(scripted((chunk, attempt, input, n, system) => chunk !== a ? undefined : attempt === 1 ? heldFirst(input, n, system) : attempt === 2 ? "not json"
+      : new BrokerError("synthetic_destination_private_data_denied"))), { admission: rates });
+    expect(held).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(extractRow(held)).toMatchObject({ denied: "synthetic_destination_private_data_denied", repairCalls: 1, secondRepairCalls: 0, secondRepairsComplete: 0 });
+    // A denial before any second repair leaves both counts at zero on the row, not absent.
+    const early = await run(models(scripted((chunk, attempt) => chunk !== a ? undefined : attempt === 1 ? "not json" : new BrokerError("synthetic_destination_private_data_denied"))), { admission: rates });
+    expect(extractRow(early)).toMatchObject({ denied: "synthetic_destination_private_data_denied", repairCalls: 0, secondRepairCalls: 0, secondRepairsComplete: 0 });
+  });
+
+  it("sends second repairs in coverage order, after every first repair", async () => {
+    const ids = chunkIds(), m = models(scripted((_chunk, attempt) => attempt <= 2 ? "not json" : undefined)), outcome = await run(m, { admission: rates });
+    expect(outcome.status).toBe("completed");
+    expect(m.calls.filter(c => c.stage === "extract").map(c => c.input.chunk.id)).toEqual([...ids, ...ids, ...ids]);
+    expect(extractRow(outcome)).toMatchObject({ secondRepairCalls: ids.length, secondRepairsComplete: ids.length });
+  });
+
+  it("gives a held chunk whose repair failed a second repair, after its held attempt is settled", async () => {
+    const [a] = chunkIds(), m = models(scripted((chunk, attempt, input, n, system) => chunk !== a ? undefined : attempt === 1 ? heldFirst(input, n, system) : attempt === 2 ? "not json" : undefined));
+    const outcome = await run(m, { admission: rates });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(attemptsOf(outcome)).toEqual(["invalid", "invalid", "complete"]);
+    expect(extractRow(outcome)).toMatchObject({ repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 1 });
+  });
+
+  it("pays an unfinished chunk's second repair before a held chunk's optional repair, which the held chunk then goes without", async () => {
+    const [a, b] = chunkIds();
+    const reply = (chunk: string, attempt: number, input: any, n: number, system: string) => chunk === a ? (attempt === 1 ? heldFirst(input, n, system) : undefined) : attempt <= 2 ? "not json" : undefined;
+    const carded = models(scripted(reply)), outcome = await run(carded, { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4 } });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(carded.calls.filter(c => c.stage === "extract").map(c => c.input.chunk.id)).toEqual([a, b, b, b]);
+    expect(parsed(outcome, RESEARCH_FILES.coverage).chunks.map((c: any) => c.attempts.map((x: any) => x.status))).toEqual([["complete"], ["invalid", "invalid", "complete"]]);
+    // Without the rates the held chunk's repair comes in the one repair pass, and the unfinished chunk ends after its one repair.
+    const plain = models(scripted(reply)), without = await run(plain, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4 } });
+    expect(plain.calls.filter(c => c.stage === "extract").map(c => c.input.chunk.id)).toEqual([a, b, b, a]);
+    expect(without).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+  });
+
+  it("lets a ready packet hold a third attempt only beside an admission record", async () => {
+    const outcome = await run(models(failing(2)), { admission: rates }), files = outcome.files;
+    expect(() => validateReadyResearchPacket(files, { protocolSha256: outcome.summary.protocolSha256 })).not.toThrow();
+    const bare = files.map(f => { if (f.path !== RESEARCH_FILES.summary) return f; const summary = JSON.parse(f.bytes.toString()); delete summary.admission;
+      return { path: f.path, bytes: Buffer.from(`${canonical(summary)}\n`) }; });
+    expect(() => validateReadyResearchPacket(bare, { protocolSha256: outcome.summary.protocolSha256 })).toThrow("extraction_attempts");
   });
 });

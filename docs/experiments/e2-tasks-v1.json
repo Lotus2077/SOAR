@@ -1,0 +1,265 @@
+{
+ "schemaVersion": 1,
+ "name": "e2-tasks-v1",
+ "proposedFreezeTag": "e2-tasks-v1",
+ "createdUtc": "2026-11-17T11:25:40Z",
+ "taskRoot": ".soar/experiments/e2-v1/tasks",
+ "goldRoot": ".soar/experiments/e2-v1/gold",
+ "qualifiedImageId": "sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f",
+ "scorer": {
+  "version": 1,
+  "files": [
+   {
+    "path": "make_fake_run.py",
+    "sha256": "954bc261e024c81df011d371c435f917c7acf9e6f61a19b177f940f6e434ef81"
+   },
+   {
+    "path": "run_unittest.py",
+    "sha256": "30ac3a9673705f813b51c77c78db179592789d4c7bc6be19ced07a76f1bf07fd"
+   },
+   {
+    "path": "score.py",
+    "sha256": "d9b00b601953bf8b2ce029c3fdae2e4970b379e3191803f21511d524b55f4cdd"
+   }
+  ],
+  "treeSha256": "89f0207a0282b87da67528f4ec7e0c938fea8ce010be5ba67b1bbad14a212900",
+  "readmeSha256": "1637144743e7f03f4526ba2b5c9a9556d7d95e966b91526446679cd213ace78d"
+ },
+ "totals": {
+  "tasks": 2,
+  "criticalChecks": 14
+ },
+ "tasks": [
+  {
+   "id": "s1-harbour-flood-defence",
+   "family": "research",
+   "exposure": "fresh",
+   "jobId": "e2-s1-harbour-flood-defence",
+   "driverModeFlags": [
+    "--claims-ledger",
+    "true",
+    "--pipeline",
+    "research",
+    "--profile",
+    "heavy"
+   ],
+   "jobSha256": "4429b1df5626de95b98c67960798bbc45165f4355365099d8741463ad49a45b0",
+   "briefSha256": "1684a18366f669ee0fa24e2f16a61f63d26d0948fd1556985ccecfa98fe53f16",
+   "inputs": [
+    {
+     "path": "input/corpus/cabinet-minutes-extract.md",
+     "sha256": "e8e845554c885614d8d5fa3a69a6b21026fdd44e22d889526f181066dc6a335d",
+     "bytes": 1607,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/coastal-allowances-note-2025.md",
+     "sha256": "1912418b9a69e1e1ef43f573065a5d458ccd2375942589941013eeb57235e03a",
+     "bytes": 1495,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/coastal-fund-guidance-note-4.md",
+     "sha256": "9d731f0019c3b24f4f0c721be051e87ab69d479688cc33b37bc2e9ea876fa40d",
+     "bytes": 2505,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/contractor-programme-letter.md",
+     "sha256": "2d7aef701d4d6862d90b2c77e24c21237d38db34fda5b811368ba6bfa37d62ba",
+     "bytes": 1993,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecology-and-consents-note.md",
+     "sha256": "d87a52feb680d9411a17656f52ecb60574c505b8a012531310ddc5528bbf17d4",
+     "bytes": 1999,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/extreme-sea-levels-2025.md",
+     "sha256": "4c3bcc5b4ced7e904c8d4dad2f66a27d030b8412e4de136432e7cf7e37639351",
+     "bytes": 2001,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/finance-director-memo.md",
+     "sha256": "173b8b90e3cdb08bd7061058d785a0bc52c240b16692f0177c04eb869c712f65",
+     "bytes": 2432,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/flood-risk-register-extract.md",
+     "sha256": "4f3734e513952081f81c85b9aa1924fb561844eaef071d664fe6366b4351ba62",
+     "bytes": 1572,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/harbour-commissioners-letter.md",
+     "sha256": "a5e5c35e14bee36b36ee4093bc5afa9633f662b6eca4928a12becc774ea365ce",
+     "bytes": 1682,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/options-appraisal-summary.md",
+     "sha256": "1eba102f0282e5bf61e9c01725f2009edb1214f35d98924cad1eb68b8d2ca205",
+     "bytes": 4024,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/public-consultation-summary.md",
+     "sha256": "8726995169ddd2cb4c08f0b89b785b64e1200f15459f8d3f8f396580884b8bc2",
+     "bytes": 1881,
+     "label": "public"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/report.md"
+   ],
+   "inputLicence": "synthetic: invented for SOAR's E2 by the authoring session (lane S-e1); its organisations, places, figures and dates are invented and drawn from no real record, and any likeness to a real body's name is coincidental",
+   "checksSha256": "3c31280825f25bd44caf633f6b100f6aae4c111595d7c7c7f109f762cc5854a6",
+   "checksVersion": 1,
+   "checkCount": 7,
+   "conflictsSha256": "a355b2b6b57fc3fa435fce6c7fe8458ea6dafe892229c365a81a32870f4155df",
+   "goldFiles": [
+    {
+     "path": "checks.json",
+     "sha256": "3c31280825f25bd44caf633f6b100f6aae4c111595d7c7c7f109f762cc5854a6"
+    },
+    {
+     "path": "conflicts.json",
+     "sha256": "a355b2b6b57fc3fa435fce6c7fe8458ea6dafe892229c365a81a32870f4155df"
+    },
+    {
+     "path": "key-facts.json",
+     "sha256": "1db7ee77ae562b3a67b4e923189ba77d98dab4a4f0ca1ef36658af8162915ba5"
+    },
+    {
+     "path": "reference/output/claims.json",
+     "sha256": "26ecfeeed1555c4690bc405f15dac147e0bf3efa27f9b5da0517f7eb075b066b"
+    },
+    {
+     "path": "reference/output/report.md",
+     "sha256": "b9005525427767f5a7317a9bf6b1397ba8e94bc9656d8a77fb7f7775f6d691b8"
+    }
+   ],
+   "goldTreeSha256": "d7bff11a204b0bee0b9daa347bd19c70159159361420b0ab6d348282d90f48ca"
+  },
+  {
+   "id": "s2-elending-platform",
+   "family": "research",
+   "exposure": "fresh",
+   "jobId": "e2-s2-elending-platform",
+   "driverModeFlags": [
+    "--claims-ledger",
+    "true",
+    "--pipeline",
+    "research",
+    "--profile",
+    "heavy"
+   ],
+   "jobSha256": "bdc0934b7a0f6a04f22945fc33685f988b0742aab97c78d8743027674ee50ef8",
+   "briefSha256": "dfe072cbd150fe6b9bdfaf599b0ad8b53ee8443d03999dd1dcb84bc11efa4c55",
+   "inputs": [
+    {
+     "path": "input/corpus/accessibility-audit-summary.md",
+     "sha256": "e4ba45504d9dc8e46bc4ddc8828889dfed0b71f7b0608e9693de7512dd3ce3ad",
+     "bytes": 1856,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/bid-summary-folio-stream.md",
+     "sha256": "f30be9633fddda176ec1d0601e2128b1ae2f5ad028cda81ceb944b48ef0f5960",
+     "bytes": 1399,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/bid-summary-lumen-shelf.md",
+     "sha256": "8f09f98aa04170ffad71cff4f9f814cbad120fb8d055ddbdc33e42b31e409bbe",
+     "bytes": 1457,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/bid-summary-readspan.md",
+     "sha256": "d9d3cf240fb4e4e37bd1e5f5cc41174d6cb3749833bd2f2e39169f19f1cb3e16",
+     "bytes": 1368,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/board-paper-2026-41.md",
+     "sha256": "4c1773b35fb7692cc1b5073b1dc3a260cfc8e6f80a24130371f9800ff207faba",
+     "bytes": 2072,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/current-contract-summary.md",
+     "sha256": "02f7b60c75f562b293107561daa2d172896ba529044b670d0df2dbcf18b34a30",
+     "bytes": 1267,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/data-protection-assessment.md",
+     "sha256": "70edf679199b683a2aed65c5ecd9da8868ce168e9b5ce1c750e94b6ed138d33d",
+     "bytes": 1894,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/reference-call-westmere.md",
+     "sha256": "03dbd695ea7a6c555f894bc95f5a954128449ad8f3e3be2a6dbe3f5fd3179aaf",
+     "bytes": 1213,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/staff-survey-summary.md",
+     "sha256": "e228cba3ee651ef5da959fd6841b2527205dd549b5b8e706426f3330e2e8adcf",
+     "bytes": 1478,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/tender-specification-extract.md",
+     "sha256": "63eefb76f1a75c2f99eeb7c5fe0fd9274a6913ea9dc564eeb9f3dba9389697c5",
+     "bytes": 1989,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/usage-report-2025-26.md",
+     "sha256": "3ecdce173fe6ef9928ab33893d67241e9b7131f61e8507dc7eb09c11e9fea403",
+     "bytes": 1440,
+     "label": "public"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/report.md"
+   ],
+   "inputLicence": "synthetic: invented for SOAR's E2 by the authoring session (lane S-e1); its organisations, places, figures and dates are invented and drawn from no real record, and any likeness to a real body's name is coincidental",
+   "checksSha256": "ba3424e316e2a50242b0468bbfef17217ec11aff34f2562c7d7d4b4cbbdba201",
+   "checksVersion": 1,
+   "checkCount": 7,
+   "conflictsSha256": "668b683941f3b40eddd138dc2dbf1a99413a480cbbcd0f303ceb2bd4ac7caf97",
+   "goldFiles": [
+    {
+     "path": "checks.json",
+     "sha256": "ba3424e316e2a50242b0468bbfef17217ec11aff34f2562c7d7d4b4cbbdba201"
+    },
+    {
+     "path": "conflicts.json",
+     "sha256": "668b683941f3b40eddd138dc2dbf1a99413a480cbbcd0f303ceb2bd4ac7caf97"
+    },
+    {
+     "path": "key-facts.json",
+     "sha256": "ba5079c2e3e935d519c6bcd7c488e370839af2cc8694bbeccd0bd97e48f017b3"
+    },
+    {
+     "path": "reference/output/claims.json",
+     "sha256": "af51dd91e58b2f901bb67652d3d8dced083c12e91b8b4b802a9b6b3d2d44c03b"
+    },
+    {
+     "path": "reference/output/report.md",
+     "sha256": "89b4666a440c9a71a94b2332912e394eafb7125d621b3ca18e77b259d7181a76"
+    }
+   ],
+   "goldTreeSha256": "2adc6502d3072d49e35ce1e4334e5ac767e659496a8fe45e265d0f60d9f2ea80"
+  }
+ ],
+ "tasksSha256": "ba59819aacc2d33cd846f5d4dc93c23b8a1c3c421fba1aa6c240b34d4fe0747f"
+}

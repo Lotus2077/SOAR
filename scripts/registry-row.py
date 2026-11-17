@@ -871,6 +871,38 @@ def card_fields(freeze: dict) -> dict:
     return {"researchProtocolSha256": protocol, "servingCard": {"sha256": card["sha256"], "entry": card["entry"]}, "localStreams": streams}
 
 
+# BL-20261117-1049-e2-write-bound-and-dry-run-design (5): the name of a write bound in LOCAL_SCREEN_WRITE_BOUNDS
+# (scripts/private-agent-local-screen.ts), as freeze.json's limits.writeBound records it.
+WRITE_BOUND = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def limit_fields(freeze: dict) -> dict:
+    """The write phase's bound as freeze.json's `limits` records it (BL-20261117-1049-e2-write-bound-and-dry-run-design, decision (5)):
+    writeLimits is {bound, modelCalls, toolCalls, elapsedMs}. `bound` is limits.writeBound, the named bound the driver set, or null for
+    the profile's own limits; the three numbers are the write phase's, a number the freeze lacks reading null. Null when the freeze
+    records no limits, or none of the three and no bound. A present value of another shape refuses the row, naming the field, never
+    its value; so does a bound without all three numbers, which the driver always records beside it."""
+    limits = freeze.get("limits")
+    if limits is None:
+        return {"writeLimits": None}
+    if not isinstance(limits, dict):
+        sys.exit("freeze.json's limits is not an object")
+    numbers = {}
+    for key in ("modelCalls", "toolCalls", "elapsedMs"):
+        value = limits.get(key)
+        if value is not None and (type(value) is not int or value < 1):
+            sys.exit(f"freeze.json's limits.{key} is not a positive whole number")
+        numbers[key] = value
+    bound = limits.get("writeBound")
+    if bound is not None and (not isinstance(bound, str) or WRITE_BOUND.fullmatch(bound) is None):
+        sys.exit("freeze.json's limits.writeBound is not a bound's name")
+    if bound is not None and None in numbers.values():
+        sys.exit("freeze.json's limits.writeBound is recorded without the write phase's three limits")
+    if bound is None and all(value is None for value in numbers.values()):
+        return {"writeLimits": None}
+    return {"writeLimits": {"bound": bound, **numbers}}
+
+
 # Read-only git as scripts/verify-release-head.ts runs it (backlog item 11, part 2): no user or system configuration, pager,
 # prompts or optional locks, no hook or file-system monitor, and no repository found above this one.
 GIT_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "TZ": "UTC", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
@@ -1175,6 +1207,7 @@ def freeze_fields(freeze: dict, result=None, events=(), run_dir: str = "") -> di
     return {"date": started.date().isoformat() if started else None, "taskJobSha256": text(binding.get("jobSha256")), "profile": text(freeze.get("profile")) or "standard",
             "maxOutputTokens": tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0 else None,
             "thinking": config.get("thinking") if isinstance(config.get("thinking"), (bool, str)) else None, **cloud_fields(freeze), **card_fields(freeze),
+            **limit_fields(freeze),
             "pipeline": text(pipeline.get("name")), "pipelinePlanner": text(pipeline.get("planner")),
             "runStatus": text(result.get("status")) if result is not None else None, "terminalCause": text(result.get("reason")) if result is not None else None,
             "entailment": entailment if result is not None else None, "hostFlags": host_flags(events, run_dir) if result is not None else None}
@@ -1203,6 +1236,21 @@ def loop_row(args) -> dict:
         sys.exit("the loop record's task is malformed")
     if loop.get("pipeline") not in ("research", None):
         sys.exit("the loop record's pipeline is neither research nor null")
+    # BL-20261117-1055-loop-single-sample-design: the samples the loop planned (`--samples`); a record saved before it planned two.
+    planned = loop.get("samplesPlanned", 2)
+    if type(planned) is not int or planned not in (1, 2):
+        sys.exit("the loop record's samplesPlanned is neither 1 nor 2")
+    stage1 = loop["selected"].get("stage1") if isinstance(loop.get("selected"), dict) else None
+    if planned == 1:
+        seeded = loop.get("seeded") if isinstance(loop.get("seeded"), dict) else {}
+        rates = stage1.get("entailmentRates") if isinstance(stage1, dict) else None
+        if (isinstance(loop.get("candidates"), dict) and loop["candidates"].get("b") is not None) or seeded.get("b") is True \
+                or loop.get("writeIdentityEqual") is not None or (isinstance(stage1, dict) and stage1.get("candidate") != "a") \
+                or (isinstance(rates, list) and len(rates) == 2 and rates[1] is not None) \
+                or (isinstance(loop.get("begun"), list) and any(isinstance(entry, dict) and entry.get("stage") == "b" for entry in loop["begun"])):
+            sys.exit("a single-sample loop record holds a second sample")
+    if (isinstance(stage1, dict) and stage1.get("step") == "single_sample") != (planned == 1 and isinstance(stage1, dict)):
+        sys.exit("the loop record's stage-1 step does not match its planned samples")
     if version == 2:
         begun = loop.get("begun")
         if not isinstance(begun, list) or not all(isinstance(entry, dict) and entry.get("stage") in LOOP_STAGES and isinstance(entry.get("at"), str) for entry in begun):
@@ -1252,7 +1300,7 @@ def loop_row(args) -> dict:
         if read_result(os.path.join(loop_dir, name)) is not None:
             candidates[name]["runClass"] = classify_run_end(run_end_evidence(os.path.join(loop_dir, name), marked(name)))
     extra = {"wallSeconds": round((ended - started).total_seconds(), 1) if started and ended else None,
-             "loop": {"version": version, "rule": loop["selectionRule"], "samples": len([name for name in named if name != "repair"]), "repaired": "repair" in named,
+             "loop": {"version": version, "rule": loop["selectionRule"], "samples": len([name for name in named if name != "repair"]), "samplesPlanned": planned, "repaired": "repair" in named,
                       "seeded": loop.get("seeded"), "selected": final["candidate"] if final else None, "step": final["step"] if final else None,
                       "stage1": (loop["selected"].get("stage1") or {}).get("candidate") if loop.get("selected") else None,
                       "critiqued": critiqued, "candidates": candidates,
@@ -1296,7 +1344,9 @@ def loop_row(args) -> dict:
         fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": task["jobSha256"], "profile": None, "maxOutputTokens": None,
                   "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None,
                   # BL-20261116-1358-run-row-card-and-doctor-sources-design: without a stage freeze, the protocol hash, the card and K are unknown.
-                  "hostFlags": None, "researchProtocolSha256": None, "servingCard": None, "localStreams": None}
+                  "hostFlags": None, "researchProtocolSha256": None, "servingCard": None, "localStreams": None,
+                  # BL-20261117-1049-e2-write-bound-and-dry-run-design: nor is the write phase's bound.
+                  "writeLimits": None}
         evidence = {"kind": "none"}
         if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):
             # What the stopped stage left, as phase4-loop.ts closeLoop reads it: a readable result; else its ledger, when its freeze is
@@ -1427,7 +1477,7 @@ def run_counts(run_dir: str) -> dict:
         "row": {
             "date": started.date().isoformat(), "taskJobSha256": freeze["taskBinding"]["jobSha256"],
             "profile": freeze.get("profile", "standard"), "maxOutputTokens": freeze["modelConfig"]["maxOutputTokens"],
-            "thinking": freeze["modelConfig"]["thinking"], **cloud_fields(freeze), **card_fields(freeze),
+            "thinking": freeze["modelConfig"]["thinking"], **cloud_fields(freeze), **card_fields(freeze), **limit_fields(freeze),
             "pipeline": (freeze.get("pipeline") or {}).get("name"), "pipelinePlanner": (freeze.get("pipeline") or {}).get("planner"),
             "runStatus": result.get("status"), "terminalCause": result.get("reason"),
             # Research tasks: the host's entailment pass (PR-J2), counts only; a judge verdict is evidence, not acceptance.

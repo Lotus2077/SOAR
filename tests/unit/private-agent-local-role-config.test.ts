@@ -9,7 +9,7 @@ import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
 import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
 import { DEFAULT_SERVING_POLICY, ServingCardError, servingCardExpectation, servingCardFreeze } from "../../src/main/private-agent/serving-card";
-import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenResearchOption, localScreenSourceFreeze, localScreenStreams, researchPipelineFreeze, runLocalArtifactScreen,
+import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenCardResearch, localScreenFailureLine, localScreenResearchOption, localScreenSourceFreeze, localScreenStreams, researchPipelineFreeze, runLocalArtifactScreen,
   withClaimsLedger } from "../../scripts/private-agent-local-screen";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
@@ -222,7 +222,7 @@ describe("shared harness local role configuration", () => {
     expect(existsSync(options.outputDirectory)).toBe(false);
   });
 
-  it("7b.3: a card whose admission basis is serving_card loads through the pair with its evidence's rates, and the research option and freeze.json carry them (BL-20261117-1022-research-card-admission-design)", () => {
+  it("7b.3: a card whose admission basis is serving_card loads through the pair with its evidence's rates, and the research option and freeze.json carry them (BL-20261117-1131-research-card-admission-design)", () => {
     const root = workspace(), card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
     (card as { admission: { basis: string } }).admission.basis = "serving_card";
     const written = writeCard(root, card), paired = config(true); paired.vllm.servingCard = { path: written.path, sha256: written.sha256 };
@@ -238,6 +238,16 @@ describe("shared harness local role configuration", () => {
     const broker = {} as PrivateAgentBroker, local = buildLocalScreenModelConfig(config(true), COORDINATOR_PROFILES.heavy);
     expect(localScreenResearchOption(broker, "job", local, undefined, { admission: rates }).admission).toEqual(rates);
     expect(localScreenResearchOption(broker, "job", local, undefined)).not.toHaveProperty("admission");
+    // 7b.3's review: the driver takes both from one helper, so the freeze block and the session's option name the same roles and rates.
+    for (const planner of ["local", "cloud"] as const) {
+      const both = localScreenCardResearch(loaded, planner);
+      expect(both).toEqual({ pipeline: researchPipelineFreeze(planner, loaded.policy.roles, rates), option: { roles: loaded.policy.roles, admission: rates } });
+      expect(both.pipeline.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, both.option.roles, both.option.admission !== undefined));
+      expect(localScreenCardResearch(undefined, planner)).toEqual({ pipeline: researchPipelineFreeze(planner), option: {} });
+    }
+    // Under the basis `none` the rates reach neither.
+    const none = { ...loaded, policy: { ...loaded.policy, admission: { basis: "none" as const } } };
+    expect(localScreenCardResearch(none, "local")).toEqual({ pipeline: researchPipelineFreeze("local", loaded.policy.roles), option: { roles: loaded.policy.roles } });
   });
 
   it("7a.2 review: the research option hands the session the card's role policy, the local reader, and the split arm's planner and synthesiser", () => {

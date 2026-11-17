@@ -1738,7 +1738,7 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
   });
 });
 
-// 7b.3 (BL-20261117-1022-research-card-admission-design): card-derived admission under a `serving_card` basis.
+// 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission under a `serving_card` basis.
 describe("7b.3: card-derived admission", () => {
   const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
     fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };

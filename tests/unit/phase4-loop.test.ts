@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { ServingCardError } from "../../src/main/private-agent/serving-card";
-import { LOOP_VERSION, failureCode, loopExitCode, loopFailureLine, parseLoopArguments, productionDependencies, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
+import { LOOP_VERSION, closeLoop, failureCode, loopExitCode, loopFailureLine, parseLoopArguments, productionDependencies, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 import { localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
 const cleanups: (() => void)[] = [];
@@ -136,6 +136,72 @@ describe("H4 select-and-repair loop", () => {
     expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final a (tie)");
     expect(existsSync(join(dir, "errors.txt"))).toBe(false);  // backlog item 4: the error side file exists only when something was caught
     expect(loopExitCode(record)).toBe(0);
+    // BL-20261117-1055-loop-single-sample-design: the default planned two samples, and its record says so.
+    expect(saved.samplesPlanned).toBe(2);
+  });
+  it("runs one sample under --samples 1: a, the critique of a and the repair of a, never b; stage 1 records a with the step single_sample (BL-20261117-1055-loop-single-sample-design)", async () => {
+    const dir = loopDir(), entailment = { supported: 9, partial: 1, unsupported: 1, contradicted: 0, not_judged: 2, truncated: false };
+    const { deps, calls } = fakes({ summaries: candidates(false, { a: { entailment }, repair: { modelCalls: 7 } }) });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir, samples: 1 }, deps);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "repair"]);
+    expect(calls.runs[1]).toMatchObject({ repairFrom: join(dir, "critique") });
+    expect(calls.critiques.map(critique => critique.runDirectory)).toEqual([join(dir, "a")]);
+    // a's rate is evidence only, as a comparison's is: (9 - 1 - 0) / 11 judged claims.
+    expect(record.selected).toEqual({ stage1: { candidate: "a", step: "single_sample", entailmentRates: [8 / 11, null] }, final: { candidate: "a", step: "tie", entailmentRates: [8 / 11, null] } });
+    expect(record).toMatchObject({ samplesPlanned: 1, candidates: { b: null }, seeded: { a: false, b: false, repair: false, snapshotSha256: null }, writeIdentityEqual: null, failure: null });
+    expect(record.stages.map(stage => [stage.stage, stage.reused])).toEqual([["a", false], ["critique", false], ["repair", false]]);
+    // a's and the repair's runs plus the critique's one call.
+    expect(record.totals).toMatchObject({ modelCalls: 10 + 1 + 7, toolCalls: 16, inputTokens: 2500 });
+    expect(read(dir)).toMatchObject({ samplesPlanned: 1, selected: record.selected });
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("stage1 a (single_sample)");
+    expect(existsSync(join(dir, "b"))).toBe(false); expect(loopExitCode(record)).toBe(0);
+    // A research task: a reads, and the repair writes from a's packet; without a packet the loop ends at a, as a two-sample loop does.
+    const research = loopDir(), seeded = fakes({ summaries: candidates(true), transfers: ["a"] });
+    const read2 = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: research, samples: 1 }, seeded.deps);
+    expect(seeded.calls.runs.map(run => [run.outputDirectory.split("/").pop(), run.pipeline, run.researchFrom ?? null])).toEqual([["a", "research", null], ["repair", undefined, join(research, "a")]]);
+    expect(read2).toMatchObject({ samplesPlanned: 1, seeded: { a: false, b: false, repair: true, snapshotSha256: h("f") }, selected: { stage1: { candidate: "a", step: "single_sample" }, final: { candidate: "a" } } });
+    const unread = loopDir(), stopped = fakes({ summaries: candidates(true) });
+    expect((await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: unread, samples: 1 }, stopped.deps)).selected).toEqual({ stage1: null,
+      final: { candidate: "a", step: "stage_failed", seedRefusal: "research_seed_no_transfer" } });
+    expect(stopped.calls.runs).toHaveLength(1);
+    // A draft with nothing to repair ends at stage 1, with no critique.
+    const empty = loopDir(), bare = fakes({ summaries: candidates(false, { a: { artifactsPresent: 0, status: "incomplete", reason: "bounded_allowance_exhausted" } }) });
+    expect((await runSelectionLoop({ base: base(), loopDirectory: empty, samples: 1 }, bare.deps)).selected.final).toEqual({ candidate: "a", step: "no_draft" });
+    expect(bare.calls.runs).toHaveLength(1); expect(bare.calls.critiques).toHaveLength(0);
+  });
+  it("resumes a loop only under the sample count it started with; a record saved before the count planned two; a stray b refuses a single-sample loop (BL-20261117-1055-loop-single-sample-design)", async () => {
+    const stopAt = (stage: string) => (run: DriverInput) => { if (run.outputDirectory.endsWith(`/${stage}`)) throw new Error("loop_test_stop"); };
+    // A two-sample loop stopped at b resumes under two samples, never one.
+    const two = loopDir(), summaries = candidates(false);
+    await expect(runSelectionLoop({ base: base(), loopDirectory: two }, fakes({ summaries, onRun: stopAt("b") }).deps)).rejects.toThrow("loop_test_stop");
+    expect(read(two)).toMatchObject({ samplesPlanned: 2, failure: "loop_test_stop", selected: { final: null } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: two, samples: 1 }, fakes({ summaries }).deps)).rejects.toThrow("loop_record_mismatch");
+    // A record saved before the field held none: it planned two samples.
+    const saved = read(two) as unknown as Record<string, unknown>;
+    // A recorded count of another shape matches neither count.
+    for (const value of [null, "1", "2", 3, 0]) {
+      writeFileSync(join(two, "loop.json"), `${JSON.stringify({ ...saved, samplesPlanned: value })}\n`);
+      for (const samples of [1, 2] as const) await expect(runSelectionLoop({ base: base(), loopDirectory: two, samples }, fakes({ summaries }).deps), `${value} ${samples}`).rejects.toThrow("loop_record_mismatch");
+    }
+    delete saved.samplesPlanned; writeFileSync(join(two, "loop.json"), `${JSON.stringify(saved)}\n`);
+    await expect(runSelectionLoop({ base: base(), loopDirectory: two, samples: 1 }, fakes({ summaries }).deps)).rejects.toThrow("loop_record_mismatch");
+    const resumed = await runSelectionLoop({ base: base(), loopDirectory: two, samples: 2 }, fakes({ summaries }).deps);
+    expect(resumed).toMatchObject({ samplesPlanned: 2, selected: { stage1: { candidate: "a", step: "tie" }, final: { candidate: "a" } } });
+    // A single-sample loop stopped at its repair resumes under one sample, never two, and a b directory it never made refuses it.
+    const one = loopDir();
+    await expect(runSelectionLoop({ base: base(), loopDirectory: one, samples: 1 }, fakes({ summaries, onRun: stopAt("repair") }).deps)).rejects.toThrow("loop_test_stop");
+    expect(read(one)).toMatchObject({ samplesPlanned: 1, selected: { stage1: { candidate: "a", step: "single_sample" }, final: null } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: one }, fakes({ summaries }).deps)).rejects.toThrow("loop_record_mismatch");
+    mkdirSync(join(one, "b"));
+    await expect(runSelectionLoop({ base: base(), loopDirectory: one, samples: 1 }, fakes({ summaries }).deps)).rejects.toThrow("loop_resume_mismatch");
+    rmSync(join(one, "b"), { recursive: true });
+    const finished = await runSelectionLoop({ base: base(), loopDirectory: one, samples: 1 }, fakes({ summaries }).deps);
+    expect(finished).toMatchObject({ samplesPlanned: 1, candidates: { b: null }, selected: { stage1: { candidate: "a", step: "single_sample" }, final: { candidate: "a" } } });
+    const closing = loopDir();
+    await expect(runSelectionLoop({ base: base(), loopDirectory: closing, samples: 1 }, fakes({ summaries, onRun: stopAt("repair") }).deps)).rejects.toThrow("loop_test_stop");
+    const closed = await closeLoop(closing, fakes({ summaries }).deps);
+    expect(closed).toMatchObject({ samplesPlanned: 1, closed: true, candidates: { b: null }, selected: { stage1: { candidate: "a", step: "single_sample" }, final: { candidate: "a", step: "repair_failed" } } });
+    expect(read(closing)).toMatchObject({ samplesPlanned: 1, closed: true });
   });
   it("adds a truncated critique to the samples' length stops without changing the selection rule", async () => {
     const dir = loopDir();
@@ -517,12 +583,28 @@ describe("H4 select-and-repair loop", () => {
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: { ...candidates(false), a: partial as CandidateSummary } }).deps)).rejects.toThrow("loop_stage_mismatch");
     expect(read(dir)).toMatchObject({ failure: "loop_stage_mismatch", finishedAt: expect.any(String) });
   });
+  it("parses --samples 1 or 2 as the loop's own flag, which never reaches the driver, and refuses any other value (BL-20261117-1055-loop-single-sample-design)", () => {
+    const driver = ["--task-directory", "t", "--job-sha256", h("1"), "--brief-sha256", h("2"), "--authority-sha256", h("3"), "--image-id", `sha256:${h("4")}`, "--runtime-sha256", h("5"), "--profile", "heavy", "--claims-ledger", "true"];
+    const one = parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, "--samples", "1"]);
+    expect(one).toMatchObject({ loopDirectory: "L", samples: 1, base: { taskDirectory: "t", profile: "heavy" } }); expect(one.base).not.toHaveProperty("samples");
+    expect(parseLoopArguments(["--select-and-repair", "--samples", "2", "--loop-directory", "L", ...driver]).samples).toBe(2);
+    expect(parseLoopArguments(["--select-and-repair", "--loop-directory", "L", "--samples", "1", ...driver, "--pipeline", "research"])).toMatchObject({ samples: 1, base: { pipeline: "research" } });
+    expect(parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver])).not.toHaveProperty("samples");
+    for (const extra of [["--samples", "0"], ["--samples", "3"], ["--samples", "one"], ["--samples", ""], ["--samples", "01"], ["--samples", "1", "--samples", "1"], ["--samples", "1", "--samples", "2"]])
+      expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...extra]), extra.join(" ")).toThrow("loop_cli_invalid");
+    // The flag in a value's place, and the driver's own parser, which never takes it.
+    expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", "--task-directory", "--samples", ...driver.slice(2)])).toThrow("loop_cli_invalid");
+    expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", "--task-directory", "--samples", "2", "t", ...driver.slice(2)])).toThrow("loop_cli_invalid");
+    expect(() => parseLocalArtifactScreenArguments(["--execute-synthetic-local", ...driver, "--output-directory", "o", "--samples", "1"])).toThrow("local_screen_cli_invalid");
+  });
   it("parses the loop's command line from the driver's flags, refuses the flags the loop sets itself, a cloud writer without the pipeline and any profile but heavy; the driver accepts --research-from only as a local heavy claims-ledger writer", () => {
     const driver = ["--task-directory", "t", "--job-sha256", h("1"), "--brief-sha256", h("2"), "--authority-sha256", h("3"), "--image-id", `sha256:${h("4")}`, "--runtime-sha256", h("5"), "--profile", "heavy", "--claims-ledger", "true"];
     const parsed = parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, "--pipeline", "research"]);
     expect(parsed.loopDirectory).toBe("L"); expect(parsed.base).toMatchObject({ taskDirectory: "t", profile: "heavy", claimsLedger: true, pipeline: "research" }); expect(parsed.base).not.toHaveProperty("outputDirectory");
     expect(() => parseLoopArguments(["--select-and-repair", ...driver])).toThrow("loop_cli_invalid");
-    for (const extra of [["--output-directory", "o"], ["--repair-from", "r"], ["--research-from", "a"], ["--pause-after-tools", "3"]]) expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...extra])).toThrow("loop_cli_invalid");
+    // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run.
+    for (const extra of [["--output-directory", "o"], ["--repair-from", "r"], ["--research-from", "a"], ["--pause-after-tools", "3"], ["--write-bound", "twelve-call"], ["--dry-run", "true"]])
+      expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...extra])).toThrow("loop_cli_invalid");
     expect(() => parseLoopArguments(["--execute-synthetic-local", "--loop-directory", "L", ...driver])).toThrow("loop_cli_invalid");
     // H5's split arm on Claude (BL-20261030-0620): the Messages endpoint, no long-context tier.
     const claude = parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, "--pipeline", "research", "--arm", "cloud", "--cloud-model", "claude-sonnet-5-5",

@@ -181,7 +181,7 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
    */
   localStreams?: number;
   /**
-   * 7b.3 (BL-20261117-1022-research-card-admission-design): the card's measured rates, set only under a serving card whose admission basis
+   * 7b.3 (BL-20261117-1131-research-card-admission-design): the card's measured rates, set only under a serving card whose admission basis
    * is `serving_card` (the reader derives them). Set, the run keeps room for repair calls and may be refused on the clock before any
    * request, summary.json records the admission, and the protocol hash binds RESEARCH_ADMISSION_POLICY. Absent, admission and every
    * file are as without a card. The share of the clock is used only in the admission test: an admitted stage keeps the whole clock.

@@ -137,6 +137,9 @@ describe("experiment launcher: inputs", () => {
       [[singleRun("r1", { capUsd: 0.5, argv: [...singleRun("r1").argv, ...CLOUD] })], {}],
       [[{ ...singleRun("r1"), extra: true } as RunInput], {}],
       [[singleRun("R1")], {}],
+      // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): a queue lists runs, so a queued dry run is refused, a run's or a loop's.
+      [[singleRun("r1", { argv: [...singleRun("r1").argv, "--dry-run", "true"] })], {}],
+      [[loopRun("l1", { argv: [...loopRun("l1").argv, "--dry-run", "true"] })], {}],
     ];
     for (const [runs, over] of refused) expect(() => parseQueue(readFileSync(writeQueue(root, runs, over)), root)).toThrow("launcher_queue_invalid");
     writeFileSync(join(root, "bad.json"), JSON.stringify({ version: 1, batch: "b", batchCapUsd: 1, windows: [{ start: "2026-11-20T01:00:00+01:00", end: iso(T0 + H) }], runs: [singleRun("r1")] }));

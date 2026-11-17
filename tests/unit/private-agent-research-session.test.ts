@@ -16,6 +16,7 @@ import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } fro
 import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
+import { ASSIST_FEE_CAP_MICROUSD, assistModelConfig } from "../helpers/research-assist-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const done of cleanups.splice(0).reverse()) await done(); });
@@ -102,6 +103,17 @@ function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Ru
       f.store.append(jobId, { type: "completed", contextId: input.contextId, snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
       return { status: "completed" as const, reason: "critical_checks_passed", snapshot, checks, modelCalls: 1 };
     } }) };
+}
+
+/**
+ * 10.b (BL-20261117-1036-assist-wiring-design, decision 5): the assist arm on the fixture's loopback cloud destination, which never answers
+ * unless a test answers it: the Responses shape in the no-write mode at the published prices, the cloud arm's fee cap, and the phase's goal
+ * as the authored brief. The planner and synthesiser stay the fixture's zero-fee local model.
+ */
+function withAssist(f: Awaited<ReturnType<typeof fixture>>, config: GeneralSessionOptions, firing: "forced_split" | "local_first" = "forced_split"): GeneralSessionOptions {
+  const assistConfig = { ...assistModelConfig("openai_responses"), destinationId: "cloud" };
+  return { ...config, cloudArm: { destinationId: "cloud", maxFeeMicrousd: ASSIST_FEE_CAP_MICROUSD },
+    research: { ...config.research!, assist: { firing, authoredBrief: config.privatePhase.contract.goal, model: contextId => new PrivateAgentModel(f.broker, assistConfig, config.jobId, contextId) } } };
 }
 
 describe("H2b/H2c: the research stage inside a session", () => {
@@ -585,22 +597,20 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(researchStageUnfinished([input], [{ contextId: "public" }])).toBe(false);
   });
 
-  it("pinned until backlog item 10.b retires the plain-purpose split arm (E1 bug (b)): a pause aborts a priced stage call at once, leaving its row unknown, and the task ends unresolved_dispatch_no_replay", async () => {
-    const f = await fixture(), runs: Run[] = [], config = options(f, "job-priced-pause", runs);
-    const priced = { destinationId: "priced-planner", model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 1, outputUsdPerMillion: 1, thinking: "disabled" as const };
-    const local = config.research!.models;
-    config.research = { ...config.research!, models: contextId => ({ ...local(contextId), planner: new PrivateAgentModel(f.broker, priced, config.jobId, contextId) }) };
-    config.cloudArm = { destinationId: "priced-planner", maxFeeMicrousd: 8_000_000 };
+  it("since 10.b retired the plain-purpose split arm (E1 bug (b), BL-20261109-0501 decision (5)): a pause aborts the assist arm's T1 at once, its unknown assist row blocks nothing, and the task ends research_stage_not_replayed", async () => {
+    const f = await fixture(), runs: Run[] = [], config = withAssist(f, options(f, "job-priced-pause", runs));
     const session = new GeneralAgentSession(config);
-    f.hooks.onRequest = system => { if (system.startsWith("You plan")) session.pause(); };
-    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay" });
-    expect(f.store.dispatches(config.jobId).map(row => [row.purpose, row.status])).toEqual([["research source index", "settled"], ["research plan", "unknown"]]);
-    // The request was on the wire when the pause aborted it; its reservation stays counted for the job's life.
-    const plan = f.store.dispatches(config.jobId)[1]!;
-    expect(plan.failure).toMatchObject({ code: "cancelled" }); expect(plan.reservedFeeMicrousd).toBeGreaterThan(0);
-    f.hooks.onRequest = undefined;
+    f.hooks.onCloud = () => { session.pause(); };
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.store.dispatches(config.jobId).map(row => [row.purpose, row.status])).toEqual([["research source index", "settled"], [PLAN_ASSIST_PURPOSE, "unknown"]]);
+    // The request was on the wire when the pause aborted it; its reservation stays counted for the job's life, and the plan row records the stopped assist.
+    const assist = f.store.dispatches(config.jobId)[1]!;
+    expect(assist.failure).toMatchObject({ code: "cancelled" }); expect(assist.reservedFeeMicrousd).toBeGreaterThan(0);
+    expect(f.store.events(config.jobId).filter(event => event.type === "research_stage").at(-1)).toMatchObject({ stage: "plan", denied: "cancelled",
+      assist: { touchpoint: "T1", fired: true, outcome: "stopped", code: "cancelled", attempts: [expect.objectContaining({ outcome: "stopped", code: "cancelled", dispatched: true })] } });
+    f.hooks.onCloud = undefined;
     const sent = f.bodies.length;
-    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay" });
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
   });
 });
@@ -754,63 +764,59 @@ describe("E1 recoverability: known limitations of the research stage, pinned unt
     expect(await new GeneralAgentSession(options(f, jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
   }, 20_000);
-  it.each(["no answer", "external abort"] as const)("pins a limitation item 10's PR 10.b flips: the legacy split arm's cloud planner left UNKNOWN by %s stops the stage, and the job cannot resume", async mode => {
-    // The split arm's planner calls the cloud with the plain `research plan` purpose, so its uncertain row blocks like any other. A cloud
-    // call stopped mid-request is never a confirmed abort, so an external abort leaves it UNKNOWN too.
-    const f = await fixture(), runs: Run[] = [], jobId = `job-split-${mode.replace(" ", "-")}`, config = options(f, jobId, runs), external = new AbortController();
+  it.each(["no answer", "external abort"] as const)("flipped by 10.b: the assist arm's T1 left UNKNOWN by %s never blocks the job: no answer is skipped and the local stages go on to the writer, and an external abort stops the stage, which a resume refuses as research_stage_not_replayed", async mode => {
+    // Since 10.b the cloud plans only through item 10's wrapper, under the assist purpose: an uncertain row is an assist in the reader
+    // context, which blocks nothing (store.ts, isBlockingDispatch). A cloud call stopped mid-request is never a confirmed abort, so an
+    // external abort leaves it UNKNOWN too, and the cancel ends the stage.
+    const f = await fixture(), runs: Run[] = [], jobId = `job-split-${mode.replace(" ", "-")}`, external = new AbortController(), config = withAssist(f, options(f, jobId, runs));
     if (mode === "external abort") f.hooks.onCloud = () => external.abort();
-    config.cloudArm = { destinationId: "cloud", maxFeeMicrousd: 1000 };
-    const make = config.research!.models;
-    const cloudPlanner = (contextId: string) => new PrivateAgentModel(f.broker, { destinationId: "cloud", model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 0,
-      outputUsdPerMillion: 0, thinking: "disabled" }, jobId, contextId);
-    config.research = { ...config.research!, models: contextId => ({ ...make(contextId), planner: cloudPlanner(contextId) }) };
-    expect(await new GeneralAgentSession(config).run(external.signal)).toMatchObject({ status: "incomplete", reason: mode === "no answer" ? "research_request_denied" : "research_cancelled" });
-    expect(f.store.dispatches(jobId).map(row => [row.purpose, row.destinationId, row.status, row.failure?.code])).toEqual([["research source index", "model", "settled", undefined],
-      ["research plan", "cloud", "unknown", mode === "no answer" ? "request_timeout" : "cancelled"]]);
-    expect(f.store.events(jobId).filter(event => event.type === "research_stage").at(-1)).toMatchObject({ stage: "plan", denied: mode === "no answer" ? "transport_or_settlement_unknown" : "cancelled" });
-    const again = options(f, jobId, runs); again.cloudArm = config.cloudArm; again.research = config.research;
-    expect(await new GeneralAgentSession(again).run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay" });
+    const result = await new GeneralAgentSession(config).run(external.signal);
+    expect(f.store.dispatches(jobId).filter(row => row.destinationId === "cloud").map(row => [row.purpose, row.status, row.failure?.code]))
+      .toEqual([[PLAN_ASSIST_PURPOSE, "unknown", mode === "no answer" ? "request_timeout" : "cancelled"]]);
+    if (mode === "no answer") { expect(result).toMatchObject({ status: "submitted" }); expect(runs).toHaveLength(1); return; }
+    expect(result).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+    expect(f.store.events(jobId).filter(event => event.type === "research_stage").at(-1)).toMatchObject({ stage: "plan", denied: "cancelled", assist: { outcome: "stopped", code: "cancelled" } });
+    expect(await new GeneralAgentSession(withAssist(f, options(f, jobId, runs))).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     expect(runs).toHaveLength(0);
   }, 20_000);
 });
 
 describe("E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)", () => {
-  // Item 10's wrapper does not exist yet: here the planner and the synthesiser are wrapped in the test, the way it will call a sealed cloud
-  // one-shot before the local stage call. Its PR (10.b) re-proves this end to end; this case proves the ledger, broker, session and producer
-  // parts on the real broker.
-  it("lets a plan assist that timed out stay unknown with its reservation pinned, refuses any later cloud call before a row, and reaches the writer", async () => {
-    const f = await fixture(), runs: Run[] = [], jobId = "job-assist-unknown", config = options(f, jobId, runs);
-    config.cloudArm = { destinationId: "cloud", maxFeeMicrousd: 1000 };
-    const make = config.research!.models;
-    const assist = (contextId: string, purpose: string) => f.broker.request({ jobId, contextId, destinationId: "cloud", purpose, method: "POST", body: "{\"assist\":true}", maxFeeMicrousd: 500 })
-      .then(() => undefined, (error: unknown) => error);
-    const refusals: unknown[] = [];
-    config.research = { ...config.research!, models: contextId => {
-      const models = make(contextId), plan = models.planner.complete.bind(models.planner), write = models.synthesiser.complete.bind(models.synthesiser);
-      models.planner.complete = async (...args) => { refusals.push(await assist(contextId, PLAN_ASSIST_PURPOSE)); return plan(...args); };
-      models.synthesiser.complete = async (...args) => { refusals.push(await assist(contextId, SYNTHESIS_ASSIST_PURPOSE)); return write(...args); };
-      return models;
-    } };
+  // E1-2 keeps this describe's name (BL-20261114-2306-e1-recoverability-gate-ci-verified, decision 3). Until 10.b the case wrapped the
+  // planner and synthesiser in the test. Since 10.b (BL-20261117-1036-assist-wiring-design, decision 12) it re-proves clause 3 end to
+  // end: the session's own assist option, item 10's real wrapper, the real broker and ledger, and the producer.
+  it("lets a plan assist that timed out stay unknown with its reservation pinned, suppresses the later assist, refuses any later cloud call before a row, and reaches the writer", async () => {
+    const f = await fixture(), runs: Run[] = [], jobId = "job-assist-unknown", config = withAssist(f, options(f, jobId, runs));
     expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
     expect(runs).toHaveLength(1);
-    // The plan assist's outcome stayed uncertain; the synthesis assist was refused before any row existed.
-    expect(refusals).toHaveLength(2);
-    expect(refusals[0]).toBeInstanceOf(BrokerError); expect((refusals[0] as BrokerError).code).toBe("transport_or_settlement_unknown");
-    expect(refusals[1]).toBeInstanceOf(BrokerError); expect((refusals[1] as BrokerError).code).toBe("cloud_after_assist_unknown");
-    const rows = f.store.dispatches(jobId);
-    const assists = rows.filter(row => row.destinationId === "cloud");
-    expect(assists).toEqual([expect.objectContaining({ purpose: PLAN_ASSIST_PURPOSE, status: "unknown", reservedFeeMicrousd: 500, failure: expect.objectContaining({ code: "request_timeout" }) })]);
+    // Only T1 reached the broker, and its row stayed unknown after the destination's 200 ms; the wrapper's latch kept T2 from any request.
+    const rows = f.store.dispatches(jobId), cloud = rows.filter(row => row.destinationId === "cloud");
+    expect(cloud).toEqual([expect.objectContaining({ purpose: PLAN_ASSIST_PURPOSE, status: "unknown", failure: expect.objectContaining({ code: "request_timeout" }) })]);
     expect(rows.filter(row => row.destinationId !== "cloud").every(row => row.status === "settled")).toBe(true);
+    const stages = f.store.events(jobId).filter(event => event.type === "research_stage") as Record<string, any>[];
+    const plan = stages.find(event => event.stage === "plan")!, synthesis = stages.find(event => event.stage === "synthesise")!;
+    expect(plan.assist).toMatchObject({ touchpoint: "T1", policy: "forced_split", fired: true, trigger: "forced_split", outcome: "skipped", accepted: false, code: "transport_or_settlement_unknown",
+      usage: null, attempts: [expect.objectContaining({ outcome: "skipped", code: "transport_or_settlement_unknown", dispatched: true, reservedFeeMicrousd: cloud[0]!.reservedFeeMicrousd })] });
+    expect(synthesis.assist).toMatchObject({ touchpoint: "T2", policy: "forced_split", fired: true, outcome: "refused", accepted: false, code: "assist_suppressed_after_unknown", usage: null,
+      attempts: [expect.objectContaining({ outcome: "refused", code: "assist_suppressed_after_unknown", dispatched: false })] });
+    // The local planner and synthesiser carried on: each stage's one local call was accepted, with no host fallback.
+    expect(plan).toMatchObject({ calls: 1, invalidReplies: 0 }); expect(plan.fallback).toBeUndefined();
+    expect(synthesis).toMatchObject({ calls: 1, invalidReplies: 0 }); expect(synthesis.fallback).toBeUndefined();
     // The producer binds the skipped assist to its stage, uncounted, beside the plan stage's own call.
     const transfer = f.store.events(jobId).find(event => event.type === "research_transfer")!;
     const receipts = (transfer.binding as { producer: { receipts: { id: string; stage: string; status?: string; role?: string }[] } }).producer.receipts;
-    expect(receipts.filter(receipt => receipt.role === "assist")).toEqual([expect.objectContaining({ id: assists[0]!.id, stage: "plan", role: "assist", status: "unknown" })]);
-    // The reservation stays pinned: of the job's 1,000 fee cap exactly 500 are left, so a later row reserving 501 is refused and one reserving 500 is admitted.
+    expect(receipts.filter(receipt => receipt.role === "assist")).toEqual([expect.objectContaining({ id: cloud[0]!.id, stage: "plan", role: "assist", status: "unknown" })]);
+    // Any later cloud call is refused before a row (the broker's cloud_after_assist_unknown).
     const reader = String(f.store.events(jobId).find(event => event.type === "session_started")!.readerContextId);
+    await expect(f.broker.request({ jobId, contextId: reader, destinationId: "cloud", purpose: SYNTHESIS_ASSIST_PURPOSE, method: "POST", body: "{}", maxFeeMicrousd: 1 }))
+      .rejects.toMatchObject({ code: "cloud_after_assist_unknown" });
+    expect(f.store.dispatches(jobId).filter(row => row.destinationId === "cloud")).toHaveLength(1);
+    // The reservation stays pinned: of the job's fee cap exactly the cap less T1's reservation is left.
+    const left = ASSIST_FEE_CAP_MICROUSD - cloud[0]!.reservedFeeMicrousd!;
     const reserving = (fee: number) => { const { text: _text, ...packet } = f.broker.preview({ jobId, contextId: reader, destinationId: "model", purpose: "research evidence extraction", method: "POST", body: "{}", maxFeeMicrousd: fee });
       return () => f.store.commit({ ...packet, reservedFeeMicrousd: fee, scan: { status: "not_required_for_synthetic_local_test" } }, () => {}); };
-    expect(reserving(501)).toThrow("private_agent_budget_denied");
-    expect(reserving(500)()).toMatchObject({ status: "committed", reservedFeeMicrousd: 500 });
+    expect(reserving(left + 1)).toThrow("private_agent_budget_denied");
+    expect(reserving(left)()).toMatchObject({ status: "committed", reservedFeeMicrousd: left });
   }, 20_000);
 });
 

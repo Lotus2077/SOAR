@@ -8,7 +8,8 @@ import { ANTHROPIC_MESSAGES_ENDPOINT } from "../../src/main/private-agent/anthro
 import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { digest } from "../../src/main/private-agent/contracts";
-import { PrivateAgentModel, type PrivateModelConfig } from "../../src/main/private-agent/model";
+import { ASSIST_CACHE_MODE, PrivateAgentModel, type PrivateModelConfig } from "../../src/main/private-agent/model";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { RESEARCH_FILES, RESEARCH_SPLIT_MAX_FEE_USD } from "../../src/main/private-agent/research-pipeline";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
@@ -22,8 +23,10 @@ import { researchV4Reply } from "../helpers/research-v4-fixture";
  * E1 recoverability (E1-T2) of the research stage inside a session, on the real broker. This file keeps its own fixture, apart
  * from tests/unit/private-agent-research-session.test.ts, whose fixture 6.2, 7c, 10.b and E1-T3 each change: one loopback
  * server answers as an OpenAI-shaped local model and as Anthropic's Messages API, each with the invented reply for the stage
- * its system prompt names. No real model, endpoint or fee is involved. The split arm's wiring copies the headless driver's
- * (scripts/private-agent-local-screen.ts: the reader local, the planner and the synthesiser cloud); a PR that rewires it must update this copy.
+ * its system prompt names. No real model, endpoint or fee is involved. The cloud arm's wiring copies the headless driver's
+ * (scripts/private-agent-local-screen.ts). Until 10.b that was the split arm: the reader local, the planner and the synthesiser cloud.
+ * Since 10.b (BL-20261117-1036-assist-wiring-design, decision 2) it is the assist arm: the reader, planner and synthesiser local, and the
+ * cloud model, in the assist cache mode, serving T1 and T2 through item 10's wrapper under the forced split. A PR that rewires it must update this copy.
  */
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const done of cleanups.splice(0).reverse()) await done(); });
@@ -76,19 +79,20 @@ async function fixture() {
   return { store, broker, root, sent, hooks, arm };
 }
 
-/** A synthetic-attested session whose reader is the local model; `split` puts the planner and the synthesiser on the cloud arm, as the driver does. */
+/** A synthetic-attested session whose stages run on the local model; `split` adds the driver's assist arm (forced split) on the cloud arm. */
 function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Run[], extra: { sources?: { path: string; bytes: Buffer }[]; split?: boolean } = {}): GeneralSessionOptions {
   const privatePhase: SessionPhase = { files: [...(extra.sources ?? [SOURCE]), { path: "brief.md", bytes: Buffer.from("Write a cited briefing.") }], checks: [{ id: "structure", python: "# fixed fixture" }],
     contract: { version: 1, goal: "Write a cited briefing from input/corpus.", requiredArtifacts: [{ path: "output/report.md", description: "report" }], requiredChecks: ["structure"],
       maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
   const checkpoints = new PrivateCheckpointStore(f.root, jobId);
   const local: PrivateModelConfig = { destinationId: "model", model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" };
-  const cloud = extra.split ? f.arm.modelConfig as PrivateModelConfig : local, model = (contextId: string, config = local) => new PrivateAgentModel(f.broker, config, jobId, contextId);
+  const assist: PrivateModelConfig = { ...f.arm.modelConfig as PrivateModelConfig, promptCaching: ASSIST_CACHE_MODE }, model = (contextId: string, config = local) => new PrivateAgentModel(f.broker, config, jobId, contextId);
   return { jobId, imageId, store: f.store, broker: f.broker, checkpoints, privatePhase, limits: { maxRequests: 200, maxElapsedMs: 1_800_000 },
     syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: digest("host-authored-fixture") },
     ...(extra.split ? { cloudArm: { destinationId: f.arm.destination.id, maxFeeMicrousd: f.arm.maxFeeMicrousd } } : {}),
     trustedHostModelFactory: contextId => model(contextId),
-    research: { models: contextId => ({ reader: model(contextId), planner: model(contextId, cloud), synthesiser: model(contextId, cloud) }) },
+    research: { models: contextId => ({ reader: model(contextId), planner: model(contextId), synthesiser: model(contextId) }),
+      ...(extra.split ? { assist: { firing: "forced_split" as const, authoredBrief: privatePhase.contract.goal, model: (contextId: string) => model(contextId, assist) } } : {}) },
     trustedHostRunnerFactory: input => ({ pause() {}, cancel() {}, async run() {
       runs.push({ files: input.files.map(file => file.path) });
       const snapshot = checkpoints.save([...input.files, { path: "output/report.md", bytes: Buffer.from("Capacity doubled [C1].") }]), checks = input.checks.map(check => ({ id: check.id, passed: true }));
@@ -120,15 +124,15 @@ describe("E1 recoverability: a malformed body inside a research stage, on the re
   }, 20_000);
 });
 
-describe("E1 recoverability: the split arm's Anthropic planner retried after a 529 still reaches the writer (S2, the cloud half of D14, gate clause 2)", () => {
-  it("supersedes the priced attempt the 529 rejected, binds it uncounted, settles the retry and the cloud synthesis, reaches the writer, and reuses the packet on resume", async () => {
+describe("E1 recoverability: the assist arm's Anthropic T1 retried after a 529 still reaches the writer (S2, the cloud half of D14, gate clause 2; the split arm's planner until 10.b)", () => {
+  it("supersedes the priced attempt the 529 rejected, binds it uncounted, settles the retry and the synthesis assist, records both assists, reaches the writer, and reuses the packet on resume", async () => {
     const f = await fixture(), runs: Run[] = [], jobId = "job-split-overloaded", cloud = f.arm.destination.id;
     f.hooks.cloud = (system, index) => system.startsWith("You plan") && index === 0 ? "overloaded" : undefined;
     expect(await new GeneralAgentSession(options(f, jobId, runs, { split: true })).run()).toMatchObject({ status: "submitted" });
     expect(runs).toHaveLength(1);
     const rows = f.store.dispatches(jobId);
-    expect(rows.map(row => [row.purpose, row.destinationId, row.status])).toEqual([["research source index", "model", "settled"], ["research plan", cloud, "superseded"],
-      ["research plan", cloud, "settled"], ["research evidence extraction", "model", "settled"], ["research synthesis", cloud, "settled"]]);
+    expect(rows.map(row => [row.purpose, row.destinationId, row.status])).toEqual([["research source index", "model", "settled"], [PLAN_ASSIST_PURPOSE, cloud, "superseded"],
+      [PLAN_ASSIST_PURPOSE, cloud, "settled"], ["research evidence extraction", "model", "settled"], [SYNTHESIS_ASSIST_PURPOSE, cloud, "settled"]]);
     expect(rows[1]!.failure).toMatchObject({ phase: "transport", code: "http_rejected", status: 529, errorType: "overloaded_error", requestId: "req_011overloaded0", attempt: 1 });
     // The broker re-sent the same packet (a retry, not a pipeline repair). Priced: the rejected attempt reserved a fee and settled none;
     // the retry and the synthesis settled theirs.
@@ -138,6 +142,13 @@ describe("E1 recoverability: the split arm's Anthropic planner retried after a 5
     expect(f.sent.map(item => [item.arm, item.system.split(" ").slice(0, 2).join(" ")])).toEqual([["local", "You index"], ["cloud", "You plan"], ["cloud", "You plan"],
       ["local", "You extract"], ["cloud", "You write"]]);
     expect(stageRows(f, jobId).map(event => [event.stage, event.calls, event.denied])).toEqual(["index", "plan", "extract", "synthesise"].map(stage => [stage, 1, undefined]));
+    // 10.b: each touchpoint's record holds its one settled, accepted attempt: the provider's served model, a reported zero write, and the settled fee.
+    for (const [stage, touchpoint] of [["plan", "T1"], ["synthesise", "T2"]] as const) {
+      const record = (stageRows(f, jobId).find(event => event.stage === stage) as Record<string, any>).assist;
+      expect(record).toMatchObject({ touchpoint, policy: "forced_split", fired: true, trigger: "forced_split", outcome: "settled", accepted: true,
+        attempts: [expect.objectContaining({ outcome: "settled", dispatched: true, servedModel: PROBE_MODEL, usage: expect.objectContaining({ cacheWriteReported: true, cacheWriteTokens: 0 }) })] });
+      expect(record.attempts[0].feeMicrousd).toBe(rows.filter(row => row.purpose === (touchpoint === "T1" ? PLAN_ASSIST_PURPOSE : SYNTHESIS_ASSIST_PURPOSE) && row.status === "settled")[0]!.feeMicrousd);
+    }
     const receipts = receiptsOf(f, jobId);
     expect(receipts.map(receipt => receipt.id)).toEqual(rows.map(row => row.id));
     expect(receipts.filter(receipt => receipt.status !== undefined)).toEqual([expect.objectContaining({ id: rows[1]!.id, stage: "plan", status: "superseded" })]);

@@ -48105,3 +48105,103 @@ References:
 - BL-20261116-1546-e0-structured-fixtures-result;
 - BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution;
 - docs/experiments/e0-card-2026-11-13.md, Amendment 1.
+
+### BL-20261117-1010-p10-plan-cap-export-implemented -- 2026-11-17 -- Topic 6 implemented: `pnpm probe:export-schemas -- --plan-cap 16384` builds P10's plan cells at 16,384, and a card written from that probe proposes the planner there
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1000-p10-plan-cap-export-design, implemented as designed, with the three points from #130's review that decision (8) of that entry takes.
+
+Decisions:
+(1) **As designed.** scripts/export-role-schemas.ts:
+- `buildRoleSchemaExport` takes `{ planCap }`. Both plan bodies are built at the cap, and `outputTokens` records it. Without it, `outputTokens` is `OUTPUT_TOKENS` itself.
+- `buildP10Requests` builds each cell at its role's cap in the export's `outputTokens`.
+- `parseRoleSchemaExportArguments` is the command line: `--out` and `--plan-cap`, each at most once, after one optional leading `--`. Anything else exits 2 with `role_export_arguments_invalid` and writes no file. So does an option whose value is empty or is another option.
+- `isRoleSchemaExportPlanCap` holds the reader's range, 128 to 16,384.
+- The printed summary line gains `outputTokens`, after `protocolSha256`.
+
+(2) **The builder refuses a cap outside the range itself** (`role_export_plan_cap_invalid`), not only the command line. A caller that bypasses the command line cannot write a plan body that the model layer clamped.
+
+(3) **One type widens.** The export's `outputTokens` was typed as the constant's literal values. It is now a number per role, so a plan cap fits it. The file's JSON shape is unchanged, and the export's version stays 2.
+
+(4) **#130's three points** (decision 4 of BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution):
+- tests/unit/planner-fixture.test.ts pins `FIXTURE_JOB_ID` to "e0-planner-fixture", in the test of the fixture's one salt.
+- The other two points stay as 1559 records them.
+- So decision 4 of 1559 is closed.
+
+(5) **No departure from the design.** The probe's test extends the existing loopback P10 test with a capped export, rather than adding a new one.
+
+Changes:
+- scripts/export-role-schemas.ts: decisions (1) to (3).
+- tests/unit/role-schema-export.test.ts: a new describe, "role schema export with a plan cap (topic 6)", with five tests:
+  - the builder;
+  - the arguments;
+  - the pipeline's plan call under a card with the planner at 16,384;
+  - the writer and the reader;
+  - the command line.
+- tests/unit/serving-probe-helpers.test.ts: the loopback P10 run also runs a capped export, and checks each plan cell's recorded cap.
+- tests/unit/planner-fixture.test.ts: the pin of decision (4).
+- docs/experiments/README.md:
+  - the writer proposes the role export's caps;
+  - a bullet on the plan cap for a probe;
+  - the planner fixture's 16,384 cell says what makes it sendable.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The default export is unchanged.**
+  - On `main` c02366a and on this branch, `buildRoleSchemaExport` at a fixed time gives the same digest under three settings: streaming on, streaming off, and the flash_next_v1 contract.
+  - The digest matches both for the canonical JSON and for the bytes the command line writes.
+- **With 16,384:**
+  - `outputTokens` is {index 1536, plan 16384, extract 2048, synthesis 8192};
+  - both plan bodies are the model layer's own at 16,384, each differs from today's only in `max_tokens`, and the rest of the export is equal.
+- **The pipeline.**
+  - The policy has the planner at [16384, 16384], thinking on, and plan's thinking-on mode flagged strict.
+  - Under that policy, the pipeline's one plan call equals the export's plan/on body plus `jsonSchemaResponseFormat` of the plan schema, strict, in every field but the user message.
+  - item 9's test already pins that format equal to the probe's own `response_format`.
+- **The probe.** `probe_p10` on a loopback server, with a capped export:
+  - it sent both plan cells' bodies with `max_tokens` 16384;
+  - it recorded 16384 as each plan cell's cap, and extract kept 2048.
+- **The writer and the reader.**
+  - From a synthetic probe that records the capped export's caps, the writer proposes the planner at [16384, 16384] with the plan flag on thinking on, and both plan cells at `maxTokens` 16384.
+  - Apart from the probe's digest, nothing else differs from the card written from today's export.
+  - Adopted, the card resolves to that planner.
+  - The card from today's export, adopted with the planner moved to 16,384, is refused with `serving_card_structured_output_cap_unmeasured`.
+- **The command line.**
+  - `-- --out <file> --plan-cap 16384` exits 0, writes plan bodies at 16,384 and prints the same `outputTokens`. The file reproduces from the builder.
+  - `--plan-cap 16385` and `--plan-caps 16384` each exit 2, print nothing to stdout and write no file.
+- **Mutants.** Fourteen single edits each fail at least one test of the three changed test files. A first run left one alive: `--out` with an empty value or another option as its value. Two refusal cases now kill it. The fourteen:
+  - the cap reaching plan/on only, or every role, or not recorded in `outputTokens`;
+  - either bound off by one;
+  - an unknown argument skipped, an option repeated, an empty or option-like value accepted, or the leading `--` kept;
+  - leading zeros accepted;
+  - the builder taking any cap, or the command line dropping it;
+  - the printed line without the caps;
+  - `FIXTURE_JOB_ID` changed.
+- **Unchanged values.**
+  - `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+  - The source freeze is e4c29bf0c08d95df95f80a52b470e96596e0158ee2526fbc5e602137627a4dca, as on `main`.
+- **Checks.**
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+  - The three changed test files pass: 41 tests.
+  - The full suite: 193 files passed and 13 skipped; 3,873 tests passed and 86 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No endpoint was called, and no probe ran. The loopback server answers with a fixed reply. So the tests show the bodies, the recorded caps and the card's arithmetic, not how any endpoint answers at 16,384.
+- The limits of the design entry stand. P10's payloads are synthetic and small, and a run's caps come only from an adopted card.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review of this pull request, CI, and the coordinating session's merge;
+- the re-probe of decision (7) of BL-20261117-1000-p10-plan-cap-export-design and the card it writes;
+- the adoption commit, which is the owner's, by name.
+
+References:
+- BL-20261117-1000-p10-plan-cap-export-design;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution;
+- BL-20261116-1208-research-structured-output-design;
+- BL-20261113-1011-p10-align-design.

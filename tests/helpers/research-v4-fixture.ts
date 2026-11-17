@@ -26,18 +26,20 @@ export function parseResearchUserContent(user: string): Record<string, any> {
   }
   return merged;
 }
-/** Invented CPU model replies derived from the actual v4 request. No development/H5 answers. */
+/** Invented CPU model replies derived from the actual v4 request, and since 10.b from a T1 or T2 assist packet. No development/H5 answers. */
 export function researchV4Reply(system: string, user: string): string {
   const input = parseResearchUserContent(user);
   if (system.startsWith("You index")) return JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "Synthetic source", gist: "A source for the supplied questions.", date: "", figures: [] })) });
-  if (system.startsWith("You plan")) return JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?", requirementIds: input.units.map((u: any) => u.id), sourceIds: input.sourceIndex.sources.slice(0, 8).map((s: any) => s.sourceId), lookFor: [] }], conflictsToCheck: [], deliverableNotes: "Distinguish evidence from uncertainty." });
+  if (system.startsWith("You plan")) return JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?", requirementIds: input.units.map((u: any) => u.id), sourceIds: (input.sourceIndex ? input.sourceIndex.sources.map((s: any) => s.sourceId) : input.sources.map((s: any) => s.id)).slice(0, 8), lookFor: [] }], conflictsToCheck: [], deliverableNotes: "Distinguish evidence from uncertainty." });
   if (system.startsWith("You extract")) {
     const quote = String(input.chunk.text).split("\n").map((s: string) => s.trim()).find((s: string) => !s.startsWith("#") && s.length >= 12 && s.length <= 300);
     const questionIds = input.plan.questions.map((q: any) => q.id);
     return JSON.stringify({ questions: questionIds.map((questionId: string) => ({ questionId, status: quote ? "evidence_found" : "no_verified_evidence" })), quotes: quote ? [{ quote, questionIds, note: "Synthetic source statement; relevance requires review." }] : [], conflicts: [] });
   }
   if (system.startsWith("You write")) {
-    const quotes = input.evidence.quotes as { id: string; questionIds: string[] }[];
+    // 10.b: a T2 assist packet carries its quotes rendered in `evidenceText` (research-assist.ts, renderAssistEvidence) rather than as `evidence`.
+    const quotes = (input.evidence ? input.evidence.quotes : [...String(input.evidenceText).matchAll(/^- \[(E\d+)\] S\d+ \([^;]*; ([^)]*)\): /gmu)]
+      .map(match => ({ id: match[1]!, questionIds: match[2]!.split(", ") }))) as { id: string; questionIds: string[] }[];
     return JSON.stringify({ version: 1, argument: `The supplied source states a bounded synthetic finding [${quotes[0]?.id ?? "E1"}].\n\n## Conflicting evidence\nNo conflict was extracted.\n\n## Unanswered questions\nA lack of extracted evidence does not establish absence in the corpus.`,
       questions: input.plan.questions.map((q: any) => { const evidenceIds = quotes.filter(e => e.questionIds.includes(q.id)).map(e => e.id); return { questionId: q.id, disposition: evidenceIds.length ? "findings" : "unresolved", evidenceIds }; }) });
   }

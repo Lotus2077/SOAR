@@ -8,7 +8,8 @@ import { canonical, digest, exactText } from "./contracts";
 import { DEADLINE_BEFORE_REQUEST_STOP, ModelRequestBodyTooLarge, type ModelResponseFormat, type PrivateAgentModel } from "./model";
 import { orderedPoolLimit, runOrderedPool, type PoolOutcome } from "./ordered-pool";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, RESEARCH_COVERAGE_POLICY, RESEARCH_PRESENTATION_POLICY, RESEARCH_SLOT_POLICY, RESEARCH_TOLERANCE_POLICY, type ResearchBudget } from "./research-contract";
-import type { ResearchAssistOutcome, ResearchAssists } from "./research-assist-contract";
+import type { ResearchAssistAttemptRecord, ResearchAssistFiring, ResearchAssistOutcome, ResearchAssists, ResearchAssistTouchpoint } from "./research-assist-contract";
+import { ResearchAssistAttemptRecordSchema, ResearchAssistStageRecordSchema, researchAssistProtocol, type ResearchAssistStageRecord } from "./research-assist";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "./dispatch-purposes";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "./research-fallback";
 import { buildResearchPresentation, researchPresentationBytes } from "./research-presentation";
@@ -155,6 +156,11 @@ export interface ResearchStageCounts {
   structuredOutputCalls?: number;
   /** 7b.2: plan questions with a verified quote and none in the packet, and the omissions only the presentation guard made (also counted in quotesLeftByCap). */
   questionsTrimmed?: number; quotesLeftByPresentation?: number;
+  /**
+   * 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the touchpoint's assist record, on the plan row (T1) and the synthesise
+   * row (T2), only when a hook is configured, fired or not. Its usage is already in the row's own usage and is never added again.
+   */
+  assist?: ResearchAssistStageRecord;
 }
 /** 7b.3: `admission` only under a card whose admission basis is `serving_card`; a run without one writes the summary it wrote before. */
 export interface ResearchSummary { version: number; protocolSha256: string; budget: ResearchBudget; stages: ResearchStageCounts[]; admission?: ResearchAdmissionRecord }
@@ -197,12 +203,13 @@ export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; r
  * The protocol's digest. 7a.2: a role policy is bound only when nonDefaultRoleParameters finds a value (the predicate the serving-card
  * reader's fail-closed step shares), so without a card, or under a card whose values are all default, the value is unchanged. Item 9:
  * the binding (researchRolePolicyBinding) adds the structured-output rule only when a flag is set. 7b.3: `cardAdmission` binds
- * RESEARCH_ADMISSION_POLICY, set only when the run reads a card's admission rates.
+ * RESEARCH_ADMISSION_POLICY, set only when the run reads a card's admission rates. 10.b (BL-20261117-1202-assist-wiring-design,
+ * decision 6): with an assist configured, its firing binds the assist protocol block (research-assist.ts); without one, nothing changes.
  */
-export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY, cardAdmission = false): string {
+export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY, cardAdmission = false, assist?: ResearchAssistFiring): string {
   const rolePolicy = researchRolePolicyBinding(roles);
   // 7b.3: the admission policy is bound only under a card whose admission basis is `serving_card`, so every other hash is unchanged.
-  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(rolePolicy ? { rolePolicy } : {}), ...(cardAdmission ? { admission: RESEARCH_ADMISSION_POLICY } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
+  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(rolePolicy ? { rolePolicy } : {}), ...(cardAdmission ? { admission: RESEARCH_ADMISSION_POLICY } : {}), ...(assist ? { assist: researchAssistProtocol(assist) } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING, limits: LIMITS, indexLimits: INDEX_LIMITS, coveragePolicy: RESEARCH_COVERAGE_POLICY, presentationPolicy: RESEARCH_PRESENTATION_POLICY, planDiagnostics: RESEARCH_PLAN_DIAGNOSTIC_POLICY,
     schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, planAttempt: z.toJSONSchema(ResearchPlanAttemptSchema), synthesisAttempt: z.toJSONSchema(ResearchSynthesisAttemptSchema), evidence: z.toJSONSchema(ResearchEvidenceSchema), coverage: z.toJSONSchema(ResearchCoverageSchema), extraction: z.toJSONSchema(ExtractReplySchema), synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
     schemaVersions: { plan: 2, evidence: 2, coverage: 4, synthesis: 1, seed: 2 }, packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
@@ -399,7 +406,18 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const budget = parsedBudget.success ? parsedBudget.data : RESEARCH_PIPELINE_BUDGET, stages: ResearchStageCounts[] = [], files = new Map<string, Buffer>();
   const parsedRoles = input.roles === undefined ? undefined : ResearchRolePolicySchema.safeParse(input.roles);
   const roles: ResearchRolePolicy = parsedRoles?.success ? parsedRoles.data : DEFAULT_RESEARCH_ROLE_POLICY;
-  const protocolSha256 = researchProtocolSha256(budget, roles, input.admission !== undefined);
+  // 7(c): the hook object is the host's (item 10's wrapper). Its shape is checked here, once, so that reading it later can neither
+  // throw nor return another shape: a firing the contract names, and touchpoints that are functions or absent. 10.b: it is read
+  // before the protocol hash, so the hash binds exactly the firing the stage runs under (BL-20261117-1202-assist-wiring-design, decision 6).
+  let hooks: { firing: ResearchAssists["firing"]; plan?: NonNullable<ResearchAssists["plan"]>; synthesis?: NonNullable<ResearchAssists["synthesis"]> } | undefined, hooksInvalid = false;
+  try {
+    if (input.assists !== undefined) {
+      const { firing, plan: planHook, synthesis: synthesisHook } = input.assists;
+      if ((firing !== "local_first" && firing !== "forced_split") || (planHook !== undefined && typeof planHook !== "function") || (synthesisHook !== undefined && typeof synthesisHook !== "function")) throw new Error("research_assists_invalid");
+      hooks = { firing, ...(planHook ? { plan: planHook.bind(input.assists) } : {}), ...(synthesisHook ? { synthesis: synthesisHook.bind(input.assists) } : {}) };
+    }
+  } catch { hooks = undefined; hooksInvalid = true; }
+  const protocolSha256 = researchProtocolSha256(budget, roles, input.admission !== undefined, hooks?.firing);
   let admission: ResearchAdmissionRecord | undefined;
   const summary = (): ResearchSummary => ({ version: RESEARCH_PIPELINE_VERSION, protocolSha256, budget, stages, ...(admission ? { admission } : {}) });
   let coverage: ResearchCoverage | undefined;
@@ -456,16 +474,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     return refused ?? (pool.stopped && input.signal.aborted ? "cancelled" : undefined);
   };
   if (input.signal.aborted) return finish("incomplete", "research_cancelled");
-  // 7(c): the hook object is the host's (item 10's wrapper). Its shape is checked here, once, so that reading it later can neither
-  // throw nor return another shape: a firing the contract names, and touchpoints that are functions or absent.
-  let hooks: { firing: ResearchAssists["firing"]; plan?: NonNullable<ResearchAssists["plan"]>; synthesis?: NonNullable<ResearchAssists["synthesis"]> } | undefined;
-  try {
-    if (input.assists !== undefined) {
-      const { firing, plan: planHook, synthesis: synthesisHook } = input.assists;
-      if ((firing !== "local_first" && firing !== "forced_split") || (planHook !== undefined && typeof planHook !== "function") || (synthesisHook !== undefined && typeof synthesisHook !== "function")) throw new Error("research_assists_invalid");
-      hooks = { firing, ...(planHook ? { plan: planHook.bind(input.assists) } : {}), ...(synthesisHook ? { synthesis: synthesisHook.bind(input.assists) } : {}) };
-    }
-  } catch { return finish("incomplete", "research_assists_invalid"); }
+  if (hooksInvalid) return finish("incomplete", "research_assists_invalid");
   if (!parsedBudget.success) return finish("incomplete", "research_budget_invalid");
   // 7a.2: the policy each stage sends. A role whose model is not the owned local shape at zero fee (a cloud planner or synthesiser)
   // keeps today's values: a disabled thinking mode would throw on the Anthropic shape, and a card measures the local server only.
@@ -548,6 +557,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // it (assist_request_invalid). The deadline is required: without a session deadline the request carries NaN, and the wrapper stops
   // (assist_deadline_missing) before sending anything. Either stop ends the stage denied at the first assist that fires
   // (BL-20261113-0929-correction-research-v5-assist-order-deadline).
+  // 10.b: the outcomes the pipeline makes itself (consult below), so the stage record never mistakes one for the hook's.
+  const pipelineOutcomes = new WeakMap<object, "before_call" | "broken">();
+  const own = (outcome: ResearchAssistOutcome, why: "before_call" | "broken"): ResearchAssistOutcome => { pipelineOutcomes.set(outcome, why); return outcome; };
   const assistBase = () => ({ brief: input.brief, units: coverage!.units, sources: inventory.sourceManifest,
     sourceTexts: ordered.map(source => researchSourceText(source)), sourceIndex: indexDocument, deadlineMs: input.deadlineMs ?? Number.NaN });
   /**
@@ -556,13 +568,52 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
    * throw ends the stage with a fixed code, never escaping the pipeline. Only a fixed code reaches the stage row.
    */
   const consult = async <T>(ask: (request: T, signal: AbortSignal) => Promise<ResearchAssistOutcome>, request: () => T): Promise<ResearchAssistOutcome> => {
-    if (input.signal.aborted) return { kind: "stop", code: "cancelled" };
+    if (input.signal.aborted) return own({ kind: "stop", code: "cancelled" }, "before_call");
     try {
       const parsed = ResearchAssistOutcomeSchema.safeParse(await ask(structuredClone(request()), input.signal));
-      if (!parsed.success) return { kind: "stop", code: "assist_outcome_invalid" };
+      if (!parsed.success) return own({ kind: "stop", code: "assist_outcome_invalid" }, "broken");
       const outcome = parsed.data as ResearchAssistOutcome;
-      return outcome.kind === "stop" && !/^[a-z_]{1,64}$/u.test(outcome.code) ? { kind: "stop", code: "assist_stop_code_invalid" } : outcome;
-    } catch { return { kind: "stop", code: input.signal.aborted ? "cancelled" : "assist_hook_failed" }; }
+      return outcome.kind === "stop" && !/^[a-z_]{1,64}$/u.test(outcome.code) ? own({ kind: "stop", code: "assist_stop_code_invalid" }, "broken") : outcome;
+    } catch { return own({ kind: "stop", code: input.signal.aborted ? "cancelled" : "assist_hook_failed" }, "broken"); }
+  };
+  /**
+   * 10.b (BL-20261117-1202-assist-wiring-design, decision 7): each touchpoint's assist record. Every outcome the hook returns must
+   * carry its attempt record (research-assist-record.ts); a reply or no-reply without one ends the stage as
+   * research_assist_record_invalid, so no slot attempt goes unrecorded (BL-20261113-0927-research-v5-design, Limitations). An
+   * outcome the pipeline made itself is not the hook's: a cancel before the call leaves the touchpoint unfired, and a broken hook
+   * (an invalid outcome, a throw) leaves no record to keep, so its stage row, which ends denied, carries none.
+   */
+  type AssistTrack = { touchpoint: ResearchAssistTouchpoint; fired: boolean; broken: boolean; accepted: boolean; attempts: ResearchAssistAttemptRecord[] };
+  const tracks = { T1: { touchpoint: "T1", fired: false, broken: false, accepted: false, attempts: [] } as AssistTrack, T2: { touchpoint: "T2", fired: false, broken: false, accepted: false, attempts: [] } as AssistTrack };
+  /** Keeps the outcome's attempt record; false when the hook's outcome carries none that parses for this touchpoint. */
+  const keep = (track: AssistTrack, outcome: ResearchAssistOutcome): boolean => {
+    const mine = pipelineOutcomes.get(outcome);
+    if (mine === "before_call") return true;
+    track.fired = true;
+    if (mine === "broken") { track.broken = true; return true; }
+    const parsed = ResearchAssistAttemptRecordSchema.safeParse((outcome as { record?: unknown }).record);
+    if (!parsed.success || parsed.data.touchpoint !== track.touchpoint) { track.broken = true; return false; }
+    track.attempts.push(parsed.data as ResearchAssistAttemptRecord);
+    return true;
+  };
+  /** The touchpoint's stage record, or undefined when it cannot be one (a broken hook, or records that do not form a valid sequence). */
+  const assistRecord = (track: AssistTrack): ResearchAssistStageRecord | undefined => {
+    if (!hooks || track.broken) return undefined;
+    const last = track.attempts.at(-1), settledUsage = track.attempts.flatMap(attempt => attempt.usage ? [attempt.usage] : []);
+    const usage = settledUsage.length ? settledUsage.reduce((sum, u) => ({ inputTokens: sum.inputTokens + u.inputTokens, outputTokens: sum.outputTokens + u.outputTokens,
+      cacheReadTokens: sum.cacheReadTokens + u.cacheReadTokens, cacheWriteTokens: sum.cacheWriteTokens + u.cacheWriteTokens }), zeroUsage()) : null;
+    const trigger = !track.fired ? null : hooks.firing === "forced_split" ? "forced_split" as const : track.touchpoint === "T1" ? "local_plans_rejected" as const : "local_syntheses_refused" as const;
+    const code = !track.fired || track.accepted || !last ? undefined : last.outcome === "settled" ? "assist_reply_rejected" : last.code;
+    const parsed = ResearchAssistStageRecordSchema.safeParse({ version: 1, touchpoint: track.touchpoint, policy: hooks.firing, fired: track.fired, trigger, attempts: track.attempts,
+      ...(track.fired && last ? { outcome: last.outcome } : {}), accepted: track.accepted, ...(code ? { code } : {}), usage });
+    return parsed.success ? parsed.data : undefined;
+  };
+  /** Puts the touchpoint's record on its stage row; false when a hook is configured and the record cannot be built. */
+  const attach = (counts: ResearchStageCounts, track: AssistTrack): boolean => {
+    if (!hooks) return true;
+    const built = assistRecord(track);
+    if (built) counts.assist = built;
+    return built !== undefined;
   };
   let plan: ResearchPlan | undefined;
   // The stage attempts: each repair carries the previous stage reply; an assist reply never feeds a repair, so after an assist the first starts fresh.
@@ -584,6 +635,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if (plan || !hooks?.plan) return undefined;
     const outcome = await consult(hooks.plan, () => ({ ...assistBase(), mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: budget.extractionCalls,
       priorAttempts: planCounts.planAttempts! }));
+    if (!keep(tracks.T1, outcome)) return "research_assist_record_invalid";
     if (outcome.kind === "stop") return outcome.code;
     if (outcome.kind === "no_reply") return undefined;
     // The reply is assessed before it is counted: an outcome the pipeline refuses before assessing it (a malformed outcome, an
@@ -593,17 +645,18 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
       ...(outcome.sourceAliases ? { sourceAliases: outcome.sourceAliases } : {}), slot: "assist" }); }
     catch (error) { return error instanceof Error && /^[a-z_]+$/u.test(error.message) ? error.message : "research_plan_alias_binding"; }
     settled(planCounts, outcome);
-    planCounts.planAttempts!.push(assessed.attempt); plan = assessed.plan;
+    planCounts.planAttempts!.push(assessed.attempt); plan = assessed.plan; tracks.T1.accepted = plan !== undefined;
     if (!plan) { planCounts.invalidReplies++; retain(planCounts, PLAN_ASSIST_PURPOSE, outcome, assessed.issues); }
     return undefined;
   };
-  for (const step of hooks?.firing === "forced_split" ? [planAssist, planStage] : [planStage, planAssist]) { const refused = await step(); if (refused) return denied(planCounts, refused); }
+  for (const step of hooks?.firing === "forced_split" ? [planAssist, planStage] : [planStage, planAssist]) { const refused = await step(); if (refused) { attach(planCounts, tracks.T1); return denied(planCounts, refused); } }
   // No accepted attempt: the host fallback plan, built from the units alone and disclosed (7(c), principle 5). A cancel never
   // completes as a fallback: the stage ends as call() would end it.
   if (!plan) {
-    if (input.signal.aborted) return denied(planCounts, "cancelled");
+    if (input.signal.aborted) { attach(planCounts, tracks.T1); return denied(planCounts, "cancelled"); }
     plan = hostFallbackPlan(coverage.units); planCounts.fallback = "host_plan"; coverage.fallbacks.plan = "host_plan";
   }
+  if (!attach(planCounts, tracks.T1)) return denied(planCounts, "research_assist_record_invalid");
   planCounts.questions = plan.questions.length; record(planCounts); put(RESEARCH_FILES.plan, plan);
   const stablePacket = { brief: input.brief, units: coverage.units, plan };
   const questions = new Set(plan.questions.map(q => q.id)), verified: ResearchEvidence["quotes"] = [], conflicts: ResearchEvidence["conflicts"] = [], quoteMap = new Map<string, ResearchEvidence["quotes"][number]>();
@@ -813,29 +866,33 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const synthesisAssist = async (): Promise<string | undefined> => {
     if (argument !== undefined || !hooks?.synthesis) return undefined;
     for (const retryAfterTruncation of [false, true]) {
-      const outcome = await consult(hooks.synthesis, () => ({ ...assistBase(), plan: stablePacket.plan, evidence, coverage: coverage!, retryAfterTruncation }));
+      // 10.b's second review: the plan stage's attempts go along for T2's known digests only (research-assist-contract.ts).
+      const outcome = await consult(hooks.synthesis, () => ({ ...assistBase(), plan: stablePacket.plan, evidence, coverage: coverage!, retryAfterTruncation, planAttempts: planCounts.planAttempts! }));
+      if (!keep(tracks.T2, outcome)) return "research_assist_record_invalid";
       if (outcome.kind === "stop") return outcome.code;
       if (outcome.kind === "no_reply") return undefined;
       settled(synthesisCounts, outcome);
       // An assist reply may cite only the ids its packet carried; a reply that names none may cite none.
       const citable = new Set((outcome.evidenceIds ?? []).filter(id => packetIds.has(id)));
       conclude(outcome, judge(outcome, citable), SYNTHESIS_ASSIST_PURPOSE, retryAfterTruncation ? "assist_retry" : "assist");
+      tracks.T2.accepted = argument !== undefined;
       if (argument !== undefined || !outcome.truncated) return undefined;
     }
     return undefined;
   };
-  for (const step of hooks?.firing === "forced_split" ? [synthesisAssist, synthesisStage] : [synthesisStage, synthesisAssist]) { const refused = await step(); if (refused) return denied(synthesisCounts, refused); }
+  for (const step of hooks?.firing === "forced_split" ? [synthesisAssist, synthesisStage] : [synthesisStage, synthesisAssist]) { const refused = await step(); if (refused) { attach(synthesisCounts, tracks.T2); return denied(synthesisCounts, refused); } }
   // No accepted attempt: the host skeleton, built from the plan's question ids and the packet's evidence ids alone and disclosed.
   if (argument === undefined) {
-    if (input.signal.aborted) return denied(synthesisCounts, "cancelled");
+    if (input.signal.aborted) { attach(synthesisCounts, tracks.T2); return denied(synthesisCounts, "cancelled"); }
     const skeleton = hostSkeletonSynthesis(plan, evidence); argument = skeleton.argument;
     coverage.synthesis = { status: "skeleton", argumentSha256: digest(Buffer.from(argument)), questions: skeleton.questions };
     synthesisCounts.fallback = "skeleton"; coverage.fallbacks.synthesis = "skeleton";
   }
+  if (!attach(synthesisCounts, tracks.T2)) return denied(synthesisCounts, "research_assist_record_invalid");
   synthesisCounts.argumentBytes = argument === undefined ? 0 : Buffer.byteLength(argument); synthesisCounts.argumentWords = argument === undefined || synthesisCounts.fallback === "skeleton" ? 0 : researchWordCount(argument); record(synthesisCounts);
   files.set(RESEARCH_FILES.argument, Buffer.from(argument));
   const outcome = finish("completed", "research_packet_ready");
-  try { validateReadyResearchPacket(outcome.files, { brief: input.brief, sources: input.sources, protocolSha256, budget }); }
+  try { validateReadyResearchPacket(outcome.files, { brief: input.brief, sources: input.sources, protocolSha256, budget, assistFiring: hooks?.firing ?? null }); }
   catch { return finish("incomplete", "research_packet_binding_invalid"); }
   // 7(c): the session builds the writer's presentation only after the transfer is durable, and a refused presentation would then
   // wedge every resume. A packet the presentation refuses (above all its byte cap) ends the stage here instead.

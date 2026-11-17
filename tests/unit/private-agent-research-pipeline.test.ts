@@ -18,6 +18,8 @@ import { researchSynthesisLengthCap as lengthCapFor } from "../../src/main/priva
 import { RESEARCH_TRIM_POLICY, researchTrimOrder } from "../../src/main/private-agent/research-trim";
 import { researchPresentationBytes } from "../../src/main/private-agent/research-presentation";
 import { RESEARCH_PRESENTATION_POLICY } from "../../src/main/private-agent/research-contract";
+import { withAttemptRecord } from "../helpers/research-assist-fixture";
+import { ResearchAssistStageRecordSchema } from "../../src/main/private-agent/research-assist-record";
 
 type Stage = "index" | "plan" | "extract" | "synthesise";
 type Script = (stage: Stage, input: any, sequence: number, system: string) => string | { content: string; truncated: boolean } | Error;
@@ -63,7 +65,10 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
   "questionsTrimmed", "quotesLeftByPresentation",
   // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, the extract row's second repairs and those that completed their chunk; counts.
-  "secondRepairCalls", "secondRepairsComplete"]);
+  "secondRepairCalls", "secondRepairsComplete",
+  // 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes, enums and the
+  // provider's model identifier (no white space, at most 200 characters), never free text.
+  "assist"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
     expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
@@ -72,6 +77,7 @@ const hashOnlyStageRow = (stage: ResearchStageCounts) => {
     else if (key === "synthesisAttempts") for (const attempt of value as unknown[]) expect(() => ResearchSynthesisAttemptSchema.parse(attempt)).not.toThrow();
     else if (key === "usage") expect(Object.values(value as object).every(n => typeof n === "number")).toBe(true);
     else if (key === "planAttempts") for (const attempt of value as unknown[]) expect(() => ResearchPlanAttemptSchema.parse(attempt)).not.toThrow();
+    else if (key === "assist") { expect(["plan", "synthesise"]).toContain(stage.stage); expect(() => ResearchAssistStageRecordSchema.parse(value)).not.toThrow(); }
     else expect(typeof value).toBe("number");
   }
 };
@@ -689,8 +695,10 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
   function hook(firing: ResearchAssistFiring, plan?: (request: ResearchAssistPlanRequest, n: number) => ResearchAssistOutcome, synthesis?: (request: ResearchAssistSynthesisRequest, n: number) => ResearchAssistOutcome) {
     const seen: { plan: ResearchAssistPlanRequest[]; synthesis: ResearchAssistSynthesisRequest[] } = { plan: [], synthesis: [] };
     const assists: ResearchAssists = { firing,
-      ...(plan ? { plan: async (request: ResearchAssistPlanRequest) => { seen.plan.push(structuredClone(request)); return plan(request, seen.plan.length - 1); } } : {}),
-      ...(synthesis ? { synthesis: async (request: ResearchAssistSynthesisRequest) => { seen.synthesis.push(structuredClone(request)); return synthesis(request, seen.synthesis.length - 1); } } : {}) };
+      // 10.b: each outcome carries the attempt record the real wrapper attaches (withAttemptRecord), unless the script gave one.
+      ...(plan ? { plan: async (request: ResearchAssistPlanRequest) => { seen.plan.push(structuredClone(request)); return withAttemptRecord(plan(request, seen.plan.length - 1), "T1"); } } : {}),
+      ...(synthesis ? { synthesis: async (request: ResearchAssistSynthesisRequest) => { seen.synthesis.push(structuredClone(request));
+        return withAttemptRecord(synthesis(request, seen.synthesis.length - 1), "T2", request.retryAfterTruncation === true); } } : {}) };
     return { assists, seen };
   }
   const noReply = (kind: Kind): ResearchAssistOutcome => kind === "stop" ? { kind: "stop", code: "assist_stop_fixture" } : { kind: "no_reply", outcome: kind as "skipped" | "failed" | "refused", code: `assist_${kind}_fixture` };
@@ -781,7 +789,8 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(stageRequests.map(c => c.input.repairReason === null)).toEqual(stageRequests.map((_, i) => i === 0));
     // T2: the base fields, the host-validated plan, the packet's evidence and coverage, and no raw local reply.
     const request = h.seen.synthesis[0]!;
-    expect(Object.keys(request).sort()).toEqual(["brief", "coverage", "deadlineMs", "evidence", "plan", "retryAfterTruncation", "sourceIndex", "sourceTexts", "sources", "units"]);
+    // 10.b's second review: planAttempts goes along for T2's known digests only; the wrapper never sends it.
+    expect(Object.keys(request).sort()).toEqual(["brief", "coverage", "deadlineMs", "evidence", "plan", "planAttempts", "retryAfterTruncation", "sourceIndex", "sourceTexts", "sources", "units"]);
     expect(request).toMatchObject({ plan, evidence, retryAfterTruncation: false }); expect(JSON.stringify(request)).not.toContain("not a stage");
     expect(s.entries.filter(e => e.stage === "synthesise").map(e => [e.ordinal, e.purpose])).toEqual(slots.flatMap((slot, i) => kind === "accepted" && slot === "assist" ? [] : [[i + 1, slot === "assist" ? SYNTHESIS_ASSIST_PURPOSE : "research synthesis"]]));
     hashOnlyStageRow(stage);
@@ -840,13 +849,22 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     v4.coverage.version = 1; delete v4.coverage.fallbacks; v4.coverage.protocolSha256 = "05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8";
     expect(digest(canonical(v4))).toBe("03bdfb5e0fc7a0b178c5b743a5b9035fb0fdd8838f53dc701989eb35a38fce6e");
     // A local-first hook is never asked while the stages accept, and every request is the one a run without a hook sends.
+    // 10.b (BL-20261117-1202-assist-wiring-design, decision 6): a configured hook binds its firing into the protocol hash, which the
+    // synthesis request's coverage carries. That one value is the assist-bound hash; put the default back, and every request is byte for byte the one without a hook.
+    const unbound = (calls: typeof clean.calls, firing: ResearchAssistFiring) => calls.map(c => {
+      if (c.stage !== "synthesise") return c.body;
+      const user = JSON.parse(c.body.messages[1].content as string);
+      expect(user.coverage.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, firing));
+      user.coverage.protocolSha256 = RESEARCH_PROTOCOL_SHA256;
+      return { ...c.body, messages: [c.body.messages[0], { ...c.body.messages[1], content: canonical(user) }] };
+    });
     const quiet = hook("local_first", planBy("accepted"), synthesisBy("accepted")), hooked = models(); await run(hooked, { assists: quiet.assists });
-    expect(quiet.seen.plan.length + quiet.seen.synthesis.length).toBe(0); expect(hooked.calls.map(c => c.body)).toEqual(clean.calls.map(c => c.body));
+    expect(quiet.seen.plan.length + quiet.seen.synthesis.length).toBe(0); expect(unbound(hooked.calls, "local_first")).toEqual(clean.calls.map(c => c.body));
     // After a rejected assist, the first stage request carries no trace of it: the plan request is the one pinned before 7b.1,
     // and the synthesis request is a first attempt's (its coverage still "pending").
     const split = rejecting("plan"), splitHook = hook("forced_split", planBy("rejected"), synthesisBy("rejected")); await run(split, { assists: splitHook.assists });
     expect(digest(split.calls.find(c => c.stage === "plan")!.body.messages[1].content as string)).toBe("db70bd30a913d4433bb9e89cff8e3fc24e8a030d89eae13d4d478ee072e1b927");
-    expect(split.calls.find(c => c.stage === "synthesise")!.body).toEqual(bare.calls.find(c => c.stage === "synthesise")!.body);
+    expect(unbound(split.calls.filter(c => c.stage === "synthesise"), "forced_split")).toEqual([bare.calls.find(c => c.stage === "synthesise")!.body]);
   });
 
   it("never completes a fallback after a cancel: a cancel between the last rejected reply and the fallback ends the stage as call() would", async () => {
@@ -969,10 +987,20 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.repairReason === null)).toEqual([true, false]);
   });
 
+  // 10.b's second review (nit 3): the synthesis hook gets the plan stage's attempts, for its scrubber's known digests only (research-assist.ts).
+  it("hands the synthesis hook every plan attempt, stage and assist, so T2's scrubber knows each reply's digest", async () => {
+    const m = models((stage, input, n, system) => stage === "plan" || stage === "synthesise" ? `not a stage ${stage} reply` : happy(stage, input, n, system));
+    const h = hook("local_first", planBy("accepted"), synthesisBy("accepted")), result = await run(m, { assists: h.assists });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const attempts = result.summary.stages[1]!.planAttempts!;
+    expect(attempts.map(attempt => [attempt.slot ?? "stage", attempt.accepted])).toEqual([["stage", false], ["stage", false], ["assist", true]]);
+    expect(h.seen.synthesis.map(request => request.planAttempts)).toEqual([attempts]);
+  });
+
   // Since #79 (10.a) merged before 7c, the contract is one file, 10.a's; this pin now guards its bytes, so a change to the hook's interface is a
   // deliberate re-pin (BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge).
   it("pins the hook contract's bytes (research-assist-contract.ts, 10.a's file): a change to the interface is a deliberate re-pin", () => {
-    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("ddd19123b301ab4baff09afb43b9b02685451314d878161fd59c90bc38f29665");
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("2c974306d0c5d57ee6a4cc5f9fe515de90c579e5f2654c00e37eb4bd59373c87");
   });
 
   it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {

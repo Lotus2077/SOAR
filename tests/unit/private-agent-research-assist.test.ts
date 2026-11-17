@@ -131,11 +131,12 @@ describe("T1, the plan assist packet", () => {
     const large = await wrap(f.model, { authoredBrief: authored }).plan!(run.plan, signal());
     expect(large).toMatchObject({ kind: "no_reply", outcome: "refused", code: ASSIST_CODES.briefTooLarge });
     expect(attemptRecord(large)).toMatchObject({ outcome: "refused", dispatched: false, packet: { briefBytes: Buffer.byteLength(authored) } });
-    // T2 has no brief bound of its own (the touchpoint table names it for T1 only): its body bound governs.
-    expect((await wrap(f.model, { authoredBrief: authored }).synthesis!(run.synthesis, signal())).kind).toBe("reply");
+    // 10.b (BL-20261117-1202-assist-wiring-design, decision 9b; C8): the brief bound holds at T2 too, so the scrubber never reads a longer brief.
+    expect(await wrap(f.model, { authoredBrief: authored }).synthesis!(run.synthesis, signal())).toMatchObject({ kind: "no_reply", outcome: "refused", code: ASSIST_CODES.briefTooLarge });
     const other = await wrap(f.model, { authoredBrief: "A different brief." }).plan!(run.plan, signal());
     expect(other).toMatchObject({ kind: "stop", code: ASSIST_CODES.briefNotPrefix });
-    expect(f.requests).toHaveLength(1);
+    // Since 10.b neither touchpoint sends a brief over the bound, so nothing was requested.
+    expect(f.requests).toHaveLength(0);
   });
 
   it("cuts every gist to one common length, the largest that fits 32 KiB, back to a word boundary, and counts the trim", () => {
@@ -175,8 +176,12 @@ describe("T2, the synthesis assist packet", () => {
     for (const quote of run.synthesis.evidence.quotes) expect(packet.evidenceText).toContain(`- [${quote.id}] ${alias(quote.sourceId)} (${quote.locator}; ${quote.questionIds.join(", ")}): `);
     expect(packet.evidenceText).not.toContain("extractor note");
     expect(packet.evidenceText).toContain("## Conflicts noted by the extractor (unverified; notes withheld)");
-    expect(Object.keys(packet.coverage).sort()).toEqual(["chunks", "conflictsInPacket", "conflictsNoted", "questions", "quotesInPacket", "quotesTrimmed", "quotesVerified", "sources"]);
-    expect(packet.coverage).toMatchObject({ sources: 3, chunks: run.synthesis.coverage.chunks.length, quotesInPacket: run.synthesis.evidence.quotes.length, quotesTrimmed: 0 });
+    expect(Object.keys(packet.coverage).sort()).toEqual(["chunks", "conflictsInPacket", "conflictsNoted", "questions", "quotesInPacket", "quotesTrimmed", "quotesTrimmedLocally", "quotesVerified", "sources"]);
+    // 10.b (decision 9c): T2's coverage also carries the local trim's counts (7b.2), as counts only.
+    expect(packet.coverage).toMatchObject({ sources: 3, chunks: run.synthesis.coverage.chunks.length, quotesInPacket: run.synthesis.evidence.quotes.length, quotesTrimmed: 0,
+      quotesTrimmedLocally: run.synthesis.evidence.counts.leftByCap });
+    expect(packet.coverage.questions.map((q: any) => Object.keys(q).sort())).toEqual(run.synthesis.plan.questions.map(() =>
+      ["chunksWithEvidence", "chunksWithTrimmedEvidence", "chunksWithoutVerifiedEvidence", "questionId", "quotesInPacket"]));
     // The local plan's deliverable note named the web source by a scheme-less URL and by its workspace path: both are its alias now.
     expect(packet.plan.deliverableNotes).toBe(`Compare ${aliasOf(run, 2)} with ${aliasOf(run, 2)}.`);
     expect(attemptRecord(outcome)).toMatchObject({ touchpoint: "T2", outcome: "settled", packet: { quotesInPacket: run.synthesis.evidence.quotes.length, quotesTrimmed: 0 } });
@@ -306,7 +311,7 @@ describe("the fallback, stop and skip codes", () => {
     expect(ASSIST_REFUSED_CODES).toEqual(["budget_denied", "cloud_mode_denied", "offline_network_denied", "exact_grant_required", "private_disclosure_requires_exact_grant",
       "synthetic_destination_private_data_denied", "packet_size_exceeded", "request_body_size_exceeded", "deadline_before_request", "packet_scan_incomplete_or_blocked",
       "cloud_after_assist_unknown", "private_agent_assist_after_unknown", "assist_brief_too_large", "assist_source_alias_collision", "assist_packet_size_exceeded",
-      "assist_packet_audit_failed", "assist_suppressed_after_unknown"]);
+      "assist_packet_audit_failed", "assist_suppressed_after_unknown", "assist_packet_field_too_long"]);
     expect(ASSIST_STOP_CODES).toEqual(["cancelled", "job_cancelled", "request_cancelled", "retry_wait_cancelled", "packet_scan_failed", "destination_missing", "assist_destination_invalid",
       "private_model_thinking_unsupported", "private_model_assist_cache_mode_required", "private_model_assist_request_invalid", "private_model_request_bound_invalid", "unresolved_dispatch",
       "assist_brief_not_prefix", "assist_request_invalid", "assist_deadline_missing", "assist_slot_exhausted", "assist_failure_unclassified"]);
@@ -437,9 +442,10 @@ describe("the assist protocol block and the records", () => {
     expect(block.packet.scrub.patterns.url.length).toBeGreaterThan(3);
     expect(block.packet.scrub.patterns.path.length).toBeGreaterThan(5);
     expect(block.packet.evidenceTemplate).toContain("notes withheld");
-    // Pinned: any change to a prompt, bound, code list or scrub rule must change these on purpose (scrub policy version 4).
-    expect(researchAssistProtocolSha256("forced_split")).toBe("2fe123bad3b1b49c0ee3dd4dd691e07213abd360ee779a2db9cad2d8833a50fc");
-    expect(researchAssistProtocolSha256("local_first")).toBe("5966a089edf715c99eebd3565833f1b794af49f048cd49d1a1693ff620a2dd34");
+    // Pinned: any change to a prompt, bound, code list or scrub rule must change these on purpose (scrub policy version 5; since 10.b
+    // the field caps, the brief bound at both touchpoints, T2's local trim counts and the field-length refusal code, BL-20261117-1202).
+    expect(researchAssistProtocolSha256("forced_split")).toBe("e887963a0c4198e6b41be81607a496720b61bc325609cd33d0bbdcf29d78b0bb");
+    expect(researchAssistProtocolSha256("local_first")).toBe("0cdb73d752fa40e23ad307adaea4179f3a02e152b481f3a0166102099e7a1e5c");
   });
 
   it("validates the stage record 10.b assembles, which keeps every attempt and never reads a skipped one as zero writes", async () => {
@@ -537,14 +543,15 @@ describe("the code review's cases: names, paths, URLs and digests in any form", 
     expect((await variant({ question: "Is it true that the ledger cites alpha-field-notes.md as its source for the orchard tally?" })).t2).toMatchObject({ ok: false, packet: { auditFinding: "literal_text" } });
   });
 
-  it("scans a hostile brief in linear time and refuses a T2 brief too large for its body before any scan", async () => {
+  it("scans a hostile brief in linear time and refuses a T2 brief over its bound before any scan", async () => {
     const hostile = `${"a.a.".repeat(1900)}\n`, run = await assistRequests({ authored: hostile });
     const started = performance.now();
     expect(buildPlanAssistPacket(run.plan, { firing: "forced_split", authoredBrief: hostile, model: model() }).ok).toBe(true);
     expect(buildSynthesisAssistPacket(run.synthesis, { authoredBrief: hostile, model: model() }).ok).toBe(true);
     expect(performance.now() - started).toBeLessThan(5_000);
     const huge = `${"Brief sentence. ".repeat(3200)}\n`, big = await assistRequests({ authored: huge });
-    expect(buildSynthesisAssistPacket(big.synthesis, { authoredBrief: huge, model: model() })).toMatchObject({ ok: false, code: ASSIST_CODES.packetSize });
+    // 10.b (decision 9b): a brief over the 8 KiB bound is refused at T2 as at T1, before any scan; it never reaches the body check.
+    expect(buildSynthesisAssistPacket(big.synthesis, { authoredBrief: huge, model: model() })).toMatchObject({ ok: false, code: ASSIST_CODES.briefTooLarge });
   });
 
   it("takes a source with no readable text, refuses a real id holding a placeholder, and refuses a T1 too large for its body before reading a gist", async () => {

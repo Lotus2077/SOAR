@@ -154,13 +154,16 @@ export function scanRunReasons(): RunReasonSite[] {
   scanFile(runner, "finish", {}, new Map());
   scanFile(pipeline, "finish", {}, new Map());
   // The session's own phase results (runPhase's early returns and completed()) travel as privateResult and publicResult.
-  const sessionTree = tree(session), helpers = reasonHelpers(sessionTree, ["policyReason"]);
+  const sessionTree = tree(session), helpers = reasonHelpers(sessionTree, ["policyReason", "producerRefusal"]);
+  // 10.b: producerRefusal passes the research producer's own fixed codes through, or gives its one fixed code (research_producer_invalid).
+  const producerCodes = [...new Set([...walk(tree("src/main/private-agent/research-producer.ts"))]
+    .filter(node => node.type === "StringLiteral" && /^research_producer_[a-z_]+$/u.test(String(node.value))).map(node => String(node.value)))].sort();
   const before = sites.length;
   scanFile(session, "result", {}, helpers, false);
   const phaseStops = [...new Set(sites.slice(before).filter(site => site.status === "stop").map(site => site.reason))];
   const phaseReasons = [...new Set([...stopsOf(runner), ...phaseStops])].sort();
   sites.splice(before);
-  scanFile(session, "result", { "outcome.reason": stopsOf(pipeline), "privateResult.reason": phaseReasons, "publicResult.reason": phaseReasons }, helpers);
+  scanFile(session, "result", { "outcome.reason": stopsOf(pipeline), "privateResult.reason": phaseReasons, "publicResult.reason": phaseReasons, "error.message": producerCodes }, helpers);
   // The controller: every reason it stores, from its assignments and its record literals. caughtRunReason's own returns are read from run-reasons.ts.
   const caughtFunction = [...walk(tree("src/main/general-tasks/run-reasons.ts"))].find(node => node.type === "FunctionDeclaration" && (node.id as Node).name === "caughtRunReason");
   if (!caughtFunction) throw new Error("run_reason_scan_helper: src/main/general-tasks/run-reasons.ts needs caughtRunReason");

@@ -133,6 +133,49 @@ This folder holds the committed, sanitized record of live trials (see
     owner's zero-fee run that verifies K above 1 (ASSIST-S4) therefore uses a card
     that flags extract for its extraction calls' thinking mode, so that the
     extract row's `structuredOutputCalls` is above 0.
+  - **The assist arm, since 10.b** (BL-20261117-1202-assist-wiring-design).
+    Under `--pipeline research`, `--arm cloud` no longer puts the planner and the
+    synthesiser on the cloud model, as the split arm did. They run on the local
+    model, and the cloud model serves only item 10's T1 and T2, through the
+    wrapper, in the no-write cache mode. `--assist-firing` takes `forced_split`,
+    the default (E3's arm C), or `local_first` (arm B). freeze.json records
+    `pipeline.planner: "local"` and `pipeline.assist`: the firing and the assist
+    block's digest. The research protocol hash binds the firing. Each plan and
+    synthesise stage row carries its touchpoint's `assist` record: the attempts,
+    the outcome, and each settled attempt's usage with `cacheWriteReported`, its fee
+    and the served model. The stage row's own usage already holds the assists'
+    usage, so the record is never summed again. Arm D, the all-cloud ceiling, is
+    still `--arm cloud` without `--pipeline research`, and takes no firing.
+  - **The assist capture, before the first paid assisted run** (10.c;
+    BL-20261117-1130-lane-decisions-second-repair-before-reprobe, decisions 5 and
+    6). `pnpm assist:capture -- --run-directory RUN --task-directory TASK
+    --job-sha256 H --brief-sha256 H --firing forced_split|local_first
+    --cloud-model M --cloud-endpoint URL --cloud-prices IN,OUT,CACHED[,WRITE]`
+    reads a finished zero-fee local run of the task (`--pipeline research --arm
+    local`) through the seed loader. The endpoint must be one the assist arm
+    admits: a `/v1/responses` endpoint or Anthropic's Messages endpoint.
+    - **What it writes.** T1, T2 and T2's retry, as request bodies with a
+      counts-only `capture.json`, into `RUN/assist-capture/`. The repository that
+      holds the run must ignore that directory. The wrapper's own configuration
+      checks run first. A touchpoint the wrapper would refuse is recorded with its
+      code and no body. Nothing is dispatched: no key, destination, broker request
+      or fee is involved.
+    - **What the bodies show.** Each is the body the wrapper sends for the request
+      the pipeline would make from this run's index, plan, evidence and coverage.
+      An assisted run sends the same bodies only where those are this run's, and
+      only for the touchpoints it fires.
+    - **Each touchpoint's `trigger`** says whether this run would fire it, in the
+      stage record's words. Under `forced_split` it always would, though T2 not
+      after a T1 outcome that ended the stage. Under `local_first` it would only
+      after every local attempt of its stage failed, and otherwise the trigger is
+      null. The retry is sent only after a truncated first T2 reply.
+    - **A T2 built after a second repair,** the packet the scan most needs to
+      see, comes only from a local run read under a serving card whose
+      admission basis is `serving_card` (`SOAR_SERVING_CARD_FILE` and
+      `SOAR_SERVING_CARD_SHA256`): only then does item (ii) give a chunk its
+      second repair. `capture.json`'s `sourceRun` records the run's basis and its
+      `secondRepairCalls` and `secondRepairsComplete`, so the capture shows
+      whether its T2 followed a second repair. A run that needed none records 0.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and

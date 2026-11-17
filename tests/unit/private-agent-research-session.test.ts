@@ -256,7 +256,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const defaulted = options(f, "job-default", runs); defaulted.research = { ...defaulted.research!, roles: structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy };
     expect(await new GeneralAgentSession(defaulted).run()).toMatchObject({ status: "submitted" });
   });
-  it("7b.3: the identity binds a card's admission rates, so a resume under other rates, or without them, drifts (BL-20261117-1022-research-card-admission-design)", async () => {
+  it("7b.3: the identity binds a card's admission rates, so a resume under other rates, or without them, drifts (BL-20261117-1131-research-card-admission-design)", async () => {
     const rates = (plan: number): ResearchAdmissionRates => ({ prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
       fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan, extract: 100, synthesis: 2000 } });
     const f = await fixture(), runs: Run[] = [], first = options(f, "job-admission", runs); first.research = { ...first.research!, admission: rates(1000) };
@@ -270,6 +270,27 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(options(f, "job-admission", runs)).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
     const same = options(f, "job-admission", runs); same.research = { ...same.research!, admission: rates(1000) };
     expect(await new GeneralAgentSession(same).run()).toMatchObject({ status: "submitted" });
+  });
+  it("7b.3's review: a refused admission's record reaches the run's events, since a refused stage leaves no file and no stage row", async () => {
+    const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+      fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+    const f = await fixture(), runs: Run[] = [];
+    const tight = options(f, "job-refused-budget", runs); tight.research = { ...tight.research!, admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 1 } };
+    expect(await new GeneralAgentSession(tight).run()).toMatchObject({ status: "incomplete", reason: "research_mandatory_budget_exceeded" });
+    const events = f.store.events("job-refused-budget"), start = events.find(event => event.type === "session_started")!;
+    expect(events.filter(event => event.type === "research_stage")).toEqual([]);
+    expect(events.filter(event => event.type === "research_admission")).toEqual([expect.objectContaining({ contextId: start.readerContextId,
+      admission: expect.objectContaining({ basis: "serving_card", rates, decision: "refused_budget", work: expect.objectContaining({ extractionCalls: 1, reservedRepairs: 1 }) }) })]);
+    // On the clock: twenty seconds of session leave a share of at most ten, below the fixture corpus's expected time.
+    const short = options(f, "job-refused-clock", runs); short.research = { ...short.research!, admission: rates }; short.limits = { ...short.limits!, maxElapsedMs: 20_000 };
+    expect(await new GeneralAgentSession(short).run()).toMatchObject({ status: "incomplete", reason: "research_infeasible_in_clock" });
+    const [refusal] = f.store.events("job-refused-clock").filter(event => event.type === "research_admission") as { admission: { decision: string; estimate: { expectedSeconds: number; shareSeconds: number } } }[];
+    expect(refusal!.admission.decision).toBe("refused_clock"); expect(refusal!.admission.estimate.shareSeconds).toBeLessThanOrEqual(10);
+    expect(refusal!.admission.estimate.expectedSeconds).toBeGreaterThan(refusal!.admission.estimate.shareSeconds);
+    // An admitted run writes no such event: its record is in its summary.json.
+    const admitted = options(f, "job-admitted", runs); admitted.research = { ...admitted.research!, admission: rates };
+    expect(await new GeneralAgentSession(admitted).run()).toMatchObject({ status: "submitted" });
+    expect(f.store.events("job-admitted").some(event => event.type === "research_admission")).toBe(false);
   });
   it("item 9: a card's structured-output flag reaches the request bodies through the session (BL-20261116-1208-research-structured-output-design)", async () => {
     // Every cap fits the fixture's 4,096-token role models, whose own thinking is disabled: each call's effective mode is off, so the

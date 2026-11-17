@@ -137,7 +137,7 @@ export interface ResearchStageCounts {
   initialCalls?: number; repairCalls?: number; sourcesListed?: number; sourcesModelComplete?: number; sourcesLiteralFallback?: number;
   unresolvedModelSummaries?: number; chunksPlanned?: number; chunksComplete?: number;
   /**
-   * Item (ii) (BL-20261117-1049-research-second-repair-design), on the extract row under a card's admission rates only: the second
+   * Item (ii) (BL-20261117-1143-research-second-repair-design), on the extract row under a card's admission rates only: the second
    * repairs sent (each also counted in repairCalls), and how many of them left their chunk complete. Absent without the rates.
    */
   secondRepairCalls?: number; secondRepairsComplete?: number;
@@ -186,7 +186,7 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
    */
   localStreams?: number;
   /**
-   * 7b.3 (BL-20261117-1022-research-card-admission-design): the card's measured rates, set only under a serving card whose admission basis
+   * 7b.3 (BL-20261117-1131-research-card-admission-design): the card's measured rates, set only under a serving card whose admission basis
    * is `serving_card` (the reader derives them). Set, the run keeps room for repair calls and may be refused on the clock before any
    * request, summary.json records the admission, and the protocol hash binds RESEARCH_ADMISSION_POLICY. Absent, admission and every
    * file are as without a card. The share of the clock is used only in the admission test: an admitted stage keeps the whole clock.
@@ -676,7 +676,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
     settleHeld(true);
   } else {
-    // Item (ii) (BL-20261117-1049-research-second-repair-design): under a card's admission rates, a chunk still not complete after its one
+    // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, a chunk still not complete after its one
     // repair gets one more, at the second attempt slot (its cap, thinking and response_format), while calls are left. Its review: the
     // unfinished chunks' second repairs come before the held chunks' repairs, which are optional (a held chunk left unrepaired keeps its
     // first attempt), and a held chunk whose repair failed gets its second repair last.

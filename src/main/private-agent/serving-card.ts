@@ -303,10 +303,11 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
 }
 
 /**
- * 7b.3 (BL-20261117-1022-research-card-admission-design): the measured rates a `serving_card` admission basis reads, from the card's own
+ * 7b.3 (BL-20261117-1131-research-card-admission-design): the measured rates a `serving_card` admission basis reads, from the card's own
  * evidence, or `serving_card_admission_unmeasured` at `admission.basis` when the card lacks one:
  * - prefill and decode: the fastest and the slowest of P11's sizes that ran (thinking off);
- * - fan-out decode: the single-stream rates at K 1, and at K above 1 the aggregate of P11's burst at that K;
+ * - fan-out decode: the single-stream rates at K 1; at K above 1 the aggregate of P11's burst at that K, never slower than one stream
+ *   for the expected estimate (the larger of the two is `fastest`, the smaller `slowest`);
  * - expected output: P10's mean completion tokens for plan, extract and synthesis, in the thinking mode of each role's first attempt.
  */
 export function servingCardAdmissionRates(card: ServingCardV1): ResearchAdmissionRates {
@@ -323,7 +324,8 @@ export function servingCardAdmissionRates(card: ServingCardV1): ResearchAdmissio
     return mean;
   };
   const rates = ResearchAdmissionRatesSchema.safeParse({ prefillTokensPerSecond: span(sizes.map(size => size.prefillTokS as number)), decodeTokensPerSecond: decode,
-    fanOutDecodeTokensPerSecond: streams > 1 ? { fastest: aggregate, slowest: aggregate } : decode,
+    // 7b.3's review: at K above 1 the fan-out decodes at least as fast as one stream does, so the expected estimate never takes a slower rate.
+    fanOutDecodeTokensPerSecond: streams > 1 ? { fastest: Math.max(aggregate as number, decode.fastest), slowest: Math.min(aggregate as number, decode.slowest) } : decode,
     expectedOutputTokens: { plan: expected("plan"), extract: expected("extract"), synthesis: expected("synthesis") } });
   if (!rates.success) refuse("serving_card_admission_unmeasured", at);
   return rates.data;

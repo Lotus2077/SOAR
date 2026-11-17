@@ -62,7 +62,7 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "structuredOutputCalls",
   // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
   "questionsTrimmed", "quotesLeftByPresentation",
-  // Item (ii) (BL-20261117-1049-research-second-repair-design): under a card's admission rates, the extract row's second repairs and those that completed their chunk; counts.
+  // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, the extract row's second repairs and those that completed their chunk; counts.
   "secondRepairCalls", "secondRepairsComplete"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
@@ -1740,7 +1740,7 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
   });
 });
 
-// 7b.3 (BL-20261117-1022-research-card-admission-design): card-derived admission under a `serving_card` basis.
+// 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission under a `serving_card` basis.
 describe("7b.3: card-derived admission", () => {
   const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
     fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
@@ -1817,7 +1817,7 @@ describe("7b.3: card-derived admission", () => {
   });
 });
 
-// Item (ii) (BL-20261117-1049-research-second-repair-design): a second repair under a card's admission rates.
+// Item (ii) (BL-20261117-1143-research-second-repair-design): a second repair under a card's admission rates.
 describe("item (ii): a second repair for a chunk its one repair left unfinished", () => {
   const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
     fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };

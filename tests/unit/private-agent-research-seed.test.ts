@@ -356,7 +356,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(() => assertSeedRolePolicy(plain.pipeline, undefined)).not.toThrow(); expect(() => assertSeedRolePolicy(plain.pipeline, structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy)).not.toThrow();
     expect(() => assertSeedRolePolicy(plain.pipeline, roles)).toThrow("research_seed_protocol_mismatch");
   });
-  it("7b.3: a source read under a card's admission rates seeds under its recorded protocol, and the loader refuses an admission its protocol does not account for (BL-20261117-1022-research-card-admission-design)", async () => {
+  it("7b.3: a source read under a card's admission rates seeds under its recorded protocol, and the loader refuses an admission its protocol does not account for (BL-20261117-1131-research-card-admission-design)", async () => {
     const rows: Record<string, unknown>[] = [], plan = 1000, rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
       fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan, extract: 100, synthesis: 2000 } };
     const request = async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
@@ -375,7 +375,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const seed = loadResearchSeed(sourceRun({ base, freeze: { pipeline: { ...pipeline(), protocolSha256: carded, admission } } }), task);
     expect(seed.pipeline.admission).toEqual(admission);
     // Since item (ii) the basis also decides a packet (a second repair), so a seeding run must read under its source's basis; the rates are
-    // not compared (BL-20261117-1049-research-second-repair-design, its review).
+    // not compared (BL-20261117-1143-research-second-repair-design, its review).
     expect(() => assertSeedRolePolicy(seed.pipeline, undefined, true)).not.toThrow();
     expect(() => assertSeedRolePolicy(seed.pipeline, undefined)).toThrow("research_seed_protocol_mismatch");
     expect(() => assertSeedRolePolicy({ ...seed.pipeline, admission: undefined }, undefined, true)).toThrow("research_seed_protocol_mismatch");

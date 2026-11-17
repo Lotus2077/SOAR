@@ -318,7 +318,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
   });
 });
 
-// 7b.3 (BL-20261117-1022-research-card-admission-design): card-derived admission under a `serving_card` basis.
+// 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission under a `serving_card` basis.
 describe("7b.3: the reserve, the estimate and the admission test under a card", () => {
   const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
     fanOutDecodeTokensPerSecond: { fastest: 200, slowest: 100 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };

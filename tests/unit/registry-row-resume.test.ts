@@ -94,6 +94,40 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
       loop: { version: 2, closed: false, selected: "a", step: "tie", critiqued: true, resumes: [{ stage: "a", cause: "model_unavailable", as: "seeded_writer" }, { stage: "critique", cause: "request_failed", as: "rerun" }],
         seeded: { a: true, b: true, repair: true, snapshotSha256: h("f") }, candidates: { a: { status: "submitted", runClass: task("submitted") }, repair: { runClass: task("submitted") } } } });
     expect(loopRow).not.toHaveProperty("loop.stopped");
+    // BL-20261117-1055-loop-single-sample-design: a record saved before the planned count holds none, and planned two samples.
+    expect(loopRow).toMatchObject({ loop: { samples: 2, samplesPlanned: 2 } });
+  });
+
+  it("records the samples a loop planned: a single-sample loop's row, an older record's 2, and refuses a malformed count or a contradiction (BL-20261117-1055-loop-single-sample-design)", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { calls: 2, start: 0, end: 4 });
+    mkdirSync(join(loop, "critique")); writeFileSync(join(loop, "critique", "critique.json"), `${canonical({ critiqueSha256: h("e"), usage: { inputTokens: 700, outputTokens: 60 }, feeMicrousd: 0, finishReason: "stop" })}\n`);
+    runDirectory(loop, "repair", { calls: 3, start: 6, end: 10 });
+    const single = { samplesPlanned: 1, stages: [{ stage: "a", ...span(0, 4), reused: false }, { stage: "critique", ...span(4, 6), reused: false }, { stage: "repair", ...span(6, 10), reused: false }],
+      begun: ["a", "critique", "repair"].map(stage => ({ stage, at: time(0) })), candidates: { a: candidate("submitted"), b: null, repair: candidate("submitted") },
+      critique: { critiqueSha256: h("e"), modelCalls: 1 }, selected: { stage1: { candidate: "a", step: "single_sample", entailmentRates: [null, null] }, final: { candidate: "a", step: "tie", entailmentRates: [null, null] } } };
+    loopRecord(loop, single);
+    expect(row(["--loop-dir", loop], "accepted")).toMatchObject({ modelCalls: 2 + 1 + 3, runStatus: "submitted",
+      loop: { version: 2, samples: 1, samplesPlanned: 1, stage1: "a", selected: "a", step: "tie", critiqued: true, repaired: true, writeIdentityEqual: null,
+        seeded: { a: false, b: false, repair: false, snapshotSha256: null }, candidates: { a: { status: "submitted" }, repair: { status: "submitted" } } } });
+    // A count of another shape, a second sample in a single-sample record, and a stage-1 step that does not match the count, are refused.
+    const twoStep = { stage1: { candidate: "a", step: "tie", entailmentRates: [null, null] }, final: single.selected.final };
+    const cases: [Record<string, unknown>, string][] = [
+      ...[0, 3, "1", true, null, 1.5].map(value => [{ samplesPlanned: value }, "samplesPlanned is neither 1 nor 2"] as [Record<string, unknown>, string]),
+      [{ candidates: { a: candidate("submitted"), b: candidate("submitted"), repair: candidate("submitted") } }, "a single-sample loop record holds a second sample"],
+      // Every other trace of a second sample: stage 1 choosing b, b seeded, two writes compared, a second rate, and b begun.
+      [{ selected: { stage1: { candidate: "b", step: "single_sample", entailmentRates: [null, null] }, final: single.selected.final } }, "a single-sample loop record holds a second sample"],
+      [{ seeded: { a: false, b: true, repair: false, snapshotSha256: null } }, "a single-sample loop record holds a second sample"],
+      [{ writeIdentityEqual: true }, "a single-sample loop record holds a second sample"],
+      [{ selected: { stage1: { candidate: "a", step: "single_sample", entailmentRates: [null, 0.5] }, final: single.selected.final } }, "a single-sample loop record holds a second sample"],
+      [{ begun: ["a", "b", "critique", "repair"].map(stage => ({ stage, at: time(0) })) }, "a single-sample loop record holds a second sample"],
+      [{ selected: twoStep }, "stage-1 step does not match its planned samples"],
+      [{ samplesPlanned: 2 }, "stage-1 step does not match its planned samples"],
+    ];
+    for (const [over, message] of cases) { loopRecord(loop, { ...single, ...over }); expect(refused(["--loop-dir", loop], "accepted"), message).toContain(message); }
+    // A single-sample loop that stopped before stage 1 records no step, and rows as stopped.
+    loopRecord(loop, { ...single, selected: { stage1: null, final: null }, stopped: { stage: "a", failure: "loop_stage_incomplete", closed: true }, closed: true });
+    expect(row(["--loop-dir", loop], "incomplete")).toMatchObject({ loop: { samplesPlanned: 1, selected: null, stopped: { stage: "a", failure: "loop_stage_incomplete" } } });
   });
   it("refuses a version-2 loop whose directory holds what its record does not name, or lacks what it moved, and sums everything once the loop is closed", () => {
     const loop = scratch();
@@ -125,10 +159,13 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     expect(refused(["--loop-dir", unfinished], "accepted")).toContain("the loop selected nothing");
     // BL-20261116-1358-run-row-card-and-doctor-sources-design: a stopped stage's freeze gives the row its protocol hash, card and K too.
     const cardFreeze = `${canonical({ version: 1, jobId: "job-a", startedAt: time(0), sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, profile: "heavy",
-      modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, limits: { feeMicrousd: 0 }, arm: { arm: "local" }, pipeline: { name: "research", protocolSha256: h("d") },
+      modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, limits: { feeMicrousd: 0, modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000 }, arm: { arm: "local" },
+      pipeline: { name: "research", protocolSha256: h("d") },
       servingCard: { sha256: h("c"), version: 1, date: "2026-11-10", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 3 } })}\n`;
     const carded = row(["--loop-dir", stoppedLoop(loop => runDirectory(loop, "a", { result: false, calls: 2, freeze: cardFreeze }), { stage: "a", failure: "loop_stage_incomplete" })], "infra_invalid");
     expect([carded.researchProtocolSha256, carded.servingCard, carded.localStreams]).toEqual([h("d"), { sha256: h("c"), entry: "BL-20261116-1203-research-role-policy-design" }, 3]);
+    // BL-20261117-1049-e2-write-bound-and-dry-run-design: and the write phase's bound.
+    expect(carded.writeLimits).toEqual({ bound: null, modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000 });
     // A sample cut by the loop's interrupt that ended cancelled, its resume used: the operator's stop.
     const cut = stoppedLoop(loop => { runDirectory(loop, "a"); runDirectory(loop, "b", { status: "incomplete", reason: "cancelled_or_deadline" }); },
       { stage: "b", failure: "loop_stage_interrupted" }, { stages: [{ stage: "b", ...span(5, 9), reused: false, interrupted: true }], candidates: { a: candidate("submitted"), b: candidate("incomplete", "cancelled_or_deadline"), repair: null } });
@@ -146,7 +183,7 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     const missingRow = row(["--loop-dir", missing], "infra_invalid");
     expect(missingRow).toMatchObject({ runClass: infra("loop_stage_missing"), modelCalls: 0 });
     // BL-20261116-1358-run-row-card-and-doctor-sources-design: with no stage freeze, the protocol hash, the card and K are unknown, never left out.
-    expect([missingRow.researchProtocolSha256, missingRow.servingCard, missingRow.localStreams]).toEqual([null, null, null]);
+    expect([missingRow.researchProtocolSha256, missingRow.servingCard, missingRow.localStreams, missingRow.writeLimits]).toEqual([null, null, null, null]);
   });
   it("classifies a version-2 critique_failed or repair_failed loop by its draft, or by the stop's recorded cause when the draft did not submit", () => {
     const ending = (draft: Record<string, unknown>, final: Record<string, unknown>) => {

@@ -32,7 +32,7 @@ export type ResearchSeed = z.infer<typeof ResearchSeedSchema>;
 /**
  * The source run's pipeline block, carried into the seeded run's freeze so a registry row still names the pipeline and its planner.
  * 7a.2 (BL-20261116-1203-research-role-policy-design): `roles` is the role policy a non-default serving card set, present only then;
- * the block's protocolSha256 is computed with it. 7b.3 (BL-20261117-1022-research-card-admission-design): `admission` is a card's
+ * the block's protocolSha256 is computed with it. 7b.3 (BL-20261117-1131-research-card-admission-design): `admission` is a card's
  * admission rates under a `serving_card` basis, present only then, and the protocol binds the admission policy with it.
  */
 export const PipelineFreezeSchema = z.object({ name: z.literal("research"), version: z.number().int().positive(), protocolSha256: sha256Schema,
@@ -161,7 +161,7 @@ export function researchTransferPresent(runDirectory: string): boolean { return 
  */
 export function assertSeedRolePolicy(pipeline: Pick<PipelineFreeze, "roles" | "admission">, roles: ResearchRolePolicy | undefined, cardAdmission = false): void {
   if (canonical(pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY) !== canonical(roles ?? DEFAULT_RESEARCH_ROLE_POLICY)) throw new Error("research_seed_protocol_mismatch");
-  // Item (ii)'s review (BL-20261117-1049-research-second-repair-design): a packet read under a `serving_card` admission basis may hold a
+  // Item (ii)'s review (BL-20261117-1143-research-second-repair-design): a packet read under a `serving_card` admission basis may hold a
   // second repair, so the seeding run's basis must be its source's. The rates are not compared: they decide no packet.
   if ((pipeline.admission !== undefined) !== cardAdmission) throw new Error("research_seed_protocol_mismatch");
 }

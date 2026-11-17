@@ -29,7 +29,7 @@
  *   after merge train 1: assist slots, host fallbacks, coverage v2, the presentation check, and encodable index fields and plans.
  * - 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5: item 7b.2 (BL-20261115-1939-research-priority-trim-design): the priority trim with
  *   disclosed omissions the ready gate accepts, coverage v3, the presentation guard, and the synthesis and writer instructions on trimmed evidence.
- * - e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c: item (ii) (BL-20261117-1049-research-second-repair-design): coverage v4, whose
+ * - e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c: item (ii) (BL-20261117-1143-research-second-repair-design): coverage v4, whose
  *   chunks may hold a third attempt (a second repair, sent only under a card's admission rates). It moves the default for every run.
  */
 export const RESEARCH_PROTOCOL_SHA256 = "e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c";

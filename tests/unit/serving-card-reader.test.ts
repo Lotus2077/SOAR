@@ -145,7 +145,7 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_p10_settings_drift", "another context under the same Flash contract", loadFrom(edited(card => { flag("extract", true, false)(card);
       card.evidence.p10.requestSettings = { ...SYNTHETIC_P10_REQUEST_SETTINGS, localReplyContract: "flash_next_v1", localContextTokens: 262_144 }; }),
     { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, localReplyContract: "flash_next_v1", localContextTokens: 131_072 } }), "roles.extract.structuredOutput.thinkingOff"],
-    // 7b.3 (BL-20261117-1022-research-card-admission-design): a `serving_card` basis resolves only with the rates its card's evidence holds.
+    // 7b.3 (BL-20261117-1131-research-card-admission-design): a `serving_card` basis resolves only with the rates its card's evidence holds.
     ["serving_card_admission_unmeasured", "a serving_card basis without P11", loadFrom(edited(card => { card.admission.basis = "serving_card"; card.evidence.p11 = null; card.evidence.bounds = null; })),
       "admission.basis"],
     ["serving_card_admission_unmeasured", "no P11 size that ran", loadFrom(edited(card => { card.admission.basis = "serving_card";
@@ -180,7 +180,7 @@ describe("serving-card reader (SC)", () => {
     expect(both.policy.roles.extract.structuredOutput).toEqual({ variant: "strict", thinkingOff: true, thinkingOn: true });
     expect(both.policy.localStreams).toBe(4);
   });
-  it("R2 since 7b.3 (BL-20261117-1022-research-card-admission-design): a serving_card basis resolves with its evidence's rates; at K above 1 the loops decode at the burst's aggregate", () => {
+  it("R2 since 7b.3 (BL-20261117-1131-research-card-admission-design): a serving_card basis resolves with its evidence's rates; at K above 1 the loops decode at the burst's aggregate", () => {
     const card = edited(c => { c.admission.basis = "serving_card"; c.concurrency.localStreams = 4; c.roles.extract.thinking = ["model", "disabled"];
       c.evidence.p10.cells["extract/on"].meanCompletionTokens = 900; });
     const p11 = card.evidence.p11!, sizes = Object.values(p11.sizes).filter(size => size.ok), cells = card.evidence.p10!.cells, aggregate = p11.kStreams["4"]!.aggregateTokS!;
@@ -188,9 +188,13 @@ describe("serving-card reader (SC)", () => {
     const policy = loadFrom(card)(workspace()).policy;
     // Extract's first attempt thinks here, so its expected output is the thinking-on cell's mean.
     expect(policy.admission).toEqual({ basis: "serving_card", rates: { prefillTokensPerSecond: span(sizes.map(size => size.prefillTokS!)), decodeTokensPerSecond: span(sizes.map(size => size.decodeTokS!)),
-      fanOutDecodeTokensPerSecond: { fastest: aggregate, slowest: aggregate },
+      fanOutDecodeTokensPerSecond: { fastest: Math.max(aggregate, span(sizes.map(size => size.decodeTokS!)).fastest), slowest: Math.min(aggregate, span(sizes.map(size => size.decodeTokS!)).slowest) },
       expectedOutputTokens: { plan: cells["plan/on"]!.meanCompletionTokens!, extract: cells["extract/on"]!.meanCompletionTokens!, synthesis: cells["synthesis/on"]!.meanCompletionTokens! } } });
     expect(cells["extract/on"]!.meanCompletionTokens).not.toBe(cells["extract/off"]!.meanCompletionTokens); expect(aggregate).not.toBe(span(sizes.map(size => size.decodeTokS!)).fastest);
+    // 7b.3's review: a burst whose aggregate is below one stream's decode never slows the expected estimate's fan-out.
+    const slow = edited(c => { c.admission.basis = "serving_card"; c.concurrency.localStreams = 4; c.evidence.p11.kStreams["4"].aggregateTokS = 10; });
+    const decode = span(Object.values(slow.evidence.p11!.sizes).filter(size => size.ok).map(size => size.decodeTokS!));
+    expect((loadFrom(slow)(workspace()).policy.admission as { rates: { fanOutDecodeTokensPerSecond: unknown } }).rates.fanOutDecodeTokensPerSecond).toEqual({ fastest: decode.fastest, slowest: 10 });
     // The default basis carries no rates.
     expect(loadFrom(allDefault())(workspace()).policy.admission).toEqual({ basis: "none" });
   });
@@ -272,7 +276,7 @@ describe("serving-card reader (SC)", () => {
     expect(Object.isFrozen(DEFAULT_RESEARCH_ROLE_POLICY.plan.maxOutputTokens) && Object.isFrozen(DEFAULT_SERVING_POLICY.admission)).toBe(true);
     expect(DEFAULT_SERVING_POLICY).toEqual({ roles: DEFAULT_RESEARCH_ROLE_POLICY, localStreams: 1, admission: { basis: "none" } });
     // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b). 7a.2 flipped the caps and thinking,
-    // item 9 structured output, 8.2b consumes K, and 7b.3 (BL-20261117-1022-research-card-admission-design) admission.
+    // item 9 structured output, 8.2b consumes K, and 7b.3 (BL-20261117-1131-research-card-admission-design) admission.
     expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: true, localStreams: true, admission: true });
     const writer = JSON.parse(execFileSync("python3", ["-I", "-c", ["import importlib.util, json, sys",
       "spec = importlib.util.spec_from_file_location('serving_card', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",

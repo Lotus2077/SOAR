@@ -25,7 +25,7 @@ const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["find
  * locator, quoteSha256) is the pipeline's own identity of one verified quote; `presentation_cap` marks a quote only the presentation
  * guard left out; a chunk question may be `evidence_trimmed`. Omissions no longer make a packet incomplete.
  */
-/** Item (ii) (BL-20261117-1049-research-second-repair-design): version 4, whose chunks may hold a third attempt, a second repair. */
+/** Item (ii) (BL-20261117-1143-research-second-repair-design): version 4, whose chunks may hold a third attempt, a second repair. */
 export const ResearchCoverageSchema = z.object({ version: z.literal(4), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
@@ -155,7 +155,7 @@ export function renderResearchEvidence(evidence: ResearchEvidence, plan: Researc
 const budgetSchema = z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict();
 const summarySchema = z.object({ version: z.literal(RESEARCH_PIPELINE_VERSION), protocolSha256: sha256Schema, budget: budgetSchema,
   stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional() }).passthrough()).length(4),
-  // 7b.3 (BL-20261117-1022-research-card-admission-design): a run under a card's admission rates records them; a ready packet's was admitted.
+  // 7b.3 (BL-20261117-1131-research-card-admission-design): a run under a card's admission rates records them; a ready packet's was admitted.
   admission: ResearchAdmissionRecordSchema.refine(record => record.decision === "admitted").optional() }).strict();
 export function validateReadyResearchPacket(files: readonly ResearchPacketFile[], expected: ResearchPacketExpectation = {}) {
   const names = Object.values(RESEARCH_FILES).sort();

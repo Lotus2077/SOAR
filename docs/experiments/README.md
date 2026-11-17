@@ -84,6 +84,19 @@ This folder holds the committed, sanitized record of live trials (see
     owner's zero-fee run that verifies K above 1 (ASSIST-S4) therefore uses a card
     that flags extract for its extraction calls' thinking mode, so that the
     extract row's `structuredOutputCalls` is above 0.
+  - **The assist arm, since 10.b** (BL-20261117-1036-assist-wiring-design).
+    Under `--pipeline research`, `--arm cloud` no longer puts the planner and the
+    synthesiser on the cloud model, as the split arm did. They run on the local
+    model, and the cloud model serves only item 10's T1 and T2, through the
+    wrapper, in the no-write cache mode. `--assist-firing` takes `forced_split`,
+    the default (E3's arm C), or `local_first` (arm B). freeze.json records
+    `pipeline.planner: "local"` and `pipeline.assist`: the firing and the assist
+    block's digest. The research protocol hash binds the firing. Each plan and
+    synthesise stage row carries its touchpoint's `assist` record: the attempts,
+    the outcome, and each settled attempt's usage with `cacheWriteReported`, its fee
+    and the served model. The stage row's own usage already holds the assists'
+    usage, so the record is never summed again. Arm D, the all-cloud ceiling, is
+    still `--arm cloud` without `--pipeline research`, and takes no firing.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and

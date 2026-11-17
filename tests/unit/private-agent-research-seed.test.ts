@@ -325,6 +325,10 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const localProducer = createResearchProducer(localInput);
     expect(localProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", undefined], ["synthesise", undefined], ["synthesise", undefined]]);
     const loaded = loadResearchSeed(sourceRun({ base: local, producer: () => localProducer, freeze: { pipeline: assistedPipeline("local_first") } }), task);
+    // 10.b: the block's own digest must be today's assist protocol, and an assisted packet needs the block that bound its hash.
+    expect(() => loadResearchSeed(sourceRun({ base: local, producer: () => localProducer, freeze: { pipeline: { ...assistedPipeline("local_first"),
+      assist: { ...assistedPipeline("local_first").assist, protocolSha256: "f".repeat(64) } } } }), task)).toThrow("research_seed_protocol_mismatch");
+    expect(() => loadResearchSeed(sourceRun({ base: local, producer: () => localProducer }), task)).toThrow();
     expect(loaded.files).toEqual(local.files); expect(loaded.seed.producer.receipts).toEqual(localProducer.receipts);
     // A settled assist the summary does not count is one reply too many.
     expect(() => createResearchProducer({ ...localInput, receipts: [...local.receipts, { ...local.receipts.find(r => r.purpose === PLAN_ASSIST_PURPOSE)!, id: "receipt-extra" }] })).toThrow("research_producer_receipt_count");

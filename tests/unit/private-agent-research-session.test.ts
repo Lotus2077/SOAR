@@ -933,6 +933,9 @@ describe("10.b: the session's assist option (BL-20261117-1036-assist-wiring-desi
     expect(await new GeneralAgentSession(withAssist(f, options(f, jobId, runs), "local_first")).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
     const bare = withAssist(f, options(f, jobId, runs)); delete bare.research!.assist;
     expect(await new GeneralAgentSession(bare).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    // The firing is the same here and the hash with it: only the assist's own identity (its authored brief's digest) moves.
+    const shorter = withAssist(f, options(f, jobId, runs)); shorter.research!.assist!.authoredBrief = "Write a cited briefing";
+    expect(await new GeneralAgentSession(shorter).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
     expect(runs).toHaveLength(1);
   }, 20_000);
 

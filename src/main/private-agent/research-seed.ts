@@ -123,7 +123,7 @@ export function loadResearchSeed(runDirectory: string, expected: { jobSha256: st
   const manifest = manifestSchema.parse(files.map(file => ({ path: file.path, sha256: digest(file.bytes) })));
   if (checkpoints.fingerprint(binding.snapshot) !== binding.snapshotSha256 || canonical(manifest) !== canonical(binding.files)) throw new Error("research_seed_transfer_drift");
   const packet = validateReadyResearchPacket(files, { sourceManifest: input.sourceManifest,
-    protocolSha256: pipeline.protocolSha256, budget: pipeline.budget });
+    protocolSha256: pipeline.protocolSha256, budget: pipeline.budget, assistFiring: pipeline.assist?.firing ?? null });
   need(same(packet.summary, binding.summary), "research_seed_summary_drift");
   const producer = validateResearchProducer(rawProducer, { jobId, files, receipts, input });
   need(Number.isSafeInteger(inputRecordedAt) && inputRecordedAt >= 0 && receipts.filter(row =>

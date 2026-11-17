@@ -12,8 +12,13 @@ import { canonical, exactText } from "./contracts";
  * string a settled attempt records, as the provider reported it.
  */
 export const ASSIST_SERVED_MODEL_MAX_CHARS = 200;
-const servedModelSchema = z.string().min(1).max(ASSIST_SERVED_MODEL_MAX_CHARS).refine(value => { try { return exactText(value) === value; } catch { return false; } }, "exact text");
-/** The provider's model string as a settled attempt records it: exact text of 1 to 200 characters, or nothing. */
+/**
+ * A model identifier, never free text: a letter or digit, then letters, digits and `. _ : @ / + -`, 1 to 200 characters in all. The
+ * record reaches summary.json and the writer's workspace, so a provider's prose, white space or control text is dropped instead.
+ */
+const SERVED_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,199}$/u;
+const servedModelSchema = z.string().regex(SERVED_MODEL).refine(value => { try { return exactText(value) === value; } catch { return false; } }, "exact text");
+/** The provider's model string as a settled attempt records it: a model identifier of 1 to 200 characters, or nothing. */
 export function assistServedModel(value: unknown): string | undefined {
   return typeof value === "string" && servedModelSchema.safeParse(value).success ? value : undefined;
 }

@@ -64,7 +64,8 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "structuredOutputCalls",
   // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
   "questionsTrimmed", "quotesLeftByPresentation",
-  // 10.b (BL-20261117-1036-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes and enums, never text.
+  // 10.b (BL-20261117-1036-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes, enums and the
+  // provider's model identifier (no white space, at most 200 characters), never free text.
   "assist"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
@@ -986,7 +987,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
   // Since #79 (10.a) merged before 7c, the contract is one file, 10.a's; this pin now guards its bytes, so a change to the hook's interface is a
   // deliberate re-pin (BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge).
   it("pins the hook contract's bytes (research-assist-contract.ts, 10.a's file): a change to the interface is a deliberate re-pin", () => {
-    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("dc86f9fcef8be401b8864481363b37994217b21db3e797a5bc36214a5afeadc7");
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("f8cce3ea9defcb70f37fc7824f3837482c63310609567a6c557aef8f622d3a2f");
   });
 
   it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {

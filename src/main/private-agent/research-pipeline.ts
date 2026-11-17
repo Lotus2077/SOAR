@@ -843,7 +843,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   synthesisCounts.argumentBytes = argument === undefined ? 0 : Buffer.byteLength(argument); synthesisCounts.argumentWords = argument === undefined || synthesisCounts.fallback === "skeleton" ? 0 : researchWordCount(argument); record(synthesisCounts);
   files.set(RESEARCH_FILES.argument, Buffer.from(argument));
   const outcome = finish("completed", "research_packet_ready");
-  try { validateReadyResearchPacket(outcome.files, { brief: input.brief, sources: input.sources, protocolSha256, budget }); }
+  try { validateReadyResearchPacket(outcome.files, { brief: input.brief, sources: input.sources, protocolSha256, budget, assistFiring: hooks?.firing ?? null }); }
   catch { return finish("incomplete", "research_packet_binding_invalid"); }
   // 7(c): the session builds the writer's presentation only after the transfer is durable, and a refused presentation would then
   // wedge every resume. A packet the presentation refuses (above all its byte cap) ends the stage here instead.

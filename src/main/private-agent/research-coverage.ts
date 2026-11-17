@@ -67,7 +67,12 @@ function validateSynthesisAttempts(stage: { calls: number; invalidReplies: numbe
   for (const [i, attempt] of attempts.entries()) if (attempt.ordinal !== i + 1 || attempt.accepted !== (!skeleton && i === attempts.length - 1) || (attempt.accepted && attempt.truncated)) reject();
 }
 export type ResearchPacketFile = { path: string; bytes: Buffer };
-export interface ResearchPacketExpectation { brief?: string; sources?: readonly { id: string; path: string; bytes: Buffer }[]; sourceManifest?: readonly ResearchSourceIdentity[]; protocolSha256?: string; budget?: ResearchBudget }
+export interface ResearchPacketExpectation { brief?: string; sources?: readonly { id: string; path: string; bytes: Buffer }[]; sourceManifest?: readonly ResearchSourceIdentity[]; protocolSha256?: string; budget?: ResearchBudget;
+  /**
+   * 10.b (BL-20261117-1054-assist-wiring-design, decision 8): the firing the packet's stage ran under, where the caller knows it (the
+   * pipeline's own check, the seed loader): a firing requires both touchpoints' records under it, null forbids any; absent, no tie.
+   */
+  assistFiring?: "local_first" | "forced_split" | null }
 
 const PYTHON_SPACE = /[\t\n\v\f\r\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/gu;
 /** The claims check's `norm`: NFKC, then whitespace runs collapsed to one space with no leading or trailing space. */
@@ -195,6 +200,9 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   // without a fired record (BL-20261113-0927-research-v5-design, Limitations).
   const touchpoints = summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise");
   if (touchpoints.some(s => s.assist !== undefined) && (touchpoints.some(s => s.assist === undefined) || new Set(touchpoints.map(s => s.assist!.policy)).size !== 1)) fail("stage_assist");
+  // A fired record's trigger is its policy's for its touchpoint; and where the caller knows the firing, the records are exactly its.
+  if (touchpoints.some(s => s.assist?.fired && s.assist.trigger !== (s.assist.policy === "forced_split" ? "forced_split" : s.assist.touchpoint === "T1" ? "local_plans_rejected" : "local_syntheses_refused")) ||
+      (expected.assistFiring !== undefined && (expected.assistFiring === null ? touchpoints.some(s => s.assist !== undefined) : touchpoints.some(s => s.assist?.policy !== expected.assistFiring)))) fail("stage_assist");
   for (const s of touchpoints) {
     const listed = s.stage === "plan" ? (s as { planAttempts?: unknown }).planAttempts : (s as { synthesisAttempts?: unknown }).synthesisAttempts;
     const slotted = (Array.isArray(listed) ? listed : []).filter((a: { slot?: unknown }) => a && a.slot !== undefined) as { accepted?: unknown }[], record = s.assist;

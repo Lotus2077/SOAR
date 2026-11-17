@@ -909,6 +909,10 @@ describe("10.b: the session's assist option (BL-20261117-1036-assist-wiring-desi
       ["another destination", config => { const c = withAssist(f, config); return { ...c, research: { ...c.research!, assist: { ...c.research!.assist!, model: assistModel(f, c.jobId, "priced-planner") } } }; }],
       ["the wrong cache mode", config => { const c = withAssist(f, config); return { ...c, research: { ...c.research!, assist: { ...c.research!.assist!, model: assistModel(f, c.jobId, "cloud", "responses_explicit_v1") } } }; }],
       ["an empty authored brief", config => { const c = withAssist(f, config); return { ...c, research: { ...c.research!, assist: { ...c.research!.assist!, authoredBrief: "" } } }; }],
+      // A destination the broker does not know throws on its zero-risk read; the refusal holds it, so run() never throws.
+      ["a planner on an unknown destination", config => { const c = withAssist(f, config), local = c.research!.models;
+        return { ...c, research: { ...c.research!, models: contextId => ({ ...local(contextId), planner: new PrivateAgentModel(f.broker, { destinationId: "nowhere", model: "fixture", maxOutputTokens: 4096,
+          inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, c.jobId, contextId) }) } }; }],
     ];
     for (const [name, make] of cases) {
       const jobId = `job-assist-invalid-${name.replaceAll(" ", "-")}`;

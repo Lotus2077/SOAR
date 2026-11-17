@@ -90,7 +90,7 @@ export interface GeneralSessionOptions {
       authoredBrief: string } };
 }
 /** 10.b: a research producer's refusal as a session reason: its own fixed code, or one fixed code for anything else. */
-const producerRefusal = (error: unknown) => error instanceof Error && /^research_[a-z_]+$/u.test(error.message) ? error.message : "research_producer_invalid";
+const producerRefusal = (error: unknown) => error instanceof Error && /^research_producer_[a-z_]+$/u.test(error.message) ? error.message : "research_producer_invalid";
 export interface GeneralSessionResult {
   status: "submitted" | "paused" | "incomplete";
   reason: string;
@@ -217,7 +217,8 @@ export class GeneralAgentSession {
    * Aborts the research stage's in-flight call on pause or cancel (H2b); the stage reports research_cancelled. A pause that stopped a
    * started stage ends the run incomplete (backlog item 6, finding A7): the stage cannot continue, so the session never reports a pause a
    * resume could not honour. The abort does not wait for the reply, so a priced or cloud request already on the wire leaves its row
-   * unknown (E1 bug (b), pinned until 10.b retires the plain-purpose split arm).
+   * unknown (E1 bug (b)). Since 10.b retired the plain-purpose split arm, such a row is an assist's in the reader context, which blocks
+   * nothing; the stage still cannot continue, so the run ends research_stage_not_replayed (BL-20261109-0501, decision (5)).
    */
   private stageAbort?: AbortController;
   /** Aborts the entailment pass's in-flight judge call on pause or cancel; the pass itself is otherwise bounded by its own clock. */
@@ -300,18 +301,24 @@ export class GeneralAgentSession {
       let publicModel = options.publicPhase ? options.trustedHostModelFactory(publicContextId) : undefined;
       let researchModels = options.research?.models(readerContextId);
       const assistOption = options.research?.assist;
-      // 10.b (decision 5): the reading stage's assist wrapper for a reader context, or undefined when the configuration is refused.
-      const assistsFor = (contextId: string, models: ResearchModels | undefined): ResearchAssists | undefined => {
-        if (!assistOption || !models || !options.cloudArm || !models.planner.zeroRisk() || !models.synthesiser.zeroRisk()) return undefined;
+      /**
+       * 10.b (decision 5): the reading stage's assist wrapper for a reader context and the identity it binds, or undefined when the
+       * configuration is refused. Every check, the destinations' zero-risk reads included, sits inside the try, so a refusal is
+       * always `session_research_assist_invalid` and never a throw.
+       */
+      const assistFor = (contextId: string, models: ResearchModels | undefined) => {
+        const arm = options.cloudArm;
+        if (!assistOption || !models || !arm) return undefined;
         try {
+          if (!models.planner.zeroRisk() || !models.synthesiser.zeroRisk()) return undefined;
           const model = assistOption.model(contextId);
-          if (model.config.destinationId !== options.cloudArm.destinationId) return undefined;
-          return createResearchAssists({ firing: assistOption.firing, model, authoredBrief: assistOption.authoredBrief, maxFeeMicrousd: options.cloudArm.maxFeeMicrousd });
+          if (model.config.destinationId !== arm.destinationId) return undefined;
+          const assists: ResearchAssists = createResearchAssists({ firing: assistOption.firing, model, authoredBrief: assistOption.authoredBrief, maxFeeMicrousd: arm.maxFeeMicrousd });
+          return { assists, identity: { version: 1, firing: assistOption.firing, model: modelIdentity(model.config), authoredBriefSha256: digest(assistOption.authoredBrief) } };
         } catch { return undefined; }
       };
-      let assists = assistsFor(readerContextId, researchModels);
-      if (assistOption && !assists) return result("incomplete", "session_research_assist_invalid");
-      const assistIdentity = () => assistOption ? { version: 1, firing: assistOption.firing, model: modelIdentity(assistOption.model(readerContextId).config), authoredBriefSha256: digest(assistOption.authoredBrief) } : null;
+      let assist = assistFor(readerContextId, researchModels);
+      if (assistOption && !assist) return result("incomplete", "session_research_assist_invalid");
       const judgeModel = options.judgeModelFactory?.(privateContextId);
       const researchIdentity = (models: ResearchModels) => ({ reader: modelIdentity(models.reader.config), planner: modelIdentity(models.planner.config), synthesiser: modelIdentity(models.synthesiser.config) });
       const destinations = [...new Set([privateModel.config.destinationId, ...(publicModel ? [publicModel.config.destinationId] : []),
@@ -352,20 +359,20 @@ export class GeneralAgentSession {
         // 7a.2: a non-default role policy is bound through the protocol hash; the default leaves it unchanged.
         // 10.b (decision 6): an assist's firing is bound through the protocol hash, and its configuration beside it; without one, nothing changes.
         ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles, assistOption?.firing),
-          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels), ...(assistOption ? { assist: assistIdentity() } : {}) } } : {}) }));
+          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels), ...(assist ? { assist: assist.identity } : {}) } } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,
         startedAt: old ? Number(old.startedAt) : Date.now(), privateContextId, publicContextId, ...(options.research ? { readerContextId } : {}) });
       if (privateContextId !== start.privateContextId || publicContextId !== start.publicContextId || (start.readerContextId !== undefined && readerContextId !== start.readerContextId)) {
-        const priorModelIdentity = canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assistIdentity()]);
+        const priorModelIdentity = canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assist?.identity ?? null]);
         privateContextId = start.privateContextId; publicContextId = start.publicContextId; readerContextId = start.readerContextId ?? readerContextId;
         privateModel = options.trustedHostModelFactory(privateContextId);
         publicModel = options.publicPhase ? options.trustedHostModelFactory(publicContextId) : undefined;
         researchModels = options.research?.models(readerContextId);
-        if (canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assistIdentity()]) !== priorModelIdentity) return result("incomplete", "session_model_factory_drift");
-        assists = assistsFor(readerContextId, researchModels);
-        if (assistOption && !assists) return result("incomplete", "session_research_assist_invalid");
+        assist = assistFor(readerContextId, researchModels);
+        if (assistOption && !assist) return result("incomplete", "session_research_assist_invalid");
+        if (canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assist?.identity ?? null]) !== priorModelIdentity) return result("incomplete", "session_model_factory_drift");
       }
       const startedAt = start.startedAt;
       if (!Number.isSafeInteger(startedAt) || startedAt > Date.now()) return result("incomplete", "session_start_invalid");
@@ -457,7 +464,7 @@ export class GeneralAgentSession {
               ...(options.research.roles ? { roles: options.research.roles } : {}),
               ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}),
               // 10.b (decision 5): the wrapper, with the session deadline the pipeline already passes it (BL-20261113-0929, decision 2).
-              ...(assists ? { assists } : {}) });
+              ...(assist ? { assists: assist.assists } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {

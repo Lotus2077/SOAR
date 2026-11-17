@@ -116,6 +116,27 @@ describe("10.b: the ready gate reads the assist record (decision 8)", () => {
     ];
     expect(outcome.summary.stages[3]!.assist).toMatchObject({ fired: false });
     for (const [name, forge, code] of forgeries) expect(() => validateReadyResearchPacket(edit(outcome.files, forge), expectation), name).toThrow(code);
+    // A fired record's trigger is its policy's for its touchpoint.
+    expect(() => validateReadyResearchPacket(edit(outcome.files, s => { s.stages[1].assist.trigger = "forced_split"; }), expectation)).toThrow(STAGE_ASSIST);
+  });
+
+  it("ties the records to the firing the caller knows: a firing needs both records under it, and null forbids any (the pipeline's own check and the seed loader pass it)", async () => {
+    const { outcome } = await run("local_first", "openai_responses", { reject: ["plan"] });
+    const expectation = { brief: assistComposedGoal(), sources: assistSources(), protocolSha256: outcome.summary.protocolSha256 };
+    expect(() => validateReadyResearchPacket(outcome.files, { ...expectation, assistFiring: "local_first" })).not.toThrow();
+    expect(() => validateReadyResearchPacket(outcome.files, { ...expectation, assistFiring: "forced_split" })).toThrow("research_packet_stage_assist");
+    expect(() => validateReadyResearchPacket(outcome.files, { ...expectation, assistFiring: null })).toThrow("research_packet_stage_assist");
+    const relabelled = edit(outcome.files, s => { for (const stage of [s.stages[1], s.stages[3]]) { stage.assist.policy = "forced_split"; if (stage.assist.fired) stage.assist.trigger = "forced_split"; } });
+    expect(() => validateReadyResearchPacket(relabelled, expectation)).not.toThrow();
+    expect(() => validateReadyResearchPacket(relabelled, { ...expectation, assistFiring: "local_first" })).toThrow("research_packet_stage_assist");
+    // Records on a run without a hook, and a run with a hook whose records were removed: the known firing refuses both.
+    const plain = (await runResearchPipeline({ brief: assistComposedGoal(), sources: assistSources(), models: assistLocalModels(), signal: new AbortController().signal, record: () => {} })).files;
+    const unfired = { version: 1, policy: "local_first", fired: false, trigger: null, attempts: [], accepted: false, usage: null };
+    const forged = edit(plain, s => { s.stages[1].assist = { ...unfired, touchpoint: "T1" }; s.stages[3].assist = { ...unfired, touchpoint: "T2" }; });
+    expect(() => validateReadyResearchPacket(forged, { brief: assistComposedGoal(), sources: assistSources() })).not.toThrow();
+    expect(() => validateReadyResearchPacket(forged, { brief: assistComposedGoal(), sources: assistSources(), assistFiring: null })).toThrow("research_packet_stage_assist");
+    const stripped = edit((await run("local_first", "openai_responses")).outcome.files, s => { delete s.stages[1].assist; delete s.stages[3].assist; });
+    expect(() => validateReadyResearchPacket(stripped, { brief: assistComposedGoal(), sources: assistSources(), assistFiring: "local_first" })).toThrow("research_packet_stage_assist");
   });
 });
 
@@ -157,9 +178,9 @@ describe("10.b: the wrapper's additions (decision 9)", () => {
     expect(packet.coverage.questions.map((q: any) => [q.questionId, q.chunksWithTrimmedEvidence])).toEqual(synthesis.plan.questions.map(q => [q.id, trimmed(q.id)]));
   });
 
-  it("records the served model on a settled attempt only, as exact text of at most 200 characters", async () => {
-    expect(assistServedModel("claude-sonnet-5-5")).toBe("claude-sonnet-5-5");
-    for (const bad of [undefined, "", "m".repeat(ASSIST_SERVED_MODEL_MAX_CHARS + 1), "model\u0000", 7]) expect(assistServedModel(bad)).toBeUndefined();
+  it("records the served model on a settled attempt only, as a model identifier of at most 200 characters, never free text", async () => {
+    for (const good of ["claude-sonnet-5-5", "gpt-6-sol", "models/gemini-2.5@001", "Qwen3.6-27B:fp8"]) expect(assistServedModel(good)).toBe(good);
+    for (const bad of [undefined, "", "m".repeat(ASSIST_SERVED_MODEL_MAX_CHARS + 1), "model\u0000", 7, "claude sonnet", "gpt-6-sol\n", "-leading-dash", "see /Users/someone/x"]) expect(assistServedModel(bad)).toBeUndefined();
     expect(assistServedModel("m".repeat(ASSIST_SERVED_MODEL_MAX_CHARS))).toHaveLength(ASSIST_SERVED_MODEL_MAX_CHARS);
     const refused = { version: 1, touchpoint: "T1", ordinal: 1, retryAfterTruncation: false, outcome: "refused", code: "budget_denied", dispatched: false };
     expect(ResearchAssistAttemptRecordSchema.safeParse(refused).success).toBe(true);

@@ -114,14 +114,19 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     app = await electron.launch({ ...(process.env.SOAR_E2E_EXECUTABLE ? { executablePath: process.env.SOAR_E2E_EXECUTABLE } : {}),
       args: [`--user-data-dir=${path.join(root, "browser-data")}`, ...(process.env.SOAR_E2E_EXECUTABLE ? [] : [projectRoot])],
       cwd: projectRoot, env: environment(root, model.origin), timeout: 45000 });
+    // Evaluate in the main process only once the first window exists. Playwright takes its handle to the main process's electron
+    // module from the first execution context it sees, and an evaluation in the instants after launch fails with "Resulting promise
+    // was garbage collected"; the fixture then closed the app mid-start (BL-20261117-1327's runs).
+    const page = await app.firstWindow();
     // The app also reads .env.local from its user-data directory, so that directory must be this run's own. Assert that Electron
     // honoured --user-data-dir instead of trusting it: `pnpm setup:general --write` writes the default user-data file.
     const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath("userData"));
     if (path.basename(userData) !== "browser-data" || realpathSync(path.dirname(userData)) !== realpathSync(root)) {
       throw new Error("fixture_requires_temporary_user_data");
     }
-    return app.firstWindow();
+    return page;
   };
+  let bodyFailed = false, bodyError: unknown;
   try {
     const source = path.join(root, "source.csv"); await writeFile(source, progressInput);
     let page = await launch();
@@ -184,6 +189,10 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     expect(ledger(root, jobId)).toEqual(finalLedger); expect(await readFile(source, "utf8")).toBe(progressInput);
     expect(model.requests).toHaveLength(expectedCalls); expect(model.responses).toHaveLength(expectedCalls); expect(model.errors).toEqual([]);
     await noContainer(jobId, finalLedger.claims);
+  } catch (error) {
+    // Kept and thrown again after the cleanup below, so that the cleanup's own checks are reported beside the first failure instead of
+    // replacing it. A launch that timed out was once reported only as an unconfirmed cleanup.
+    bodyFailed = true; bodyError = error;
   } finally {
     let failed = false, containersAbsent = false;
     try { await closeApp(); } catch { failed = true; }
@@ -200,10 +209,16 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     let sourcePreserved = false; try { sourcePreserved = generalTaskRuntimeIdentity(projectRoot) === runtimeSha256; } catch { /* Retain failures. */ }
     const cleanupConfirmed = appClosed && containersAbsent && !failed;
     Object.assign(evidence, { requests: model.requests, responses: model.responses, decisions: model.decisions, fixtureErrors: model.errors,
-      appClosed, containersAbsent, cleanupConfirmed, sourcePreserved, ...(!cleanupConfirmed ? { retainedOriginalDirectory: root } : {}) });
+      appClosed, containersAbsent, cleanupConfirmed, sourcePreserved, ...(!cleanupConfirmed ? { retainedOriginalDirectory: root } : {}),
+      firstFailure: bodyFailed ? String(bodyError instanceof Error ? bodyError.stack ?? bodyError.message : bodyError).slice(0, 4000) : null });
     await writeFile(testInfo.outputPath("evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
     await cp(root, testInfo.outputPath("retained-state"), { recursive: true });
     if (cleanupConfirmed) await rm(root, { recursive: true, force: true });
+    if (bodyFailed) {
+      // The first failure is the one reported; an unconfirmed cleanup is recorded beside it as a soft failure.
+      expect.soft(cleanupConfirmed, "the fixture's cleanup after the failure").toBe(true);
+      throw bodyError;
+    }
     expect(cleanupConfirmed).toBe(true); expect(sourcePreserved).toBe(true); expect(model.requests).toHaveLength(expectedCalls); expect(model.errors).toEqual([]);
   }
 }

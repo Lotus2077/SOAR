@@ -52368,3 +52368,170 @@ Paid exposure: None.
 Next gate: CI and the coordinating session's merge, before the first r3 run. Then the amendment that registers the runs names the source freeze at the runs' commit.
 
 References: BL-20261117-1131-research-card-admission-design; BL-20261117-1132-research-card-admission-implemented; BL-20261117-1142-correction-research-card-admission-review-restamp; BL-20261117-1143-research-second-repair-design; BL-20261117-1145-research-second-repair-implemented; BL-20261116-0813-e0-r3-runs-index-and-harvest; docs/experiments/README.md.
+
+### BL-20261117-1327-correction-general-task-progress-e2e-first-run -- 2026-11-17 -- Correction to BL-20261117-1048-correction-general-task-progress-e2e-review after the first gated run: the run needs a shell that can open windows, and the spec now reports its first failure instead of letting the fixture's cleanup check replace it
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1048-correction-general-task-progress-e2e-review (plan 72.E2E, lane S-desk) after the first run of #72's gated cases.
+- **The run.** The coordinating session followed decision (5) of that entry: a fresh worktree at `main` c4b8ee6, a real install, `pnpm build`, then the gated command. It ran the command through its own tool shell, which is sandboxed.
+- **The result.** Both cases failed at spec line 207, `expect(cleanupConfirmed).toBe(true)`. That line is the test fixture's own teardown check, not the product's task field of the same name.
+- **What the cases' evidence files show,** as the coordinating session reported them:
+  - no model request, response or decision;
+  - `appClosed` false, `containersAbsent` false and `cleanupConfirmed` false;
+  - `forcedAppKill` true;
+  - `sourcePreserved` true.
+- **The reading.** Electron's launch returned, since a close could be forced. But no step that needs the window completed, and closing the app then hung until the fixture's 45-second bound killed it. The line-207 expectation sits in a `finally` block, so it replaced the first failure, which was never reported.
+- **What the run shows.** Nothing about #72's assertion or about the product. The coordinating session corrects its own record of the run to say so.
+
+Decisions:
+
+(1) **The spec now reports its first failure.**
+- **The change.** The test body's error is kept, and thrown again after the fixture's cleanup. The cleanup's own check is recorded beside it as a soft failure (`expect.soft`), instead of replacing it.
+- **When the body passes**, the cleanup checks stay hard expectations, as before.
+- **The evidence file.** `evidence.json` gains `firstFailure`: the body's error, at most 4,000 characters, or `null`.
+
+(2) **The command needs a shell that can open windows.**
+- **Where to run it.** A normal terminal in the owner's desktop session, such as the app's Terminal panel.
+- **Where not to run it.** A sandboxed tool shell, where Electron cannot open its window and the run fails on launch.
+- **The rest of the command stands:** the other conditions and steps of decision (5) of BL-20261117-1048-correction-general-task-progress-e2e-review.
+
+(3) **Not changed here.**
+- The request-size and observations specs end in the same kind of `finally` block, and they read the same checkout environment files (decision (3) of BL-20261117-1030-general-task-progress-e2e-runnable). Both are follow-ups.
+
+Changes:
+- tests/e2e/general-task-progress.spec.ts: the kept first failure, the soft cleanup check and `firstFailure`.
+- docs/BUILD_LOG.md: this Correction.
+
+Evidence:
+- **Checks.** `pnpm typecheck` passes. After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm validate:readiness` passes.
+- **The spec still loads and stays gated.** `pnpm exec playwright test --list` lists the spec's two cases. Without `SOAR_RUN_GENERAL_TASK_E2E`, both are skipped and no app is launched.
+- **The diagnosis** rests on the evidence files' fields as the coordinating session reported them. That session's rerun emptied the output directory before lane S-desk could read the traces.
+- **Not run:** either gated case.
+
+Failures or blockers: The first gated run failed on launch in a sandboxed shell. It is not a result about the product.
+
+Limitations and non-claims:
+- **Whether the two cases pass in a shell that can open windows** is shown only by the coordinating session's rerun.
+- **The product.** This entry claims nothing about the product's own cleanup confirmation, the snapshot's `cleanupConfirmed`. The run never reached it.
+- **Not `Verified`.** Nothing about #72's assertion is `Verified`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. One light review, then CI.
+2. The coordinator merges.
+3. The coordinating session reruns the gated cases in the Terminal panel.
+
+References: BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261109-0459-desktop-resume-reasons-implemented.
+
+### BL-20261117-1332-correction-general-task-progress-e2e-cause -- 2026-11-17 -- Correction to BL-20261117-1327-correction-general-task-progress-e2e-first-run: the gated runs failed on the spec's own user-data check, evaluated in the main process before its first window; not the sandboxed shell, and not the worktree's location
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1327-correction-general-task-progress-e2e-first-run (plan 72.E2E, lane S-desk, #150). That entry named the wrong cause.
+- **The second run.** The coordinating session ran the gated cases again, in the owner's Terminal panel, a normal shell, from the same worktree.
+  - Both cases failed again.
+  - This time the app's own start-failure box showed: "SOAR could not finish starting. ERR_FAILED (-2) loading" the built renderer page.
+- **The probe.** It loads the built page in a hidden Electron window, without the SOAR app. It printed PROBE_OK both in that worktree and in E5's build worktree. So neither the sandboxed shell nor the worktree's location explains the failure.
+- **The traces.** The four Playwright traces, two runs and two cases each, show one sequence:
+  1. Electron's launch succeeds, in 0.2 to 2.8 s.
+  2. About 30 ms later, the spec's user-data check fails with "electronApplication.evaluate: Resulting promise was garbage collected."
+  3. The fixture's close of the app then takes 35 to 45 s.
+
+Decisions:
+
+(1) **The cause: the spec's own user-data check.**
+- **What it is.** BL-20261117-1048-correction-general-task-progress-e2e-review added it, to assert that Electron honours `--user-data-dir`.
+- **What went wrong.** It called `app.evaluate` right after `electron.launch`, before `firstWindow()`.
+- **Why that fails.** Playwright takes its handle to the main process's `electron` module from the first execution context it sees. An evaluation in the instants after launch fails as above.
+- **The precedent.** Before that entry, this spec evaluated in the main process only after `firstWindow()`. So does the CI-run electron.spec.ts, which passes on every pull request.
+
+(2) **The start-failure box is a consequence, not a cause.**
+- **What happened.** The check's error made the fixture close the app while it was still starting. That close destroyed the first window mid-load.
+- **What that produced.** Bootstrap's `loadURL` rejected with `ERR_FAILED (-2)`, and index.ts's startup catch showed "SOAR could not finish starting".
+- **Why the close hung.** That box is a synchronous modal, so the close waited until the fixture's 45-second kill. Where someone dismissed the box, the close finished.
+
+(3) **The fix.** `launch()` now waits for the first window before it evaluates in the main process. The check itself is unchanged.
+
+(4) **What stands from BL-20261117-1327-correction-general-task-progress-e2e-first-run.**
+- The first failure is reported, and the cleanup check is a soft failure beside it.
+- The command still needs a shell that can open windows, since the app needs a desktop session. That condition did not cause these failures.
+
+(5) **The owner build.**
+- **No risk to a normal start.** A normal start has no Playwright evaluation and nothing that closes the window mid-load. The probe also loaded the page in E5's build worktree.
+- **The one path to the box.** Quitting within about a second of launch, before the window loads, gives the same box, which then wrongly says the app could not start. That is a small product fault, left for its own item after E5.
+
+Changes:
+- tests/e2e/general-task-progress.spec.ts: `launch()` evaluates after `firstWindow()`.
+- docs/BUILD_LOG.md: this Correction.
+
+Evidence:
+- **The traces.** Lane S-desk read the four Playwright traces, read-only, in the coordinating session's retained output. They show the step timings and the evaluation error above.
+- **The probe's result** is the coordinating session's.
+- **CI's precedent.** In the CI-run electron.spec.ts, `electronApp.evaluate` is called only after `firstWindow()`.
+- **Checks.**
+  - `pnpm typecheck` passes.
+  - After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0.
+  - `pnpm validate:readiness` passes.
+  - `pnpm exec playwright test --list` lists both cases. Without the gate, both are skipped and no app is launched.
+- **Not run:** either gated case.
+
+Failures or blockers: The runs above failed on the spec's own check. Nothing else is blocked.
+
+Limitations and non-claims:
+- **The handle's behaviour is inferred,** from Playwright's source and the four traces. Playwright's ElectronApplication resolves its electron-module handle once, on the first default execution context. The behaviour has not been reproduced in isolation.
+- **Whether the two cases now pass** is shown only by the next gated run.
+- **Not `Verified`.** Nothing about #72's assertion is `Verified`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. One light review, then CI.
+2. The coordinator merges #150.
+3. The coordinating session runs the gated cases in the Terminal panel, from a fresh worktree under the owner's Developer folder, with the four steps of BL-20261117-1048-correction-general-task-progress-e2e-review.
+
+References: BL-20261117-1327-correction-general-task-progress-e2e-first-run; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable.
+
+### BL-20261117-1355-correction-general-task-progress-e2e-restamp -- 2026-11-17 -- Correction: plan 72.E2E's first-run entry is re-stamped after #151's entry, with its original ID and time
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1327-correction-general-task-progress-e2e-first-run (plan 72.E2E, lane S-desk, #150).
+- **Why a re-stamp.** By the coordinating session's order, lane S-pipe's #151 merged first, because a file under the source freeze cites its entry's ID. That entry, BL-20261117-1326-research-admission-record-incomplete-stage, sits after this entry's original minute.
+- **The original ID.** This entry was BL-20261117-1322, written at 13:22 UTC on 2026-11-17 and committed in 87c9075.
+
+Decisions:
+
+(1) **The re-stamp** (BL-20261113-0937-owner-decision-restamp-unmerged-entries, BL-20261113-0938-correction-restamp-rule-dates).
+- **The new ID.** The entry becomes BL-20261117-1327, a free minute between #151's entry and BL-20261117-1332-correction-general-task-progress-e2e-cause. That second entry of #150 keeps its own minute.
+- **What changed.** Only the IDs and the references to them change. The bodies are otherwise byte-identical.
+- **The references moved:**
+  - Four references (its title, its scope, its decision (4) and its References) in BL-20261117-1332-correction-general-task-progress-e2e-cause;
+  - one short-form citation in the spec's `launch()` comment.
+
+Changes:
+- docs/BUILD_LOG.md: the re-stamped entry, the references to it in BL-20261117-1332-correction-general-task-progress-e2e-cause, and this Correction.
+- tests/e2e/general-task-progress.spec.ts: the short-form citation.
+- 5692a18: the merge of `main` at e1fb030.
+
+Evidence:
+- **The merge.** Merging `main` conflicted only at the log's tail. It is resolved as `main`'s log followed by #150's two entries as committed.
+- **The re-stamp.** With the old ID mapped back, both entries are byte-identical to 6137675's, and `main`'s log is a byte prefix of this one.
+- **Checks.**
+  - After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0.
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm exec playwright test --list` lists both cases, and without the gate both are skipped.
+
+Failures or blockers: None.
+
+Limitations and non-claims: None beyond those of the two entries. Their statuses stay as written.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. CI.
+2. The coordinator merges #150.
+3. The coordinating session runs the gated cases from a fresh worktree under the owner's Developer folder.
+
+References: BL-20261117-1327-correction-general-task-progress-e2e-first-run; BL-20261117-1332-correction-general-task-progress-e2e-cause; BL-20261117-1326-research-admission-record-incomplete-stage; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

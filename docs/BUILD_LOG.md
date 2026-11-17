@@ -52201,3 +52201,101 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend. Nothing l
 Next gate: The coordinating session's merge of #149 after #147, on green CI, and its retargeting to `main`.
 
 References: BL-20261117-1258-assist-capture-implemented; BL-20261117-1257-assist-wiring-second-review; BL-20261117-1216-correction-assist-wiring-card-admission-merge; BL-20261117-1143-research-second-repair-design; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1311-e6-card-amendment-1 -- 2026-11-17 -- E6 card Amendment 1: the scorer as built, question 5 read as the inversion edits outside addressed defects, two limits, the scorer's pin and four further decisions of the session, recorded before E6's first run
+
+Status: `Implemented`
+
+Scope or hypothesis: Decision 3 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe says that "E6's card is amended for the source read, question 5 and these limits before E6's first run". This entry records that amendment, Amendment 1, appended to docs/experiments/e6-card-2026-11-17.md.
+
+- **What `Implemented` covers.** The amendment's text in the card and nothing else. No request is sent, no E6 run has started, and no candidate has been scored.
+- **Whose choices.** The amendment adds no owner decision. The source read, the split of rule C1's count and the two limits are the session's decisions under the owner's delegation, recorded in that entry (decisions 4 and 5 of BL-20261117-0940-owner-direction-decisions-delegated). The rule for a null and the place of the three numbers are the session's too, and they are made in this amendment. Decisions 6 to 9 are four further decisions of the session, made for this amendment under decision 5 of that entry. The owner may replace each.
+- **Why no approval entry.** The amendment changes how counts are read. It starts no run and spends nothing.
+- **No hypothesis changes.** The card's hypothesis, arms and tasks stand (BL-20261117-0945-e6-card-approved).
+
+Decisions:
+1. **The scorer as built replaces the card's list where the two differ.** The list is "What the card needs from it", under "What the card needs that does not exist yet", item 3. The scorer is scripts/e6-score.py, version 1, from pull request #135 (BL-20261117-1106-e6-planted-defect-scorer-design and BL-20261117-1107-e6-planted-defect-scorer-implemented, as BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp and BL-20261117-1126-correction-e6-scorer-c1-count-second-review correct them).
+   - **A fourth input.** Besides the edit plan, the clean copy and one gold file, the scorer reads the run's own source, `input/*.docx`. The source's sha256 must equal the gold's.
+   - **Per-run statuses.** Eight statuses carry no counts of defects, controls or edits. One run's source problem gives that run its status, and the other runs are still scored.
+   - **The null cases.** `inversionEdits` is null when the flags file is missing, unreadable, not valid or records an error. `inversionEditsOnPlants` is null when `inversionEdits` is, when the file's list of coded edits was cut at 40 or does not match the count, and when the file codes an id that is not one of the plan's placed edits.
+   - **The format.** Gold ids are opaque. A span is a quote inside one paragraph. A source with Word fields or tracked changes is refused, so a planted wrong cross-reference is plain text.
+   - **Which of the card's nine listed points change:** the first, the third, the fifth, the sixth and the ninth, with new detail under the eighth. The amendment does not change the second, fourth or seventh.
+2. **Question 5 reads the inversion edits outside addressed defects.** Rule C1 codes a correct fix of a planted clause contradiction, so its total is not harm alone (decision (8) of BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp).
+   - **The formula, in words.** Inversion edits outside addressed defects = `inversionEdits` minus `inversionEditsOnPlants`. The second term is the number of C1-coded edits that sit on a planted defect the same candidate addressed.
+   - **Reported with both terms.** For each candidate the result entry gives the total, the count on addressed defects and the difference.
+   - **The card's present wording is quoted** in seven places that read that count: question 5, "How the answers are read", the route rule, "What rule C1 is not", the `hostFlags` record, the list's fifth point and "Not shown by this experiment".
+   - **What stands:** the control clauses changed, the rule that question 5 is reported as counts with no difference called shown, the route rule, and the row's `hostFlags`, whose C1 count is the host's total.
+   - **What is replaced:** "it is a harm count on each run" in "What rule C1 is not", and the meaning of "C1's count" in "Not shown by this experiment".
+3. **A null is never read as zero.** The difference is not computed when either term is null, or when the record has no `inversionEditsOnPlants`. The result entry then writes "not measured" for that candidate, gives the scorer's `flags` state and whichever term the record has, leaves the candidate out of every sum of the difference, and states how many candidates have no difference. This follows 7d.B's rule that absent and zero never look the same (BL-20261110-1509-host-flags-event-design).
+4. **"Not shown by this experiment" gains two limits,** both found by lane S-e1.
+   - The agent and the critic read C1's codes, so a repair may undo a correct fix. This bears on question 4, whose wording and test stand.
+   - Deleting a whole negated clause is coded `negation_flipped`, although the brief allows such a deletion (decision (4) of BL-20261117-1126-correction-e6-scorer-c1-count-second-review).
+   - No host rule changes before E6 runs.
+5. **The manifest pins the scorer by two values:** version 1, and the sha256 of the merged scripts/e6-score.py, `b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e`. The manifest, docs/experiments/e6-tasks-v1.json, pins both values under `scorer`. Pull request #145 merged it as 3ade65b (BL-20261117-1200-e6-planted-defect-tasks-frozen; BL-20261117-1201-correction-e6-planted-defect-tasks-restamp confirms the pin).
+6. **A candidate whose status carries no counts** (the session's decision under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated). It is left out of question 2's and question 4's tests and is reported by its status. Its row carries no `criticalChecks`. The result entry states how many candidates each test used. If a run that question 2's or question 4's test needs has no counts, the test is not applied to that file or to that loop, and the result entry says so. The route rule reads question 1 alone and needs no counts.
+   - **Question 2** is tested only on files in which all four delivered reviews have counts. A file with a delivered review without counts is reported descriptively and left out of the test. The card's figures are for three files: 216 arrangements and a smallest p of 0.009. With two files there are 36 arrangements, and the smallest two-sided p is 2/36 = 0.056. So with fewer than three complete files the test can show nothing, and it is not applied.
+   - **Question 4.** A pair exists only where both the selected draft and its repair have counts. A loop whose selected draft did not submit has no pair. The card's minimum of six pairs stands. Such loops lower the number of pairs, and question 4 may then show nothing, which is a limit.
+   - **Questions 5 and 6.** In question 6, accepts are counted over all 18 runs, and defects are given for the runs that have counts. "Each candidate" in question 5 means the candidates that have counts. The result entry states their number.
+7. **"Runs once" means one scoring pass for each file** (the session's decision under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated). The scorer takes one gold file an invocation. There are three passes, one for each file, and none is repeated. All three come after every file's grades are filed and every verdict sheet's sha256 is recorded. A refused invocation (exit 2) prints no count and is not a pass. `--check-gold` is not a scoring pass: the authoring session runs it before the batch, against the source, and it reads no candidate. "Before the scorer runs" in the card's grading means before the first pass.
+8. **A missing section** counts as addressed by an edit of any action, placed in the gold's paragraph range, whose `newText` or rationale meets the gold's condition, as the scorer is built (the session's decision under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated). That wording replaces the card's "an inserted text or a comment".
+9. **A candidate whose own driver run did not submit is not scored: its directory is not given to the scorer** (the session's decision under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated). The scorer does not check that such a run's clean copy matches its plan, so its counts would not be comparable. It is listed with the status the driver gave the run, and it enters no test of the scorer's counts. It still counts as rejected in every E6 count of acceptance, as the card's acceptance rule says, so it enters question 1 as a rejection. A delivered run that did not submit carries `criticalChecks` `null` in its row, as the row writer writes when none is given. The card's acceptance rule already needs a submitted run.
+10. **Nothing else changes.** The 16 items stand except as this amendment says: question 5's wording and which candidates enter the tests (the owner's item 6), the specification and "runs it once" (the owner's item 12), "before the scorer runs" (the owner's item 5), "runs once" (the owner's item 11) and `criticalChecks` (the owner's item 16). The acceptance rule, question 1 with its test, question 3, the route rule, the budget and the dates stand. Questions 2, 4, 5 and 6 keep their wording, apart from question 5's in decision 2, and questions 2 and 4 keep their tests and their figures. The grading and the stop rule stand, with "before the scorer runs" and "runs once" read as decision 7 says.
+
+Changes:
+- docs/experiments/e6-card-2026-11-17.md: Amendment 1 is appended. Nothing above it is edited.
+- docs/BUILD_LOG.md: this entry.
+- No code changes.
+
+Evidence:
+- **The scorer's sha256.** `shasum -a 256 scripts/e6-score.py` on `main` at 3ade65b prints the value in decision 5. Decision (5) of BL-20261117-1126-correction-e6-scorer-c1-count-second-review states the same value. The file has no change between pull request #135's merge, b2740e0, and 3ade65b.
+- **The scorer as built** was read from scripts/e6-score.py and docs/experiments/e6-gold-format.md on `main`, and from the four entries of pull request #135.
+- **The card's wording.** Each passage the amendment quotes was checked, word for word, against the card on `main`. Each passage quoted from an entry or from the format document was checked the same way.
+- **A reviewer read the amendment and this entry before the commit,** against the scorer as built, the card and the manifest. It found no blocker and one major finding: the draft said pull request #145 was not merged, and it had merged. That and its five minor findings are applied. It recomputed the arrangement counts and the smallest p values, and it confirmed that the difference in question 5 cannot be negative.
+- **The manifest on `main` at 3ade65b** names the scorer by path, name, version 1 and the sha256 above.
+- **The two-file figure.** Exchanging the arm labels within a file of four reviews gives 6 arrangements, so two files give 36 and three give the card's 216. The most extreme arrangement and its mirror are 2 of them. So the smallest two-sided p is 2/36 = 0.056 for two files, and 2/216 = 0.009 for three, as the card states.
+- **Nothing ran.** The scorer was not run for this entry, and no E6 run exists.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Pre-registration only.** The amendment sends nothing and scores nothing.
+- **Nothing here is `Verified`.** The scorer's own entries go no further than `Implemented`. This entry adds no test of it.
+- **The split has the two limits of decision 4.** The difference is not a count of harmful edits.
+- **Question 2's test needs three complete files.** One delivered review without counts leaves the question with counts and no test.
+- **Question 4 may show nothing.** A loop whose selected draft or repair has no counts has no pair, and the test needs six.
+- **Decisions 3 and 6 to 9, and the place of the three numbers,** were not put to the owner. They rest on the delegation.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The rest of the card's "What the card needs that does not exist yet", then E6's first run.
+
+References: docs/experiments/e6-card-2026-11-17.md; docs/experiments/e6-gold-format.md; docs/experiments/e6-tasks-v1.json; docs/experiments/README.md; scripts/e6-score.py; scripts/registry-row.py; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp; BL-20261117-1126-correction-e6-scorer-c1-count-second-review; BL-20261117-1200-e6-planted-defect-tasks-frozen; BL-20261117-1201-correction-e6-planted-defect-tasks-restamp; BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261110-1509-host-flags-event-design; pull requests #135 and #145.
+
+### BL-20261117-1312-correction-e6-card-amendment-1-restamp -- 2026-11-17 -- Correction to BL-20261117-1311-e6-card-amendment-1: the entry is re-stamped after lane S-assist's pull requests, and nothing else changes
+
+Status: `Implemented`
+
+Scope or hypothesis: The entry for E6's card Amendment 1 was committed on pull request #148 with the stamp 1241 of 2026-11-17. Pull requests #147 and #149 merged first, and their entries run to 1303. This entry records the re-stamp. It changes nothing in the amendment.
+
+Decisions:
+1. **The re-stamp.** The entry first stamped 1241, with the same slug, is now BL-20261117-1311-e6-card-amendment-1. Its body is byte-identical apart from its own ID. The card's amendment names the new ID. The old stamp was on pull request #148's branch only and never reached `main`.
+2. **Nothing else changes.** The amendment's text is as the reviewer read it.
+
+Changes: docs/BUILD_LOG.md, the re-stamped entry and this one. docs/experiments/e6-card-2026-11-17.md, the ID in the amendment's first line.
+
+Evidence:
+- **The order on `main`.** `main` at c4b8ee6 ends at BL-20261117-1303-correction-assist-capture-restamp-second-repair, so an entry stamped 1241 would sit out of order.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **No E6 run has happened.**
+- **The amendment was not reviewed again** after the re-stamp, since its text did not change.
+
+Paid exposure: None.
+
+Next gate: The rest of E6's preconditions, then its first run.
+
+References: docs/experiments/e6-card-2026-11-17.md (Amendment 1); BL-20261117-1311-e6-card-amendment-1; BL-20261117-1303-correction-assist-capture-restamp-second-repair; pull requests #147, #148 and #149.

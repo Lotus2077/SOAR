@@ -47999,3 +47999,448 @@ Paid exposure: None.
 Next gate: Green CI on this pull request's new head, then the session merges it under the go.
 
 References: docs/HANDOFF.md; BL-20261117-0530-owner-merge-go-handoff-restatements; BL-20261116-1637-correction-handoff-start-here-final-check; BL-20261116-1600-handoff-start-here-restated; BL-20261116-0814-e0-card-amendment-1; pull requests #118, #132 and #133.
+
+### BL-20261117-0940-owner-direction-decisions-delegated -- 2026-11-17 -- The owner's direction of 2026-11-17: every recommended answer and every proposed card value is accepted, and the session decides what no source decides, the budget included
+
+Status: `Approved`
+
+Scope or hypothesis: On 2026-11-17 the session listed to the owner every value that waited for them: 63 items in three groups. The owner answered in one sentence. This entry records the words, what they settle, and the session's reading of what they delegate. `Approved` covers the quoted words and decisions 2 and 3, which follow from them directly. Decisions 4 to 7 are the session's reading, and the owner may replace any part of it.
+
+Decisions:
+1. **The owner's words.** Shortly before 09:06 UTC, by the session's record, the owner wrote in the session's chat: "for the purpose of pushing the project forward as fast as you can, you have all the qualifications to make decisions including the budget and you propose the best options for group A and accept all recommended options for other groups."
+   - **What it answered.** The session's list of the same day, sent in its chat at the owner's request ("list out the blanks that need my inputs"). Group A held nine questions for which the session had proposed nothing. Group B held seven questions, each with the session's recommended answer. Group C held the 47 open values of the E5, E2 and E6 card drafts, each with a proposed value.
+   - **What the list reserved.** It ended by saying three approvals would stay the owner's whatever the answer: anything paid, the public tag push for E5's build, and the serving card's adoption commit. The owner's sentence came after that.
+2. **Group B is accepted as recommended.** Seven answers, by the numbering of docs/HANDOFF.md "Start here" §4:
+   - **Topic 1.** For a zero-fee experiment, the values the session proposes in a card stand until the owner replaces them. The summary said that either way anything paid, any new outside destination, any private data and any change to an approved rule still waits for the owner.
+   - **Topic 5.** The incomplete-chunk rule stays. 7b.3 is built, and the rule is then re-measured.
+   - **Topic 6.** The probe's plan cell is measured at 16,384 tokens, by a schema-export change and a full re-probe at zero fee. The serving card is then adopted with the planner at that cap.
+   - **Question 13.** The serving card is adopted after that re-probe, with extraction's structured-output flag and the planner at 16,384. It is not adopted by this entry.
+   - **Question 14.** The reader keeps accepting a flagged card at K above 1, and the first run at K above 1 must use such a card, as lane S-assist left it.
+   - **Topic 12, first part.** The session may run the remaining Docker-gated suites that call no model.
+   - **Topic 12, second part.** The merge go covers a `Proposed` card's pull request after review and green CI, with the card's open values still the owner's. Its reach to the three `Approved` cards is the session's reading (decision 5).
+3. **Group C is accepted as proposed.** The 13 values of E5's draft, the 18 of E2's and the 16 of E6's. Each card's own entry lists them. This answers topics 2, 3 and 4.
+4. **Group A is the session's to decide.** The owner asked the session to propose the best option for each of the nine and said it is qualified to decide. The session reads that as follows: its choice for each stands as the decision in force until the owner replaces it. A later entry records the nine choices with their reasons. The nine are:
+   - #105's 13 residues (topic 7);
+   - review decision 6, the provider of the assists and of E3's arm D (topic 8);
+   - arm D's call allowance (topic 8);
+   - review decision 11's open parts (topic 9);
+   - cloud claim verification (topic 10);
+   - review decision 9, the P11 transport and the box checklist;
+   - whether E0 shows a role-level gap;
+   - E4's three decisions (topic 11);
+   - review decision 12's second part and review decision 13.
+5. **What the delegation is read to cover.**
+   - **Decisions with no default.** A decision that no source decides no longer waits for the owner. The session decides it, records the decision and its reason in an entry before acting on it, and reports it to the owner.
+   - **"including the budget".** The session allocates and spends inside the approved envelope of USD 300 and USD 8 a task (PLAN.md §4). It may move money between the envelope's lines, and it records each move in an entry before the run that needs it. Each paid run still has a committed card, a cap, a price rechecked that day and one registry row. The words are not read as raising the envelope. PLAN.md asks for a named owner approval before a paid run. The session reads these words as that approval for a run inside the envelope under a committed card, and it shows the owner each such card before its first paid run.
+   - **The three approvals the list reserved.** The owner's words name the budget, so a paid run within that bound is read as covered. They name neither the tag push for E5's build nor the serving card's adoption commit, and the list said both stay the owner's whatever the answer. The session asks for each by name before doing it.
+   - **A new outside destination and real private data** are not read as covered. Topic 1's answer says both still wait for the owner.
+   - **Merges.** The session merges the pull requests that record these decisions and the three cards, on a clean light review and green CI. This extends topic 12's second part, and it is the session's reading.
+6. **What it does not change.**
+   - **The security rules.** No credential, endpoint address, local path, raw private trace, evaluator gold or generated artifact is committed or logged. The session never opens the owner's ignored `.env.local` and never enters a key.
+   - **The record rules.** A card is committed before its experiment runs. A card amendment is reviewed before its run, and a result entry before its commit. No committed entry is rewritten. `Proposed`, `Approved`, `Implemented`, `Verified` and `Released` stay distinct.
+   - **PLAN.md §5.** A default still authorizes no live, paid, private or publication action. The acts this entry covers rest on the owner's words above, not on a default.
+   - **Real private data.** Nothing in this entry puts labelled or private data on any route. Review decision 9 is among the nine.
+7. **What stays the owner's by its nature.** Choosing and running E5's jobs and recording their verdicts. Setting lines in the ignored `.env.local`. Storing a key. Grading the owner's own sample. Any step of the box checklist that needs the owner's hands.
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- docs/HANDOFF.md, "Start here": a note at the head of the section that this entry answers the questions §4 lists, ahead of the section's restatement.
+
+Evidence:
+- **The owner's sentence** is in the session's chat. It is quoted as written.
+- **The list it answered** is in the session's chat. Its group C items are the "Open items for the owner" of the three drafts, which the three cards' entries reproduce. Its group B items are topics 1, 5, 6 and 12 and questions 13 and 14 of docs/HANDOFF.md "Start here" §4, with the session's recommendations from its owner-facing summary of 2026-11-16.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **The chat is not a committed record.** This entry is the durable record of the owner's words. The list and the summary it drew on are not in Git.
+- **The recommendations were the session's own.** The owner accepted them in one sentence, without discussing any one of them.
+- **"propose" is read as "decide".** The owner's sentence says "you propose the best options for group A" and, before it, "you have all the qualifications to make decisions". The session reads the two together as decision 4 says. If the owner meant proposals to come back for a yes, the later entry's choices are proposals, and nothing irreversible rests on them before the owner next sees them.
+- **Nothing here is run, adopted or released.** No experiment has started under the three cards, and the serving card stays `proposed`.
+
+Paid exposure: None by this entry. Spent on the E0 to E6 program to date: USD 0.067876, on E0's labelling.
+
+Next gate: The later entry with the nine group A choices, and the three cards' entries.
+
+References: docs/HANDOFF.md; docs/PLAN.md §5; docs/PROJECT_REVIEW_2026-11-05.md §5.10; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261117-0530-owner-merge-go-handoff-restatements; BL-20261116-1637-correction-handoff-start-here-final-check; BL-20261116-1546-e0-structured-fixtures-result; pull request #105; issues #52, #53, #54, #62 and #63.
+
+### BL-20261117-0941-group-a-decided-under-delegation -- 2026-11-17 -- The nine questions no source decided, settled by the session under the owner's direction of 2026-11-17, with five values the three cards left open
+
+Status: `Approved`
+
+Scope or hypothesis: Decision 4 of BL-20261117-0940-owner-direction-decisions-delegated leaves nine questions to the session. This entry records the session's choice for each, with its reason, and five smaller values the E5, E2 and E6 cards left to it. `Approved` rests on the owner's delegation in that entry, not on the owner's word about any one choice. Each choice is the session's and stands until the owner replaces it. Three read-only agents gathered the facts below from the repository, the log and the tickets; the choices are the session's own.
+
+Decisions:
+1. **#105's 13 residues (topic 7): accepted, all 13, and none is closed first.**
+   - **Scope.** T1 and T2 assist packets on public and synthetic tasks, in E3's and E4's harness arms only.
+   - **Not covered.** Labelled or regime-tagged data, and the desktop's assist (backlog item 13), where the owner's own brief could hold a real credential. Each needs rules or a stronger check first.
+   - **In the cards.** E3's and E4's cards name the list and say it may not be exhaustive, as pull request #105's entries do.
+   - **The defaults ASSIST-6, ASSIST-8 and ASSIST-11** are confirmed with it. ASSIST-11 is the L6 default in the Next gate of BL-20261113-0923-correction-assist-core-delta: a stated limit for the public and synthetic arms now, and rules before any labelled arm.
+   - **A check before the first paid assisted run.** The session builds packets from a zero-fee run and searches them for credential and query shapes. A hit stops the run until it is read.
+   - **Why not close some first.** No item is cheap: each trial rule needed a full differential and a skeptic, five trial rules regressed, and each round found new neighbours (pull request #105's entries). Closing a subset would still leave a list to accept.
+   - **What can leak.** E3's inputs are public rules, reports and articles, with one synthetic document a task. The worst realistic case is a public URL fragment, a file name, a query string or a model-invented credential-like string reaching the provider. The broker still denies a configured key in a packet, and five high-confidence key patterns still block a dispatch.
+   - **This is the one choice the record kept for the owner's own answer** (decision 3 of BL-20261115-1937-owner-adopts-standing-defaults; the Next gate of BL-20261113-0925-correction-assist-core-rereview; decision 4 of BL-20261116-1131-owner-directions-merge-and-continue). The session makes it under the delegation and puts it to the owner by name in its report of the same day. No packet leaves under it before E3's card is on `main`, and the owner can replace it until then. Merging #105 sends nothing: its code has no caller and hides more than `main` does.
+2. **Review decision 6 (topic 8): `claude-sonnet-5-5` carries the assists and E3's arm D.**
+   - **Why.** The owner's last provider direction moved later API use to Claude (BL-20261030-0445-h5-cloud-provider-claude), and PLAN.md §4 marks the harness line so. Its ledger is the only one reconciled with a provider console. Its cached all-cloud r3 run is the only one that submitted (79 calls, USD 1.13). Its host is pinned in code.
+   - **What it lacks.** An assist receipt. `gpt-6-sol` has the only ones (USD 0.122 to 0.133 a run). E3's r3 calibration runs supply Claude's.
+   - **The switch rule.** If those runs show a cache write in assist mode, or assist fees above 0.25 of arm D's, the provider changes to `gpt-6-sol` by a card amendment before any graded run.
+   - **Prices** are equal on input, output and cache write, by issue #49. Both destinations are already approved, so this adds none.
+3. **Arm D's call allowance: 117 calls, with arm D's cap of USD 3.00 a run and E3's cap of USD 20.4 both kept.**
+   - Arm D's r3 calibration run comes first. The projection for f2 is re-derived from its receipt.
+   - The fee cap of USD 3.00 a run bounds the exposure whatever the allowance. A lower allowance would only add a second way to stop.
+   - If the re-derived figure exceeds USD 3.00, the caps change only by a recorded decision before the run.
+4. **Review decision 11's open parts (topic 9, issue #53).**
+   - **The owner's sample.** The owner grades blind only the runs whose single flip would change the decision rule's outcome, arm D's first, and at most six an experiment.
+   - **A second verdict** is not required. A revision is a superseding row, and the first row stays.
+   - **`verdictBy`** keeps its three values. Proxy rows carry `agent_diagnostic`, and OAJ counts owner verdicts only. No contract changes.
+   - **One sample for each E3 loop,** the standing default. The loop is two-sample today, so the single-sample mode is a small lane pull request.
+   - **E5's parts,** what a job records and how a verdict is corrected, are items O7 and O8 of E5's card.
+5. **Cloud claim verification (topic 10): none, in any arm and in grading.** Acceptance rests on blind grades and decision 4's sample. Judge counts stay evidence only. E3's and E4's cards say so. The question returns after E4, as the review's stop list has it.
+6. **Review decision 9: deferred, with a trigger.** The P11 transport and the box checklist come before backlog item 15 and before the first labelled job, and not earlier. Nothing waits on them today: the task contract admits only public or synthetic work, and E5's card admits the same. Every step is the owner's, on the box and on the Mac. The transport the review's finding F6 describes stays as it is until then, on public and synthetic bytes only.
+7. **E0 shows no role-level gap.** The term had no definition. This entry gives one: a role shows a gap when it misses a pre-registered target after its request-side settings were measured on real input. The planner's and extraction's failures trace to caps and reply format. One zero-fee request change is a shown difference: extraction's `schema_too_big`, 7 of 30 calls to 0. The planner's 9 valid plans of 10 at 16,384 tokens is a post hoc observation, which the re-probe of decision 2 of BL-20261117-0940-owner-direction-decisions-delegated measures. The judge missed its level, 63.3% against 95%, but its fixture ran one condition, so its request-side settings are unmeasured and the definition is not met. So no serving-recipe work starts.
+8. **E4's three decisions (topic 11).**
+   - **Search (review decision 8): SearXNG on the Mac's loopback,** at a pinned tag, with the engines limited to DuckDuckGo, Wikipedia and Wikidata. It needs no fee, key, account or card, and stopping the container undoes it. It is a new outside destination for queries. So its first query waits for an entry of its own that names the engines, GET only and the cap of 30 queries a task, and that entry needs the owner's explicit approval before the zero-fee qualification batch runs (PLAN.md §4; issue #58). A keyed engine is the fallback if that batch shows blocks; it would need the owner's account.
+   - **The grader's judge (review decision 5's open part): `gpt-4o-2024-08-06`,** the snapshot the authors' default `gpt-4o` resolves to today. It holds only if E4's grading ends before that model's shutdown on 2027-01-14. The rule that E4 starts only if the balance covers USD 20.5 stays until E3 settles.
+   - **The Manus baseline (review decision 10): declined for now.** E4's decision rule does not read it, it is spend outside the envelope and a new destination, and its terms are hard to undo. E4's card names its thresholds as proxies.
+9. **Two that can wait.**
+   - **Review decision 12, second part,** stays open until E4 ships a cloud-assisted arm. If item 13's design needs a default sooner, it is the narrowest: the owner previews and confirms the first packet of each task.
+   - **Review decision 13.** The three Phase 2 baselines are carried as the ledger's range, USD 3.05 to 3.77, with the note that the old ledger may be low on cache writes (BL-20261022-1157-cloud-cache-write-price-correction). Only the owner can read the provider's dashboard. No run waits on it.
+10. **Five values the three cards left to this entry.**
+    - **E5, the tag push.** The tag is pushed on the owner's go for that push (PLAN.md §4). The cut needs no push: the build runs from a local annotated tag.
+    - **E5, the commit.** The build is cut at `main`'s head once E5's card is on `main`. The cut's entry names the commit and the tag.
+    - **E5, the week-6 review with fewer than three counted jobs.** The card's rule holds: a branch is taken only if the missing jobs could not change it. So none is taken.
+    - **E2, item 11.** The pooled test is the card's test, because the accepted rule's own counts are the pooled ones. The result entry reports the stratified p beside it.
+    - **E6, item 8.** If a serving card is adopted and pinned before E6's first run, E6 runs with it. If not, the pair stays unset. The state is the same for every run.
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- The three cards cite it where they depend on it.
+
+Evidence:
+- **The facts** were gathered on 2026-11-17 by three read-only agents: one on #105, one on decisions 6 and 11, claim verification, the role-level gap and the budget, and one on decisions 5, 8, 9, 10, 12 and 13. Each cited its sources by file, entry or ticket. The session did not re-read every source.
+- **Issue #49** holds the prices, the projection behind 117 to 120 calls and the two providers' receipts.
+- **The budget** as the second agent read it: the envelope is USD 300 with about USD 25.5 spent; the harness line holds about USD 28.4 to 28.7 against E3's cap of USD 20.4 and E4's of USD 20.5.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **None of the nine was discussed with the owner one by one.** The basis is the delegation.
+- **Decision 1 is a privacy choice** that earlier entries kept for the owner. It is flagged to the owner by name, and nothing leaves under it before E3's card.
+- **Decision 2 is made by a session that runs on an Anthropic model.** Its reasons are the record's, listed above, and decision 2 states the rule that would switch the provider.
+- **Decision 3's figure is a projection.** No all-cloud run beyond 80 calls exists. The second agent expects E3 to cost more than the review's USD 6.6, which may leave less than E4's USD 20.5 on the line.
+- **Decision 8's search choice is unmeasured.** Its reliability is not known until the qualification batch.
+- **Decision 8 does not settle E4's judge fees.** Issue #51 projects about USD 8.45 with GPT-4o against the judge sub-cap of USD 6 (#61).
+- **Nothing here is run, paid or sent.**
+
+Paid exposure: None by this entry. The first paid run under it is E3's r3 calibration, which needs E3's card.
+
+Next gate: Lane work under these decisions: #105's merge and then 10.b (lane S-assist); the single-sample loop mode (lane S-harn); item 12's design on decision 8 (unassigned). E3's card (#63) then draws on decisions 1 to 5.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md §5.1, §5.6, §5.7, §5.8 and §5.10; docs/PLAN.md §1, §4 and §5; docs/HANDOFF.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0920-assist-wrapper-design; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261030-0445-h5-cloud-provider-claude; BL-20261107-0650-owner-decisions-review-items-2-5; BL-20261107-0718-correction-owner-decisions-record; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261108-0904-owner-verdict-capture-design; BL-20261022-1157-cloud-cache-write-price-correction; BL-20261116-1357-e0-verified; BL-20261116-1546-e0-structured-fixtures-result; pull request #105; issues #48, #49, #50, #51, #52, #53, #56, #58, #59, #60, #61 and #63.
+
+### BL-20261117-0942-document-review-and-runtime-suites-docker-verified -- 2026-11-17 -- Two more Docker-gated suites verified on the owner's Mac at 60aebc9: document review (7 of 7, #81) and the general runtime (11 of 11, with #73's freeze `git` assertion and #127's pin); #72's general-task e2e was not run
+
+Status: `Verified`
+
+Scope or hypothesis: HANDOFF "Start here" §4 lists three Docker-gated, no-model runs that had never run on this Mac: #81's document-review suite, #73's runtime-freeze `git` assertion and #72's general-task e2e assertion. #127 also edited the runtime suite without running it. An agent of the orchestrating session ran the first two on the owner's Mac after the owner's direction of 2026-11-17 (BL-20261117-0940-owner-direction-decisions-delegated), in the form of BL-20261115-1938-e1-l-sandbox-suite-docker-verified. `Verified` here covers only the two suites that ran and passed. #72's e2e assertion was not run and stays `Implemented` (BL-20261109-0459-desktop-resume-reasons-implemented). Hypothesis: on `main` at 60aebc9, each suite's assertions hold against the real Docker daemon and its pinned image, among them the ones that #81, #73 and #127 added or changed and that CI skips.
+
+Decisions: None of its own.
+- **Not run, by the session's rules, not by a decision of record.** The agent was told to run a suite only if its code shows no model, cloud or paid call, and to build or edit nothing in the checkout. #72's e2e met neither condition as it stands (Failures or blockers). Whether and how it runs is left to the owner or the coordinator.
+
+Changes: None; this entry records runs only.
+
+Evidence:
+- **Setup.** 2026-11-17, the owner's Mac (Darwin 25.5.0), Docker Engine 29.8.2, Node 22.22.2, pnpm 10.12.4, vitest 4.1.11. `main` at 60aebc9 (60aebc968bf261e916596ec07558bf79f8c8bdbf), with `git status --short` empty before and after each run. No image was pulled or built: the sandbox creates its container with `--pull never` and `--network none`.
+- **Run 1: document review (#81).**
+  - Command: `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-document-review.test.ts --maxWorkers=1 --testTimeout=120000 --reporter=verbose`. This is the command BL-20261110-0712-document-review-flags-implemented names, plus the three flags of BL-20261115-1938. Each case sets its own 300 s timeout.
+  - Image: `sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f`, present locally as `soar-private-artifacts:20260911-v1`, with no repository digest.
+  - Result: 1 file and 7 tests passed, 0 failed, 0 skipped, in 15.77 s, from 09:13:21 to 09:13:38 UTC.
+  - The seven cases, all passed:
+    1. "applies a plan as tracked changes that pass every fidelity check, deterministically, and refuses tampering"
+    2. "reports every plan error the agent must fix, and refuses a source with tracked changes"
+    3. "never lets an anchor swallow an object or someone's comment, refuses revisions outside the body, and never inherits hidden formatting"
+    4. "handles what Word writes: text beside a tab, a page-break cache in a deleted run, a heading repeated in a table of contents, curly quotes"
+    5. "pages the paragraph listing so a long contract never exceeds the sandbox's output cap"
+    6. "adds to a document's existing comments without touching them"
+    7. "backlog item 7(d): writes the host flags for a fee table its prose contradicts and two clauses a negation apart, deterministically, and refuses a hand-edited flags file"
+  - #81's part: case 7 is its new case. Its `apply()` check (every applied plan leaves `flags` with no error key) ran in cases 1, 3, 4, 6 and 7, and case 1 compares `output/review-flags.json` byte for byte across two processes.
+- **Run 2: the general runtime (#73, #127).**
+  - Command: `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-runtime.test.ts --maxWorkers=1 --testTimeout=120000 --reporter=verbose`. Each case sets its own 90 s timeout.
+  - Image: `sha256:95be0fdf09ef20ff31c5f605108f068422a58edb93b35834c5cfaf45312d3071`, present locally as `soar-patch-fixture:1` and `soar-patch-python:1`, with no repository digest. It is the image of BL-20261115-1938.
+  - Result: 1 file and 11 tests passed, 0 failed, 0 skipped, in 30.23 s, from 09:13:47 to 09:14:18 UTC.
+  - The eleven cases, all passed:
+    1. "runs model → tool → model → independently verified artifact"
+    2. "restores files, context restrictions and messages after a pause and SQLite reopening"
+    3. "cannot promote a candidate's shadow module into trusted verification"
+    4. "completes only the frozen bytes even if the agent leaves a mutating background process"
+    5. "refuses unresolved operations and exhausted persisted time before another model dispatch"
+    6. "durably cancels and kills an observed running command through the runner entry point"
+    7. "excludes another runner and steering through a separately opened SQLite connection"
+    8. "cannot mark completion when its own deadline expires during final cleanup"
+    9. "recovers an actual killed host's orphan before refusing to replay its uncertain tool"
+    10. "executes the hash-bound operator entry point and preserves a provisional immutable artifact"
+    11. "records an adopted all-default serving card's digest in the freeze and keeps its pinned bytes beside it (SC)"
+  - #73's assertion is in case 11: freeze.json's `git` equals `{ commit, dirty }`, where `commit` is the checkout's `git rev-parse HEAD` (60aebc9 here) and `dirty` is any boolean.
+  - #127's edit is in case 11: the freeze's `servingCard` record for an all-default adopted card has five keys, with `localStreams: 1`.
+  - The model in this suite is a scripted server on the loopback interface, started by the test. Cases 10 and 11 pass the driver's configuration explicitly with an empty working directory, so the run reads no local environment file.
+- **The containers.** Before and after each run, the containers labelled `soar.private-job-id` were the same four: 877e1271ed16, e0b25c80b8bf, 3f0bb8e3c183 and 4821bc863456, from image e5c7075fac7a, three created on 2026-10-07 and one on 2026-10-14 (local dates), all exited. They match the four that BL-20261115-1938 and BL-20261107-1111-stop-bricking-tasks-docker-suite-verified describe. The runs left none of their own.
+
+Failures or blockers:
+- **No test failed.** Neither suite was rerun.
+- **#72's e2e assertion was not run.** It is `expect(value.record.reason).toBe(progressStop)` in tests/e2e/general-task-progress.spec.ts, reached only by the case "blocks the third unchanged failed command before execution and denies replay after restart". Read from the code, not from a run:
+  1. **No built app.** The spec launches Electron on the checkout, whose entry is the ignored `out/` directory, and `out/` is absent. `pnpm build` rebuilds the native credential broker and bundles the app. A build was outside the agent's brief and writes into the checkout.
+  2. **The app would read the checkout's local environment file.** The spec starts the app with the checkout as its working directory and app path, so the app's `loadConfig` fills every setting the spec does not set from that file, which exists and which the session may not open. The spec does set the model base URL (its scripted loopback server), an empty key, the provider mode, the cost policy and the image, so the reading found no path to another model endpoint. The other settings would still come from that file.
+  3. **The documented command lacks an output directory.** The spec throws `fixture_requires_ignored_output_directory` unless Playwright's output directory is under `.soar/`. playwright.config.ts sets none, so the default is `test-results/`, and the command in BL-20261109-0459 passes no `--output`.
+  4. **The spec's budget assertions pin the standard profile.** They expect 20 model calls, 40 broker requests and 30 tool calls, and they run before #72's assertion. The spec sets no `SOAR_GENERAL_TASK_PROFILE` and picks none in the form, and the default has been `heavy` (80, 200, 120) since 4806282 of 2026-10-06. tests/e2e/general-task-request-size.spec.ts sets `standard`. So, unless the local file sets the profile, both cases would be expected to fail before #72's assertion is reached.
+- The four stale containers predate this work and were left as they were.
+
+Limitations and non-claims:
+- **Scope of the runs.** One machine, one daemon version, one image per suite, one run each, outside CI, where both suites are skipped.
+- **Run 1 shows** that inside the qualified image, on documents python-docx writes from a synthetic fixture, the pinned applier and the host check behave as the seven cases state, with the host flags (rules v1) equal to the fixture's expected values. It does not show a model's edit plan, a real contract, the `host_flags` event or its desktop and registry surfaces (7d.B to 7d.D), or review quality.
+- **Run 2 shows** the general loop, its recovery paths and the operator entry point against real containers with a scripted model. For #73 it shows that the freeze records the checkout's commit. It does not pin `dirty` to a value, so it says nothing about what `dirty: false` means (BL-20261109-0509-correction-registry-run-commit-dirty), and it does not exercise scripts/registry-row.py. For #127 it shows the all-default record only: no card with K above 1 and no non-default role policy.
+- **No model request, endpoint, cloud or paid call ran.** Nothing here measures the owned model, the desktop or product quality.
+- **Points 2 to 4 under Failures or blockers are readings of the code.** None was confirmed by a run, and the local environment file was not opened.
+- **Not released.** Nothing in the product is `Released`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Three of the four Docker-gated runs are now recorded; HANDOFF "Start here" §4 can say so at its next restatement. #72's e2e assertion waits for the owner's or the coordinator's call on its four points: a build of the app at the commit under test, a hermetic configuration for the launched app, an output directory under `.soar/`, and the spec's profile. The last may need a change to the spec, which would be its own pull request and entry.
+
+References: BL-20261117-0940-owner-direction-decisions-delegated; BL-20261115-1938-e1-l-sandbox-suite-docker-verified; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261109-0422-registry-run-commit-design; BL-20261109-0509-correction-registry-run-commit-dirty; BL-20261109-0510-registry-run-commit-implemented; BL-20261116-1331-correction-local-fanout-skeptic-followups; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261110-1506-merge-train-1-integration; docs/HANDOFF.md "Start here" §4; tests/integration/private-agent-document-review.test.ts; tests/integration/private-agent-runtime.test.ts; tests/e2e/general-task-progress.spec.ts; pull requests #72, #73, #81 and #127.
+
+### BL-20261117-0943-e5-card-approved -- 2026-11-17 -- E5's card is approved at the values it proposed: the owner's real jobs in a new owner build, the first five started on three local routes, one reading at the fifth job, at zero fee
+
+Status: `Approved`
+
+Scope or hypothesis: The card of experiment E5 in docs/PROJECT_REVIEW_2026-11-05.md section 5.6 (row E5) and docs/HANDOFF.md "Start here" section 5, step 4. The card text is docs/experiments/e5-card-2026-11-17.md. Hypothesis: on the owner's own real jobs, the desktop build's existing local routes return results the owner accepts, at zero fee, and at least 3 of 5 jobs meet the OAJ conditions of PLAN.md section 1. The card's draft marked 13 values open for the owner, each with a proposal. `Approved` rests on the owner's direction of 2026-11-17, which BL-20261117-0940-owner-direction-decisions-delegated quotes and which accepted every proposed card value. The direction names no single value. Reading it as approval of the whole card is the session's reading, and the owner may replace it or any value.
+
+Decisions:
+1. **The 13 items stand at the values the card proposed.** The card marks each "Decided (owner, 2026-11-17)" and keeps every alternative that was not chosen.
+   - **O1, the build:** a new owner build at `main`'s head, not the existing `owner-v0.2`, which predates the verdict capture of #40.
+   - **O2, the tag's name:** `owner-v0.2.1`.
+   - **O3, the row conventions:** batch `owner-real-jobs`, task `owner-<first 8 hex of the task id>` and id `oaj-<date>-<family>-<n>`. Receipts are kept under the ignored `.soar/experiments/`. BL-20261108-0904-owner-verdict-capture-design left these conventions to this card.
+   - **O4, what "3 of 5" counts:** option A. The five are the first five jobs the owner starts from day 1, on the three routes, pooled. A job that ends without submitting counts as not accepted. One flagged re-run may replace a job that ended on infrastructure.
+   - **O5, the stop rule and the window:** option S1. The reading is made once, when each of the five has its verdict, its end, or 72 hours without a verdict. E5 runs at least 14 days. The week-6 review is 35 days after day 1. PLAN.md's 7-day rule is kept. The row's branches bind, for E5 only. After a changed endpoint no job counts until an amendment names the new identity.
+   - **O6, a job that never submits or is never judged:** option N2 now, a hand-written row. N3 comes only by an amendment that names a new build, or after E5. A submitted job gets no row while it is unjudged.
+   - **O7, what E5 records beyond the receipt:** an owner's tally outside Git, one line per job, closed fields only. The cause list is fixed at six classes: `content_wrong_or_missing`, `format_or_fidelity`, `did_not_finish`, `too_much_editing`, `too_slow` and `other`.
+   - **O8, corrections and `verdictBy`:** what the merged code does. The app records one verdict per task, a correction is a `--supersedes` row, and OAJ counts `owner` rows only.
+   - **O9, jobs outside the three routes:** a job of another family, one with typed public URLs, or a consulted one is rowed in the batch under its own family, reported apart, and not among the five.
+   - **O10, four more run conditions:** all four hold. A rehearsal before day 1, the doctor on each day a job runs, one job at a time on an idle endpoint, and one build for the trial.
+   - **O11, differences between routes or weeks:** a difference is called shown only where Fisher's exact test gives a two-sided p below 0.05.
+   - **O12, labelled jobs:** they wait on review decision 9 and the box checklist. Public and unlabelled jobs do not. BL-20261117-0941-group-a-decided-under-delegation records the session's decision on review decision 9, and this entry does not restate it.
+   - **O13, what a pass marks:** a route is marked `Verified` only if it holds at least one accepted job among the five. The mark covers one thing: the counted rows exist as written and give the count stated.
+2. **The review's row E5 and its rule.** They were `Proposed`, and no entry approved them. The session reads the owner's acceptance as approving the row and its rule for E5 only. The session told the owner before the answer that approving this card would do so. The owner may replace that reading.
+3. **PLAN.md's Phase 4 branches** are `Approved`. O5 sets them aside for E5 only, on the same reading. PLAN.md does not change.
+4. **What is physically the owner's.** The owner chooses every job and runs it in the build, and records each verdict. No development agent reads a job's goal, inputs or output, the practice of BL-20261012-1610-first-owner-accepted-job.
+
+Changes:
+- docs/experiments/e5-card-2026-11-17.md is added. No code changes.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **How the draft was made.** A writer drafted the card. A reviewer found no blocker and one major finding, which was fixed. A revision applied every finding. A checker then read the result, and a last polish followed.
+- **The owner's answer.** E5's build, its conventions and its stop rule first went to the owner on 2026-11-16 (decision 5 of BL-20261116-1131-owner-directions-merge-and-continue). On 2026-11-17 the session listed the card's 13 open items to the owner, each with its proposal, before the owner answered. It told the owner twice that approving the card would also approve the review's "3 of 5" rule for E5. BL-20261117-0940-owner-direction-decisions-delegated holds the owner's words.
+- **What changed from the draft.** The 13 markers, the header notes on open values, the sentences the acceptance made stale and the last section, which now restates the 13 as decided. No value, number, digest, date rule, option text or citation changed. Three additions cite decision 10 of BL-20261117-0941-group-a-decided-under-delegation: the tag push, the build's commit and the week-6 rule under three jobs. Sentences were also added on the merge go, the serving card's adoption and the Docker-gated suites, each citing BL-20261117-0940-owner-direction-decisions-delegated.
+- **Checks on the card's text.** No `OPEN (owner)` marker remains, and 13 items carry `Decided (owner, 2026-11-17)`. Each earlier entry the card cites is in docs/BUILD_LOG.md.
+- **Nothing ran.** This entry decides the card. It reports no job, no build, no rehearsal and no doctor run.
+
+Failures or blockers:
+- **No job can count yet.** The build is not cut and the rehearsal is not done (Next gate).
+
+Limitations and non-claims:
+- **No job has run.** This entry reports no result, and nothing here is `Verified`.
+- **The values were the session's proposals.** The owner accepted them in one direction and restated none. Reading that direction as approval of each value is the session's.
+- **The verdict capture is `Implemented`, not `Verified`** (BL-20261108-0905-owner-verdict-capture-implemented). E5's first rowed job is the capture path's first live use.
+- **Several facts rest on the owner's statement,** not on a row: that the owner chose the job as real work, which build ran it, how it was routed, and the 30 minutes saved.
+- **Two rules are not met in letter,** as the card says. An owner build runs from its own worktree at a tag, not from the main checkout (HANDOFF section 6). The Heavy profile's constants cite no serving card (review section 5.1, rule 4).
+- **The transport is unchanged.** The card admits public or synthetic jobs only. Until P11 the device confers no privacy advantage over the cloud (review section 2.4).
+- **What else the card says E5 does not show:** that a deliverable is correct; an acceptance rate, since 3 of 5 fits rates from about 15% to 95%; that local matches cloud; anything about research, private or labelled work, or E0's serving card; disclosed bytes; a result for one route; time saved; the MVP exit.
+- **One owner chose and judged every job.** There is no blind grade, no control and no second rater.
+
+Paid exposure: None. The card's fee is USD 0. The routes are local only, and each job runs within the Heavy profile's limits: 80 model calls, 120 tool calls, 90 minutes and 200 session requests. The card holds no assist spend. The row's assist budget, at most USD 0.75 per task, applies only once E4 ships a cloud-assisted arm.
+
+Next gate: The first two needs of the card's "What the card needs that does not exist yet", once this card is committed:
+1. The owner build with verdict capture, `owner-v0.2.1`. It is an annotated tag in its own worktree, as BL-20261008-1210-owner-v0-1-released did it. O1 decides the cut. The card says the push of the tag waits for the owner's go, since a pushed tag is a public push.
+2. The rehearsal of the verdict path in that build: one synthetic throwaway job, a verdict, an exported receipt and a row printed and not appended.
+Day 1 follows both.
+
+References: docs/experiments/e5-card-2026-11-17.md; docs/PROJECT_REVIEW_2026-11-05.md sections 2.4, 5.1, 5.6 (row E5) and 5.10 (item 9); docs/PLAN.md sections 1 and 4 and Phase 4; docs/HANDOFF.md "Start here" sections 5 and 6; issues #46, #52 and #53; pull request #40; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261108-0904-owner-verdict-capture-design; BL-20261108-0905-owner-verdict-capture-implemented; BL-20261012-1610-first-owner-accepted-job; BL-20261008-1210-owner-v0-1-released.
+
+### BL-20261117-0944-e2-card-approved -- 2026-11-17 -- E2's card is approved at the values it proposed: writer-2 runs under 12 model requests, 12 tool actions and 20 minutes against the Heavy writer, on r3 for calibration and two synthetic tasks for grades, and Heavy stays unless writer-2 earns the change
+
+Status: `Approved`
+
+Scope or hypothesis: This entry commits E2's card, docs/experiments/e2-card-2026-11-17.md. The card is the pre-registration that docs/PROJECT_REVIEW_2026-11-05.md section 5.6 (row E2) and docs/HANDOFF.md "Start here" section 5, step 5, require, and the text issue #62 asks for. Hypothesis (review section 5.6, row E2, and section 5.8): a writer that starts from the preloaded research presentation can deliver an acceptable report inside a far smaller bound than Heavy's. `Approved` rests on the owner's direction of 2026-11-17, quoted in BL-20261117-0940-owner-direction-decisions-delegated. For the items that carried a proposal, its words are "accept all recommended options for other groups", and the card's eighteen values were among those items. That these words approve the whole card, and not only its eighteen values, is the session's reading, and the owner may replace it. E2 makes no claim about the research stage, a cloud route or the owner's acceptance.
+
+Decisions:
+1. **The card is approved at the values it proposed.** Each of its eighteen items now reads "Decided (owner, 2026-11-17)". The alternatives stay in the card as the record of what was not chosen.
+2. **The eighteen values,** by the card's item numbers.
+   - **Item 1, writer-2's bound:** 12 model requests, 12 tool actions and 20 minutes for the write phase.
+   - **Item 2, what else writer-2 changes from Heavy:** nothing. It keeps the Heavy model profile, the 16,384-token cap a call, the 900 s clock, and the session's pool of 200 and 90-minute limit.
+   - **Item 3, a control without the presentation:** none.
+   - **Item 4, who writes the two synthetic tasks and their gold:** a separate session, at zero fee. The paid fixture run within USD 1 was not chosen.
+   - **Item 5, the tasks' shape:** 8 to 12 invented plain-text sources each, every source under 64 KiB, with 5 to 8 critical checks, a scorer and one planted conflict, frozen by hash before any run.
+   - **Item 6, r3's role:** calibration only, so each arm has 4 graded runs.
+   - **Item 7, packet attempts:** up to 5 per task.
+   - **Item 8, the packet:** the first attempt that reaches `research_packet_ready`, whatever its fallbacks. The packet run's own draft is not bundled and not graded.
+   - **Item 9, the order and the checkout:** r3 first, then the two synthetic tasks. Within a task the packet comes first, then writer-1, writer-2, writer-2, writer-1, mirrored on the first synthetic task. Every run is started by hand from the main checkout held at one commit.
+   - **Item 10, grading:** Phase 2's blind procedure (BL-20261013-1627-phase2-scoring-protocol), with a scorer session, a grader session and one planted defect. A run the host submits at its bound is graded like any other.
+   - **Item 11, when a difference is called shown:** Fisher's exact test on the two arms' accept counts, two-sided, p below 0.05, as E0's Amendment 4, item 5, reads it. The pooled test is the card's test, by decision 10 of BL-20261117-0941-group-a-decided-under-delegation, and the result entry reports the stratified p beside it.
+   - **Item 12, the decision rule:** Heavy stays unless writer-2 earns the change, by four cases taken in order. It governs the choice of the E3 and E4 writer, and so E3's card (#63).
+   - **Item 13, the stop rule:** the card's conditions. Among them: stop at once on a cloud dispatch, a fee above USD 0 or a disclosed byte.
+   - **Item 14, the dates:** no calendar date. The 3 days count from the first packet run.
+   - **Item 15, row conventions:** batch `e2-<date of the first run>`; arms `local-heavy-pipeline-research`, `local-heavy-seeded-writer-1` and `local-heavy-seeded-writer-2`; exposure `exposed` for r3 and `fresh` for the synthetic tasks; `verdictBy` `agent_diagnostic`.
+   - **Item 16, the lane:** S-harn, in one pull request, with the flag and the option's name left to its design entry.
+   - **Item 17, request settings:** no reply contract, streaming unset, the driver's default cache salt.
+   - **Item 18, admission rule 4:** E2 runs on the code's constants, although the rule is unmet as worded.
+3. **Who writes the tasks and the gold.** A separate authoring session writes the two synthetic tasks, their gold and their scorer (item 4). The gold stays with that session. The orchestrating session receives ids, counts and hashes only and never sees the gold, as for Phase 4's tasks (BL-20261027-0145-phase4-tasks-design).
+4. **Who builds the writer-bound code.** Lane S-harn builds the writer bound below Heavy's, the dry run and the bound in the registry row, in one pull request with its design entry first (item 16).
+5. **No thinking-off arm.** This is not decided here: the card carries it from review decision 7's adopted default, so the review's writer-3 and its 6 runs are not part of E2 (decision 1 of BL-20261115-1937-owner-adopts-standing-defaults, as decision 4 of BL-20261116-0812-correction-owner-defaults-review corrects it).
+
+Changes:
+- docs/experiments/e2-card-2026-11-17.md: new. The card, with its eighteen items decided and a last section, "The owner's answers (2026-11-17)", that restates them.
+- docs/BUILD_LOG.md: this entry.
+- No code changes.
+
+Evidence:
+- **How the draft was made.** One writer drafted the card, which names its sources as `main` at 60aebc9. One reviewer read the draft and found no blocker. A revision applied every finding. A checker read the revision, and a last polish followed.
+- **The open items went to the owner before the answer.** On 2026-11-17 the session listed the card's eighteen open items to the owner, each with its proposal. The owner's direction followed (BL-20261117-0940-owner-direction-decisions-delegated).
+- **How the acceptance was applied.** Each open marker became "Decided (owner, 2026-11-17)" and each proposal "Accepted as proposed". Sentences the acceptance made stale were reworded. No value, number, digest or option text was changed, with two exceptions. Item 11's test was fixed as the pooled one (decision 10 of BL-20261117-0941-group-a-decided-under-delegation). Item 5's trailing "or the owner says none" was dropped, since the accepted value is one planted conflict. The card holds 18 decided markers and no open one.
+- **Nothing was run.** No model request, probe, fixture or experiment run was made for this card or this entry.
+
+Failures or blockers:
+- No failure.
+- **Blockers before the first packet run.** The driver cannot run a writer under a bound below Heavy's and has no dry run. The two synthetic tasks, their gold and their manifest do not exist.
+
+Limitations and non-claims:
+- **No run has started.** The card is a pre-registration and measures nothing.
+- **The values were the session's proposals.** The owner accepted them as a group and named no single value.
+- **Nothing here is `Verified`.** The figures the card quotes from E0 and from earlier trials stand on their own entries.
+- **Writer-2's bound is a hypothesis.** Its three figures come from the research-coverage v4 trial, whose writer never started (BL-20261105-0417-research-coverage-v4-design-reviewed; BL-20261105-0923-research-v4-planning-failed). E0 measured no writer (BL-20261116-1357-e0-verified).
+- **Admission rule 4 stays unmet as worded.** No serving card is adopted, and the proposed one has no writer row. E2's bounds are the code's constants (item 18).
+- **Item 11 named two tests,** and the owner's words name neither. The session chose the pooled one under the owner's direction (decision 10 of BL-20261117-0941-group-a-decided-under-delegation).
+- **The sample is small.** With 4 graded runs an arm, the pooled test can show a difference only at 4 accepts against 0, and the stratified test can show none. Four graded runs that all submit do not show the bound is safe.
+- **Grades are provisional.** They are a blind proxy's, by the adopted default of review decision 11 (BL-20261115-1937-owner-adopts-standing-defaults). The answer to issue #53's `verdictBy` question is in BL-20261117-0941-group-a-decided-under-delegation, and this entry does not restate it.
+- **Most stop conditions are the operator's rules.** Only the driver's own refusals are in tracked code.
+- **What the card says E2 does not show:** that writer-2's bound is safe on E3's packets or at web scale; that the two writers are alike; a quality gap smaller than all against none; anything about thinking off; the presentation's effect; an output cap for the writer; the owner's acceptance; a packet completion rate; whole-task time against criterion 7; a cost or privacy difference; anything at K above 1 or on another model, or under an adopted serving card unless an amendment names one before the first run.
+
+Paid exposure: None. Every E2 run is zero-fee: USD 0 for every run, within 3 days. The review allows at most USD 1 for fixtures on PLAN.md §4's synthetic line. It would be spent only under item 4's paid alternative, which was not chosen. The card approves no spend. An `infra_invalid` run is run again once at zero fee.
+
+Next gate:
+- Lane S-harn's pull request, with its design entry first: a writer bound below Heavy's in the driver, recorded in `freeze.json`.
+- In the same pull request: a dry run in the driver, and the bound in the registry row, with an offline proof that `--run-dir` rows a seeded single run.
+- The two synthetic tasks, with their gold, their scorer and their committed manifest, from the authoring session.
+- A grader session and a scorer session, apart from the orchestrating session. The planted-defect copy is made by hand at grading.
+- Then an amendment names the commit, the protocol hash and the tasks' ids, and the first packet run, on r3, may start.
+
+References: docs/experiments/e2-card-2026-11-17.md; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E2, section 5.1 rule 4, section 5.8 and section 5.10 decisions 7 and 11; docs/HANDOFF.md "Start here" section 5, step 5; PLAN.md §4 and §5; issues #62, #53 and #63; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261013-1627-phase2-scoring-protocol; BL-20261027-0145-phase4-tasks-design; BL-20261105-0417-research-coverage-v4-design-reviewed; BL-20261105-0923-research-v4-planning-failed; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-0812-correction-owner-defaults-review; BL-20261116-1357-e0-verified.
+
+### BL-20261117-0945-e6-card-approved -- 2026-11-17 -- E6's card is approved at the values it proposed: 12 zero-fee runs of document review on three planted-defect files, one sample against two samples with critique and repair
+
+Status: `Approved`
+
+Scope or hypothesis: The card of experiment E6 in docs/PROJECT_REVIEW_2026-11-05.md section 5.6 (row E6) and docs/HANDOFF.md "Start here" section 5, step 5, as issue #54 asks. The card text is docs/experiments/e6-card-2026-11-17.md. Hypothesis: on three fresh synthetic `.docx` files with planted defects, review-2 (two samples with host selection and a local critique and repair) delivers an accepted review more often than review-1 (a single sample), at zero fee and with no cloud, search or web dispatch. `Approved` rests on the owner's direction of 2026-11-17, which BL-20261117-0940-owner-direction-decisions-delegated quotes and which says to "accept all recommended options for other groups". The session had listed this card's 16 open values to the owner, each with its proposal. Reading the direction as approval of the whole card is the session's, and the owner may replace it. E6 makes no claim about real documents, the desktop app or any cloud route.
+
+Decisions:
+- **The 16 items stand at the values the card proposed.** The card marks each "Decided (owner, 2026-11-17)" and keeps every alternative that was not chosen.
+  - **Item 1, authoring:** a separate session writes the three files and their gold, at zero fee.
+  - **Item 2, defects:** five classes and eight planted defects a file, 24 in the set, with two control clauses a file.
+  - **Item 3, what a run is:** a loop is one run, with 2 repeats for each arm and file. That is 6 single runs and 6 loops: at most 24 driver runs and 6 critique calls, before any re-run or resumed stage.
+  - **Item 4, acceptance:** a run is accepted when its delivered review submitted and the blind proxy grader accepted it. A run that did not submit, or stopped at a cap, counts as rejected. The planted-defect count decides no acceptance.
+  - **Item 5, grading:** Phase 2's blind procedure, adapted. Two bundles and two graders a file, every candidate graded, no source file beside the brief, one decoy. Lane S-harn changes the bundle tool if a change is needed.
+  - **Item 6, reading:** six questions stated before the runs. Fisher's exact test reads question 1, an exact permutation test question 2 and an exact sign test question 4, each two-sided at p below 0.05 and not corrected for one another. If question 1 shows review-2 better, review-2 is proposed as the route and the owner records the choice. Otherwise the route stays the single sample.
+  - **Item 7, the loop's rules:** two samples, the critique and the repair not skipped when the selected draft submitted, ties to the original under selection protocol 2 (BL-20261109-0417-loop-selection-protocol-2-implemented), and blind grades of both candidates. 7d.A's two defaults stand too: who sees the flags file, and no flag measure (BL-20261109-0354-document-review-flags-design).
+  - **Item 8, settings:** the Heavy profile's code defaults and E0's request settings in both arms, with one serving-card state for the whole batch. Which state is recorded before the first run.
+  - **Item 9, the suite:** the session runs the Docker-gated document-review suite on the owner's Mac, and its `Verified` entry is a precondition. The suite ran on 2026-11-17 and passed 7 of 7 (BL-20261117-0942-document-review-and-runtime-suites-docker-verified).
+  - **Item 10, order and names:** the arms alternate by repeat, the runs go by hand without the launcher, and one batch name covers all the rows.
+  - **Item 11, stop rule:** as the card writes it.
+  - **Item 12, scorer:** lane S-desk builds it as a lane pull request, to the card's specification.
+  - **Item 13, size:** these arms at the review's size, 12 runs in 4 days.
+  - **Item 14, dates:** four days from the first run to the result entry. The first run comes no earlier than the day after items 1 to 13, 15 and 16 are recorded, and only once the preconditions hold.
+  - **Item 15, the card's merge:** the card's pull request needs the owner's own go. The session reads the direction of 2026-11-17 as that go, after a light review and green CI. The earlier go of that day covers handoff restatements only (BL-20261117-0530-owner-merge-go-handoff-restatements).
+  - **Item 16, conditions and row conventions:** they stand as the orchestrating session's procedural choices, which the owner may replace one by one.
+- **Who writes the fixtures and who sees the gold.** A separate authoring session writes the three planted-defect files and their gold. The session that runs E6 receives the task directories and a hashes-only manifest. It never sees the gold. The manifest is committed before the first run and pins the gold by sha256.
+- **Who builds the scorer and who runs it.** Lane S-desk builds it and never reads E6's gold. Its pull request fixes the gold's format, and the authoring session writes the gold to that format. The session that holds the gold runs the scorer once, after the grades are filed, and returns counts only.
+- **Item 13's limit.** At 12 runs only a large difference can show. With six delivered reviews an arm, question 1 shows a difference only at 5 against 0, 6 against 1 or 6 against 0. Under selection protocol 2, review-2 delivers its sample `a` whenever that sample submits. Question 1 may then compare single samples only, and no result would show an effect of selection or repair.
+
+Changes:
+- docs/experiments/e6-card-2026-11-17.md is added. No code changes.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **How the draft was made.** A writer drafted the card. A reviewer found no blocker and one major finding, which was fixed. A revision applied every finding. A checker then read the result, and a last polish followed.
+- **The owner's answer.** The session listed the card's open items to the owner, each with its proposal, before the owner answered on 2026-11-17. BL-20261117-0940-owner-direction-decisions-delegated holds the owner's words.
+- **What changed from the draft.** The 16 markers, the header notes on open values, the sentences the acceptance made stale and the last section, which now restates the 16 as decided. No value, number, digest, date rule, option text or citation changed. Item 8's serving-card rule and item 9's run record were added, citing decision 10 of BL-20261117-0941-group-a-decided-under-delegation and BL-20261117-0942-document-review-and-runtime-suites-docker-verified. One stop-rule sentence changed with them: "the state the owner's entry records for the batch" became "the state recorded for the batch before the first run".
+- **Checks on the card's text.** No `OPEN (owner)` marker remains, and 16 items carry `Decided (owner, 2026-11-17)`. Each earlier entry the card cites is in docs/BUILD_LOG.md.
+- **No E6 run and no probe ran.** This entry decides the card. The suite's run is recorded in BL-20261117-0942-document-review-and-runtime-suites-docker-verified, not here.
+
+Failures or blockers:
+- **No run can start yet.** The fixtures, the manifest and the scorer do not exist (Next gate).
+- **The serving-card state for the batch is not recorded.** No serving card is adopted, and item 8 fixes one state for the batch without naming it.
+
+Limitations and non-claims:
+- **No run has started.** This entry reports no result.
+- **The values were the session's proposals.** The owner accepted them in one direction and restated none. Reading that direction as approval of each value is the session's.
+- **Nothing here is `Verified`.** The document-review suite's `Verified` entry is BL-20261117-0942-document-review-and-runtime-suites-docker-verified, not this one.
+- **Decision 11's open parts** (`verdictBy` and second verdicts, issue #53) are decided in BL-20261117-0941-group-a-decided-under-delegation, not here. The card rows E6's proxy grades as `agent_diagnostic` and defers to that entry.
+- **The grades are a proxy's and provisional.** E6 does not show whether an owner would accept a review.
+- **What else the card says E6 does not show:** anything about real, long or labelled documents, the desktop or the transport to the owned endpoint; that the arms are alike when no difference is shown; review quality beyond the plants; the host flags' recall or precision; a writer output cap or a thinking policy; another selection rule; a comparison with Phase 2.
+- **Three files by one author, two graders a file, one endpoint and one model.** A result is about these files.
+
+Paid exposure: None. The runs are at USD 0 and need no approval entry. The review allows at most USD 1 for fixtures on PLAN.md section 4's synthetic line. It stays unspent, because the fixtures are written at zero fee. A paid fixture step would need its own `Approved` entry.
+
+Next gate: The card's "What the card needs that does not exist yet", in its order:
+1. The separate authoring session builds the three task directories and their gold, at zero fee.
+2. The hashes-only manifest, docs/experiments/e6-tasks-v1.json, is committed.
+3. Lane S-desk's scorer merges as a lane pull request, and the manifest pins its version. Its pull request fixes the gold's format, which step 1 writes to.
+4. Blind bundles for a loop's candidates: two bundles a file, each under its own roots. Lane S-harn changes the tool before the batch if it refuses a stage.
+5. The Docker-gated document-review suite is recorded `Verified`. BL-20261117-0942-document-review-and-runtime-suites-docker-verified meets this.
+6. The grading session writes the grading brief, before any bundle is opened.
+7. The first loop row is checked by hand against docs/experiments/README.md. The row writer needs nothing new.
+
+Also before the first run: this card's pull request merges after a light review and green CI, and the serving-card state for the batch is recorded.
+
+References: docs/experiments/e6-card-2026-11-17.md; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E6; docs/HANDOFF.md "Start here" section 5, step 5; PLAN.md section 4; issues #54 and #53; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0354-document-review-flags-design; BL-20261117-0530-owner-merge-go-handoff-restatements.
+
+### BL-20261117-0953-correction-owner-direction-second-pass -- 2026-11-17 -- Correction to BL-20261117-0940-owner-direction-decisions-delegated and BL-20261117-0943-e5-card-approved: the second review pass of pull request #134, the budget reading set against topic 1's rider, and how the three cards were re-created before the commit
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the reviewer's second pass on pull request #134 at c3ad331 and its fixes. The two entries stay as written. Where this entry differs from either, this entry governs. The three cards are corrected in place, since a card is a current document and not a log entry.
+
+Decisions:
+1. **Moving money between the envelope's lines** (decision 5 of BL-20261117-0940-owner-direction-decisions-delegated). Such a move changes PLAN.md §4's approved allocation, and the adopted default is no reallocation (decision 1 of BL-20261115-1937-owner-adopts-standing-defaults). Topic 1's rider, in decision 2 of the same entry, keeps a change to an approved rule for the owner. The session reads "including the budget" as covering such a move, against that rider. It tells the owner of each move before the run that needs it, and the owner may replace the reading.
+2. **E5's first gate** (Next gate of BL-20261117-0943-e5-card-approved). The build is cut as BL-20261008-1210-owner-v0-1-released cut it, except that the tag stays local until the owner's go for the push.
+3. **E5's entry, Evidence.** Beside the additions it lists, the card gained sentences on review decision 9 (O12), on PLAN's branches (O5) and on issue #53's decision entry.
+4. **Three card sentences gave the merge go without its limits.** E5's and E2's header notes and E6's item 15 now say what decision 2 of BL-20261117-0940-owner-direction-decisions-delegated says: the merge go covers a `Proposed` card's pull request after review and green CI, and its reach to an `Approved` card is the session's reading.
+5. **How the cards reached the commit.** After the first review and before anything was staged, a script of the session's emptied the three card files: it opened each file for writing before reading it. Nothing was committed or pushed in that state.
+   - The three agents that had made the cards re-created each from its draft with the same edits.
+   - The session re-applied its own patches by a script that reads a file fully before writing it and checks every replacement.
+   - The reviewer's second pass rebuilt the first-pass cards from its saved diffs. It found the committed cards differ from them only by its own findings as applied and two re-wraps.
+
+Changes:
+- docs/experiments/e5-card-2026-11-17.md, e2-card-2026-11-17.md and e6-card-2026-11-17.md: one passage each, as decision 4 says.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The first pass** read the six entries, the handoff note and the three cards before the commit. It found no blocker and four major findings, all applied before the commit, so the entries as committed hold them:
+  - the tag push for E5's build and the serving card's adoption commit are asked of the owner by name;
+  - a new search destination needs the owner's explicit approval;
+  - the role-level-gap reasoning states what E0 shows and what it does not;
+  - the merge go's reach to `Approved` cards is the session's reading.
+- **The second pass,** at c3ad331, found no blocker and no major finding, two minor findings and two nits. All four are decisions 1 to 4 above. It confirmed that the first pass's findings are applied and that every cited ID resolves.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: The script error of decision 5. No content was lost: the drafts were intact, and the cards were re-created and re-checked.
+
+Limitations and non-claims:
+- **One reviewer.** No skeptic checked it, since no blocker or major finding stood at the second pass.
+- **The fixes of this entry were not reviewed again.** They are the reviewer's replacement texts, applied by the session.
+- **Decision 1 is a reading.** The owner's sentence names the budget and says nothing of the allocation.
+
+Paid exposure: None.
+
+Next gate: Pull request #134's merge, on green CI, under the session's reading in decision 5 of BL-20261117-0940-owner-direction-decisions-delegated.
+
+References: docs/PLAN.md §4; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261008-1210-owner-v0-1-released; pull request #134; issue #53.

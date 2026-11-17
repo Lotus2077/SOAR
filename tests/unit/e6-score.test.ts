@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { documentReviewApplierFile } from "../../src/main/private-agent/document-review";
+import {
+  E6_AGREEMENT_TEXTS as TEXTS, E6_GOOD_CLEAN as GOOD_CLEAN, E6_GOOD_EDITS as GOOD, E6_HARM_CLEAN as HARM_CLEAN, E6_HARM_EDITS as HARM,
+  e6AgreementGold as gold, e6Edit as edit,
+} from "../helpers/e6-score-fixtures";
 
 /**
  * E6's planted-defect scorer (BL-20261117-1005-e6-planted-defect-scorer-design; docs/experiments/e6-gold-format.md). Every document,
@@ -43,53 +47,14 @@ const esc = (text: string) => text.replace(/&/gu, "&amp;").replace(/</gu, "&lt;"
 const p = (text: string) => `<w:p><w:r><w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
 const row = (cells: string[]) => `<w:tr>${cells.map(cell => `<w:tc>${p(cell)}</w:tc>`).join("")}</w:tr>`;
 
-/** A synthetic services agreement of 18 body paragraphs; paragraphs 3 to 10 are the cells of its table. Not an E6 document. */
-const TEXTS = [
-  "Services Agreement",
-  "1. Fees. The Client shall pay a fee of 12,500 per month.",
-  "Item", "Amount", "Monthly fee", "11,500", "Setup", "2,000", "Total", "14,500",
-  "2. Liability. The Supplier shall not be liable for indirect losses.",
-  "3. Termination. Either party may terminate on 30 days notice, as set out in Section 7.",
-  "4. Payment. Invoices are due within 30 days.",
-  "5. Confidentiality. The Supplier shall keep the Client's data confidential.",
-  "6. Warranty. The Supplier warrants the services will be performed with care.",
-  "7. Disclaimer. The Supplier does not warrant the services will be performed with care.",
-  "8. Notices. Notices are given in writing.",
-  "9. Signatures.",
-];
-function agreement(changes: Record<number, string> = {}, texts = TEXTS) {
+/** The synthetic agreement's body (tests/helpers/e6-score-fixtures.ts), with some paragraphs' text replaced. */
+function agreement(changes: Readonly<Record<number, string>> = {}, texts: readonly string[] = TEXTS) {
   const at = (n: number) => changes[n] ?? texts[n - 1]!;
   return p(at(1)) + p(at(2)) + `<w:tbl>${[3, 5, 7, 9].map(n => row([at(n), at(n + 1)])).join("")}</w:tbl>`
     + texts.slice(10).map((_, i) => p(at(i + 11))).join("");
 }
 
-/** A gold file in format version 1 for the agreement: one defect of each class and two controls. */
-function gold(sourceSha256: string) {
-  return {
-    format: "soar-e6-gold", version: 1, source: { sha256: sourceSha256, paragraphs: 18 },
-    defects: [
-      { id: "D1", class: "numeric", spans: [{ paragraph: 2, quote: "a fee of 12,500" }, { paragraph: 6, quote: "11,500" }], commentOnly: false,
-        clean: { any: [
-          { all: [{ paragraphs: [2, 2], contains: "11,500", word: true }, { paragraphs: [2, 2], lacks: "12,500", word: true }] },
-          { all: [{ paragraphs: [6, 6], contains: "12,500", word: true }, { paragraphs: [6, 6], lacks: "11,500", word: true }] }] } },
-      { id: "D2", class: "table_arithmetic", spans: [{ paragraph: 10, quote: "14,500" }], commentOnly: false,
-        clean: { paragraphs: [10, 10], contains: "13,500", word: true } },
-      { id: "D3", class: "reference_definition", spans: [{ paragraph: 12, quote: "Section 7" }], commentOnly: true },
-      { id: "D4", class: "clause_contradiction", spans: [{ paragraph: 15, quote: "warrants the services" }, { paragraph: 16, quote: "does not warrant" }],
-        commentOnly: false, clean: { any: [{ paragraphs: [16, 16], lacks: "not", word: true }, { paragraphs: [15, 15], contains: "does not", word: true }] } },
-      { id: "D5", class: "missing_section", region: { first: 17, last: 18 },
-        edit: { any: [{ contains: "governing law", word: true }, { contains: "jurisdiction", word: true }] } },
-    ],
-    controls: [
-      { id: "K1", spans: [{ paragraph: 11, quote: "shall not be liable for indirect" }], clean: { paragraphs: [11, 11], contains: "shall not be liable", word: true } },
-      { id: "K2", spans: [{ paragraph: 13, quote: "due within 30 days" }], clean: { paragraphs: [13, 13], contains: "30 days", word: true } },
-    ],
-  } as Record<string, any>;
-}
-const edit = (id: string, action: string, anchor: string, rationale: string, newText?: string) =>
-  ({ id, anchor, action, rationale, severity: "medium", ...(newText === undefined ? {} : { newText }) });
-
-interface RunInput { edits?: object[] | string | null; clean?: Record<number, string> | string | null; flags?: object | string | null; source?: string }
+interface RunInput { edits?: readonly object[] | string | null; clean?: Readonly<Record<number, string>> | string | null; flags?: object | string | null; source?: string }
 /** A run directory as the driver leaves one, with the candidate files the scorer reads; null leaves a file out. */
 function run(root: string, name: string, input: RunInput = {}) {
   const dir = join(root, name), candidate = join(dir, "candidate");
@@ -115,29 +80,6 @@ function setup(mutate: (g: Record<string, any>) => void = () => {}) {
   return { root, source, goldPath };
 }
 
-const GOOD = [
-  edit("E1", "replace", "a fee of 12,500", "The table gives 11,500.", "a fee of 11,500"),
-  edit("E2", "comment", "Section 7", "Termination is clause 3."),
-  edit("E3", "replace", "14,500", "The rows sum to 13,500.", "13,500"),
-  edit("E4", "replace", "does not warrant", "The disclaimer contradicts clause 6.", "warrants"),
-  edit("E5", "insert_after", "Notices are given in writing.", "No clause on the law that applies.", " 10. Governing law. English law governs this agreement."),
-];
-const GOOD_CLEAN = {
-  2: "1. Fees. The Client shall pay a fee of 11,500 per month.", 10: "13,500",
-  16: "7. Disclaimer. The Supplier warrants the services will be performed with care.",
-  17: "8. Notices. Notices are given in writing. 10. Governing law. English law governs this agreement.",
-};
-const HARM = [
-  edit("E1", "comment", "a fee of 12,500", "Check this figure."),
-  edit("E2", "replace", "shall not be liable", "Simpler.", "shall be liable"),
-  edit("E3", "replace", "Invoices are due", "Wording.", "Invoices fall due"),
-  edit("E4", "insert_after", "9. Signatures.", "Governing law is missing; add it.", " Signed in two copies."),
-  edit("E5", "replace", "Total", "Label.", "Sum"),
-  edit("E6", "comment", "Nowhere in the text", "Unplaced: not in the source."),
-  edit("E7", "comment", "The Supplier", "Unplaced: in four paragraphs."),
-];
-const HARM_CLEAN = { 9: "Sum", 11: "2. Liability. The Supplier shall be liable for indirect losses.", 13: "4. Payment. Invoices fall due within 30 days.",
-  18: "9. Signatures. Signed in two copies." };
 const NONE = { clause_contradiction: 0, missing_section: 0, numeric: 0, reference_definition: 0, table_arithmetic: 0, total: 0 };
 const PLANTED = { clause_contradiction: 1, missing_section: 1, numeric: 1, reference_definition: 1, table_arithmetic: 1, total: 5 };
 

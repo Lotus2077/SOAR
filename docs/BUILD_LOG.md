@@ -48554,3 +48554,85 @@ Next gate:
 4. The coordinator merges, and the manifest pins version 1 before E6's first run.
 
 References: BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-1509-host-flags-event-design; BL-20261027-0145-phase4-tasks-design; docs/experiments/e6-card-2026-11-17.md; docs/experiments/e6-gold-format.md.
+
+### BL-20261117-1024-e6-planted-defect-scorer-implemented -- 2026-11-17 -- E6's planted-defect scorer implemented (card item 12): scripts/e6-score.py, version 1, reads gold format version 1, with a check for the authoring session and tests on synthetic documents only
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261117-1005-e6-planted-defect-scorer-design (plan E6.12, lane S-desk, #135).
+- **The format went out first, at 85bfb32.** The scorer, with `--check-gold` and `--list`, followed at 2334220. Lane S-e1, which writes E6's gold, has both.
+- **S-e1 confirmed the sources.** Its three documents are built from plain python-docx paragraphs and tables, with no field and no tracked change.
+- **The source read** was decided by the coordinating session under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated: the run's own `input/*.docx` is read, and it is refused when its sha256 differs from the gold's. The coordinating session's own entry for the decision had not merged when this entry was written, so it is not cited here.
+
+Decisions:
+
+(1) **The design's ten decisions hold.** Implementing them settled four points:
+- **A literal never matches across an edit's two texts.** It matches within the new text or within the rationale. The format document's first wording joined the two with a newline, and whitespace folding would have turned that into a space. S-e1 was told. The format stays version 1.
+- **Unplaced edits are counted as `editsUnplaced`.** A `plan_invalid` or `clean_invalid` status carries a `reason` code. For a plan, that code is the applier's own.
+- **Every scoring invocation binds the gold to the source**, not only `--check-gold`. A gold file that fails any check is refused before any run is scored.
+- **The plan's shape rules are the applier's `load_plan`, copied.** A plan the applier refuses for its shape is `plan_invalid`.
+
+(2) **The refusals, exit 2, with codes and no text.**
+- Usage and labels: `usage_invalid`, `run_argument_invalid` and `label_duplicate`.
+- The gold's own shape: codes beginning `gold_`.
+- The gold against its source: `gold_quote_not_found`, `gold_quote_not_unique`, `gold_defect_condition_holds_on_source`, `gold_control_condition_fails_on_source` and `gold_control_overlaps_defect`.
+- The source: `source_unreadable`, `source_has_fields`, `source_has_tracked_changes`, `source_sha256_differs` and `source_paragraphs_differ`.
+- A run's source: `source_missing`, `source_ambiguous` and `source_mismatch`.
+
+Changes:
+- **scripts/e6-score.py:** the scorer.
+- **docs/experiments/e6-gold-format.md:** the corrected wording on the two texts.
+- **tests/unit/e6-score.test.ts:** 12 tests.
+- **tests/helpers/e6-score-fixtures.ts:** a synthetic agreement of 18 paragraphs with a table, a gold file for it with one plant of each class and two controls, and two plans. Both test files use them.
+- **tests/integration/e6-score.test.ts:** Docker-gated (`SOAR_RUN_PRIVATE_AGENT_RUNTIME=true`). It leaves #81's suite unchanged.
+  - The scorer's listing must equal the applier's on the nine kinds of fixture document in tests/helpers/document-review-fixtures.ts, and on the agreement written with python-docx.
+  - The scorer must score the files that the real applier wrote for the two plans.
+
+Evidence:
+- **The unit tests.** `pnpm exec vitest run tests/unit/e6-score.test.ts`: 12 of 12 pass. They cover:
+  - the version;
+  - the three rules on two plans. One addresses 5 of 5 and changes no control. The other addresses 1 of 5, changes one control and has two unplaced edits;
+  - a fix in the table instead of the prose;
+  - `word` keeping 13,500 from matching inside 113,500;
+  - folding of curly quotes, a no-break space, case and whitespace;
+  - `word: false`;
+  - an edit outside the missing section's region;
+  - an anchor that touches a span without overlapping it;
+  - no match across the new text and the rationale;
+  - a comment never changing a control;
+  - the five statuses without counts, and C1's four readings: recorded, missing, error and invalid;
+  - the whole invocation refused for a mismatched, missing or ambiguous source;
+  - `--check-gold`'s success and 21 refusals;
+  - a source with a field or a tracked change refused;
+  - the listing of tables, a nested table, text boxes, tabs, breaks, objects, both hyphens, an insertion, a deletion, a hyperlink and a field code.
+- **The pin.** 11 constants copied from the applier equal the applier's own values. The applier's own `view_text`, taken from its source with the ast module and run without lxml, returns the same text as the port on all 26 paragraphs of a test document.
+- **Mutants.** Eight single-edit mutants of the rules were each killed:
+  - touching ranges counted as overlapping;
+  - `commentOnly` ignored;
+  - the first of several anchor occurrences placed;
+  - the region's first paragraph excluded;
+  - a flags error read as zero;
+  - the new text and the rationale joined;
+  - comments allowed to change controls;
+  - no casefold.
+- **Determinism and privacy of the output.** The same invocation twice prints the same bytes. No word of the agreement or of the plans appears in the output.
+- **Checks.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm typecheck` and `pnpm validate:readiness` pass. The full suite, `pnpm exec vitest run`: 208 files, 194 passed and 14 skipped; 3,968 tests, 3,880 passed and 88 skipped, none failed. That run was on this branch's tree with the shared fixtures and the Docker-gated file in place, before this entry.
+- **Not run by lane S-desk:** the Docker-gated test. It needs the qualified image, and this lane runs nothing Docker-dependent. It is skipped in CI and here.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **`Implemented`, not `Verified`.** The scorer has read no E6 file, and lane S-desk never will. Its first real use is the gold-holding session's single run after the grades are filed.
+- **The port's equality with the applier on python-docx documents is shown only once the Docker-gated test runs.** Until then it rests on the pin and on the port of `body_paragraphs`. The pin cannot run `body_paragraphs`, because that function needs lxml's `iterancestors`.
+- **What a count shows** is stated in the design entry and the card. It is not meaning, not precision and not acceptance.
+- **The scorer's sha256 changes with any later commit to the file.** The manifest pins the merged version's sha256.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- One light review, then CI.
+- The coordinator merges.
+- Before E6's first run, the manifest pins version 1 and the merged sha256.
+- The orchestrating session may run tests/integration/e6-score.test.ts under `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true`. A pass would be its `Verified` entry for the scorer's reading.
+
+References: BL-20261117-1005-e6-planted-defect-scorer-design; BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0354-document-review-flags-design; docs/experiments/e6-gold-format.md.

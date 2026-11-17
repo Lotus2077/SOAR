@@ -212,7 +212,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(evidence).toContain("Host fallback question: what does the corpus establish for brief requirement U1?");
     expect(evidence).toContain(RESEARCH_FALLBACK_POLICY.skeleton.opening);
     const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
-    expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 3, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
+    expect(JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text)).toMatchObject({ version: 4, fallbacks: { plan: "host_plan", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
   });
   it("7b.2: a packet the priority trim cut reaches the writer, with its omissions and trimmed outcomes in the presentation (BL-20261115-1939-research-priority-trim-design)", async () => {
     // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.
@@ -230,7 +230,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const evidence = runs[0]!.initialEvidence!;
     const packet = JSON.parse(evidence.slice(evidence.indexOf("\n{") + 1, evidence.lastIndexOf("\nEND HOST-RETAINED RESEARCH DATA"))) as { files: { path: string; text: string }[] };
     const coverage = JSON.parse(packet.files.find(file => file.path === RESEARCH_FILES.coverage)!.text);
-    expect(coverage.version).toBe(3); expect(coverage.omissions).toHaveLength(extract.quotesLeftByCap);
+    expect(coverage.version).toBe(4); expect(coverage.omissions).toHaveLength(extract.quotesLeftByCap);
     expect(coverage.chunks.some((chunk: { questions: { status: string }[] }) => chunk.questions.some(q => q.status === "evidence_trimmed"))).toBe(true);
     // The writer's instructions say what a trimmed quote is.
     expect(runs[0]!.goal).toContain("evidence_trimmed"); expect(runs[0]!.goal).toContain("are never absence");

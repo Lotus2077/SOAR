@@ -85,6 +85,18 @@ This folder holds the committed, sanitized record of live trials (see
     estimates. The protocol hash binds the admission policy, the session identity
     binds the rates, and freeze.json's pipeline block names them. With admission
     `none`, nothing changes, and summary.json has no admission record.
+  - **A second repair under the same basis** (item (ii),
+    BL-20261117-1143-research-second-repair-design).
+    - **What it does.** Under `admission.basis: serving_card`, a chunk still
+      unfinished after its one repair gets one more, at the role policy's second
+      attempt slot, while extraction calls are left.
+    - **What records it.** coverage.json (version 4) holds that chunk's three
+      attempts. The extract row counts `secondRepairCalls` and
+      `secondRepairsComplete`. A chunk the second repair saved has three attempts,
+      the last `complete`; one it did not save has three, the last not `complete`.
+    - **It moved the default research protocol hash** for every run, so it was
+      re-pinned. A card whose P10 evidence predates it is refused for protocol
+      drift until P1, P10, P11 and the adapter are re-run.
   - **Caps and thinking are read since 7a.2** (BL-20261116-1203-research-role-policy-design).
     The research stage sends each local role's attempts the card's caps and
     thinking: attempt 1 is a role's first call, attempt 2 its repair or second

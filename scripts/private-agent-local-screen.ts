@@ -23,7 +23,7 @@ import { claimsReportPath } from "../src/main/private-agent/host-flags";
 import { withDocumentReview } from "../src/main/private-agent/document-review";
 import { loadRepairDirectory, repairMatchesRun, repairSeedMatches, withRepair } from "../src/main/private-agent/repair";
 import { DECK_CHECK_VERSION, deckArtifacts, withDeckValidity } from "../src/main/private-agent/ooxml";
-import { assertSeedRolePolicy, loadResearchSeed, seededPipelineFreeze } from "../src/main/private-agent/research-seed";
+import { assertSeedRolePolicy, loadResearchSeed, seededPipelineFreeze, type PipelineFreeze } from "../src/main/private-agent/research-seed";
 import { assertRunDirectoryIgnored, createDiagnosticsFileSink } from "../src/main/private-agent/research-diagnostics";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
@@ -264,6 +264,13 @@ export function researchPipelineFreeze(planner: "cloud" | "local", roles?: Resea
     ...(admission ? { admission: { basis: "serving_card" as const, rates: admission } } : {}) };
 }
 /**
+ * 7a.2 and item (ii)'s review (BL-20261117-1143-research-second-repair-design): a seeded run writes from a packet read under its source's
+ * role policy and admission basis, so both must be this run's (the defaults without a card); refused before anything is created.
+ */
+export function assertLocalScreenSeed(seed: { pipeline: Pick<PipelineFreeze, "roles" | "admission"> } | undefined, servingCard: LoadedServingCard | undefined): void {
+  if (seed) assertSeedRolePolicy(seed.pipeline, servingCard?.policy.roles, servingCard?.policy.admission.basis === "serving_card");
+}
+/**
  * 7b.3's review (BL-20261117-1131-research-card-admission-design): a card's research values, read once, for both freeze.json's pipeline
  * block and the session's research option, so the two cannot drift apart; a drift would surface only when the run is later seeded. The
  * role policy goes to both; the admission rates only under a `serving_card` basis.
@@ -483,7 +490,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   // default, the freeze's pipeline block. A seeded run writes from a packet read under a policy, so its source must have read under
   // this run's policy (the default without a card); refused, like the card, before anything is created.
   const roles = servingCard?.policy.roles;
-  if (seed) assertSeedRolePolicy(seed.pipeline, roles);
+  assertLocalScreenSeed(seed, servingCard);
   // 7a.2: a card whose synthesis attempts cannot hold the 100-word floor would be refused inside the session, after the run directory,
   // freeze.json and the database exist; it is refused here instead, like any card refusal. A split-arm synthesiser never reads the policy,
   // and the pipeline keeps its own check (research-pipeline.ts).

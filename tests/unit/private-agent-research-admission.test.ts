@@ -328,7 +328,7 @@ describe("7b.3: the reserve, the estimate and the admission test under a card", 
   const admit = (remainingMs: number | undefined, budget = RESEARCH_PIPELINE_BUDGET, at = work) => researchCardAdmission(at, budget, caps, rates, remainingMs);
 
   it("pins the policy the protocol hash binds under a card", () => {
-    expect(RESEARCH_ADMISSION_POLICY).toEqual({ version: 1, basis: "serving_card", repairReserve: { chunksPerRepair: 4, minimum: 1 }, stageShare: { numerator: 1, denominator: 2 },
+    expect(RESEARCH_ADMISSION_POLICY).toEqual({ version: 2, basis: "serving_card", repairReserve: { chunksPerRepair: 4, minimum: 1 }, repairsPerChunk: 2, stageShare: { numerator: 1, denominator: 2 },
       bytesPerToken: 4, refusal: "expected_estimate_above_share" });
     expect(Object.isFrozen(RESEARCH_ADMISSION_POLICY) && Object.isFrozen(RESEARCH_ADMISSION_POLICY.repairReserve) && Object.isFrozen(RESEARCH_ADMISSION_POLICY.stageShare)).toBe(true);
   });
@@ -347,10 +347,10 @@ describe("7b.3: the reserve, the estimate and the admission test under a card", 
   it("estimates the expected time as a lower bound and the cap-bound time as every call the budget allows, in tenths of a second", () => {
     const record = admit(86_000);
     // Expected: 46,001 prompt tokens at 4,000/s, three chunks of 100 at 200/s, and 1,000 + 2,000 at 100/s: 11.50025 + 1.5 + 30 = 43.0.
-    // Cap-bound: 4 index and 6 extraction calls (two per batch and chunk), 92,002 prompt tokens at 2,000/s, 4 x 1,536 + 6 x 2,048 at 100/s,
-    // and 2 x 8,192 + 2 x 8,192 at 50/s: 46.001 + 184.32 + 655.36 = 885.7.
+    // Cap-bound: 4 index calls (two per batch) and 9 extraction calls (per chunk its first attempt and two repairs, item (ii)), 123,003 prompt
+    // tokens at 2,000/s, 4 x 1,536 + 9 x 2,048 at 100/s, and 2 x 8,192 + 2 x 8,192 at 50/s: 61.5015 + 245.76 + 655.36 = 962.6.
     expect(record).toEqual({ basis: "serving_card", policy: RESEARCH_ADMISSION_POLICY, rates, work: { batches: 2, chunks: 3, reservedRepairs: 1, indexCalls: 24, extractionCalls: 40 },
-      estimate: { expectedSeconds: 43, capBoundSeconds: 885.7, shareSeconds: 43 }, decision: "admitted" });
+      estimate: { expectedSeconds: 43, capBoundSeconds: 962.6, shareSeconds: 43 }, decision: "admitted" });
     // Only the budget's calls count: one extraction call per chunk when the budget holds no more.
     expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4, indexCalls: 2 }).estimate.capBoundSeconds).toBe(tenths(15_000 / 2000 + 31_001 * 4 / 3 / 2000 + (2 * 1536 + 4 * 2048) / 100 + 32_768 / 50));
   });
@@ -361,7 +361,7 @@ describe("7b.3: the reserve, the estimate and the admission test under a card", 
     expect(admit(-5)).toMatchObject({ decision: "refused_clock", estimate: { shareSeconds: 0 } });
     for (const remainingMs of [undefined, Number.NaN]) expect(admit(remainingMs)).toMatchObject({ decision: "admitted", estimate: { shareSeconds: null } });
     // The cap-bound estimate never decides: far above the share, the run is still admitted.
-    expect(admit(100_000)).toMatchObject({ decision: "admitted", estimate: { capBoundSeconds: 885.7, shareSeconds: 50 } });
+    expect(admit(100_000)).toMatchObject({ decision: "admitted", estimate: { capBoundSeconds: 962.6, shareSeconds: 50 } });
   });
 
   it("takes only positive, finite rates whose fastest is not below their slowest", () => {

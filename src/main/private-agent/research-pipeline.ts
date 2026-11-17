@@ -136,6 +136,11 @@ export interface ResearchStageCounts {
   conflictsNoted?: number; conflictsInPacket?: number; packetBytes?: number; citationsStripped?: number; argumentBytes?: number;
   initialCalls?: number; repairCalls?: number; sourcesListed?: number; sourcesModelComplete?: number; sourcesLiteralFallback?: number;
   unresolvedModelSummaries?: number; chunksPlanned?: number; chunksComplete?: number;
+  /**
+   * Item (ii) (BL-20261117-1143-research-second-repair-design), on the extract row under a card's admission rates only: the second
+   * repairs sent (each also counted in repairCalls), and how many of them left their chunk complete. Absent without the rates.
+   */
+  secondRepairCalls?: number; secondRepairsComplete?: number;
   /** Synthesis (7b.1, finding D13): the word cap sent, the brief's own limit when it states one, and the accepted argument's words. Recorded, never enforced. */
   lengthCapWords?: number; briefWordLimit?: number; argumentWords?: number;
   /** 7a.1 (findings D2 and D5): what a complete extraction reply lost or had corrected, and the accepted argument's rewritten headings. */
@@ -200,7 +205,7 @@ export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELIN
   return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(rolePolicy ? { rolePolicy } : {}), ...(cardAdmission ? { admission: RESEARCH_ADMISSION_POLICY } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING, limits: LIMITS, indexLimits: INDEX_LIMITS, coveragePolicy: RESEARCH_COVERAGE_POLICY, presentationPolicy: RESEARCH_PRESENTATION_POLICY, planDiagnostics: RESEARCH_PLAN_DIAGNOSTIC_POLICY,
     schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, planAttempt: z.toJSONSchema(ResearchPlanAttemptSchema), synthesisAttempt: z.toJSONSchema(ResearchSynthesisAttemptSchema), evidence: z.toJSONSchema(ResearchEvidenceSchema), coverage: z.toJSONSchema(ResearchCoverageSchema), extraction: z.toJSONSchema(ExtractReplySchema), synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
-    schemaVersions: { plan: 2, evidence: 2, coverage: 3, synthesis: 1, seed: 2 }, packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
+    schemaVersions: { plan: 2, evidence: 2, coverage: 4, synthesis: 1, seed: 2 }, packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
     quoteChars: [RESEARCH_QUOTE_MIN_CHARS, RESEARCH_QUOTE_MAX_CHARS], budget, files: RESEARCH_FILES,
     requestShapes: { extractionLayout: RESEARCH_EXTRACTION_LAYOUT, indexBatching: RESEARCH_INDEX_BATCH_POLICY, synthesisLength: RESEARCH_SYNTHESIS_LENGTH_POLICY }, tolerance: RESEARCH_TOLERANCE_POLICY, slots: RESEARCH_SLOT_POLICY, fallback: RESEARCH_FALLBACK_POLICY, trim: RESEARCH_TRIM_POLICY }));
 }
@@ -488,7 +493,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     return (off ? flag.thinkingOff : flag.thinkingOn) ? { ...RESEARCH_ROLE_SCHEMAS[role], strict: flag.variant === "strict" } : undefined;
   };
   let inventory: ReturnType<typeof inventoryResearchSources>;
-  try { inventory = inventoryResearchSources(input.sources); coverage = { version: 3, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),
+  try { inventory = inventoryResearchSources(input.sources); coverage = { version: 4, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),
     sourceManifestSha256: inventory.sourceManifestSha256, units: deriveBriefUnits(input.brief), sources: inventory.sources, chunks: inventory.chunks, omissions: [], conflictOmissions: [], unresolved: [],
     synthesis: { status: "pending", questions: [] }, fallbacks: { plan: "none", synthesis: "none" }, status: "incomplete", semanticAcceptance: "not_evaluated", corpusAbsenceEstablished: false }; }
   catch { return finish("incomplete", "research_input_invalid"); }
@@ -604,7 +609,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const questions = new Set(plan.questions.map(q => q.id)), verified: ResearchEvidence["quotes"] = [], conflicts: ResearchEvidence["conflicts"] = [], quoteMap = new Map<string, ResearchEvidence["quotes"][number]>();
   const extractCounts: ResearchStageCounts = { stage: "extract", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0,
     chunksPlanned: inventory.chunks.length, chunksComplete: 0, pairsPlanned: inventory.chunks.length, pairsExtracted: 0, quotesDropped: 0,
-    conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0 };
+    conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0,
+    // Item (ii)'s review: under a card's admission rates both counts exist from the row's creation, so a denied row carries them too.
+    ...(admission ? { secondRepairCalls: 0, secondRepairsComplete: 0 } : {}) };
   /**
    * Owner question 3's corner (BL-20261110-0726): a first attempt that dropped every quote it gave for a question it marked
    * evidence_found is held rather than kept. Held chunks are repaired after every other repair, while the budget lasts; a held
@@ -658,12 +665,29 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   };
   const extractRefused = await fanOut(coverage.chunks, readerStreams, (chunk, signal) => extractLaunch(chunk, false, signal), (chunk, reply) => extractApply(chunk, false, reply));
   if (extractRefused) { settleHeld(false); return denied(extractCounts, extractRefused); }
-  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts: the list is computed once,
-  // after the initial pass has drained, and cut to the slots left.
-  const repairs = [...coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), ...coverage.chunks.filter(c => held.has(c.id))];
-  const extractRepairRefused = await fanOut(repairs.slice(0, Math.max(0, budget.extractionCalls - extractCounts.calls)), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal), (chunk, reply) => extractApply(chunk, true, reply));
-  if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
-  settleHeld(true);
+  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts: each list is computed once, after
+  // the passes before it have drained, and cut to the slots left.
+  const slots = () => Math.max(0, budget.extractionCalls - extractCounts.calls);
+  const repairPass = (chunks: ResearchCoverage["chunks"], second: boolean) => fanOut(chunks.slice(0, slots()), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal),
+    (chunk, reply) => { extractApply(chunk, true, reply); if (second) { extractCounts.secondRepairCalls!++; if (chunk.status === "complete") extractCounts.secondRepairsComplete!++; } });
+  const plain = coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), heldChunks = coverage.chunks.filter(c => held.has(c.id));
+  if (!admission) {
+    const extractRepairRefused = await repairPass([...plain, ...heldChunks], false);
+    if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
+    settleHeld(true);
+  } else {
+    // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, a chunk still not complete after its one
+    // repair gets one more, at the second attempt slot (its cap, thinking and response_format), while calls are left. Its review: the
+    // unfinished chunks' second repairs come before the held chunks' repairs, which are optional (a held chunk left unrepaired keeps its
+    // first attempt), and a held chunk whose repair failed gets its second repair last.
+    let refused = await repairPass(plain, false);
+    if (!refused) refused = await repairPass(plain.filter(c => c.status !== "complete" && c.attempts.length === 2), true);
+    if (!refused) refused = await repairPass(heldChunks, false);
+    if (refused) { settleHeld(false); return denied(extractCounts, refused); }
+    settleHeld(true);
+    const heldSecond = await repairPass(heldChunks.filter(c => c.status !== "complete" && c.attempts.length === 2), true);
+    if (heldSecond) return denied(extractCounts, heldSecond);
+  }
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
   // 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): the packet keeps a prefix of the trim's priority
   // (research-trim.ts), conflict notes first because evidence.md renders the kept ones; coverage.json discloses every quote and note

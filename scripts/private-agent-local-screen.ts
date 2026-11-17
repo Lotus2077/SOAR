@@ -272,7 +272,7 @@ export function localScreenStreams(servingCard: LoadedServingCard | undefined): 
  * the bytes it printed before SC.
  */
 export function localScreenFailureLine(error: unknown, dryRun = false): string {
-  // E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design): a refused dry run also names the check that refused it, when the error's
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): a refused dry run also names the check that refused it, when the error's
   // message is a host code (never a path or a value); a run's line keeps its bytes.
   const code = dryRun && error instanceof Error && /^[a-z0-9_]{1,80}$/u.test(error.message) ? error.message : undefined;
   return `${canonical({ state: "incomplete", error: "local_screen_failed_no_replay", ...(code ? { code } : {}), ...servingCardRefusal(error) })}\n`;
@@ -288,7 +288,7 @@ const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls:
     maxElapsedMs: GENERAL_TASK_BUDGETS.heavy.elapsedMs, maxRequests: GENERAL_TASK_BUDGETS.heavy.sessionRequests },
 });
 /**
- * E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design): named write-phase bounds for a seeded writer. A bound replaces the
+ * E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): named write-phase bounds for a seeded writer. A bound replaces the
  * profile's three write-phase limits and nothing else: the session keeps the profile's request pool and elapsed limit, and the model
  * profile is the profile's own. `twelve-call` is the review's 12-call writer bound in the form E2's card takes (item 1).
  */
@@ -480,7 +480,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
   if (input.retainDiagnostics) assertRunDirectoryIgnored(directory);
-  // E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design, decision (4)): the freeze's fields that are fixed before the run starts, built
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design, decision (4)): the freeze's fields that are fixed before the run starts, built
   // by one function for the run and for its dry run, each value's expression as it was. The owned endpoint is one string for both.
   const localEndpoint = `${config.vllm.baseUrl}/chat/completions`;
   const fixedFreeze = (run: { modelConfig: PrivateModelConfig; localModelConfig: PrivateModelConfig; endpoint: string; cloud: ReturnType<typeof buildCloudArm> | undefined;

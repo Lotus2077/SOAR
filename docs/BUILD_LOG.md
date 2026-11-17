@@ -49420,7 +49420,7 @@ Next gate:
 
 References: BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261117-0942-document-review-and-runtime-suites-docker-verified.
 
-### BL-20261117-1011-e2-write-bound-and-dry-run-design -- 2026-11-17 -- E2's writer bound, the driver's dry run and the bound in the registry row: `--write-bound twelve-call` sets a seeded writer's three write-phase limits and nothing else, freeze.json's `limits` records it, and `--dry-run true` prints the freeze a run would write while creating and sending nothing
+### BL-20261117-1049-e2-write-bound-and-dry-run-design -- 2026-11-17 -- E2's writer bound, the driver's dry run and the bound in the registry row: `--write-bound twelve-call` sets a seeded writer's three write-phase limits and nothing else, freeze.json's `limits` records it, and `--dry-run true` prints the freeze a run would write while creating and sending nothing
 
 Status: `Proposed`
 
@@ -49540,7 +49540,7 @@ References: BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-09
 
 Status: `Implemented`
 
-Scope or hypothesis: This implements BL-20261117-1011-e2-write-bound-and-dry-run-design. It covers E2's card items 1, 2 and 16 (BL-20261117-0944-e2-card-approved), accepted under BL-20261117-0940-owner-direction-decisions-delegated. Nothing here runs a model, an endpoint, Docker or a paid call.
+Scope or hypothesis: This implements BL-20261117-1049-e2-write-bound-and-dry-run-design. It covers E2's card items 1, 2 and 16 (BL-20261117-0944-e2-card-approved), accepted under BL-20261117-0940-owner-direction-decisions-delegated. Nothing here runs a model, an endpoint, Docker or a paid call.
 
 Decisions:
 - **(1) The bound, as designed.**
@@ -49632,7 +49632,7 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: CI on the pull request, then the coordinator's merge under the standing go-ahead.
 
-References: BL-20261117-1011-e2-write-bound-and-dry-run-design; BL-20261117-0944-e2-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; docs/experiments/e2-card-2026-11-17.md (items 1, 2 and 16).
+References: BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261117-0944-e2-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; docs/experiments/e2-card-2026-11-17.md (items 1, 2 and 16).
 
 ### BL-20261117-1052-correction-e2-write-bound-design-restamp -- 2026-11-17 -- Correction: E2's write-bound design entry is re-stamped after `main`'s tail; its original ID and authoring time
 
@@ -49641,7 +49641,7 @@ Status: `Implemented`
 Scope or hypothesis: #136 reached `main` (9673bb9) before this branch, with BL-20261117-1000-p10-plan-cap-export-design and BL-20261117-1010-p10-plan-cap-export-implemented.
 - **The merge.** This branch merged `main` at 219c4cf, with no force-push.
 - **The collision.** Its design entry was authored at 10:05 UTC on 2026-11-17 as BL-20261117-1005. Kept as it was, it would sit after 1010 in the ledger.
-- **The re-stamp.** It moves after that tail under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). It is now BL-20261117-1011-e2-write-bound-and-dry-run-design.
+- **The re-stamp.** It moves after that tail under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). It is now BL-20261117-1011.
 
 Decisions:
 - **(1) The re-stamp.**
@@ -49673,4 +49673,59 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: CI on the pull request, then the coordinator's merge under the standing go-ahead.
 
-References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261117-1011-e2-write-bound-and-dry-run-design; pull requests #105 and #136.
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261117-1049-e2-write-bound-and-dry-run-design; pull requests #105 and #136.
+
+### BL-20261117-1053-correction-e2-write-bound-design-second-restamp -- 2026-11-17 -- Correction: E2's write-bound design entry is re-stamped a second time, after #138's tail; its IDs and authoring times, and the source-freeze digest at the new head
+
+Status: `Implemented`
+
+Scope or hypothesis: #138 reached `main` (e8ad1d5) before #140, with BL-20261117-1030-general-task-progress-e2e-runnable and BL-20261117-1048-correction-general-task-progress-e2e-review.
+- **The merge.** This branch merged `main` at c7ec68a, with no force-push and rerere off.
+  - Only docs/BUILD_LOG.md conflicted, and it was resolved by appending.
+  - The merged tree differs from `main` only in this branch's 13 files. Each carries exactly this branch's edits.
+- **The collision.** The design entry, at 1011, would sit before 1030 and 1048.
+- **The re-stamp.** It moves after them under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). On the coordinator's word, it goes to a minute between that tail and BL-20261117-1051-e2-write-bound-and-dry-run-implemented. Entry 1051 stays where it is, and so does BL-20261117-1052-correction-e2-write-bound-design-restamp.
+
+The design entry's IDs, all on 2026-11-17 UTC:
+- **Authored** at 10:05 as BL-20261117-1005.
+- **First re-stamp,** at about 10:50, to BL-20261117-1011, after #136 (Correction 1052).
+- **Now** BL-20261117-1049-e2-write-bound-and-dry-run-design.
+
+This entry was authored at 10:59 and stamped 1053, so that every ID of #140 sits before the coordinator's next entry, 1054.
+
+Decisions:
+- **(1) The re-stamp.** Only the design entry's heading ID changes, with the references to it:
+  - 18 in comments, test titles and the experiments README, across the same 12 files as Correction 1052 names;
+  - two in the `Implemented` entry 1051, in its scope and its references;
+  - one in Correction 1052's references.
+
+  No entry on `main` cites 1011. `main`'s log is kept whole, as a byte prefix of this branch's.
+- **(2) One sentence kept as written.** Correction 1052's sentence "It is now BL-20261117-1011." states where the first re-stamp put the entry, and it keeps that minute. Only its full ID is shortened, since that ID no longer exists.
+- **(3) The source freeze moves again.** The references sit in comments of frozen files.
+  - **The new digest.** `localScreenSourceFreeze()` over 61 files is now `c73c4697f1a1a8fb336f6dba38005c90dfec305d304fef50c414fb9d158b4ce7`. It supersedes the `49ecaaf8…` that entry 1051 states for its own commit.
+  - **Main's digest.** `main` e8ad1d5 is still `19beba42…`, since #138 changed no frozen file.
+  - So `--runtime-sha256` is recomputed after the merge.
+
+Changes:
+- docs/BUILD_LOG.md: the design entry's heading, the references in entries 1051 and 1052, the shortened ID in 1052, and this entry.
+- The 12 files that cite the entry.
+
+No behaviour changes.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (746 entries, append-only against `main` at e8ad1d5). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On the merged tree, the suites the `Implemented` entry names pass 452 of 452 in 23 files, with 1 skipped.
+- **The re-stamp.** With the new ID mapped back and the kept sentence's full ID restored, every changed file is byte-identical to the merge commit's. `git grep` finds 1011 only in Correction 1052's kept sentence and in this entry, in short form.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- Entry 1051 keeps the digest and the merge history it stated at its own commit. This entry states the later ones.
+- Commit messages keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #140, then the coordinator's merge.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261117-1051-e2-write-bound-and-dry-run-implemented; BL-20261117-1052-correction-e2-write-bound-design-restamp; pull requests #136, #138 and #140.

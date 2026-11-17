@@ -154,7 +154,7 @@ const DRIVER_INPUT_SPEND: { readonly [K in keyof Required<DriverInput>]: "free" 
   taskDirectory: "free", expectedJobSha256: "free", expectedBriefSha256: "free", syntheticAuthoritySha256: "free", expectedRuntimeSha256: "free", imageId: "free",
   outputDirectory: "free", publicRetrieval: "free", publicSnapshot: "free", pauseAfterTools: "free", profile: "free", claimsLedger: "free", cacheSalt: "free",
   pipeline: "free", documentReview: "free", cloudArm: "spends", repairFrom: "free", researchFrom: "free", retainDiagnostics: "free",
-  // E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design): both are refused on the loop's command line, and neither spends.
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): both are refused on the loop's command line, and neither spends.
   writeBound: "free", dryRun: "free",
 };
 /** Whether a rerun with this driver input cannot spend: every key set is marked spend-free, and none is unknown. */
@@ -195,7 +195,7 @@ export function ledgerDependencies(): Pick<LoopDependencies, "readRunEnd" | "rea
 /** Every sample runs under the heavy profile with a local writer: a cloud writer is the all-cloud arm, which is a single run and never a loop. */
 export function checkLoopInput(base: LoopInput["base"]): void {
   if (base.profile !== "heavy" || (base.cloudArm !== undefined && base.pipeline !== "research")) throw new Error("loop_cli_invalid");
-  // E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run, however its input was built.
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run, however its input was built.
   if (base.writeBound !== undefined || base.dryRun !== undefined) throw new Error("loop_cli_invalid");
 }
 

@@ -134,7 +134,7 @@ export function parseQueue(bytes: Buffer, root: string): LauncherQueue {
       if (run.kind === "loop") { const loop = parseLoopArguments([...run.argv]); directory = loop.loopDirectory; argumentCap = loop.base.cloudArm?.maxFeeUsd ?? 0; }
       else {
         const single = parseLocalArtifactScreenArguments([...run.argv]);
-        // E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design): a queue lists runs; a dry run creates nothing, and its exit 0 would read as submitted.
+        // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): a queue lists runs; a dry run creates nothing, and its exit 0 would read as submitted.
         if (single.dryRun) throw new Error("launcher_queue_invalid");
         directory = single.outputDirectory; argumentCap = single.cloudArm?.maxFeeUsd ?? 0; }
     } catch { throw new Error("launcher_queue_invalid"); }

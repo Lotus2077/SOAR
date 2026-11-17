@@ -871,13 +871,13 @@ def card_fields(freeze: dict) -> dict:
     return {"researchProtocolSha256": protocol, "servingCard": {"sha256": card["sha256"], "entry": card["entry"]}, "localStreams": streams}
 
 
-# BL-20261117-1011-e2-write-bound-and-dry-run-design (5): the name of a write bound in LOCAL_SCREEN_WRITE_BOUNDS
+# BL-20261117-1049-e2-write-bound-and-dry-run-design (5): the name of a write bound in LOCAL_SCREEN_WRITE_BOUNDS
 # (scripts/private-agent-local-screen.ts), as freeze.json's limits.writeBound records it.
 WRITE_BOUND = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
 def limit_fields(freeze: dict) -> dict:
-    """The write phase's bound as freeze.json's `limits` records it (BL-20261117-1011-e2-write-bound-and-dry-run-design, decision (5)):
+    """The write phase's bound as freeze.json's `limits` records it (BL-20261117-1049-e2-write-bound-and-dry-run-design, decision (5)):
     writeLimits is {bound, modelCalls, toolCalls, elapsedMs}. `bound` is limits.writeBound, the named bound the driver set, or null for
     the profile's own limits; the three numbers are the write phase's, a number the freeze lacks reading null. Null when the freeze
     records no limits, or none of the three and no bound. A present value of another shape refuses the row, naming the field, never
@@ -1330,7 +1330,7 @@ def loop_row(args) -> dict:
                   "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None,
                   # BL-20261116-1358-run-row-card-and-doctor-sources-design: without a stage freeze, the protocol hash, the card and K are unknown.
                   "hostFlags": None, "researchProtocolSha256": None, "servingCard": None, "localStreams": None,
-                  # BL-20261117-1011-e2-write-bound-and-dry-run-design: nor is the write phase's bound.
+                  # BL-20261117-1049-e2-write-bound-and-dry-run-design: nor is the write phase's bound.
                   "writeLimits": None}
         evidence = {"kind": "none"}
         if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):

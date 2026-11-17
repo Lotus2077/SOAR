@@ -56,7 +56,7 @@ describe("registry row of an H4 loop", () => {
     const loop = row(["--loop-dir", root]);
     // BL-20261116-1358-run-row-card-and-doctor-sources-design: the protocol hash, the card and K come from the selected run (repair), as its other run fields do.
     expect([loop.researchProtocolSha256, loop.servingCard, loop.localStreams]).toEqual([h("8"), { sha256: h("c"), entry: "BL-20261116-1203-research-role-policy-design" }, 2]);
-    // BL-20261117-1011-e2-write-bound-and-dry-run-design: so does the write phase's bound; samples a and b recorded no limits.
+    // BL-20261117-1049-e2-write-bound-and-dry-run-design: so does the write phase's bound; samples a and b recorded no limits.
     expect(loop.writeLimits).toEqual({ bound: null, modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000 });
     // The three runs' counts plus the critique's one call; every sample's own ending stays in the row.
     expect(loop).toMatchObject({ modelCalls: 13, toolCalls: 3, inputTokens: 3 * 100 + 2 * 200 + 4 * 50 + 700 + 100, outputTokens: 160, cachedTokens: 95, cacheWriteTokens: 20, lengthStops: 6, usd: 0.12, retriedDispatches: 3, failedDispatches: 0, unknownDispatches: 0, assistSkippedDispatches: 3, assistFailedDispatches: 3,

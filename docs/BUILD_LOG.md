@@ -50330,3 +50330,58 @@ Next gate:
 4. Lane S-pipe merges this head into its chain.
 
 References: BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-1105-correction-loop-single-sample-design-restamp.
+
+### BL-20261117-1130-lane-decisions-second-repair-before-reprobe -- 2026-11-17 -- The session's decisions for the lanes on 2026-11-17, under the owner's delegation: the second repair merges before the re-probe, and the details the cards left open
+
+Status: `Approved`
+
+Scope or hypothesis: On 2026-11-17 the session answered the lanes' questions by message while their pull requests were in work. This entry is the first record of those answers. `Approved` rests on the owner's delegation (decisions 4 and 5 of BL-20261117-0940-owner-direction-decisions-delegated), not on the owner's word about any one of them. Each is the session's and stands until the owner replaces it. The messages came before this entry, so the lanes' own entries describe these decisions without this entry's ID.
+
+Decisions:
+1. **The second repair merges before the re-probe.** Lane S-pipe's pull request #142 gives a chunk still unfinished after its one repair a second repair from the extraction calls left after the first repairs, under a `serving_card` admission basis only. The incomplete-chunk rule stays: a chunk still unfinished after its last repair ends the stage.
+   - **Why it is needed.** Runs 1 to 4 left 1, 2, 4 and 2 chunks unfinished, 9 in all, and run 5 left none. Lane S-pipe classified runs 2 to 5, read-only, from their hashes-only diagnostics and stage rows. Of 31 repairs, 23 succeeded. The 8 that failed, in runs 2 to 4, were `needs_followup` 5, `schema_too_big` 2 and a question-set mismatch 1. Run 1's one unfinished chunk is not classified, since that run kept no diagnostics. None of the 8 was truncated at the cap, and no reply was in the 127 extraction calls of runs 2 to 5. The same chunk rarely failed twice.
+   - **What that says.** The extraction flag is expected to remove `schema_too_big`, 2 of the 8: the fixture showed that on first attempts only, and no repair has run with the format. A larger repair cap would remove none. A second repair at the same cap is the one change that addresses the other 6.
+   - **Why before the probe.** The change moves the default research protocol hash and P10's synthesis bodies. A card measured before it would be refused for drift after it. Merging it first means one probe, one adoption and one r3 re-measurement cover the flag and the second repair together.
+   - **The earlier answer.** At first the session told the lane to hold #142 until an r3 re-measurement under the adopted card. The design entry on #139 and #142's own entry were written to that order. The design says the code is built only if the re-measurement asks for it; #142's entry says it was built at once and merges only after that re-measurement. The classification replaced that answer the same day. This entry is the approval those two entries wait for, and #142 merges only after this entry is on `main`.
+   - **It acts only under a card whose admission basis is `serving_card`.** The card writer proposes the basis `none`, so the adoption sets it. E0's Amendment 5 is to say how before the re-probe runs.
+   - **Not shown.** The lane's estimates of how often runs would finish assume independent chunks and are not a measurement.
+2. **7b.3 is built as briefed** (pull request #137). It cannot move r3's result by itself: r3 has 16 spare calls and the reserve is 6.
+   - **The refusal.** Before any request, and only when the expected estimate exceeds the stage's share of the session clock. Never without a session deadline. A run whose chunks plus the reserve exceed the extraction calls is also refused before any request (`research_mandatory_budget_exceeded`).
+   - **The share** is half of the session's remaining clock at admission. It is used only in the admission test. An admitted reading stage may still use the whole remaining clock, as before.
+3. **E6's scorer** (pull request #135).
+   - **Its source.** E6's card, item 12, lists a candidate's edits, its clean text and one gold file. The scorer also reads the candidate's own input .docx and refuses it if its sha256 differs from the gold's. A span is a quote inside one paragraph. A source with Word fields is refused, so cross-references are plain text. The alternative, gold that carries each paragraph's text, was not chosen: the gold then holds no copy of the source.
+   - **One run's source problem** gives that run a status without counts. It does not refuse the whole invocation.
+   - **Gold ids are opaque,** such as D1 to D8 and K1 and K2, so a refusal that prints an id prints nothing of the gold.
+   - **Rule C1's count.** Lane S-e1 found that a correct fix of a planted clause contradiction flips a negation or a polarity, so the host codes it under C1 and `counts.inversionEdits` counts it. The scorer therefore reports, beside that count, the C1-coded edits on a planted defect that the same run addressed. A wrong flip on a planted clause addresses nothing, so it stays in the remainder. The count is null where the flags file cannot say which edits were coded. Question 5 of E6's card reads the inversion edits outside addressed defects, with the total beside it.
+   - **Two limits the split does not remove,** both found by lane S-e1. The agent and the critic read C1's codes, so a repair may undo a correct fix, which bears on question 4. And deleting a whole negated clause is coded `negation_flipped`, although the brief allows such a deletion. No host rule changes before E6 runs.
+   - **E6's card is amended** for the source read, question 5 and these limits before E6's first run.
+4. **The fixtures' authoring** (lane S-e1).
+   - **One Docker step.** The lane may generate each .docx with python-docx in the qualified image, as E6's card says: the image already present, never pulled or built, no network, no model call, zero fee. It records the image digest and the command.
+   - **The gold** stays under the ignored `.soar/` of that lane's own worktree, apart from the inputs, with one backup outside every checkout. The session opens neither, and it does not archive or clean that worktree before the scorers have run.
+   - **The handover** is inputs only. The session copies them into the main checkout's ignored `.soar/experiments/` and checks each against the manifest's hashes before any run.
+   - **E2's manifest** is docs/experiments/e2-tasks-v1.json, shaped like docs/experiments/phase4-tasks-v1.json. E2's manifest and E6's each state every task's exposure as `fresh`.
+5. **10.b's design** (lane S-assist) is agreed as the lane drafted it. The assist arm is the legacy split arm switched to the forced split, with a flag for the firing policy. The harness alone gets the assist. The driver writes the stage record and no packet text. A capture mode that builds the packets from a zero-fee run without dispatching them is a follow-up, and E3's card names it as a precondition of the first paid assisted run.
+6. **The packet scan** of decision 1 of BL-20261117-0941-group-a-decided-under-delegation also searches for the owner's account name and for home-path shapes. Lane S-assist asked for it, because one accepted residue can let a short rooted path through.
+7. **For E2's result entry.** Lane S-harn found that the write bound also moves the missing-artifacts reminder: writer-2's requests carry it from the 5th request and writer-1's from the 28th. So the arms' requests differ in three places, not the two E2's card names. The result entry says so.
+8. **The merge order of a busy day.** The log is one append-only file, so pull requests that are ready together are chained: each merges its predecessor's head, and they merge in ID order.
+
+Changes: docs/BUILD_LOG.md, this entry.
+
+Evidence:
+- **The classification** is lane S-pipe's, read-only, from the main checkout's ignored run records. It printed numbers, codes and chunk indexes only. Its table is in the lanes' shared notes folder, not in Git.
+- **The lanes' pull requests** hold the code and their own entries: #135 (the scorer), #137 (7b.3), #139 and #142 (the second repair's design and code), #138 (the e2e spec) and #140 (E2's write bound). Each had one reviewer.
+- **The messages** are in the session's chat and the lanes'. They are not in Git.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **None of these was put to the owner one by one.** The basis is the delegation.
+- **The session did not open the run records or the lanes' code itself.** It relied on the lanes' accounts and the reviewers'.
+- **Decision 1 changes a persisted contract on evidence from four runs.** Its effect is measured only by the r3 re-measurement, which has not run.
+- **Nothing here is run, adopted or paid.**
+
+Paid exposure: None.
+
+Next gate: The re-probe under E0's Amendment 5, at a commit that contains #142. Then E6's card amendment, before E6's first run.
+
+References: docs/experiments/e6-card-2026-11-17.md; docs/experiments/e2-card-2026-11-17.md; docs/experiments/e0-card-2026-11-13.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1357-e0-verified; pull requests #135, #137, #138, #139, #140 and #142.

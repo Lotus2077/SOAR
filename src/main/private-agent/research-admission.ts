@@ -50,7 +50,7 @@ export function researchMandatoryWorkFits(work: { batches: number; chunks: numbe
 /**
  * 7b.3 (BL-20261117-1022-research-card-admission-design): card-derived admission, applied only under a serving card whose admission
  * basis is `serving_card`, and bound into researchProtocolSha256 then and only then. The run keeps room for repair calls, and is
- * refused before any request only when even its expected (lower-bound) time exceeds its share of the session clock. The share is
+ * refused before any request only when its expected time exceeds its share of the session clock. The share is
  * used only in that test: an admitted stage may still use the whole remaining clock.
  */
 export const RESEARCH_ADMISSION_POLICY = Object.freeze({ version: 1, basis: "serving_card", repairReserve: Object.freeze({ chunksPerRepair: 4, minimum: 1 }),
@@ -101,9 +101,10 @@ const tenths = (value: number) => Math.round(value * 10) / 10;
  * The admission test under a card, before any request (S1). Pure: the caller passes the session's remaining milliseconds, or undefined
  * when the run has no session deadline, and then there is no share and never a refusal on the clock.
  * - The budget: batches within indexCalls, and chunks plus the reserve within extractionCalls (D3), else `refused_budget`.
- * - The expected estimate, a lower bound in intent: each batch's previews and each chunk's text prefilled once at the fastest rate, each
+ * - The expected estimate: each batch's previews and each chunk's text prefilled once at the fastest rate, each
  *   chunk's expected extraction output at the fastest fan-out rate, and one plan and one synthesis call's expected output at the fastest
- *   single-stream rate. It leaves out index output, repairs and every prompt part not known before the first request.
+ *   single-stream rate, with P10's mean outputs. It leaves out index output, repairs and every prompt part not known before the first
+ *   request, so it tends to fall below the run's time. No call ceiling is derived from the rates: they enter only this clock test.
  * - The cap-bound estimate, disclosed only: every call the budget allows for the work (at most two per batch and per chunk), prefilled
  *   at the slowest rate and decoding its role's larger cap at the slowest rate, plus every planner and synthesiser call.
  * - `refused_clock` when the expected estimate exceeds the share, half the remaining clock, both in tenths of a second.

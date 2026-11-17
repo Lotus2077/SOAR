@@ -435,6 +435,10 @@ export class GeneralAgentSession {
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {
+            // 7b.3's review (BL-20261117-1022-research-card-admission-design): a refused admission writes no file and no stage row, and the
+            // session keeps no summary of an incomplete stage, so the record (the work, both estimates, the share and the decision) is its own event.
+            if (outcome.summary.admission && outcome.summary.admission.decision !== "admitted")
+              store.append(jobId, { type: "research_admission", contextId: readerContextId, admission: outcome.summary.admission });
             // Backlog item 6 (finding A7): a pause that stopped the stage ends incomplete with the refusal the next run gives (an unresolved
             // row, or a stage that started). Every call the stage stops records a stage event, so the paused arm is defensive: no production
             // caller can pause between the session's check and the pipeline's entry, and the arm is truthful there (the stage never started).

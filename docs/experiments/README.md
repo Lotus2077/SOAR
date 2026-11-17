@@ -69,10 +69,17 @@ This folder holds the committed, sanitized record of live trials (see
     missing. Before any request, the reading stage then:
     - keeps room for max(1, ceil(chunks/4)) repair calls inside the extraction
       budget, so at most 32 chunks, or ends `research_mandatory_budget_exceeded`;
-    - ends `research_infeasible_in_clock` when even its expected (lower-bound) time
-      exceeds half the session's remaining clock. Without a session deadline it
-      never ends on the clock. The share is used only in that test: an admitted
-      stage may still use the whole remaining clock.
+    - ends `research_infeasible_in_clock` when its expected time
+      exceeds half the session's remaining clock. That estimate uses the fastest
+      measured rates and P10's mean outputs, and it leaves out what is not known
+      before the first request. Without a session deadline it never ends on the
+      clock. The share is used only in that test: an admitted stage may still use
+      the whole remaining clock.
+
+    No call ceiling is derived from the card. The ceilings are the budget's, less
+    the reserve, and the rates enter only the clock test. A refusal's record is
+    written to the run's events as `research_admission`, since a refused stage
+    leaves no file.
 
     summary.json records the admission, including the expected and cap-bound
     estimates. The protocol hash binds the admission policy, the session identity

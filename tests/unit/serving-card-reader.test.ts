@@ -188,9 +188,13 @@ describe("serving-card reader (SC)", () => {
     const policy = loadFrom(card)(workspace()).policy;
     // Extract's first attempt thinks here, so its expected output is the thinking-on cell's mean.
     expect(policy.admission).toEqual({ basis: "serving_card", rates: { prefillTokensPerSecond: span(sizes.map(size => size.prefillTokS!)), decodeTokensPerSecond: span(sizes.map(size => size.decodeTokS!)),
-      fanOutDecodeTokensPerSecond: { fastest: aggregate, slowest: aggregate },
+      fanOutDecodeTokensPerSecond: { fastest: Math.max(aggregate, span(sizes.map(size => size.decodeTokS!)).fastest), slowest: Math.min(aggregate, span(sizes.map(size => size.decodeTokS!)).slowest) },
       expectedOutputTokens: { plan: cells["plan/on"]!.meanCompletionTokens!, extract: cells["extract/on"]!.meanCompletionTokens!, synthesis: cells["synthesis/on"]!.meanCompletionTokens! } } });
     expect(cells["extract/on"]!.meanCompletionTokens).not.toBe(cells["extract/off"]!.meanCompletionTokens); expect(aggregate).not.toBe(span(sizes.map(size => size.decodeTokS!)).fastest);
+    // 7b.3's review: a burst whose aggregate is below one stream's decode never slows the expected estimate's fan-out.
+    const slow = edited(c => { c.admission.basis = "serving_card"; c.concurrency.localStreams = 4; c.evidence.p11.kStreams["4"].aggregateTokS = 10; });
+    const decode = span(Object.values(slow.evidence.p11!.sizes).filter(size => size.ok).map(size => size.decodeTokS!));
+    expect((loadFrom(slow)(workspace()).policy.admission as { rates: { fanOutDecodeTokensPerSecond: unknown } }).rates.fanOutDecodeTokensPerSecond).toEqual({ fastest: decode.fastest, slowest: 10 });
     // The default basis carries no rates.
     expect(loadFrom(allDefault())(workspace()).policy.admission).toEqual({ basis: "none" });
   });

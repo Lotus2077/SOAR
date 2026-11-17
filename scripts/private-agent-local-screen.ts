@@ -263,6 +263,15 @@ export function researchPipelineFreeze(planner: "cloud" | "local", roles?: Resea
     ...(admission ? { admission: { basis: "serving_card" as const, rates: admission } } : {}) };
 }
 /**
+ * 7b.3's review (BL-20261117-1022-research-card-admission-design): a card's research values, read once, for both freeze.json's pipeline
+ * block and the session's research option, so the two cannot drift apart; a drift would surface only when the run is later seeded. The
+ * role policy goes to both; the admission rates only under a `serving_card` basis.
+ */
+export function localScreenCardResearch(servingCard: LoadedServingCard | undefined, planner: "cloud" | "local") {
+  const roles = servingCard?.policy.roles, admission = servingCard?.policy.admission.basis === "serving_card" ? servingCard.policy.admission.rates : undefined;
+  return { pipeline: researchPipelineFreeze(planner, roles, admission), option: { ...(roles ? { roles } : {}), ...(admission ? { admission } : {}) } };
+}
+/**
  * 8.2b: the session's K, the pair's card's `localStreams`, in every run with a card: the research loops and the claims judge run that
  * many zero-risk local calls at a time. Without a card, none, so they run one call at a time. freeze.json records the same value.
  */
@@ -430,8 +439,6 @@ configOptions?: LoadConfigOptions) {
   // this run's policy (the default without a card); refused, like the card, before anything is created.
   const roles = servingCard?.policy.roles;
   if (seed) assertSeedRolePolicy(seed.pipeline, roles);
-  // 7b.3 (BL-20261117-1022-research-card-admission-design): a `serving_card` admission basis gives the reading stage the card's rates.
-  const cardAdmission = servingCard?.policy.admission.basis === "serving_card" ? servingCard.policy.admission.rates : undefined;
   // 7a.2: a card whose synthesis attempts cannot hold the 100-word floor would be refused inside the session, after the run directory,
   // freeze.json and the database exist; it is refused here instead, like any card refusal. A split-arm synthesiser never reads the policy,
   // and the pipeline keeps its own check (research-pipeline.ts).
@@ -515,7 +522,8 @@ configOptions?: LoadConfigOptions) {
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
       profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}), arm: cloud ? cloud.freeze : { arm: "local" as const },
-      ...(pipeline ? { pipeline: researchPipelineFreeze(cloud ? "cloud" : "local", roles, cardAdmission) } : {}),
+      // 7b.3: the card's roles and, under a `serving_card` admission basis, its rates, from the one helper the research option reads too.
+      ...(pipeline ? { pipeline: localScreenCardResearch(servingCard, cloud ? "cloud" : "local").pipeline } : {}),
       ...(diagnostics ? { diagnosticsRetained: true } : {}),
       ...(pipeline || seed ? { researchPresentationPolicySha256: researchPresentationPolicySha256() } : {}),
       ...(pipeline && !publicPhase ? { researchInput: createResearchInput(privatePhase.contract.goal,
@@ -536,7 +544,7 @@ configOptions?: LoadConfigOptions) {
       trustedHostModelFactory: contextId => new PrivateAgentModel(broker, modelConfig, jobId, contextId),
       ...(cloud ? { cloudArm: { destinationId: cloud.destination.id, maxFeeMicrousd: cloud.maxFeeMicrousd },
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
-      ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, cloud?.modelConfig, { ...(diagnostics ? { diagnostics } : {}), ...(roles ? { roles } : {}), ...(cardAdmission ? { admission: cardAdmission } : {}) }) } : {}),
+      ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, cloud?.modelConfig, { ...(diagnostics ? { diagnostics } : {}), ...localScreenCardResearch(servingCard, cloud ? "cloud" : "local").option }) } : {}),
       // 8.2b: the card's K reaches the research loops and the claims judge, with or without a pipeline; freeze.json records it (servingCardFreeze).
       ...localScreenStreams(servingCard),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },

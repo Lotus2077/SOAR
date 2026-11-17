@@ -37,10 +37,10 @@ import { SELECTION_PROTOCOL_VERSION, ZERO_FEE_DESTINATIONS, compareCandidates, r
 import { servingCardRefusal } from "../src/main/private-agent/serving-card";
 import { critique, type CritiqueArguments } from "./phase2-repair";
 import { loadPreparedOperatorTask } from "./private-agent-run";
-import { localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen } from "./private-agent-local-screen";
+import { localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen, type LocalScreenInput } from "./private-agent-local-screen";
 
 export const LOOP_VERSION = 2;
-export type DriverInput = Parameters<typeof runLocalArtifactScreen>[0];
+export type DriverInput = LocalScreenInput;
 export type LoopCandidate = "a" | "b" | "repair";
 export type LoopStage = LoopCandidate | "critique";
 const STAGES: readonly LoopStage[] = ["a", "b", "critique", "repair"];
@@ -195,6 +195,8 @@ export function ledgerDependencies(): Pick<LoopDependencies, "readRunEnd" | "rea
 /** Every sample runs under the heavy profile with a local writer: a cloud writer is the all-cloud arm, which is a single run and never a loop. */
 export function checkLoopInput(base: LoopInput["base"]): void {
   if (base.profile !== "heavy" || (base.cloudArm !== undefined && base.pipeline !== "research")) throw new Error("loop_cli_invalid");
+  // E2 (BL-20261117-1005-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run, however its input was built.
+  if (base.writeBound !== undefined || base.dryRun !== undefined) throw new Error("loop_cli_invalid");
 }
 
 /** A stop the loop cannot resume past (decision (6)), with what the stopped stage left, for the stop's class. */

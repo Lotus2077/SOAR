@@ -271,8 +271,15 @@ export function localScreenStreams(servingCard: LoadedServingCard | undefined): 
  * The CLI's one failure line. A serving-card refusal adds its fixed code and allowlisted key path; every other failure prints
  * the bytes it printed before SC.
  */
-export function localScreenFailureLine(error: unknown): string {
-  return `${canonical({ state: "incomplete", error: "local_screen_failed_no_replay", ...servingCardRefusal(error) })}\n`;
+export function localScreenFailureLine(error: unknown, dryRun = false): string {
+  // E2 (BL-20261117-1005-e2-write-bound-and-dry-run-design): a refused dry run also names the check that refused it, when the error's
+  // message is a host code (never a path or a value); a run's line keeps its bytes.
+  const code = dryRun && error instanceof Error && /^[a-z0-9_]{1,80}$/u.test(error.message) ? error.message : undefined;
+  return `${canonical({ state: "incomplete", error: "local_screen_failed_no_replay", ...(code ? { code } : {}), ...servingCardRefusal(error) })}\n`;
+}
+/** The CLI's exit code for a returned result: 0 for a submitted run or a dry run, 2 for any other end. */
+export function localScreenExitCode(status: string): 0 | 2 {
+  return status === "submitted" || status === "dry_run" ? 0 : 2;
 }
 /** Headless budgets: "standard" keeps the Phase 0 driver values so earlier rows stay comparable. */
 const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls: number; maxToolCalls: number; maxElapsedMs: number; maxRequests: number }>> = Object.freeze({
@@ -428,7 +435,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
       || (input.researchFrom !== undefined && (input.pipeline !== undefined || input.cloudArm !== undefined || input.profile !== "heavy" || input.claimsLedger !== true ||
         input.publicRetrieval || input.documentReview))
       // E2: a named write bound is a seeded writer's alone; the dry run builds no cloud arm and no public receiver.
-      || (input.writeBound !== undefined && (!Object.hasOwn(LOCAL_SCREEN_WRITE_BOUNDS, input.writeBound) || input.researchFrom === undefined || input.repairFrom !== undefined))
+      || (input.writeBound !== undefined && (!Object.hasOwn(LOCAL_SCREEN_WRITE_BOUNDS, input.writeBound) || !input.researchFrom || input.repairFrom !== undefined))
       || (input.dryRun === true && (input.cloudArm !== undefined || input.publicRetrieval === true || input.publicSnapshot !== undefined))) throw new Error("local_screen_arguments_invalid");
   const sourceFreeze = localScreenSourceFreeze();
   if (sourceFreeze.sha256 !== input.expectedRuntimeSha256) throw new Error("local_screen_reviewed_source_changed");
@@ -643,7 +650,7 @@ function messagesPath(endpoint: string | undefined): boolean {
   try { return endpoint !== undefined && new URL(endpoint).pathname === "/v1/messages"; } catch { return false; }
 }
 
-export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
+export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenInput {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--cloud-long-context", "--max-fee-usd"];
     const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", "--cache-salt", "--pipeline", "--research-from", "--retain-diagnostics", ...snapshotNames,
@@ -708,6 +715,6 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     const result = await runLocalArtifactScreen(parseLocalArtifactScreenArguments(process.argv.slice(2)));
-    if (result.status !== "submitted" && result.status !== "dry_run") process.exitCode = 2;
-  } catch (error) { process.stderr.write(localScreenFailureLine(error)); process.exitCode = 1; }
+    process.exitCode = localScreenExitCode(result.status);
+  } catch (error) { process.stderr.write(localScreenFailureLine(error, process.argv.includes("--dry-run"))); process.exitCode = 1; }
 }

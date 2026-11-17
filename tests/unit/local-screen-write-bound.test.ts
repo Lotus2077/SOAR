@@ -14,9 +14,9 @@ import { researchPresentationIdentity } from "../../src/main/private-agent/resea
 import { loadResearchSeed } from "../../src/main/private-agent/research-seed";
 import { researchTransferPhase, sessionPhaseIdentity } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
-import { parseLoopArguments } from "../../scripts/phase4-loop";
-import { LOCAL_SCREEN_WRITE_BOUNDS, buildLocalScreenModelConfig, localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen,
-  withClaimsLedger, type LocalScreenInput } from "../../scripts/private-agent-local-screen";
+import { parseLoopArguments, runSelectionLoop, type LoopDependencies } from "../../scripts/phase4-loop";
+import { LOCAL_SCREEN_WRITE_BOUNDS, buildLocalScreenModelConfig, localScreenExitCode, localScreenFailureLine, localScreenSourceFreeze, parseLocalArtifactScreenArguments,
+  runLocalArtifactScreen, withClaimsLedger, type LocalScreenInput } from "../../scripts/private-agent-local-screen";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { writeResearchSeedSource } from "../helpers/research-seed-source";
@@ -168,7 +168,8 @@ describe("E2's write bound and the driver's dry run (BL-20261117-1005-e2-write-b
     const root = workspace(), { plain, seeded, cwd } = await seededTask(root), endpoint = await counter();
     // Each input is a dry run, so a check that let one through would print rather than start a session.
     const run = (input: LocalScreenInput) => runLocalArtifactScreen({ ...input, dryRun: true }, { environment: environment(endpoint.baseUrl), cwd });
-    for (const input of [{ ...plain, writeBound: "twelve-call" as const }, { ...seeded, writeBound: "eighty-call" as never }, { ...seeded, writeBound: "__proto__" as never },
+    for (const input of [{ ...plain, writeBound: "twelve-call" as const }, { ...seeded, researchFrom: "", writeBound: "twelve-call" as const },
+      { ...seeded, writeBound: "eighty-call" as never }, { ...seeded, writeBound: "__proto__" as never },
       { ...seeded, writeBound: "twelve-call" as const, repairFrom: join(root, "critique") }, { ...plain, publicRetrieval: true },
       { ...plain, cloudArm: { model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { inputUsdPerMillion: 2, outputUsdPerMillion: 8 }, maxFeeUsd: 8 } as never }])
       await expect(run(input)).rejects.toThrow("local_screen_arguments_invalid");
@@ -206,6 +207,16 @@ describe("E2's write bound and the driver's dry run (BL-20261117-1005-e2-write-b
     expect(parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver]).base).toMatchObject({ profile: "heavy", claimsLedger: true });
     for (const extra of [["--write-bound", "twelve-call"], ["--dry-run", "true"]])
       expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...extra])).toThrow("loop_cli_invalid");
+    const loopBase = parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver]).base;
+    for (const over of [{ writeBound: "twelve-call" as const }, { dryRun: true }, { dryRun: false }])
+      await expect(runSelectionLoop({ base: { ...loopBase, ...over }, loopDirectory: join(root, "loop") }, {} as LoopDependencies)).rejects.toThrow("loop_cli_invalid");
+    expect(existsSync(join(root, "loop"))).toBe(false);
+    // The CLI exits 0 on a dry run as on a submitted run, and 2 on any other end; a refused dry run names its check, and a run's line keeps its bytes.
+    expect(["submitted", "dry_run", "incomplete", "paused", "cancelled"].map(localScreenExitCode)).toEqual([0, 0, 2, 2, 2]);
+    const refusal = new Error("local_screen_output_directory_invalid");
+    expect(localScreenFailureLine(refusal, true)).toBe(`${canonical({ state: "incomplete", error: "local_screen_failed_no_replay", code: "local_screen_output_directory_invalid" })}\n`);
+    expect(localScreenFailureLine(refusal)).toBe(`${canonical({ state: "incomplete", error: "local_screen_failed_no_replay" })}\n`);
+    expect(localScreenFailureLine(new Error("ENOENT: no such file or directory, open '/Users/someone/x'"), true)).toBe(localScreenFailureLine(refusal));
   });
 
   it("rows a seeded single run offline through --run-dir, from a freeze built of the dry run's line, for both writer arms (E2's card, 'The bound in the registry row')", async () => {

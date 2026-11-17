@@ -21,9 +21,21 @@ This folder holds the committed, sanitized record of live trials (see
     refuses a path-like alias.
   - **The writer's proposals.** The writer marks the card `proposed`. It proposes
     structured output by the 95% rule on the requested variant (at least 20 assessed
-    calls), today's caps and thinking, K 1 and admission `none`. The Markdown's P10
-    verdict keeps its older wording (no 20-call minimum, no protocol check); the
-    JSON is authoritative.
+    calls), the role export's caps and thinking (the pipeline's own, unless the export
+    was given a plan cap), K 1 and admission `none`. The Markdown's P10 verdict keeps
+    its older wording (no 20-call minimum, no protocol check); the JSON is
+    authoritative.
+  - **A plan cap for the probe** (topic 6,
+    BL-20261117-1000-p10-plan-cap-export-design). `pnpm probe:export-schemas --
+    --plan-cap <tokens>` builds both of P10's plan cells at that cap, from 128 to
+    16,384 tokens, and records it as the export's `outputTokens.plan`. P10 records
+    each cell's cap from the body it sends, and the probe copies the export's caps,
+    so the writer proposes the planner's two attempts at the cap its plan cells
+    measured. The reader can then resolve a plan flag at that cap. Without the
+    option the export is unchanged. The command refuses any other argument, so a
+    mistyped option cannot export the pipeline's 8,192 for a re-probe meant for
+    another cap. Neither the research protocol hash nor the source freeze depends on
+    the option.
   - **P10's request settings**
     (BL-20261114-2301-serving-card-request-settings-design). The card copies the
     settings the role export built P10's bodies under (`evidence.p10.requestSettings`:
@@ -139,7 +151,8 @@ This folder holds the committed, sanitized record of live trials (see
   serving card's plan call: the strict `research_plan` response_format item 9 sends,
   with thinking on, at 8,192 tokens. `legacy-thinking-structured-16384` is the same
   request at 16,384 tokens, a calibration cell: no card can send it until P10
-  measures plan at 16,384. That makes 10 repeats and 30 calls
+  measures plan at 16,384, which an export built with `--plan-cap 16384` lets it
+  do. That makes 10 repeats and 30 calls
   (BL-20261116-1253-e0-planner-structured-condition-design). Each of the conditions
   and the repeats comes from the manifest unless its own flag (`--conditions`,
   `--repeats`) is given, and each repeat runs every condition in turn. With

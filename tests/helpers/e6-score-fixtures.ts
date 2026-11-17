@@ -1,5 +1,5 @@
 /**
- * Synthetic inputs for E6's planted-defect scorer (BL-20261117-1005-e6-planted-defect-scorer-design): an agreement, a gold file in format
+ * Synthetic inputs for E6's planted-defect scorer (BL-20261117-1106-e6-planted-defect-scorer-design): an agreement, a gold file in format
  * version 1 for it, and edit plans over it. None of it is an E6 task, document or gold file.
  */
 

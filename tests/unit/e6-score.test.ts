@@ -11,7 +11,7 @@ import {
 } from "../helpers/e6-score-fixtures";
 
 /**
- * E6's planted-defect scorer (BL-20261117-1005-e6-planted-defect-scorer-design; docs/experiments/e6-gold-format.md). Every document,
+ * E6's planted-defect scorer (BL-20261117-1106-e6-planted-defect-scorer-design; docs/experiments/e6-gold-format.md). Every document,
  * plan and gold file here is synthetic and written by this test: no E6 task, gold or document is read.
  */
 const ROOT = resolve(__dirname, "..", "..");

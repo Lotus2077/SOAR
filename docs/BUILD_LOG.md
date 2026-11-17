@@ -49940,7 +49940,7 @@ Next gate: CI on the pull request, then the coordinator's merge in its order.
 
 References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1055-loop-single-sample-design; BL-20261117-1104-loop-single-sample-implemented; pull requests #105, #136, #138, #140 and #141.
 
-### BL-20261117-1005-e6-planted-defect-scorer-design -- 2026-11-17 -- E6's planted-defect scorer designed (card item 12): the gold's format version 1, the rules that count a planted defect addressed or a control changed, and a counts-only output
+### BL-20261117-1106-e6-planted-defect-scorer-design -- 2026-11-17 -- E6's planted-defect scorer designed (card item 12): the gold's format version 1, the rules that count a planted defect addressed or a control changed, and a counts-only output
 
 Status: `Proposed`
 
@@ -50050,11 +50050,11 @@ Next gate:
 
 References: BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-1509-host-flags-event-design; BL-20261027-0145-phase4-tasks-design; docs/experiments/e6-card-2026-11-17.md; docs/experiments/e6-gold-format.md.
 
-### BL-20261117-1024-e6-planted-defect-scorer-implemented -- 2026-11-17 -- E6's planted-defect scorer implemented (card item 12): scripts/e6-score.py, version 1, reads gold format version 1, with a check for the authoring session and tests on synthetic documents only
+### BL-20261117-1107-e6-planted-defect-scorer-implemented -- 2026-11-17 -- E6's planted-defect scorer implemented (card item 12): scripts/e6-score.py, version 1, reads gold format version 1, with a check for the authoring session and tests on synthetic documents only
 
 Status: `Implemented`
 
-Scope or hypothesis: This implements BL-20261117-1005-e6-planted-defect-scorer-design (plan E6.12, lane S-desk, #135).
+Scope or hypothesis: This implements BL-20261117-1106-e6-planted-defect-scorer-design (plan E6.12, lane S-desk, #135).
 - **The format went out first, at 85bfb32.** The scorer, with `--check-gold` and `--list`, followed at 2334220. Lane S-e1, which writes E6's gold, has both.
 - **S-e1 confirmed the sources.** Its three documents are built from plain python-docx paragraphs and tables, with no field and no tracked change.
 - **The source read** was decided by the coordinating session under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated: the run's own `input/*.docx` is read, and it is refused when its sha256 differs from the gold's. The coordinating session's own entry for the decision had not merged when this entry was written, so it is not cited here.
@@ -50130,4 +50130,127 @@ Next gate:
 - Before E6's first run, the manifest pins version 1 and the merged sha256.
 - The orchestrating session may run tests/integration/e6-score.test.ts under `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true`. A pass would be its `Verified` entry for the scorer's reading.
 
-References: BL-20261117-1005-e6-planted-defect-scorer-design; BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0354-document-review-flags-design; docs/experiments/e6-gold-format.md.
+References: BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0354-document-review-flags-design; docs/experiments/e6-gold-format.md.
+
+### BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp -- 2026-11-17 -- Correction: plan E6.12's two entries are re-stamped after main's new tail; the light review's findings are fixed, gold ids become opaque before any gold file was frozen, and rule C1's coded edits on planted spans are reported beside the total
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1106-e6-planted-defect-scorer-design and BL-20261117-1107-e6-planted-defect-scorer-implemented (plan E6.12, lane S-desk, #135).
+- **Why a re-stamp.** By the coordinating session's order, #136, #138 and #140 merged first. #135 now chains on lane S-harn's #143, whose head 5a8f5bf holds `main` at e8b3aa7 and ends at BL-20261117-1105-correction-loop-single-sample-design-restamp.
+- **The original IDs.**
+  - The design entry was BL-20261117-1005, written at 10:05 UTC on 2026-11-17 and committed in 85bfb32.
+  - The implemented entry was BL-20261117-1024, written at 10:24 UTC and committed in 692a0cc.
+- **The light review** of #135 at 692a0cc found no blocker, one major finding, four minor ones and four nits. CI was green there.
+
+Decisions:
+
+(1) **The re-stamp** (BL-20261113-0937-owner-decision-restamp-unmerged-entries, BL-20261113-0938-correction-restamp-rule-dates).
+- The design entry becomes BL-20261117-1106 and the implemented entry BL-20261117-1107, the first free minutes after the tail.
+- Only the IDs and the references to them change; the bodies are otherwise byte-identical.
+- The design ID also moves in five files: the format document, the scorer's docstring and three test files.
+
+(2) **Major finding 1: a failed rule C1 no longer reads as a measured zero.**
+- **The cause.** The applier's `flag_rule` records a single rule's failure under that rule's own key, here `edits.error`, and leaves `counts.inversionEdits` at 0. The scorer checked only a top-level `error`.
+- **The effect.** Such a file gave `inversionEdits: 0` with `flags: "recorded"`, against the design's decision (8).
+- **The fix.** It now gives `null` with `flags: "error"`.
+
+(3) **Minor finding 2: a run's own source problem is now that run's status.**
+- **The cause.** The coordinating session decided to refuse a run's own input when it is not the gold's. The code refused the whole invocation instead, so one run that left a second `.docx` under `input/` blocked every count for its file.
+- **The fix.** A run whose source is missing, ambiguous or another document now gets `source_missing`, `source_ambiguous` or `source_mismatch`, with no counts, and the other runs are still scored.
+- **Binding.** The gold binds to the first run whose source is the gold's. A gold that does not fit that source still refuses the invocation, as `--check-gold` would.
+
+(4) **Minor finding 3: gold ids are now opaque.**
+- **Why.** Refusals name items by id, and an id could carry a word of the gold.
+- **The fix.** Ids are now `D1` to `D99` for defects and `K1` to `K99` for controls.
+- **Why version 1 stays.** This changes the format before its first merge, and no version 1 had been merged or pinned. Lane S-e1 confirmed that no gold file was frozen and no manifest pinned, and that its files already used these ids.
+
+(5) **Minor finding 4: gaps in the tests.**
+- **The new cases:**
+  - the lookalike fold (a curly apostrophe);
+  - composition (a decomposed accent);
+  - `delete` and `insert_after` each changing a control;
+  - an `all` with one member failing;
+  - the right-hand word boundary;
+  - a one-character overlap at each end of a span;
+  - a quote that repeats only by overlapping;
+  - a negative C1 count.
+- **A claim it corrects.** The implemented entry's Evidence counted the folding of curly quotes as tested. That case passed without the fold, which is why the new fold case was added.
+
+(6) **Minor finding 5: the pin is wider.**
+- **The listing.** `<w:cr/>` and `<w:ptab/>` join it.
+- **The applier's own functions.** Its `load_plan` and `find_all` are taken from its source the way `view_text` is, and run against the scorer's on 24 plans and 6 searches. The scorer gains a `find_all` of the applier's shape for this.
+- **What stays outside.** `body_paragraphs`, because it needs lxml.
+
+(7) **Nits.**
+- **Composition first.** Matching now composes both sides (Unicode NFC) before anything else.
+- **The format document** now says:
+  - that `--list` prints any source, while `--check-gold` and `--gold` refuse a field or a tracked change;
+  - that punctuation is a word boundary, so "13,500" matches inside "13,500,000".
+- **The coordinator's decision entry.** The coordinating session's own entry for its decision on the source read is on neither `main` nor #143's head as this entry is written, so it is not cited here. The design's decision (1) and this Correction's decision (3) describe it.
+
+(8) **Rule C1's coded edits on planted spans are reported beside the total.**
+- **The finding.** Lane S-e1 found it, running the flags code on synthetic reviews. A correct fix of a planted clause contradiction flips a negation or a polarity, so rule C1 codes it and `counts.inversionEdits` counts it. On E6's files the total is therefore not all harm. The same can happen with a fix of a misused defined term.
+- **The decision.** The coordinating session decided the remedy. Beside `inversionEdits`, each scored run now reports `inversionEditsOnPlants`: the coded edits whose anchors overlap a planted defect's span. A control's span is not a planted defect's.
+- **Where the scorer reads them.** The flags file lists the coded edits' ids under `edits.flags`.
+- **When it is `null`.** The count is `null` when that list is cut at the applier's cap of 40 (`truncated`), or when it disagrees with the count.
+- **The card's reading.** The coordinating session amends E6's card so that question 5 reads the coded edits outside planted spans, with the total beside it.
+
+(9) **The scorer stays version 1.**
+- No version was merged or pinned before these changes.
+- Its sha256 at this commit is 1f1ac05e35530bef652b8efb37b53ad70d567c8b15a09c695d2ecdaae23eecad. The manifest pins the merged file's value.
+
+Changes:
+- docs/BUILD_LOG.md: the two re-stamped entries and this Correction.
+- ef3219b: the review's fixes, in scripts/e6-score.py, tests/unit/e6-score.test.ts and docs/experiments/e6-gold-format.md.
+- 4b0dedc: rule C1's coded edits on planted spans, in the scorer, both test files and the format document.
+- 5b0fbfc: the merge of #143's head 5a8f5bf, which holds `main` at e8b3aa7.
+- The five references to the design ID.
+
+Evidence:
+- **The merge.** Merging #143's head conflicted only at the log's tail. It is resolved as that head's log followed by the two entries as committed. Against that head, the branch adds only its own six files.
+- **The re-stamp.** With the new IDs mapped back, the two entries are byte-identical to 692a0cc's. The log of #143's head is a byte prefix of this one, and so is `main`'s.
+- **Checks.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Tests.** tests/unit/e6-score.test.ts passes 15 of 15 on this tree, and the Docker-gated file loads and is skipped. The full suite was not run again before this push: the machine's load average was between 30 and 40, and #135's chain was waiting on this head. It last passed at 692a0cc, with 3,880 tests passed, 88 skipped and none failed. CI runs it at this head.
+- **Mutants.** 24 single-edit mutants of the rules were each killed:
+  - the 8 from the implemented entry;
+  - 9 of the kinds the review found surviving:
+    - the lookalike fold removed;
+    - `delete` dropped from the changing actions;
+    - `insert_after` dropped from the changing actions;
+    - `all` read as `any`;
+    - the right-hand word boundary dropped;
+    - a one-character overlap at the start of a span;
+    - a one-character overlap at its end;
+    - a search that skips overlapping occurrences;
+    - a negative count accepted;
+  - 7 for the fixes: the rule C1 error, the source mismatch, NFC, `cr`, `ptab`, the anchor's length limit and the opaque ids.
+  - 4 more for `inversionEditsOnPlants`, also each killed:
+    - controls' spans counted as planted;
+    - the list's agreement with the count ignored;
+    - the coded filter ignored;
+    - coded edits counted though unplaced.
+- **Not run by lane S-desk:** the Docker-gated test. The coordinating session runs it after the merge.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Statuses.** Every status stays as written: nothing is `Verified` or `Released`.
+- **The reviewer's confirmations** at 692a0cc are the reviewer's own:
+  - every item of the card's list is met;
+  - only `--list` prints a document's text, and it takes no gold;
+  - the paragraph numbering matches the applier's;
+  - the entries and the scope are right;
+  - privacy is clean.
+- **The format's change within version 1** holds only because no gold file had been written to another id form.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The reviewer re-checks the fixes at this head.
+2. CI.
+3. The coordinator merges #143, then #135, with `--match-head-commit`. If #143's head changes, #135 merges it again and is re-stamped again.
+4. The manifest pins version 1 and the merged sha256.
+5. The coordinating session runs tests/integration/e6-score.test.ts and records the result.
+
+References: BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1105-correction-loop-single-sample-design-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-0945-e6-card-approved.

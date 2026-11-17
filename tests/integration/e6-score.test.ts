@@ -8,7 +8,7 @@ import { DOCUMENT_FIXTURE_PY } from "../helpers/document-review-fixtures";
 import { E6_AGREEMENT_PY, E6_GOOD_EDITS, E6_HARM_EDITS, e6AgreementGold } from "../helpers/e6-score-fixtures";
 
 /**
- * E6's planted-defect scorer (BL-20261117-1005-e6-planted-defect-scorer-design) beside the real applier, in the qualified image.
+ * E6's planted-defect scorer (BL-20261117-1106-e6-planted-defect-scorer-design) beside the real applier, in the qualified image.
  * - The scorer's standard-library reading must list every fixture document exactly as the applier's lxml one does.
  * - It must score the files the applier itself wrote.
  * Docker-gated like tests/integration/private-agent-document-review.test.ts, which this file leaves unchanged. It uses no model and no

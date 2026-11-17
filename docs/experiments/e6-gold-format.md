@@ -7,7 +7,7 @@ a fix apart from a mark.
 
 The E6 card asks for this format (docs/experiments/e6-card-2026-11-17.md, "What the card
 needs that does not exist yet", item 3, under the owner's item 12). Its decisions are in
-BL-20261117-1005-e6-planted-defect-scorer-design.
+BL-20261117-1106-e6-planted-defect-scorer-design.
 
 - **Who reads a gold file.** Only the scorer. The session that holds the gold runs it
   once, after the grades are filed, and returns counts only. Lane S-desk, which builds

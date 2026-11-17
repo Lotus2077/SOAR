@@ -1,6 +1,6 @@
 """E6's planted-defect scorer, version 1.
 
-Design: BL-20261117-1005-e6-planted-defect-scorer-design. Gold format: docs/experiments/e6-gold-format.md.
+Design: BL-20261117-1106-e6-planted-defect-scorer-design. Gold format: docs/experiments/e6-gold-format.md.
 
 usage: python3 -I scripts/e6-score.py --version
        python3 -I scripts/e6-score.py --list SOURCE.docx

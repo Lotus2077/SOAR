@@ -52299,3 +52299,72 @@ Paid exposure: None.
 Next gate: The rest of E6's preconditions, then its first run.
 
 References: docs/experiments/e6-card-2026-11-17.md (Amendment 1); BL-20261117-1311-e6-card-amendment-1; BL-20261117-1303-correction-assist-capture-restamp-second-repair; pull requests #147, #148 and #149.
+
+### BL-20261117-1326-research-admission-record-incomplete-stage -- 2026-11-17 -- An admitted reading stage that ends incomplete keeps its admission record as a `research_admission` event, for the r3 re-measurement
+
+Status: `Implemented`
+
+Scope or hypothesis: Under a card whose admission basis is `serving_card`, the reading stage decides its admission before any request (7b.3, BL-20261117-1131-research-card-admission-design). Before this change the record was kept in two cases only:
+- a completed stage keeps it in summary.json;
+- a refused stage keeps it as a `research_admission` event.
+
+An admitted stage that then ended incomplete kept it nowhere. The session keeps no summary of an incomplete stage, and session.ts wrote the event only for a decision other than `admitted`. The r3 re-measurement reads every run's admission record, and four of E0's five r3 runs ended incomplete (BL-20261116-0813-e0-r3-runs-index-and-harvest). This change keeps the record for such runs too.
+
+Decisions:
+1. **The request.** On 2026-11-17 the coordinating session agreed lane S-pipe's proposal for the r3 re-measurement:
+   - three serial zero-fee runs;
+   - readings from each run's state.sqlite and directory.
+
+   It asked for this change as a small pull request, on `main` before the runs, with `researchProtocolSha256()` unchanged.
+2. **One condition.** session.ts now writes the `research_admission` event for every stage that carries an admission record and does not complete, whether admitted or refused. A completed stage still writes none, because its record is in summary.json and in the `research_transfer` event's summary.
+3. **What does not change:**
+   - the pipeline, its requests and its records;
+   - the event's shape;
+   - the protocol hash, both the default and the one under admission;
+   - the session identity.
+
+   No reader consumes the event; it is a record for the readings.
+4. **The source freeze moves,** because session.ts is in it. At `main` 7c761e5 it is 31c249fa39adc1d4f10446e5f416770f63759d0afcccf5e7af8fb14e38d01823; at this head it is c39a5ccb5ec086d52b774be12d486ccf95cbe3a6bd2ac8ab60fe8e8076132462. A run's `--runtime-sha256` must name the value at its commit. session.ts cites this entry's ID, so a re-stamp of this entry would move the freeze again.
+
+Changes:
+- src/main/private-agent/session.ts: the condition and its comment.
+- tests/unit/private-agent-research-session.test.ts: one new test. The comment on the completed admitted run now says that its stage completes.
+- docs/experiments/README.md: the event's description.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The new test.** Every extraction reply is invalid, so the admitted stage ends `research_extraction_incomplete`. There is no transfer and no writer run.
+  - The extract row shows a second repair for every chunk, and none complete.
+  - The run's one `research_admission` event holds the record: decision `admitted`, the rates, the extract row's chunk count, and a positive share of the session clock.
+- **The mutant.** With the old condition restored, the new test fails. The file was then restored byte for byte.
+- **The existing tests pass.**
+  - A completed admitted run writes no such event, both in the session test and on the real broker (10.b's recoverability test).
+  - The refused runs keep their events.
+- **Values at this head:**
+  - `researchProtocolSha256()` is e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c, unchanged;
+  - under admission with the default roles it is f157570b4a34cf3135a9d7545350b212ac3f90b5007e07f37cde52860551a2f2, unchanged;
+  - the source freeze is the value in decision 4.
+- **Checks:**
+  - `pnpm typecheck` passes.
+  - The two changed test files pass: 89 tests.
+  - **The full suite:** 196 files passed and 14 skipped; 3,971 tests passed and 88 skipped.
+    - One test failed at the 5 s timeout: the workspace lister's test in private-agent-sandbox-capture. The load average just after the run was 17.
+    - That file is not changed here, and alone it passes (13 tests, 1 skipped).
+  - `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called; the evidence is unit tests on loopback fixtures.
+- **Two ends still keep no record:**
+  - a stage ended by the operator's cancel or by a policy drift, because the session checks those first and returns before the event;
+  - a stage that completes but whose transfer then fails, through an unresolved dispatch, a collision or a producer refusal.
+
+  Neither is a normal end of a research run.
+- **Records only.** Nothing reads the event, and the change alters no decision in any run.
+
+Paid exposure: None.
+
+Next gate: CI and the coordinating session's merge, before the first r3 run. Then the amendment that registers the runs names the source freeze at the runs' commit.
+
+References: BL-20261117-1131-research-card-admission-design; BL-20261117-1132-research-card-admission-implemented; BL-20261117-1142-correction-research-card-admission-review-restamp; BL-20261117-1143-research-second-repair-design; BL-20261117-1145-research-second-repair-implemented; BL-20261116-0813-e0-r3-runs-index-and-harvest; docs/experiments/README.md.

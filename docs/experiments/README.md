@@ -77,14 +77,16 @@ This folder holds the committed, sanitized record of live trials (see
       the whole remaining clock.
 
     No call ceiling is derived from the card. The ceilings are the budget's, less
-    the reserve, and the rates enter only the clock test. A refusal's record is
-    written to the run's events as `research_admission`, since a refused stage
-    leaves no file.
+    the reserve, and the rates enter only the clock test. A stage that does not
+    complete, whether refused or admitted, writes its record to the run's events
+    as `research_admission`, since the session keeps no file of an incomplete
+    stage (BL-20261117-1326-research-admission-record-incomplete-stage).
 
-    summary.json records the admission, including the expected and cap-bound
-    estimates. The protocol hash binds the admission policy, the session identity
-    binds the rates, and freeze.json's pipeline block names them. With admission
-    `none`, nothing changes, and summary.json has no admission record.
+    A completed stage's summary.json records the admission, including the
+    expected and cap-bound estimates. The protocol hash binds the admission
+    policy, the session identity binds the rates, and freeze.json's pipeline
+    block names them. With admission `none`, nothing changes, and summary.json
+    has no admission record.
   - **A second repair under the same basis** (item (ii),
     BL-20261117-1143-research-second-repair-design).
     - **What it does.** Under `admission.basis: serving_card`, a chunk still

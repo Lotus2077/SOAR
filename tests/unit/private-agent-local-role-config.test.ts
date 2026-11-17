@@ -9,13 +9,14 @@ import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
 import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
 import { DEFAULT_SERVING_POLICY, ServingCardError, servingCardExpectation, servingCardFreeze } from "../../src/main/private-agent/serving-card";
-import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenResearchOption, localScreenSourceFreeze, localScreenStreams, researchPipelineFreeze, runLocalArtifactScreen,
+import { assertLocalScreenSeed, buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenCardResearch, localScreenFailureLine, localScreenResearchOption, localScreenSourceFreeze, localScreenStreams, researchPipelineFreeze, runLocalArtifactScreen,
   withClaimsLedger } from "../../scripts/private-agent-local-screen";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { writeResearchSeedSource } from "../helpers/research-seed-source";
 import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { PipelineFreezeSchema } from "../../src/main/private-agent/research-seed";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
@@ -219,6 +220,54 @@ describe("shared harness local role configuration", () => {
       sources: task.phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })), roles: nonDefault() });
     await expect(runLocalArtifactScreen({ ...options, researchFrom: source }, { environment: plainEnvironment, cwd })).rejects.toThrow("research_seed_protocol_mismatch");
     expect(existsSync(options.outputDirectory)).toBe(false);
+  });
+
+  it("item (ii)'s review: a seeded run without a card refuses, before any output exists, a source that read under a serving_card admission basis", async () => {
+    const root = workspace(), cwd = join(root, "empty-cwd"); mkdirSync(cwd);
+    const options = operatorTask(root), task = loadPreparedOperatorTask(options.taskDirectory, { jobSha256: options.expectedJobSha256, briefSha256: options.expectedBriefSha256 });
+    const source = join(root, "source-run"), admission: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+      fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+    await writeResearchSeedSource(source, { taskBinding: task.binding, brief: withClaimsLedger(task.phase, false).contract.goal,
+      sources: task.phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })), admission });
+    await expect(runLocalArtifactScreen({ ...options, researchFrom: source }, { environment: plainEnvironment, cwd })).rejects.toThrow("research_seed_protocol_mismatch");
+    expect(existsSync(options.outputDirectory)).toBe(false);
+    // The driver's check takes the card's basis: a card with a `serving_card` basis seeds from such a source, and from no other.
+    const card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
+    const loaded = (basis: "none" | "serving_card") => { const value = structuredClone(card) as { admission: { basis: string } }; value.admission.basis = basis;
+      const written = writeCard(workspace(), value), paired = config(true); paired.vllm.servingCard = { path: written.path, sha256: written.sha256 }; return buildLocalScreenServingCard(paired)!; };
+    const withAdmission = { pipeline: { admission: { basis: "serving_card" as const, rates: admission } } }, without = { pipeline: {} };
+    expect(() => assertLocalScreenSeed(withAdmission, loaded("serving_card"))).not.toThrow();
+    expect(() => assertLocalScreenSeed(withAdmission, loaded("none"))).toThrow("research_seed_protocol_mismatch");
+    expect(() => assertLocalScreenSeed(without, loaded("serving_card"))).toThrow("research_seed_protocol_mismatch");
+    expect(() => assertLocalScreenSeed(without, undefined)).not.toThrow(); expect(() => assertLocalScreenSeed(undefined, loaded("serving_card"))).not.toThrow();
+  });
+
+  it("7b.3: a card whose admission basis is serving_card loads through the pair with its evidence's rates, and the research option and freeze.json carry them (BL-20261117-1131-research-card-admission-design)", () => {
+    const root = workspace(), card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
+    (card as { admission: { basis: string } }).admission.basis = "serving_card";
+    const written = writeCard(root, card), paired = config(true); paired.vllm.servingCard = { path: written.path, sha256: written.sha256 };
+    const loaded = buildLocalScreenServingCard(paired)!, sizes = Object.values(card.evidence.p11!.sizes).filter(size => size.ok), cells = card.evidence.p10!.cells;
+    const span = (values: number[]) => ({ fastest: Math.max(...values), slowest: Math.min(...values) }), decode = span(sizes.map(size => size.decodeTokS!));
+    // P11's sizes, the single-stream decode at K 1, and P10's means in each role's first-attempt mode: plan and synthesis think, extract does not.
+    const rates: ResearchAdmissionRates = { prefillTokensPerSecond: span(sizes.map(size => size.prefillTokS!)), decodeTokensPerSecond: decode, fanOutDecodeTokensPerSecond: decode,
+      expectedOutputTokens: { plan: cells["plan/on"]!.meanCompletionTokens!, extract: cells["extract/off"]!.meanCompletionTokens!, synthesis: cells["synthesis/on"]!.meanCompletionTokens! } };
+    expect(loaded.policy).toEqual({ ...DEFAULT_SERVING_POLICY, admission: { basis: "serving_card", rates } });
+    const block = researchPipelineFreeze("local", undefined, rates);
+    expect(block).toEqual({ ...researchPipelineFreeze("local"), protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true), admission: { basis: "serving_card", rates } });
+    expect(PipelineFreezeSchema.parse(block)).toEqual(block); expect(canonical(researchPipelineFreeze("local", undefined, undefined))).toBe(canonical(researchPipelineFreeze("local")));
+    const broker = {} as PrivateAgentBroker, local = buildLocalScreenModelConfig(config(true), COORDINATOR_PROFILES.heavy);
+    expect(localScreenResearchOption(broker, "job", local, undefined, { admission: rates }).admission).toEqual(rates);
+    expect(localScreenResearchOption(broker, "job", local, undefined)).not.toHaveProperty("admission");
+    // 7b.3's review: the driver takes both from one helper, so the freeze block and the session's option name the same roles and rates.
+    for (const planner of ["local", "cloud"] as const) {
+      const both = localScreenCardResearch(loaded, planner);
+      expect(both).toEqual({ pipeline: researchPipelineFreeze(planner, loaded.policy.roles, rates), option: { roles: loaded.policy.roles, admission: rates } });
+      expect(both.pipeline.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, both.option.roles, both.option.admission !== undefined));
+      expect(localScreenCardResearch(undefined, planner)).toEqual({ pipeline: researchPipelineFreeze(planner), option: {} });
+    }
+    // Under the basis `none` the rates reach neither.
+    const none = { ...loaded, policy: { ...loaded.policy, admission: { basis: "none" as const } } };
+    expect(localScreenCardResearch(none, "local")).toEqual({ pipeline: researchPipelineFreeze("local", loaded.policy.roles), option: { roles: loaded.policy.roles } });
   });
 
   it("7a.2 review: the research option hands the session the card's role policy, the local reader, and the split arm's planner and synthesiser", () => {

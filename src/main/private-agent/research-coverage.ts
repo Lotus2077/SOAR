@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ResearchAdmissionRecordSchema } from "./research-admission";
 import { canonical, digest, sha256Schema } from "./contracts";
 import { ResearchPlanSchema, validatePlanCoverage, validateResearchPlanAttempts, type ResearchPlan } from "./research-plan";
 export { ResearchPlanSchema, validatePlanCoverage, type ResearchPlan } from "./research-plan";
@@ -24,12 +25,13 @@ const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["find
  * locator, quoteSha256) is the pipeline's own identity of one verified quote; `presentation_cap` marks a quote only the presentation
  * guard left out; a chunk question may be `evidence_trimmed`. Omissions no longer make a packet incomplete.
  */
-export const ResearchCoverageSchema = z.object({ version: z.literal(3), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
+/** Item (ii) (BL-20261117-1143-research-second-repair-design): version 4, whose chunks may hold a third attempt, a second repair. */
+export const ResearchCoverageSchema = z.object({ version: z.literal(4), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
   chunks: z.array(z.object({ id: z.string().min(1).max(80), sourceId: id, sourceSha256: sha256Schema, startByte: integer, endByte: integer, sha256: sha256Schema,
     startLine: z.number().int().positive(), status: z.enum(["pending", "complete", "invalid", "truncated", "needs_followup"]),
-    attempts: z.array(z.object({ responseSha256: sha256Schema, status: z.enum(["complete", "invalid", "truncated", "needs_followup"]) }).strict()).max(2),
+    attempts: z.array(z.object({ responseSha256: sha256Schema, status: z.enum(["complete", "invalid", "truncated", "needs_followup"]) }).strict()).max(3),
     questions: z.array(questionOutcome).max(12) }).strict()).max(4096),
   omissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), quoteSha256: sha256Schema, chunkIds: z.array(z.string().min(1).max(80)).min(1).max(4096),
     locator: z.string().min(1).max(100), reason: z.enum(["packet_cap", "presentation_cap"]) }).strict()).max(480),
@@ -152,7 +154,9 @@ export function renderResearchEvidence(evidence: ResearchEvidence, plan: Researc
 }
 const budgetSchema = z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict();
 const summarySchema = z.object({ version: z.literal(RESEARCH_PIPELINE_VERSION), protocolSha256: sha256Schema, budget: budgetSchema,
-  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional() }).passthrough()).length(4) }).strict();
+  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional() }).passthrough()).length(4),
+  // 7b.3 (BL-20261117-1131-research-card-admission-design): a run under a card's admission rates records them; a ready packet's was admitted.
+  admission: ResearchAdmissionRecordSchema.refine(record => record.decision === "admitted").optional() }).strict();
 export function validateReadyResearchPacket(files: readonly ResearchPacketFile[], expected: ResearchPacketExpectation = {}) {
   const names = Object.values(RESEARCH_FILES).sort();
   if (canonical(files.map(f => f.path).sort()) !== canonical(names)) fail("files");
@@ -207,6 +211,8 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   if (coverage.chunks.some(c => !sourceManifest.some(s => s.id === c.sourceId))) fail("chunk_source");
   if (summary.stages[2]!.invalidReplies !== coverage.chunks.reduce((n, c) => n + c.attempts.filter(a => a.status !== "complete").length, 0) || (summary.stages[2]!.truncatedReplies ?? 0) !== coverage.chunks.reduce((n, c) => n + c.attempts.filter(a => a.status === "truncated").length, 0)) fail("extraction_attempt_counts");
   if (summary.stages[2]!.calls !== coverage.chunks.reduce((n, c) => n + c.attempts.length, 0)) fail("extraction_receipts");
+  // Item (ii): a third attempt, a second repair, exists only under a card's admission record, which only an admitted run writes.
+  if (summary.admission === undefined && coverage.chunks.some(c => c.attempts.length > 2)) fail("extraction_attempts");
   const questions = new Set(plan.questions.map(q => q.id)), evidenceIds = new Set(evidence.quotes.map(q => q.id));
   // 7b.2: every verified quote is in the packet or one omission, and every noted conflict in the packet or one conflict omission.
   if (!evidence.quotes.length || !unique(evidence.quotes.map(q => q.id)) || evidence.counts.inPacket !== evidence.quotes.length || evidence.counts.leftByCap !== coverage.omissions.length ||

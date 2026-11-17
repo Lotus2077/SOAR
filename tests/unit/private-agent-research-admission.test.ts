@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, briefWordLimit, planResearchIndexBatches, researchIndexPreviewEnd, researchMandatoryWorkFits,
-  researchSynthesisLengthCap, researchWordCount } from "../../src/main/private-agent/research-admission";
+import { RESEARCH_ADMISSION_POLICY, RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, ResearchAdmissionRatesSchema, briefWordLimit, planResearchIndexBatches,
+  researchCardAdmission, researchIndexPreviewEnd, researchMandatoryWorkFits, researchRepairReserve, researchSynthesisLengthCap, researchWordCount,
+  type ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
 import { INDEX_LIMITS } from "../../src/main/private-agent/research-index";
 import { OUTPUT_TOKENS, THINKING, synthesisLengthCap } from "../../src/main/private-agent/research-pipeline";
@@ -316,3 +317,59 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     expect(researchWordCount("")).toBe(0); expect(researchWordCount(" \n ## -- ")).toBe(0); expect(researchWordCount("\u00dcn\u00efcode w\u00f6rds \u6570\u636e")).toBe(3);
   });
 });
+
+// 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission under a `serving_card` basis.
+describe("7b.3: the reserve, the estimate and the admission test under a card", () => {
+  const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+    fanOutDecodeTokensPerSecond: { fastest: 200, slowest: 100 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+  const caps = { index: 1536, plan: 8192, extract: 2048, synthesis: 8192 };
+  // Two batches of previews and three chunks: 15,000 preview tokens and 31,001 chunk tokens at 4 bytes a token (4,002 bytes round up to 1,001).
+  const work = { batchPreviewBytes: [40_000, 20_000], chunkBytes: [80_000, 40_000, 4_002] };
+  const admit = (remainingMs: number | undefined, budget = RESEARCH_PIPELINE_BUDGET, at = work) => researchCardAdmission(at, budget, caps, rates, remainingMs);
+
+  it("pins the policy the protocol hash binds under a card", () => {
+    expect(RESEARCH_ADMISSION_POLICY).toEqual({ version: 2, basis: "serving_card", repairReserve: { chunksPerRepair: 4, minimum: 1 }, repairsPerChunk: 2, stageShare: { numerator: 1, denominator: 2 },
+      bytesPerToken: 4, refusal: "expected_estimate_above_share" });
+    expect(Object.isFrozen(RESEARCH_ADMISSION_POLICY) && Object.isFrozen(RESEARCH_ADMISSION_POLICY.repairReserve) && Object.isFrozen(RESEARCH_ADMISSION_POLICY.stageShare)).toBe(true);
+  });
+
+  it("reserves one repair call per four chunks, at least one, so today's budget admits at most 32 chunks (D3)", () => {
+    expect([0, 1, 4, 5, 8, 9, 24, 32, 33, 40].map(researchRepairReserve)).toEqual([1, 1, 1, 2, 2, 3, 6, 8, 9, 10]);
+    const chunks = (count: number) => ({ batchPreviewBytes: [], chunkBytes: Array(count).fill(4) });
+    expect(admit(undefined, RESEARCH_PIPELINE_BUDGET, chunks(32)).decision).toBe("admitted");
+    expect(admit(undefined, RESEARCH_PIPELINE_BUDGET, chunks(33))).toMatchObject({ decision: "refused_budget", work: { chunks: 33, reservedRepairs: 9, extractionCalls: 40 } });
+    // The reserve fits exactly; one call fewer refuses; a batch beyond the index calls refuses too.
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4 }).decision).toBe("admitted");
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }).decision).toBe("refused_budget");
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, indexCalls: 1 }).decision).toBe("refused_budget");
+  });
+
+  it("estimates the expected time as a lower bound and the cap-bound time as every call the budget allows, in tenths of a second", () => {
+    const record = admit(86_000);
+    // Expected: 46,001 prompt tokens at 4,000/s, three chunks of 100 at 200/s, and 1,000 + 2,000 at 100/s: 11.50025 + 1.5 + 30 = 43.0.
+    // Cap-bound: 4 index calls (two per batch) and 9 extraction calls (per chunk its first attempt and two repairs, item (ii)), 123,003 prompt
+    // tokens at 2,000/s, 4 x 1,536 + 9 x 2,048 at 100/s, and 2 x 8,192 + 2 x 8,192 at 50/s: 61.5015 + 245.76 + 655.36 = 962.6.
+    expect(record).toEqual({ basis: "serving_card", policy: RESEARCH_ADMISSION_POLICY, rates, work: { batches: 2, chunks: 3, reservedRepairs: 1, indexCalls: 24, extractionCalls: 40 },
+      estimate: { expectedSeconds: 43, capBoundSeconds: 962.6, shareSeconds: 43 }, decision: "admitted" });
+    // Only the budget's calls count: one extraction call per chunk when the budget holds no more.
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4, indexCalls: 2 }).estimate.capBoundSeconds).toBe(tenths(15_000 / 2000 + 31_001 * 4 / 3 / 2000 + (2 * 1536 + 4 * 2048) / 100 + 32_768 / 50));
+  });
+
+  it("refuses on the clock only when the expected estimate exceeds half the remaining clock, and never without a session deadline", () => {
+    expect(admit(86_000).decision).toBe("admitted");
+    expect(admit(85_800)).toMatchObject({ decision: "refused_clock", estimate: { expectedSeconds: 43, shareSeconds: 42.9 } });
+    expect(admit(-5)).toMatchObject({ decision: "refused_clock", estimate: { shareSeconds: 0 } });
+    for (const remainingMs of [undefined, Number.NaN]) expect(admit(remainingMs)).toMatchObject({ decision: "admitted", estimate: { shareSeconds: null } });
+    // The cap-bound estimate never decides: far above the share, the run is still admitted.
+    expect(admit(100_000)).toMatchObject({ decision: "admitted", estimate: { capBoundSeconds: 962.6, shareSeconds: 50 } });
+  });
+
+  it("takes only positive, finite rates whose fastest is not below their slowest", () => {
+    expect(ResearchAdmissionRatesSchema.parse(rates)).toEqual(rates);
+    const bad = [{ ...rates, decodeTokensPerSecond: { fastest: 40, slowest: 50 } }, { ...rates, prefillTokensPerSecond: { fastest: 0, slowest: 0 } },
+      { ...rates, expectedOutputTokens: { ...rates.expectedOutputTokens, plan: Number.POSITIVE_INFINITY } }, { ...rates, expectedOutputTokens: { ...rates.expectedOutputTokens, extract: -1 } },
+      { ...rates, cardSha256: "1".repeat(64) }, { ...rates, fanOutDecodeTokensPerSecond: undefined }];
+    for (const value of bad) expect(ResearchAdmissionRatesSchema.safeParse(value).success).toBe(false);
+  });
+});
+const tenths = (seconds: number) => Math.round(seconds * 10) / 10;

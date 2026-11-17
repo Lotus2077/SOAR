@@ -48445,6 +48445,646 @@ Next gate: Pull request #134's merge, on green CI, under the session's reading i
 
 References: docs/PLAN.md §4; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261008-1210-owner-v0-1-released; pull request #134; issue #53.
 
+### BL-20261117-0954-scrub-policy-5-design -- 2026-11-17 -- Scrub policy 5 decided: the assist scrubber sends the union of what policy 4 hides and what a provisional path hides, so nothing policy 4 hid is sent, and each limit in 10.b's scrub gate is closed by a rule or listed for the owner
+
+Status: `Proposed`
+
+Scope or hypothesis: BL-20261113-0925-correction-assist-core-rereview bars 10.b from wiring the assist's dispatch until each of the following is closed by a reviewed rule under scrub policy 5, or accepted by the owner in a recorded decision:
+- L1 to L4;
+- L6, with the `///` residue;
+- L7;
+- G2 to G9;
+- D2 and D3.
+
+This entry decides scrub policy 5 for research-assist-scrub.ts. For each limit, it either closes the limit with a rule or lists it for the owner, with what it would still send. It changes no other file's behaviour: research-assist.ts, the hook contract, the request shapes and the record schemas stay as they are. The owner questions ASSIST-9, -11, -14, -15, -16 and -18, and BL-20261113-0925's three questions, stay open; an agent does not answer them. The coordinating session puts the remaining acceptances to the owner as one question.
+
+Decisions:
+- **Two paths, and their union.** scrub() normalizes the input once and runs two paths over it. Each path keeps, for every unit of its text, the span of the input that unit stands for.
+  - The policy-4 path replaces exactly as policy 4 does at #79's merge.
+  - The provisional path is new (next bullet).
+  - The sent text is the input with every span replaced that either path replaced. Where spans overlap, they become one, with the widest placeholder among them (`[url]`, `[file]`, `[source]`, `[digest]`), or the alias when both paths gave the same one.
+  - So nothing policy 4 hides is ever sent, by construction, and everything the provisional path hides stays hidden too.
+  - A span one path replaced can unglue text the other path left. An example is a host before an alias's `S`, which a URL rule on the other path took. So while the audit still finds something in the result, the result is scrubbed again, at most twice. A re-scrub only replaces.
+- **The provisional path.** A source match first stands as its alias, or as `S0` in place of the placeholder for a form that two sources share or a host file name. It stays so through every pass, so the URL and path rules can read the token around it, as they did before 8090f65's glue and lead rules.
+  - The spans those rules gave the match are recorded on a provisional mark:
+    - `glue`: a glued file name's run;
+    - `lead`: host labels, userinfo or a word before a host-led form, with its `//` and scheme;
+    - `prefix`: a folder prefix;
+    - `run`: more of a segment glued after a whole path or URL form;
+    - `tail`: the URL's path, query and fragment, after a host-led name or after a name that a query follows.
+  - When a rule takes a mark's alias, the mark moves onto that rule's placeholder. It is no longer dropped.
+  - After the last pass, each mark becomes its placeholder, or the placeholder of the rule that took it, over what is still visible of its spans. So a rule that takes only the alias leaves no lead, glue or tail of it behind.
+  - A scheme glued directly before a `[url]` mark goes with it: `localhost:8080s3://…` gives `[url][url]`.
+- **The limits, as planned:**
+  - **D3** (8090f65's class, 49,824 outputs of the local differential at BL-20261113-0925, 1,563 with the example password): closed by the provisional path. A first measure, on 160,000 outputs of the local generator at seed 31:
+    - the outputs that send text 67e3374 hid drop from 5,300 to 929;
+    - the outputs that send the example password drop from 228 to 12;
+    - 0 outputs send text that policy 4 hid.
+  - **D2** (6d14ac4's class): closed where the provisional path reads the token. That covers G3's word before a `//`, and the R1 guard's tails after a `//` that the widened left bound (L7, below) now starts.
+  - **G2, G3, C5's bounds and L1's form right after `//`:** closed by the provisional path. For example, `see //sub.example.org/reports/annual-2025.html-secret now` gives `see [url] now`.
+  - **L1** (a source's whole path or URL form with more glued after it, `S1-secret`, `S4sitory`, `S1s/hr/…?employee=alice`): closed by `run`. The token's rest goes with the match, as `[file]` for a path and `[url]` for a URL form. The alias stays for the form itself at a boundary, such as a sentence end, markdown, a list, or a continuation after `/`, `?` or `#`. This is the delta review's `tokenRunEnd` rule.
+  - **G4** (a query or path after a source's file-name match, `S1?token=abc`, `S1/private/acme-merger`): closed by `tail`. A name that a query, a fragment, or a slash and a segment follows takes them, as `[url]` or `[file]`. This also stops another host's file of that name from being shown as the source.
+  - **L3** (a password with a character outside the host-lead characters, before a source's host): closed. Once the lead walk has crossed an `@`, it continues over the credential rule's own characters to the token's start. Still listed: userinfo in a spaceless script, or holding a quote, a space, a slash or an angle bracket.
+  - **G6** (a credential before a local copy's form, `alice:hunter2@S1?token=abc`): closed. A `user:password@` directly before any source match makes it host-led.
+  - **L4** (a source's host followed by a hyphenated word, `the example.org-hosted report`): closed. The host and the glued run become `[url]`; a bare trailing hyphen keeps the alias.
+  - **L2 and BL-20261113-0925's C6** (the credential rule's bounds, and a schemed URL cut at `"`, `<`, `>` or a glued spaceless run in its password): closed on the provisional path by a wider credential rule and schemed userinfo, for:
+    - a raw `@` in the password;
+    - an empty user or password, or one of up to 256 characters;
+    - host labels with `_` or a non-ASCII letter;
+    - `localhost`, a bracketed IPv6 address or a single-label host with a port or a path;
+    - a Go-style DSN;
+    - a credential directly after `:` or `@`;
+    - a query or fragment after a host with no path;
+    - a schemed URL's userinfo, through those characters, up to the last `@` before its host.
+
+    Still listed: a password holding white space or a slash.
+  - **L6:** the `///` residue is closed: both rooted-path patterns take leading empty segments. The `localhost` and IPv6 rules start after `@`. Still listed, under ASSIST-11's default (a stated limit for the public and synthetic arms, with rules before any labelled arm):
+    - the dotted-host rules after `@`, `:`, `_`, `.`, `-` or `/`;
+    - an IPv6 address without brackets and a port or path;
+    - a query or fragment directly after a host with no path, outside the credential rule.
+  - **L7** (the protocol-relative rule's left bound): closed except after a letter or digit. The rule starts after any character but a letter, a digit, `/`, `\` or `@`, so after a backtick, curly quotes, `{`, `>`, `|`, `*`, `)`, `.`, `_`, `#` and `-` too. Still listed: a `//` glued to a word (`x//cdn.other.test/…`), which reads as a doubled slash in a path.
+  - **G5, G7, G8 and G9:** closed by the provisional path where its rules read them. What remains is measured and listed in the Implemented entry, with what it sends. The UNC residue (`\\fileserver\share\old-alpha-field-notes.md` gives `[file]`) is already closed.
+  - **The full-width `／／` nit** from #79's review is closed: the provisional path reads the wide view.
+  - **L5** (over-matching that only hides text) is unchanged. The union keeps policy 4's hiding.
+- **New rules only on the provisional path.** The rules above (`run`, the name `tail`, the widened lead, the `@`-led match, the host-dash rule and the wider patterns) apply on the provisional path only. So the policy-4 path stays exactly policy 4, and the union's guarantee holds.
+- **The policy.**
+  - SCRUB_POLICY goes to version 5. It gains `union`, `provisional` and `marks` texts and the provisional path's own pattern lists, and `glued` is reworded.
+  - Both pinned assist protocol hashes change, so they are re-pinned.
+  - `researchProtocolSha256()` with no assist configured is unchanged, since the assist block enters it only when an assist is configured.
+- **Counts.** The counts become those of the sent text: each alias or `[source]`, `[file]`, `[url]` and `[digest]` it holds. The packet record's `substitutions` keep their schema.
+- **Cost.** Two paths per scrub, and a re-scrub only when the audit still finds something: about twice policy 4's CPU, and still linear in the text.
+
+Changes: None in code with this entry. Planned: src/main/private-agent/research-assist-scrub.ts; tests/unit/private-agent-research-assist-scrub.test.ts, and the assist tests' two pinned hashes; docs/BUILD_LOG.md.
+
+Evidence: The design's core (both paths, the union, the provisional marks and the re-scrub) was prototyped in this branch's working tree before this entry, and nothing of it is committed with this entry. The measures above come from that prototype, on the local differential generator (seed 31, 20,000 inputs over each of four source sets, both scopes). The Implemented entry gives the full differentials (the local one, and reviewer B's corpus at seed 79061110), the tests and a mutation check.
+
+Failures or blockers: A first prototype had the provisional path alone. It sent text that policy 4 hid in 166 of 160,000 outputs. The relative-path rule of policy 4 took a whole token from the word before a `//` (`src=`, `token=abc,`, a CJK letter), while the provisional path's URL rule took only the `//…` part. Laying both paths' spans over the input removes that class by construction.
+
+Limitations and non-claims: This entry decides the design only; nothing is implemented, verified or released by it. The listed limits are not accepted by it. The owner accepts them or asks for rules, through the coordinating session's question.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The Implemented entry, with the differentials against policy 4 (no output may send text policy 4 hid) and 67e3374, then the light review with a skeptic on every privacy finding. 10.b's gate is met only when the owner has accepted every listed limit, or asked for more rules.
+
+References: BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design.
+
+### BL-20261117-0955-correction-scrub-policy-5-restamp -- 2026-11-17 -- Correction: the scrub policy 5 design entry is re-stamped after `main`'s tail at this branch's merge of `main`; its original ID and authoring time
+
+Status: `Implemented`
+
+Scope or hypothesis: Branch `feat/10a-scrub-policy-5` brings in `main` at 19d7826 with merge commit 59d0eaa.
+- `main`'s last ID is now BL-20261114-1342-correction-host-flags-surfaces-review, which comes after this branch's design entry. The validator refuses an ID that moves backward.
+- So the design entry is re-stamped after the tail in that merge, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+
+The entry, with its original ID and authoring time: **the design entry**, authored at 13:12 UTC on 2026-11-14 as BL-20261114-1312 in commit 9d322f0. It is now BL-20261117-0954-scrub-policy-5-design.
+
+Decisions:
+- **Choice of minute.** 13:45 follows `main`'s tail at 13:42. 13:43 and 13:44 are left for this lane's other branch, `feat/8.1-concurrent-local-admission`, whose two entries re-stamp after the same tail. If another pull request reaches `main` first with later IDs, this branch re-stamps again at its next merge of `main`, under the same rule.
+- **Only the ID changed.** The heading's ID is the only change. No other entry, comment or test cited the design entry's ID; the Implemented entry that follows cites the new one. Mapped back, the body is byte-identical to 9d322f0's.
+- **A merge, not a rebase.** The branch had not been pushed. A merge still keeps the commit that the Implemented entry cites, bf445b4, in its history, and `main`'s log stays whole as a byte prefix of this branch's.
+
+Changes:
+- docs/BUILD_LOG.md: the design entry's heading, and this entry.
+- No behaviour changes.
+
+Evidence:
+- At 59d0eaa, `pnpm --silent validate:build-log -- --base-ref origin/main` (19d7826) exits 0: 606 entries, append-only against `main`.
+- With its ID mapped back, the design entry equals 9d322f0's byte for byte.
+- `git grep` finds the original ID with its slug nowhere in the tree.
+
+Failures or blockers: None.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages keep the original ID.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The light review of this branch's pull request, which checks this re-stamp.
+
+References: BL-20261117-0954-scrub-policy-5-design; BL-20261114-1342-correction-host-flags-surfaces-review; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-0956-scrub-policy-5-implemented -- 2026-11-17 -- Scrub policy 5 implemented: the assist scrubber sends the union of what policy 4 and a provisional path replace; neither differential finds an output that sends text policy 4 hid, and each limit of 10.b's scrub gate is closed by a tested rule or listed with what it sends
+
+Status: `Implemented`
+
+Scope or hypothesis: Implements BL-20261117-0954-scrub-policy-5-design. Branch `feat/10a-scrub-policy-5`, from `main` at 582f880; the code and tests are commit bf445b4, and 59d0eaa merges `main` at 19d7826. Hypothesis:
+- no output sends text that policy 4 hid;
+- each limit the design entry closes is closed by a tested row, in both scopes;
+- each limit left is listed below with what it sends;
+- the scrub stays linear in its input.
+
+Decisions: The design entry's decisions, as built. Four more were made in the build:
+1. **Linear time.** A provisional match inside an earlier match's spans reads nothing after it: no glue run, token run or tail of its own. The earlier match's placeholder already covers it. The first build read the token's rest again for each match in a token, which was quadratic (see Failures). This rule changes no output. The build before it and this one give the same text on every output of both differentials, and the same counts on every output of the local one.
+2. **The audit reads the provisional path's rules.** `finding()` uses `URL_PATTERNS_5` and `PATH_PATTERNS_5`, so it also finds text that only policy 5's rules replace (`see ///etc/passwd/x now`, `see git@[fd00::1]:8080/repo now`). scrub() replaces such text on its provisional path, so a scrubbed string still passes. The packet builder's audit in research-assist.ts is unchanged: it still refuses a packet that holds a finding.
+3. **The re-scrub stays, as a guard.** It fired in none of the 2,837,808 outputs of the two differentials. The input spans that marks now carry removed the shape that first needed it (see Failures). It is kept because a re-scrub only replaces more, and the builder's audit refuses whatever it would leave.
+4. **Counts.** The union counts each span it sends, and a re-scrub adds its own. In 160,000 outputs of the local generator, the counts equal the placeholders and aliases that the sent text holds.
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts:
+  - Tracked texts that keep, for each UTF-16 unit, the input span it stands for: `applyCuts`, `moveMarks` (drop, or transfer onto the cut's placeholder), `replaceBoth`, `replacedSpans` and `union`.
+  - The provisional path in `formScanner`:
+    - `matches` leaves the alias, or `S0` for a placeholder, and records the glue, lead, prefix, run and tail as the mark's input span;
+    - `credentialBefore`, the widened `hostLead`, `NAME_TAIL`, `tokenRunEnd` and the host-dash rule in `entrySpan`;
+    - `settle` extends each mark over the units whose input lies inside its span, and takes a scheme glued before `[url]` (`SCHEME_BEFORE`).
+  - `URL_PATTERNS_5` and `PATH_PATTERNS_5`. On the provisional path, the relative-path cut takes a query or fragment after the extension. The audit reads both wider lists.
+  - `scrub()`: both paths, their union, and up to two re-scrubs.
+  - `SCRUB_POLICY` version 5: `glued` reworded, `union` and `provisional` added, and `patterns.provisional` holding the two lists' sources.
+- tests/unit/private-agent-research-assist-scrub.test.ts:
+  - 20 earlier expectations change: 13 outputs now hide more of the input, 4 hide the same under another or a merged placeholder, 2 counts become those of the sent text, and the policy pin moves to version 5, with two new lines for the provisional lists' lengths.
+  - A new test, "closes each limit of 10.b's scrub gate under scrub policy 5, sends nothing policy 4 hid, and states what it leaves". It has 54 rows, each run in both scopes and checked for its exact output, a second scrub that changes nothing, and an empty audit. It also checks the audit's wider rules, a model-scope name in a `///` run, and two counts.
+- tests/unit/private-agent-research-assist.test.ts: the two pinned assist protocol hashes, now forced_split `9c44f142…` and local_first `42ff07a7…`. `researchProtocolSha256()` with no assist configured is unchanged.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The limits at bf445b4.** Outputs use the seven test sources unless another set is named. Each is a row of the new test unless marked (checked), which means it was run on the frozen copy and not added as a row.
+  - **Closed:**
+    - L1 and C5: `see input/corpus/alpha-field-notes.md-secret now` gives `see [file] now`. `see github.com/acme/public-repository now` and the intranet form with `s/hr/…?employee=alice` give `see [url] now`. `see //sub.example.org/reports/annual-2025.html-secret now` gives `see [url] now`. The alias stays for the form itself at a sentence end, a bracket or markdown (`see S1. Then`).
+    - L2, with C6's and C7's bounds, all `[url]`:
+      - a raw `@` in the password, and an empty user, or an empty password (checked);
+      - a host label with `_`, or with a non-ASCII letter (checked);
+      - `localhost`, a bracketed IPv6 address or a single-label host after the credential;
+      - a Go DSN;
+      - a credential after `：` or `@`;
+      - a query or fragment after a host with no path;
+      - `alice:P@ss@10.2.3.4:8080` (checked);
+      - a schemed URL's userinfo through a quote or spaceless letters, and through an angle bracket (checked).
+    - L3: `alice:pa(ss)@…` and `alice:p#ss@…` before a source's host give `[url]`. With the pair, `see mailto:alice:pa(ss)@example.org/report.html now` gives `see [url] now`.
+    - L4: `the example.org-hosted report` gives `the [url] report`. `example.org-2025` (row), and `EXAMPLE.ORG-hosted` and the source's host before U+2010 or U+2011 (checked), give `[url]`. A bare trailing hyphen keeps the alias.
+    - L6, in part:
+      - `localhost` and a bracketed IPv6 address after `@` (`see git@[fd00::1]:8080/repo now` gives `see git@[url] now`);
+      - the `///` residue: `see ///etc/acme/merger-plan.docx now` gives `see [file] now`, and model text `///x/y/public-repo?token=secret` gives `///[url]`.
+    - L7, except after a letter or digit: the URL after a backtick, `>` or `|` (rows), or after `“`, `{`, `->`, `**`, `)`, `.`, `_`, `#` or `-` (checked), is `[url]`.
+    - G2, G3, G4, G5 and G9: their outputs at BL-20261113-0925 now hide the query, path and tail (rows). For example, `see docs/x/alpha-field-notes.md?token=abc now` gives `see [url] now`, and `/\cdn.other.test/x/old-alpha-field-notes.md?token=abc` gives `/\[url]`.
+    - G6's credential shape: with only the local copy, `alice:hunter2@example.org/report.html?token=abc` gives `[url]`.
+    - G7's UNC query: `\\fileserver\share\alpha-field-notes.md?token=abc` gives `\[url]`.
+    - G10's label: `see //sub.example.org/reports/annual-2025.html-secret/plan.md now` gives `see [url] now` (checked).
+    - D2's two named shapes (rows). D3 is measured below.
+    - The full-width `／／` nit from #79's review: `see ／／cdn.other.test/x/old-claims.json?token=abc now` gives `see [url] now`.
+  - **Listed for the owner, each with what it sends.** Each goes out at `main` too, as much or more.
+    1. L2: a scheme-less password holding white space, a quote or an angle bracket. The whole credential goes out: user, password, host and path (checked: `see alice:pa ss@acme.example now`, `see alice:p"ss@acme.example/x now`, `see alice:p<ss@acme.example/x now`). A schemed URL whose password holds white space sends what follows the space: `see https://alice:pa ss@acme.example/x now` gives `see [url] ss@acme.example/x now` (checked). This corrects the design entry, which listed a slash: a password holding a slash is hidden, as `[file]`, by the relative-path rule (checked).
+    2. L3: userinfo in a spaceless script before a source's host. `alice:秘密@example.org/reports/annual-2025.html` gives `alice:秘密[url]` (row), so the user and password go out.
+    3. L6, under ASSIST-11's default (checked):
+       - the dotted-host rules do not start after `@`, `:`, `_` or `/`, so `alice@files.acme.example/hr/x`, `site:acme.example/reports` and `my_host.corp-hq.internal/x` go out whole;
+       - an IPv6 address without brackets goes out with its port and path (`fd00::1:8080/x`);
+       - a query or fragment directly after a host with no path goes out (`other.test?token=abc`).
+    4. L7: after a letter or digit, a `//` reads as a doubled slash in a path. What follows is hidden, but the word and the `//` before it go out when a source's form or a host file follows: `see x//cdn.other.test/x/claims.json?token=abc now` gives `see x//[url] now` (row). With no source form, the relative-path rule takes the word too (`see x//cdn.other.test/x/q3.html?token=abc now` gives `see [file] now`, row).
+    5. G6, the pair's shape (checked): another file's name glued directly before the source's form goes out. `old-report.htmlmirror/example.org/report.html` gives `old-report.htmlS2`. Sent text `see old-report.htmlreport.html now` goes out whole, the source's file name included; model text gives `see [file] now`.
+    6. G7 (row): a URL written with backslashes sends its scheme and one backslash, and names another host's file as the source. `https:\\other.test\reports\annual-2025.html` gives `https:\S2`.
+    7. G8 (row): a URL written with division slashes sends its host and folders. `https:∕∕other.test∕reports∕annual-2025.html` gives `https:∕∕other.test∕reports∕S2`.
+    8. A joiner and then a query after a source's form (checked): `"//www.example.org_?token=abc)` gives `"S2_?token=abc)`, so the query goes out.
+    9. An apostrophe and a word after a source's form that keeps its alias (checked): `alicehttps://www.example.org'hunter2` gives `S2'hunter2`.
+    10. What D3 still sends (below).
+
+    L5, over-matching that only hides text, is unchanged; the union keeps it.
+- **Local differential.** Seed 31, 150,000 inputs over each of the four source sets, both scopes: 1,200,000 outputs, compared with `main`'s policy 4 and with 67e3374. "Sends text X hid" is the substring measure: the output holds a word that X's output does not hold anywhere.
+  - 0 throws, 0 outputs that a second scrub changes, and 0 that the audit flags.
+  - 0 outputs send text that policy 4 hid. 291,039 outputs differ from policy 4's, and 181,594 of those hide text that policy 4 sent.
+  - D3: 6,342 outputs send text that 67e3374 hid, where policy 4 does in 39,170 (84% fewer). 77 outputs send the example password, where policy 4 has 1,554 (95% fewer).
+  - In D3's largest remaining classes, a word or one folder written before a host-led URL goes out. 67e3374's path rule put it into `[file]`. Examples: `/srv/[url]`, `mirror/[url]`, `a/[url]`, `x.[url]`, `见[url]`.
+  - In a 160,000-output sample, the outputs that send the example password are shape 9 or a word before a token that a rule took (`hunter2\”[url]`). None holds it in credential syntax.
+- **Reviewer B's corpus** (seed 79061110, 1,637,808 outputs):
+  - 0 throws, 0 unstable outputs, 0 audit findings, and 0 outputs that send text policy 4 hid;
+  - 227,739 outputs differ from policy 4's, and 165,889 of those hide text that policy 4 sent;
+  - D3: 1,534 outputs, where policy 4 has 21,855 (93% fewer).
+- **The speed rule changes no output.** The build before it gives the same text on all 1,200,000 local outputs and all 1,637,808 corpus outputs, and the same counts on the local ones.
+- **CPU.**
+  - On corpus B, policy 5 takes 262 s and policy 4 takes 117 s (2.2 times).
+  - On 24 dense shapes, each at three sizes four times apart, policy 5's time grows 0.8 to 4.4 times from the middle size to the largest, as linear time does.
+  - At the largest size, from 8,023 to 720,000 characters by shape, policy 5 takes 2.0 to 5.9 times policy 4's time. The widest gap is 63 ms against 11 ms, for 128,000 characters of `a:b@example.org@`.
+- **Counts.** In 160,000 outputs, they equal the placeholders and aliases that the sent text holds.
+- **Mutation check.** 34 single-change mutants were each applied to the scrub file, run against the scrub and assist unit tests, and restored. The file's hash was unchanged afterwards.
+  - 29 were caught.
+  - The 10 mutants that change a pattern or a pattern list are each still caught by a behaviour row when the protocol-hash pin test is left out.
+  - 5 survived:
+    - the re-scrub never, once, or with its counts dropped (three mutants): the re-scrub fired in no output of either differential, so no test reaches it;
+    - two marks that one placeholder took keeping the later mark's placeholder: no output differs in 80,000 outputs of the local generator;
+    - every match reading its glue, run and tail (the speed rule off): no output differs, by design (Decisions 1).
+  - In a first round, four mutants survived or were caught only by the hash pin. New rows now catch each of them: the first path's alias winning over a placeholder, merged marks keeping only the later span, the audit reading policy 4's lists, and the IPv6 rule not starting after `@`.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` (19d7826): exit 0.
+  - `pnpm typecheck` and `pnpm validate:readiness`, at bf445b4 and at 59d0eaa: exit 0.
+  - The scrub and assist unit test files: 90 passed.
+  - `pnpm exec vitest run` on the tree committed as bf445b4: 182 files passed and 13 skipped; 3,583 tests passed, 86 skipped, 0 failed.
+  - At 59d0eaa, with `main` merged in, the first run had 2 failures. Both were timeouts under load, in files this branch does not change: tests/unit/private-agent-host-flags.test.ts (5 s) and tests/unit/private-agent-runner-budget.test.ts (30 s). Run alone, the two files passed 156 of 156. A rerun on a quiet machine: 184 files passed and 13 skipped; 3,594 tests passed, 86 skipped, 0 failed.
+
+Failures or blockers:
+- The first build was quadratic in a token holding many source forms, because each match read the token's rest again for its glue run, token run or tail.
+  - One token of URL forms took 1.4 s for 296,000 characters, and one token of credentials took 2.4 s for 280,000.
+  - A first fix covered only the run and the tail. After it, a token of names glued by `-` still took 14.6 s for 168,000 characters.
+  - Policy 4 takes under 50 ms on each of these. The speed rule (Decisions 1) fixes all three.
+- Before marks carried input spans, the union could leave text that a second scrub changed (`secretwww.example.org[url], x_`), and the audit flagged it. The re-scrub fixed that. A later settle that walked the text again hid `src=` beside the URL. Input spans replaced that walk, and with them the re-scrub has not fired.
+- The design entry's first commit failed the validator (a field written "Changes (planned):"). It was rewritten before any push.
+- CI has not run on this branch yet.
+
+Limitations and non-claims:
+- The differentials' generators aim at these shapes, so their counts measure the generators, not real text. The substring measure counts a word only where the other output does not hold it anywhere.
+- Nothing calls the assist yet (10.b), so no packet, run or record changes.
+- The listed residues are not accepted by this entry. The owner accepts them or asks for rules, through the coordinating session's question.
+- ASSIST-9, -11, -14, -15, -16 and -18, and BL-20261113-0925's three questions, stay open; only their defaults are used. Under ASSIST-9's default, this PR stays a draft until the owner answers.
+- No model, endpoint, Docker container or paid call ran. Nothing here is `Verified`.
+- research-assist-scrub.ts is under src/main/private-agent, so this merge changes the harness source-freeze digest. No owner loop or E-run may span it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: One light review, with a skeptic on every privacy finding, then the owner's answer on the listed residues. 10.b's gate is met only when the owner has accepted each listed limit, or asked for rules. 10.b also waits for 7b.2's merge. At merge, this branch's two entries are re-stamped after `main`'s tail (BL-20261113-0937-owner-decision-restamp-unmerged-entries).
+
+References: BL-20261117-0954-scrub-policy-5-design; BL-20261117-0955-correction-scrub-policy-5-restamp; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries.
+
+### BL-20261117-0957-correction-scrub-policy-5-review -- 2026-11-17 -- Correction to BL-20261117-0956-scrub-policy-5-implemented after the light review of #105: four of the six classes the review found are closed by provisional-path rules, the rest and their wider classes are listed, and D2 and the CPU costs are measured
+
+Status: `Implemented`
+
+Scope or hypothesis: The orchestrator's light review of #105 at 5e6ab61 found no blocker: no input it tried sends text that policy 4 hid.
+- It found six majors. Each is a class that policy 5 still sends, and that BL-20261117-0956-scrub-policy-5-implemented either left out of the residue list or called closed. In each, `main` sends the same or more.
+- It found two minors: D2 was never measured against 4aeac37, and the worst CPU constant was larger than reported.
+- A skeptic confirmed all six with its own harness. It tested a fix for each on patched copies of 5e6ab61, and its guidance governs this entry.
+
+This entry follows that guidance:
+- it closes F1, F2, F4 and F5, as the skeptic worded them, with rules on the provisional path only;
+- it widens F3's user names only, and lists F3's single-label host;
+- it lists F6, F4's wider class, and what each closed class still leaves;
+- it corrects BL-20261117-0956 where that entry called L1 and G4 closed, or left bounds out of its L2 and L6 items. That entry stays as written;
+- it measures both minors, and the quadratic shape the skeptic found outside the six.
+
+The code and tests are commits 87779c0 (the six classes), 6cf7b05 (the counts after a re-scrub) and 7a746b7 (the last rule's password bound). Hypothesis:
+- no output sends text that policy 4 hid;
+- every closed class is closed by a tested row, in both scopes;
+- the residue list below covers every class that the review, the skeptic and this branch's probes found.
+
+Decisions:
+1. **F1, L1: digits glued after a whole URL or path form.** `entrySpan` takes the decimal digits glued after a match into it, so that no alias is followed by a digit. The provisional path then read the token's run only from after those digits, where `?`, `#`, `/` and `;` are not glue.
+   - Now, on the provisional path only, the run of a URL or path form is read from the match's end before its digits. A query, path or fragment after the digits goes too: `see https://intranet.acme.example/doc2?employee=alice now` gives `see [url] now`.
+   - Digits alone keep the alias, as #79's rule for a count or a footnote pins: `input/corpus/alpha-field-notes.md5` stays `S1`.
+   - A source's host followed directly by digits is no match at either path, since a digit glues to a letter. It stays listed (item 3).
+2. **F2: a credential before a URL or path.** A last provisional URL rule takes `user:password@` written directly before a `[url]` or `[file]` placeholder, or before `:` and one, as `[url]`.
+   - `see alice:hunter2@https://acme.example/hr/x now` gives `see [url][url] now`, and `see alice:hunter2@/srv/hr/x now` gives `see [url][file] now`.
+   - The rule runs after every other URL rule, so it never takes part of a token that one of them would have taken whole.
+   - Its password is bounded to 64 characters, the CPU fallback the orchestrator set. With 256, as in the credential rule, the worst CPU constant rose above the reviewed one (Evidence).
+3. **F3, L2: user names of any spaced script.** The provisional credential rule's user name takes letters, digits and marks of any spaced script, with brackets after its first character, so `josé`, `Алиса` and `alice(admin)` go inside the `[url]`.
+   - A credential still starts where policy 4's rule lets it start.
+   - The single-label host without a port or path is listed (item 1), as the skeptic advised.
+   - This corrects BL-20261117-0956, which listed among L2's closed bounds "a single-label host" after a credential. The design entry, and the rule, close it only with a port or a path.
+4. **F4, G4: parameters after a source's name.** A name's tail takes `&` and `;` parameters, as it takes `?` and `#`. `see viewer?file=alpha-field-notes.md&token=sk_live_abcdef now` gives `see viewer?file=[url] now`. The wider class, a query after a file name that names no source, is listed (item 6).
+5. **F5: a rooted path's query.** The provisional rooted-path rule with an extension takes a query, fragment or parameters after the extension. `see /x/q3.html?token=sk_live_abcdef now` gives `see [file] now`, and so do the backslash, quoted and mixed-slash forms. A lone trailing `?` stays outside the placeholder.
+6. **F6, L6's `.`: listed** (item 3). `URL_PATTERNS[4]`, which `URL_PATTERNS_5` shares as the same object, is unchanged.
+7. **Counts after a re-scrub.** The first input found that fires the re-scrub, `alice:hunter2@(hunter2:example.org[alice:hunter2@https://www.example.org-`, showed a bug that 5e6ab61 shares.
+   - The first union's output there is `alice:hunter2@([url][alice:hunter2@[url]`, which the audit flags. The re-scrub gives `[url][url]`, but the counts said three URLs.
+   - BL-20261117-0956's "a re-scrub adds its own" counted the placeholders that a re-scrub span had covered.
+   - Now `union()` records each placeholder or alias it emits, and where. A re-scrub drops those that its spans cover, and moves the rest with the text, so the counts are those of the sent text: two URLs.
+   - The input is a row of the tests, with its counts.
+8. **The policy.**
+   - `SCRUB_POLICY` stays version 5, since that version has not shipped.
+   - Its `provisional` text now names each new rule, and its `union` text names the re-scrub's counts, so the pinned hashes change with the behaviour, including F1 and F4, whose pattern sources are not in the policy. URL_PATTERNS_5 holds 10 rules.
+   - Both pinned assist hashes change. forced_split is now `2fe123bad3b1b49c0ee3dd4dd691e07213abd360ee779a2db9cad2d8833a50fc`, and local_first is `5966a089edf715c99eebd3565833f1b794af49f048cd49d1a1693ff620a2dd34`.
+   - `researchProtocolSha256()` with no assist configured is unchanged.
+9. **The residue list.** It replaces BL-20261117-0956's. Each item still goes out; `main` sends as much or more.
+   1. L2:
+      - A scheme-less password holding white space, a quote or an angle bracket: the whole credential goes out (`see alice:pa ss@acme.example now`).
+      - A schemed URL whose password holds white space sends what follows the space (`see [url] ss@acme.example/x now`).
+      - A credential before a single-label host with no port or path goes out (`ssh admin:Passw0rd@dbserver`).
+      - A credential whose password has more than 64 characters goes out before a URL or path that a rule replaced.
+      - With the pair, so does a credential before `///` and a form two sources share (`see alice:hunter2@///[source] now`).
+   2. L3: userinfo in a spaceless script before a source's host, whether user or password (`张三[url]`, `alice:秘密[url]`).
+   3. L6, under ASSIST-11's default:
+      - a host after `@`, `:`, `_` or `/` (`alice@files.acme.example/hr/x`, `site:acme.example/reports`, `my_host.corp-hq.internal/x`);
+      - a user name with no password before `@//` (`see alice@//[url] now`);
+      - a dotted host after a `.` that no label character precedes (`see ...acme.example/hr/x?employee=alice now`);
+      - a source's host glued to digits, with its path and query (`see example.org1/hr/x?employee=alice now`);
+      - an IPv6 address without brackets;
+      - a query or fragment directly after a host with no path (`other.test?token=abc`).
+   4. L7: after a letter or digit, the word and the `//` before a hidden URL (`x//[url]`).
+   5. G6, the pair's shape: `old-report.htmlS2`. In sent text, `see old-report.htmlreport.html now` goes out whole.
+   6. G4's wider class: a query after a file name that names no source. `see notes.md?token=sk_live_abcdef now` goes out whole in sent text, and gives `see [file]?token=sk_live_abcdef now` in model text.
+   7. G7: `https:\S2`.
+   8. G8: URLs written with division slashes.
+   9. A joiner and then a query after a source's form: `"S2_?token=abc)`.
+   10. An apostrophe and a word after a source's form that keeps its alias: `S2'hunter2`.
+   11. What D2 and D3 still send (Evidence).
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts:
+  - `entrySpan` returns `bare`, the match's end before glued digits, and the provisional run of a URL or path form is read from it;
+  - `NAME_TAIL` takes `&` and `;`;
+  - `USER_CHAR`, `USER` and `USER_START`;
+  - `union()` returns what it emits, and `rescrubbed()` carries it through a re-scrub, so the counts come from the sent text;
+  - the provisional credential rule takes the wider user names, and URL_PATTERNS_5 gains the last rule for a credential before a placeholder, its password up to 64 characters;
+  - PATH_PATTERNS_5's rooted rule with an extension takes a query;
+  - the `provisional` policy text.
+- tests/unit/private-agent-research-assist-scrub.test.ts:
+  - the limits test has 78 rows, 24 more than at bf445b4: 19 for the closed classes (one of them checks that a time is no user name) and 5 residue rows;
+  - the re-scrub's input, with its text and counts, in both scopes;
+  - two scope-specific expectations for G4's wider class;
+  - the provisional URL list's pinned length is 10.
+- tests/unit/private-agent-research-assist.test.ts: the two pinned hashes.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The review's probe rows.** The 100 rows of the review's probes (rows1 to rows7) were run before and after.
+  - Each row of F1, F2, F4 and F5, and each of F3's user names, is now hidden.
+  - Each row of a listed class gives what decision 9 says.
+- **Local differential, at 87779c0:** seed 31, 150,000 inputs over each of the four source sets, both scopes: 1,200,000 outputs. "Sends text X hid" is the substring measure.
+  - 0 throws, 0 outputs that a second scrub changes, and 0 that the audit flags.
+  - 0 outputs send text that policy 4 hid. 299,854 differ from policy 4's, and 189,689 of those hide text that policy 4 sent.
+  - Against 5e6ab61, 10,738 outputs differ, and 9,352 of those hide text that 5e6ab61 sent. One sends a word that 5e6ab61 hid:
+    - In model text, `.xΑΠΟΛΟΓΙΣΜΟΣ-2024.md&claims.json-&-v2İzmir-rapor-2024.mdhttps://example.org/reports/annual-2025.htmlq3_` gives `.x[url]`, where 5e6ab61 gave `[file][url]`.
+    - F4's tail causes it: without F4, the output is 5e6ab61's. `main` sends the `x` too.
+    - In sent text, the same input now hides `&[file]-&-v2İzmir-rapor-2024.md`, which 5e6ab61 sent.
+  - D3: 6,321 outputs send text that 67e3374 hid. 5e6ab61 has 6,342, and policy 4 has 39,170.
+  - The example password: 70 outputs. 5e6ab61 has 77, and policy 4 has 1,554.
+  - D2, now measured against its own baseline: 450 outputs send text that 4aeac37 hid, where policy 4 does in 2,153.
+- **Reviewer B's corpus, at 87779c0:** seed 79061110, 1,637,808 outputs.
+  - 0 throws, 0 unstable outputs, and 0 audit findings.
+  - 0 outputs send text that policy 4 hid, and 0 send text that 5e6ab61 hid.
+  - 233,445 outputs differ from policy 4's, and 170,840 of those hide text it sent.
+  - D3: 1,496 outputs. 5e6ab61 has 1,534, and policy 4 has 21,855.
+  - D2 against 4aeac37: 1,970 outputs, where policy 4 has 5,554.
+- **7a746b7 against 87779c0:** the same text on all 1,200,000 local outputs. The counts differ in 2: the two scopes of the re-scrub input, where 87779c0 counted three URLs and 7a746b7 counts the two that the sent text holds.
+- **Counts.**
+  - In the 160,000-output sample at 87779c0, the counts equal the placeholders and aliases that the sent text holds.
+  - The re-scrub fired in 2 of the 1,200,000 local outputs: the two scopes of one input, which is now a test row with its counts.
+  - 6cf7b05 changes the counts only where a re-scrub fires, and makes them right there.
+- **Mutation check:** 40 single-change mutants on 7a746b7, each run against the scrub and assist unit tests. The file's hash was unchanged afterwards.
+  - 37 were caught.
+  - With the protocol-hash pin test left out, all 12 mutants that change a pattern or a pattern list are still caught by a behaviour row.
+  - 3 survived, and none of them changes any text or count in 80,000 outputs of the local generator:
+    - a second re-scrub (no input found needs one);
+    - two merged marks taking the later placeholder;
+    - the speed rule switched off.
+- **CPU.**
+  - On reviewer B's corpus at 87779c0, policy 5 took 259 s, 5e6ab61 took 250 s, and policy 4 took 109 s.
+  - The review's 30 dense shapes and 7 shapes of the new rules were each timed at 8,000, 32,000 and 128,000 characters.
+    - At 7a746b7, the time grows 0.7 to 4.2 times from the middle size to the largest: linear in the text.
+    - The worst constant at the largest size is 32.1 times policy 4's. `秘:@` repeated takes 1,346 ms, against 42 ms at policy 4 and 1,252 ms at 5e6ab61. `:` repeated takes 251 ms, against 8 ms and 204 ms.
+  - Outside those shapes, C8's comma-backslash-letter shape (`,\a` repeated), which the skeptic found, is quadratic at every head.
+    - At 64,002 characters it takes 4.38 s at policy 4, 13.16 s at 5e6ab61 and 13.13 s at 7a746b7. At 16,002 characters it takes 0.28, 0.84 and 0.85 s.
+    - Policy 5 runs the path rules on both its paths and in the audit, so it costs three times what policy 4 does.
+    - This corrects BL-20261117-0956's "linear in the text", which holds for every shape measured except this one.
+    - At the callers' caps that 10.b owes, of at most 1,000 characters per string, it takes under a tenth of a second.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref 19d7826`: exit 0, append-only. 19d7826 is this branch's base; at the orchestrator's instruction, the branch merges `main` and re-stamps at its scheduled merge.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - The scrub and assist unit test files: 90 passed.
+  - `pnpm exec vitest run` at 7a746b7:
+    - A first run had 2 failures, both timeouts under load in files this branch does not change: tests/unit/document-review-flags.test.ts (a spawned python3) and tests/unit/private-agent-sandbox-capture.test.ts (5 s). Run alone, they pass 167, with 1 skipped.
+    - A rerun: 184 files passed and 13 skipped; 3,594 tests passed, 86 skipped, 0 failed.
+
+Failures or blockers:
+- Five rules tried on the way sent text that 5e6ab61 hid, though never text that policy 4 hid. The differential against 5e6ab61 found each one, and each was reverted to the skeptic's guidance:
+  - F2, placed before the scheme rule, took a token's userinfo before that rule could take the whole token. `http://。alice:hunter2@s3://~|` sent `http`. With a source's alias in its lookahead, it took a drive path's prefix instead, and `C:\Users\a\alice@acme-hr.example-#Layoff-List-Q3)` sent the fragment.
+  - Accepting a source's host that digits follow, as part of F1, sent `$HOME` and `fetch` before such a host.
+  - F3's rule for a bare single-label host ran before the drive-path rule, and `C:\Users\a\alice:hunter2@www.acme-hr.example-?token=abc` sent the query.
+  - F6, placed among the URL rules, sent the skeptic's `//?token=sk_live_abcdef#Layoff-List1..acme.example/doc[fd00::1]`, where 5e6ab61 gave `[file]/doc[fd00::1]`.
+  - A credential start widened to every letter left no start within the user name's 64 characters in a long token. The outputs of the 160,000-output sample that send the example password rose from 10 to 15, and policy 4's start bound put them back.
+- With a 256-character password, F2's rule raised the worst CPU constant: `:` repeated to 128,000 characters took 375 ms, against 204 ms at 5e6ab61 and 8 ms at policy 4. Bounding it to 64 brought it back (Evidence).
+- F1's first version also turned digits alone into `[file]` or `[url]`, against #79's pinned rule for counts and footnotes. It was narrowed to digits that more of the token follows.
+- BL-20261117-0956's counts were wrong whenever a re-scrub fired (decision 7). Its 160,000-output check never met one, and its "fired in none" held only for 5e6ab61. This version fires it in 2 of 1,200,000 local outputs: the two scopes of one input.
+- Two mutation runs that were stopped mid-mutant left the scrub file mutated. It was restored from the frozen copy and checked by hash before any further edit.
+- A cleanup of this session's scratchpad deleted the copies of `main`'s, 67e3374's and 4aeac37's scrubbers, and the input generator. They were rebuilt: `main`'s from git at 19d7826, and the generator from the differential script.
+- Reviewer B's corpus file, kept in another session's scratchpad, was deleted after this branch's differential at 87779c0 had read it, so 6cf7b05 and 7a746b7 were not run on it.
+  - 6cf7b05 changes only the counts.
+  - 7a746b7 only stops the last rule for a password over 64 characters.
+  - The text is checked against 87779c0 on all 1,200,000 local outputs.
+- CI has not run on this push yet.
+
+Limitations and non-claims:
+- The differentials' generators aim at these shapes, so their counts measure the generators, not real text.
+- The listed residues are not accepted by this entry. The owner accepts them or asks for rules, through the coordinating session's one question.
+- This push is validated against the branch's base, 19d7826, as the orchestrator asked. `main` has moved, and #105 merges `main` and re-stamps its entries at its scheduled merge.
+- Nothing calls the assist yet (10.b), so no packet changes.
+- No model, endpoint, Docker container or paid call ran. Nothing here is `Verified`.
+- research-assist-scrub.ts is under src/main/private-agent, so this merge changes the harness source-freeze digest. No owner loop or E-run may span it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The skeptic's pass over this delta.
+- Then the owner's one question on the residues. #105 stays a draft until it is answered.
+- At the scheduled merge, `main` is merged in and this branch's entries are re-stamped after its tail.
+
+References: BL-20261117-0956-scrub-policy-5-implemented; BL-20261117-0954-scrub-policy-5-design; BL-20261117-0955-correction-scrub-policy-5-restamp; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-0958-correction-scrub-policy-5-residues -- 2026-11-17 -- Correction to BL-20261117-0957-correction-scrub-policy-5-review after the skeptic's delta pass: policy 5's behaviour stays as it is at 1aaa54e, two more classes and three narrower gaps join the residue list, and four statements are corrected
+
+Status: `Implemented`
+
+Scope or hypothesis: A skeptic checked #105's delta, 5e6ab61..1aaa54e, for the coordinating session.
+- **What held:**
+  - The core property. Two new differentials of 200,000 outputs each found 0 outputs that send text policy 4 hid, and 0 that send text 5e6ab61 hid. They had 0 throws, 0 unstable outputs, 0 audit findings and 0 count mismatches.
+  - Every fix that BL-20261117-0957-correction-scrub-policy-5-review made, with many near variants.
+  - The one-letter difference against 5e6ab61 that 1637 reported. The skeptic found it acceptable.
+- **What it found:**
+  - two classes that 1637's residue list leaves out (majors A and B);
+  - three narrower gaps (minors 1 to 3);
+  - three wrong statements (minors 4 to 6).
+- **The coordinator's stopping rule.** Each review round has found more neighbours, and none was a regression against `main` or policy 4. So policy 5's behaviour stays as it is at 1aaa54e, and no rule is added. Every class found so far goes on the residue list, and the statements are corrected.
+
+This entry records that. It changes no code, test or hash. Hypothesis: every class below still goes out at 1aaa54e, and `main` sends at least as much in each.
+
+Decisions:
+1. **No new rules.** Policy 5's behaviour is frozen at 1aaa54e. Each new rule has put the core property at risk, and each round has found more neighbours. The classes below are listed, not closed.
+2. **The residue list.** It replaces 1637's decision 9 list. New and widened items are marked. Each item still goes out at 1aaa54e, and `main` sends as much or more (Evidence).
+   1. L2, the credential rule's bounds:
+      - A scheme-less password holding white space, a quote or an angle bracket: the whole credential goes out (`see alice:pa ss@acme.example now`).
+      - A schemed URL whose password holds white space sends what follows the space (`see [url] ss@acme.example/x now`).
+      - A credential before a single-label host with no port or path goes out (`ssh admin:Passw0rd@dbserver`).
+      - **New (major A):** a scheme-less credential whose user name has more than 64 characters, or whose password has more than 256, goes out whole before a host that names no source. Examples: a user name of 65 `u`s before `:hunter2@acme.example/x`, and a 98-character `github_pat_…` user name before `:x-oauth-basic@github.com/acme/repo`.
+      - A credential whose password has more than 64 characters goes out before a URL or path that a rule replaced.
+      - **New (major B):** a credential with one character, `<`, `(`, `"` or a space, between its `@` and a URL goes out in credential syntax. `see alice:hunter2@<https://acme.example/x> now` gives `see alice:hunter2@<[url]> now`.
+      - **New (minor 1):** a user name holding square brackets, or shaped like an e-mail address, goes out before the `[url]`. `see alice[admin]:hunter2@acme.example/x now` gives `see alice[admin][url] now`, and `see alice@corp.com:hunter2@acme.example/x now` gives `see alice@[url] now`.
+      - With the pair, a credential before `///` and a form two sources share (`see alice:hunter2@///[source] now`).
+   2. L3, **widened (minor 1):**
+      - a user name in a spaceless script, before any host: `see 张三:hunter2@acme.example/x now` gives `see 张三[url] now`;
+      - a password in a spaceless script, before a source's host (`alice:秘密[url]`).
+   3. L6, under ASSIST-11's default:
+      - a host after `@`, `:`, `_` or `/` (`alice@files.acme.example/hr/x`, `site:acme.example/reports`, `my_host.corp-hq.internal/x`);
+      - **widened (minor 1):** a user name with no password before `@` and a schemed URL, as before `@//`. `see alice@https://acme.example/x now` gives `see alice@[url] now`, and the `@//` form gives `see alice@//[url] now`;
+      - a dotted host after a `.` that no label character precedes (`see .acme.example/hr/x?employee=alice now`, `see ...acme.example/hr/x?employee=alice now`);
+      - a source's host glued to digits, with its path and query (`see example.org1/hr/x?employee=alice now`);
+      - an IPv6 address without brackets;
+      - a query or fragment directly after a host with no path (`other.test?token=abc`).
+   4. L7: after a letter or digit, the word and the `//` before a hidden URL (`x//[url]`).
+   5. G6, the pair's shape: `old-report.htmlS2`. In sent text, `see old-report.htmlreport.html now` goes out whole.
+   6. G4's wider class: a query after a file name that names no source. `see notes.md?token=sk_live_abcdef now` goes out whole in sent text, and gives `see [file]?token=sk_live_abcdef now` in model text.
+   7. G7: `https:\S2`.
+   8. G8: URLs written with division slashes.
+   9. A joiner and then a query after a source's form: `"S2_?token=abc)`.
+   10. An apostrophe and a word after a source's form that keeps its alias: `S2'hunter2`.
+   11. What D2 and D3 still send (1637's Evidence).
+   12. **New (minor 2):** an extension-less path carries its query out with it. The paths are already listed:
+       - BL-20261113-0921-assist-core-implemented lists an extension-less relative path that no source names;
+       - BL-20261113-0922-correction-assist-core-review lists a rooted path of one or two segments with no extension.
+
+       Their query goes too: `see /api/users?token=sk_live_abcdef now` and `see hr/layoffs?employee=alice now` go out whole.
+   13. **New (minor 3):** a percent-encoded tail after a source's name or a file placeholder. `see alpha-field-notes.md%26token%3Dabc now` gives `see S1%26token%3Dabc now`, and `see /x/q3.html%3Ftoken%3Dabc now` gives `see [file]%3Ftoken%3Dabc now`.
+3. **What the list is.** It comes from adversarial review: the light review, two skeptic passes, and this branch's own probes and differentials. It may not be exhaustive. In every class on it, `main` (policy 4) sends at least as much as policy 5. The owner question says so.
+4. **Four statements corrected:**
+   - **Minor 4.** The PR body's item 3 said "a dotted host after an ellipsis". That is too narrow: a single `.` before the host sends it too (`see .acme.example/hr/x?employee=alice now`). 1637's wording, "a dotted host after a `.` that no label character precedes", is the accurate one, and the PR body now uses it.
+   - **Minor 5.** 1637's decision 7 said the re-scrub input "showed a bug that 5e6ab61 shares". That is true of 5e6ab61's code, not of that input.
+     - At 5e6ab61 the re-scrub never fires on it. The input goes out as `alice:hunter2@([url][alice:hunter2@[url]`, and its two URLs are counted rightly.
+     - The input shows the bug from 87779c0 on, whose F2 rule makes the audit flag that text.
+   - **Minor 6.** 1637's Evidence gave the cost of `秘:@` repeated to 128,000 characters as 32.1 times policy 4's. The ratio varies from run to run, between about 30 and 45 times. 32.1 was one run's ratio, near the low end, so it is not the worst constant.
+   - **The design entry's bound.** BL-20261117-0954-scrub-policy-5-design listed as closed "an empty user or password, or one of up to 256 characters". That holds for the password only. A user name is still bounded to 64 characters (`USER`), as policy 4's is in BL-20261113-0923-correction-assist-core-delta. This is major A's cause.
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- The PR body: the residue list above, and the corrected statements.
+- No code, test, policy text or pinned hash changes.
+
+Evidence:
+- **The skeptic's delta pass,** as reported to the coordinating session:
+  - Two differentials, over four source sets in both scopes, of 200,000 outputs each: A with seed 4242, and B with seed 515 and 30 fragments aimed at the delta.
+  - Of the outputs that differ from 5e6ab61's, 2,494 of 3,156 in A, and 5,078 of 6,714 in B, hide more than 5e6ab61 did.
+  - All 11 items of 1637's list reproduce, and `main` sends as much or more in each.
+- **This branch's probe** of every new or widened item, with the scrub unit test's seven sources, in both scopes. It ran at 1aaa54e and at `main`, whose scrubber at bc6c61b equals 19d7826's.
+  - Major A:
+    - A user name of 65 characters, and the 98-character one, go out whole at both heads. At 64, both give `see [url] now`.
+    - A password of 257 characters goes out whole at both heads. At 256, 1aaa54e gives `see [url] now`, and `main` sends the credential whole.
+  - Major B: with `<`, `(`, `"` and a space, both heads give the same output, such as `see alice:hunter2@<[url]> now`.
+  - Minor 1:
+    - `张三:hunter2@acme.example/x`, `alice[admin]:hunter2@acme.example/x` and `alice@corp.com:hunter2@acme.example/x` go out whole at `main`. At 1aaa54e only their user names go out.
+    - `alice@https://acme.example/x` gives `alice@[url]` at both heads.
+    - `alice:秘密@acme.example/x` gives `see [url] now` at both heads. Before a source's host, `alice:秘密@www.acme-hr.example/x` gives `alice:秘密[url]` at both.
+  - Minor 2: `/api/users?token=sk_live_abcdef`, `/hr/layoffs?employee=alice` and `hr/layoffs?employee=alice` go out whole at both heads.
+  - Minor 3: both examples give the same output at both heads. After a source's whole path, as in `input/corpus/alpha-field-notes.md%26token%3Dabc`, 1aaa54e gives `[file]`, and `main` gives `S1%26token%3Dabc`.
+  - Minor 4: `.acme.example/hr/x?employee=alice` and `...acme.example/hr/x?employee=alice` go out whole at both heads.
+- **The re-scrub input** (minor 5). Copies of three heads' scrubbers were instrumented to count re-scrub passes, in both scopes:
+  - 5e6ab61: 0 passes. The output is `alice:hunter2@([url][alice:hunter2@[url]`, with 2 URLs.
+  - 87779c0: 1 pass. The output is `[url][url]`, with 3 URLs.
+  - 1aaa54e: 1 pass. The output is `[url][url]`, with 2 URLs.
+- **CPU** (minor 6): `秘:@` repeated to 128,000 characters, in two rounds of six runs per head, with scopes alternating.
+  - `main` took 30 to 44 ms, and 1aaa54e took 1,275 to 1,368 ms.
+  - Best against best, that is 42.5 times; one run against another, 29 to 46 times.
+  - The skeptic measured 1.35 to 1.42 s against 32 to 43 ms.
+- **Checks**, with Node 22.22.2 and pnpm 10.12.4:
+  - `pnpm --silent validate:build-log -- --base-ref 19d7826`: exit 0, append-only. 19d7826 is the branch's base, as the coordinator asked.
+  - `pnpm typecheck` and `pnpm validate:readiness`: exit 0.
+  - No test changed, so no test file ran for this push.
+
+Failures or blockers:
+- 1637's residue list missed two classes and three narrower gaps. 1637 stated two things wrongly (minors 5 and 6), and the PR body one (minor 4). The skeptic's pass found them. This entry lists and corrects them, and 1637 stays as written.
+- The design entry's 256-character bound for a user name was never true of the code. Neither 1432 nor 1637 caught it.
+
+Limitations and non-claims:
+- This entry lists; it accepts nothing. The owner accepts the residues or asks for rules, through the coordinating session's one question.
+- The list may not be exhaustive (decision 3). The probes and differentials aim at these shapes, so they measure their generators, not real text.
+- This push is validated against the branch's base, 19d7826, as the coordinator asked. `main` has moved. #105 merges `main` and re-stamps its entries at its scheduled merge, after the owner's answer.
+- Nothing calls the assist yet (10.b), so no packet changes.
+- No model, endpoint, Docker container or paid call ran. Nothing here is `Verified`.
+- This commit changes only docs/BUILD_LOG.md, so it changes no source-freeze digest. #105's merge still does, through research-assist-scrub.ts.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The owner's one question on the residues, which the coordinating session sends. #105 stays a draft until it is answered.
+- Then, at the scheduled merge, `main` is merged in and this branch's entries are re-stamped after its tail.
+
+References: BL-20261117-0957-correction-scrub-policy-5-review; BL-20261117-0956-scrub-policy-5-implemented; BL-20261117-0954-scrub-policy-5-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0925-correction-assist-core-rereview.
+
+### BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted -- 2026-11-17 -- Correction: scrub policy 5's five entries are re-stamped after `main`'s tail at this branch's merge of `main`, and its 13 residues are accepted under decision 1 of BL-20261117-0941-group-a-decided-under-delegation, within that decision's scope only
+
+Status: `Implemented`
+
+Scope or hypothesis: Branch `feat/10a-scrub-policy-5` (#105) brings in `main` at c02366a with the merge commit that adds this entry. The coordinating session scheduled the merge on 2026-11-17, once the residue question had a recorded answer.
+- `main`'s last ID is now BL-20261117-0953-correction-owner-direction-second-pass, which comes after this branch's five entries. The validator refuses an ID that moves backward.
+- So the five entries are re-stamped after that tail, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+- `Implemented` covers the re-stamp and the merge. Decision 3 records 0941's `Approved` choice and this lane's reading of it. It approves nothing.
+
+The entries, with their original IDs and authoring times (UTC, 2026-11-14):
+- **the design entry**, authored at 13:12 as BL-20261114-1312 in commit 9d322f0 and first re-stamped as BL-20261114-1345 in merge commit 59d0eaa, is now BL-20261117-0954-scrub-policy-5-design;
+- **the first re-stamp's Correction**, authored at 14:30 as BL-20261114-1430 in commit 3dbb705, is now BL-20261117-0955-correction-scrub-policy-5-restamp;
+- **the Implemented entry**, authored at 14:32 as BL-20261114-1432 in commit 5e6ab61, is now BL-20261117-0956-scrub-policy-5-implemented;
+- **the review Correction**, authored at 16:37 as BL-20261114-1637 in commit 1aaa54e, is now BL-20261117-0957-correction-scrub-policy-5-review;
+- **the residues Correction**, authored at 17:02 as BL-20261114-1702 in commit 44240e4, is now BL-20261117-0958-correction-scrub-policy-5-residues.
+
+`main` also has an entry of minute 1345 on 2026-11-14, BL-20261114-1345-experiment-launcher-implemented (plan 11.5). It is a different entry. Where this entry writes BL-20261114-1345 alone, it means this branch's design entry.
+
+Decisions:
+1. **Only the IDs changed.** Each heading's ID and date moved, and so did every reference to the five IDs inside the five entries: 16 written in full and 6 written without a slug (BL-20261114-1432). No code, test or comment cites them, on this branch or on `main`.
+   - Mapped back, the five entries equal 44240e4's byte for byte.
+   - Two kinds of text stay as written. One is the first re-stamp's record of the design entry's original ID, BL-20261114-1312, which names a past ID. The other is prose that names an entry by its minute alone, such as "1637's decision 9". This entry maps those minutes: 1345 to BL-20261117-0954, 1430 to BL-20261117-0955, 1432 to BL-20261117-0956, 1637 to BL-20261117-0957 and 1702 to BL-20261117-0958.
+2. **The merge keeps policy 5 as it was frozen.** Only docs/BUILD_LOG.md conflicted.
+   - Since 19d7826, `main` has changed none of this branch's three other files. So research-assist-scrub.ts and the two test files are 44240e4's byte for byte, and policy 5's behaviour stays as it was frozen at 1aaa54e.
+   - The log is resolved as `main`'s log, then the five re-stamped entries, then this entry.
+3. **The 13 residues are accepted within one scope.** Decision 1 of BL-20261117-0941-group-a-decided-under-delegation accepts all 13 items of the residue list in decision 2 of BL-20261117-0958-correction-scrub-policy-5-residues, and it closes none of them first.
+   - **Who accepts.** The coordinating session accepts them under the owner's direction of 2026-11-17. This was one of the nine questions of the owner's group A. Decision 4 of BL-20261117-0940-owner-direction-decisions-delegated reads the owner's sentence as leaving those nine to the session. The session flagged decision 1 to the owner by name the same day (0941).
+     - It is not the owner's own sentence on the residues.
+     - The record had kept this choice for the owner's own answer, as decision 1 of 0941 lists. That was in decision 3 of BL-20261115-1937-owner-adopts-standing-defaults, the Next gate of BL-20261113-0925-correction-assist-core-rereview and decision 4 of BL-20261116-1131-owner-directions-merge-and-continue. This branch's residues entry said the same: "The owner accepts the residues or asks for rules".
+   - **The scope.** T1 and T2 assist packets on public and synthetic tasks, in E3's and E4's harness arms only. Two things are not covered: labelled or regime-tagged data, and the desktop's assist (backlog item 13). Each needs rules or a stronger check first.
+   - **10.b's dispatch gate.** The Next gate of BL-20261113-0925 lets 10.b wire the assist's dispatch once each listed limit is either closed by a reviewed rule under policy 5 or accepted by the owner in a recorded decision.
+     - **Met, within decision 1's scope only.** This lane reads decision 1 of 0941 as meeting that gate, because the residue question is one of the nine that decision 4 of 0940 reads the owner's sentence as delegating.
+     - **The reading is the session's.** 0940's Limitations say so. If the owner meant proposals to come back for a yes, decision 1 is a proposal, and the gate is not met until the owner says yes.
+     - **The same reading lifts** the holds of decision 3 of 1937 and decision 4 of 1131.
+     - **If the owner replaces decision 1,** the gate reopens, and 10.b's dispatch waits again.
+   - **Before any packet leaves.** By 0941, no packet leaves under decision 1 before E3's card is on `main`, and the owner can replace the decision until then. Before the first paid assisted run, the coordinating session builds packets from a zero-fee run and searches them for credential and query shapes. A hit stops the run until it is read.
+   - **The search also covers the owner's account name and home-path shapes.**
+     - This lane asked for it because of residue 12 and the extension-less paths it cites from BL-20261113-0921-assist-core-implemented and BL-20261113-0922-correction-assist-core-review. A rooted path of one or two segments with no extension goes out.
+     - The coordinating session agreed on 2026-11-17, and E3's card is to state it. No committed record holds it yet.
+   - **ASSIST-6, ASSIST-8 and ASSIST-11** are confirmed with decision 1. ASSIST-11 is the L6 default of BL-20261113-0923-correction-assist-core-delta: a stated limit for the public and synthetic arms now, and rules before any labelled arm.
+   - **The list may not be exhaustive** (decision 3 of BL-20261117-0958-correction-scrub-policy-5-residues). E3's and E4's cards say so.
+4. **The owner questions that the five entries call open.** They stay as written, but since then three things have changed.
+   - **What they say.**
+     - The design and Implemented entries (BL-20261117-0954 and BL-20261117-0956) say that ASSIST-9, -11, -14, -15, -16 and -18 and BL-20261113-0925's three questions stay open, and that only their defaults are used.
+     - The Implemented entry also says that under ASSIST-9's default, this pull request stays a draft until the owner answers. BL-20261117-0957 and BL-20261117-0958 say the same of the draft.
+   - **1937 adopts the defaults.** It adopts each open question with a stated default (its decision 1). For #105 it keeps open only the residue question, which had no default (its decision 3).
+   - **0941 answers the residue question.** That is the answer ASSIST-9's draft default waited for, under the reading of decision 3 above. So this pull request leaves draft. The same decision confirms ASSIST-11, with ASSIST-6 and ASSIST-8.
+   - **Policy 5 closes L6's `///` residue.** That is in L6 of BL-20261117-0954, and BL-20261117-0956 tests it.
+     - So 0925's third default, which accepted the `///`-led runs as a stated residue under policy 4 until policy 5, no longer applies.
+     - The one `///` shape still listed is L2's credential before `///`, item 1 of the residue list. Decision 1 of 0941 accepts it.
+5. **The pull request leaves draft.**
+   - Its merge changes the harness source-freeze digest, through research-assist-scrub.ts, from e4c29bf0… to 19beba42….
+   - The coordinating session had both figures before this merge was pushed. It said that no run of its is in progress or planned before #105 lands.
+
+Changes:
+- docs/BUILD_LOG.md: the five headings and their references, and this entry.
+- The merge resolution, in docs/BUILD_LOG.md only. No code, test or policy text changes.
+- The pull request's title and body:
+  - the title drops "draft until the owner answers";
+  - the residue section cites decision 1 of 0941.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref c02366a`: exit 0, 738 entries, append-only.
+- **Typecheck and readiness.** `pnpm typecheck` and `pnpm validate:readiness` exit 0, on Node 22.22.2 and pnpm 10.12.4.
+- **The affected tests.** The scrub, assist and build-log validator files: 142 passed, as at 1aaa54e.
+- **The full suite.** `pnpm exec vitest run` at this merge: 3,867 passed, 86 skipped and 2 failed.
+  - Both failures were timeouts under load, "Test timed out in 5000ms" and a hook's timeout. They were in private-agent-host-flags and private-agent-sandbox-capture, which this branch does not change.
+  - Both files pass alone, twice: 54 passed and 1 skipped.
+  - The same code tree, on #134's head, passed the full suite: 3,869 passed, 86 skipped and 0 failed.
+- **The hashes.**
+  - `researchProtocolSha256()` is 7100b7a2… at `main` and at this merge. With no assist configured, the assist block does not enter it.
+  - The two assist protocol hashes are those 44240e4 pins: forced_split 2fe123ba… and local_first 5966a089…. At `main` they are policy 4's, 127a56d3… and fd294f1e….
+  - The harness source freeze moves from e4c29bf0… at `main` to 19beba42… at this merge, over the same 61 files.
+- **Byte identity.**
+  - Mapped back, the five entries equal 44240e4's byte for byte.
+  - research-assist-scrub.ts and the two test files are the same blobs as at 44240e4.
+  - `main`'s log is a byte prefix of this branch's.
+- **Privacy.** The diff against `main` holds no local path, account name or e-mail address. Its e-mail-shaped strings are the synthetic credentials of the scrub tests and entries, such as `alice:hunter2@acme.example`.
+- **The light review.** One reviewer read a rehearsal of this merge on #134's head 426e35f. That tree is this one's but for this entry's `main` SHA and its evidence.
+  - It found no blocker or major.
+  - This entry takes its three minors and three nits:
+    - the scan's attribution, and the stop on a hit;
+    - the gate reading's basis;
+    - the owner questions of decision 4;
+    - the tense of decision 5;
+    - the tail in the References;
+    - what `Implemented` covers.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This entry records a re-stamp, a merge and the acceptance's effect on this branch. Policy 5's scrubber has no caller until 10.b, so nothing is sent by it. Nothing live ran.
+- **The acceptance is the session's,** under the owner's delegation, and not the owner's own sentence (decision 3).
+- **The owner questions of decision 4** are numbered in the git-ignored owner-question list, not in the log. Decision 4 reads their state from 1937 and 0941.
+- **No owner loop or E-run may span this merge.** Every merge under src/main/private-agent changes the harness source-freeze digest.
+- Commit messages keep the original IDs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI on this head.
+- Then the coordinating session's merge, on a clean light review and green CI, as it directed on 2026-11-17 under the Next gate of 0941 ("#105's merge and then 10.b").
+- Then 10.b, within decision 1's scope.
+
+References: BL-20261117-0954-scrub-policy-5-design; BL-20261117-0955-correction-scrub-policy-5-restamp; BL-20261117-0956-scrub-policy-5-implemented; BL-20261117-0957-correction-scrub-policy-5-review; BL-20261117-0958-correction-scrub-policy-5-residues; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1345-experiment-launcher-implemented.
+
 ### BL-20261117-1000-p10-plan-cap-export-design -- 2026-11-17 -- Topic 6: the role export takes a plan cap, so P10 measures the planner at 16,384 tokens and the writer proposes it there
 
 Status: `Proposed`

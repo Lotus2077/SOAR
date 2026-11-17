@@ -56,10 +56,35 @@ This folder holds the committed, sanitized record of live trials (see
   - **Audit.** A reviewer re-runs the writer on the retained probe with the same
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
-  - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 7(b) for admission. Until
-    then, adopt a card that keeps admission at its default, or leave the pair
-    unset.
+  - **Only adopted cards are read.** Every value a card sets is now read: 7b.3
+    consumed the last one, admission.
+  - **Admission is read since 7b.3** (BL-20261117-1131-research-card-admission-design).
+    Under `admission.basis: serving_card` the reader derives rates from the card's
+    evidence:
+    - P11's fastest and slowest prefill and decode;
+    - the decode of the K burst for K above 1;
+    - P10's mean completion tokens for plan, extract and synthesis.
+
+    It refuses the card with `serving_card_admission_unmeasured` when any rate is
+    missing. Before any request, the reading stage then:
+    - keeps room for max(1, ceil(chunks/4)) repair calls inside the extraction
+      budget, so at most 32 chunks, or ends `research_mandatory_budget_exceeded`;
+    - ends `research_infeasible_in_clock` when its expected time
+      exceeds half the session's remaining clock. That estimate uses the fastest
+      measured rates and P10's mean outputs, and it leaves out what is not known
+      before the first request. Without a session deadline it never ends on the
+      clock. The share is used only in that test: an admitted stage may still use
+      the whole remaining clock.
+
+    No call ceiling is derived from the card. The ceilings are the budget's, less
+    the reserve, and the rates enter only the clock test. A refusal's record is
+    written to the run's events as `research_admission`, since a refused stage
+    leaves no file.
+
+    summary.json records the admission, including the expected and cap-bound
+    estimates. The protocol hash binds the admission policy, the session identity
+    binds the rates, and freeze.json's pipeline block names them. With admission
+    `none`, nothing changes, and summary.json has no admission record.
   - **Caps and thinking are read since 7a.2** (BL-20261116-1203-research-role-policy-design).
     The research stage sends each local role's attempts the card's caps and
     thinking: attempt 1 is a role's first call, attempt 2 its repair or second

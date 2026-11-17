@@ -50385,3 +50385,341 @@ Paid exposure: None.
 Next gate: The re-probe under E0's Amendment 5, at a commit that contains #142. Then E6's card amendment, before E6's first run.
 
 References: docs/experiments/e6-card-2026-11-17.md; docs/experiments/e2-card-2026-11-17.md; docs/experiments/e0-card-2026-11-13.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1357-e0-verified; pull requests #135, #137, #138, #139, #140 and #142.
+
+### BL-20261117-1131-research-card-admission-design -- 2026-11-17 -- Item 7b.3 designed: under a card whose admission basis is `serving_card`, the reading stage reserves repair calls, estimates its time from the card's measured rates and refuses before any request only when even the expected estimate exceeds its share of the session clock
+
+Status: `Proposed`
+
+Scope or hypothesis: Topic 5 of BL-20261117-0940-owner-direction-decisions-delegated: "The incomplete-chunk rule stays. 7b.3 is built, and the rule is then re-measured." The coordinating session queued 7b.3 to lane S-pipe. It builds the last part of backlog item 7(b) that the earlier parts left: the card-derived ceilings, the reserved repair budget and the feasibility estimate (findings S1, D3 and D8's ceilings; research-admission.ts names them as part 3).
+- **What reaches 7b.3 today.** The card's `admission` field is `{basis: "none" | "serving_card"}`. The reader refuses `serving_card` with `serving_card_parameter_unconsumed`, since `SERVING_CARD_CONSUMED.admission` is false. Nothing reads the card's measured rates downstream: `LoadedServingCard.evidence` stays with the driver.
+- **What 7b.3 cannot change, decided before this design** (the coordinating session's decision, after lane S-pipe's finding of 2026-11-17).
+  - r3 has 24 chunks against 40 extraction calls, so 16 calls are left for repairs. Each unfinished chunk gets exactly one repair (research-pipeline.ts, the `repairs` list).
+  - E0's runs 1 to 4 ended `research_extraction_incomplete` on chunks whose one repair failed, never on a repair cut by the budget. Run 1 used 10 repairs, and runs 2 to 4's dispatch counts allow at most 13 each.
+  - So the reserve below fits inside r3's spare calls, and an r3 run shows only the new admission record.
+  - A second repair paid from the reserve is a separate item, designed after this one's implementation pull request.
+
+Decisions:
+(1) **Two paths.**
+- **Without a card, or under a card whose admission basis is `none`:** admission is exactly today's, and every request, summary, coverage file and hash is byte-identical. Batches must fit `indexCalls` and chunks `extractionCalls`, or the run ends `research_mandatory_budget_exceeded`. Repairs take whatever calls are left.
+- **Under a card whose basis is `serving_card`:** decisions (2) to (7) apply.
+- The summary records admission only on the second path, so a run without a card writes the summary it writes today. This departs from the lane plan's `summary.admission {basis: none}`, to keep that path byte-identical.
+
+(2) **The reserved repair budget** (D3). The run needs room for at least max(1, ceil(chunks / 4)) repair calls inside `extractionCalls`.
+- **The rule.** Chunks plus that reserve must not exceed `extractionCalls`, or the run ends `research_mandatory_budget_exceeded` before any request. With the budget's 40, that admits at most 32 chunks, against 40 today.
+- **What it does not change.** Repairs are allocated as today: every chunk that is not complete, then the held chunks, in order, while calls are left. The reserve is a floor on the spare calls that admission guarantees, not a new allocation. A corpus of 32 chunks or fewer already has at least that many spare calls, so for it the reserve changes nothing.
+- **The card-derived ceilings** are the budget's own, tightened by the reserve. They stay at or below today's 24 batches and 40 chunks (D8: raising them needs item 12's web request pool). The clock enters through decision (4), not as a separate ceiling, so one rule decides it.
+
+(3) **The rates, read from the card by the reader.** Consumers read only the resolved policy (SC's final contract, guard R10). So `ServingPolicy.admission` becomes `{basis: "none"}` or `{basis: "serving_card", rates}`. The reader derives the rates from the card's evidence, and the card's JSON is unchanged.
+- **Prefill and decode,** tokens per second: the fastest and the slowest of P11's measured sizes whose run succeeded (`prefillTokS`, `decodeTokS`; thinking off).
+- **Fan-out decode,** the rate the index and extraction loops decode at: the single-stream rate at K 1, and at K above 1 the aggregate of P11's burst at that K (`kStreams[K].aggregateTokS`), which 8.2b already requires to exist without errors.
+- **Expected output per call:** P10's mean completion tokens for plan, extract and synthesis, from the cell of the thinking mode the role's first attempt uses under the card's roles. Index has no P10 cell, so its expected output is not counted.
+- **The card's sha256,** so the record names the card the rates came from.
+- **A new refusal.** The reader refuses a `serving_card` basis whose card lacks any of these with `serving_card_admission_unmeasured` at `admission.basis`. A card that asks for card-derived admission must carry what it needs.
+
+(4) **The feasibility estimate,** computed before any request from what is known then:
+- the preview bytes of each index batch;
+- the text bytes of each chunk;
+- the counts of batches, chunks and the reserve;
+- the role policy's caps.
+
+Bytes become tokens at `bytesPerToken` 4. The two estimates:
+- **Expected (the one decision (5) reads).** Each batch's preview tokens and each chunk's text tokens, prefilled once at the fastest prefill rate. Plus each chunk's expected extraction output at the fastest fan-out rate, and one plan and one synthesis call's expected output at the fastest single-stream rate.
+  - It leaves out what is not known before the first request, such as the plan packet each extraction call repeats and the index summaries the plan carries. It also leaves out index output and every repair.
+  - So it is a lower bound in intent.
+- **Cap-bound (disclosed, never decides).** Every call the budget allows for the work (at most two per batch and per chunk, within `indexCalls` and `extractionCalls`, plus the planner's and the synthesiser's calls). Each is prefilled at the slowest rate and decodes its role's larger attempt cap at the slowest rate.
+- **Why these bounds.** The card's rates come from one-shot runs on a shared server, and its writer calls them "orders of magnitude". A refusal should need even the optimistic estimate to fail.
+
+(5) **Value 1, for the coordinating session to decide here: the refusal rule.**
+- **Proposed:** refuse with `research_infeasible_in_clock`, before any request, only when the expected estimate exceeds the stage's share of the session clock (decision (6)). Otherwise admit, and disclose both estimates.
+- Without a session deadline, which seeded runs and direct pipeline calls do not set, there is no share and never a refusal.
+- **What it guards in practice.** For r3, the expected estimate is a few minutes against a share of about 45 minutes. For a 32-chunk corpus of 64 KiB chunks, about 5 minutes. So the refusal fires on a stage started late in its session, a resume with little clock left, not on corpus size.
+
+(6) **Value 2, for the coordinating session to decide here: the stage's share of the session clock.**
+- **Proposed:** one half of the session's remaining clock at admission, `deadlineMs` less the moment of admission. The other half is left for the writer and the claims check.
+- This holds until E2, or a card, gives the Heavy writer a measured budget. E2's card bounds writer-2, not the Heavy writer.
+- Today nothing reserves the writer's time, and the reading stage may use the whole remaining clock.
+
+(7) **The record and the bindings.**
+- **summary.json** gains `admission`, on the second path only:
+  - `basis` and `policy` (`RESEARCH_ADMISSION_POLICY`);
+  - `cardSha256`;
+  - `work`: batches, chunks, the reserve and `extractionCalls`;
+  - `estimate`: expected seconds, cap-bound seconds and share seconds, the last null without a deadline;
+  - `decision`: `admitted`, `refused_reserve` or `refused_clock`.
+  On a refusal the run ends before any request with that record. No stage row is added, and `DOCUMENTED_STAGE_KEYS` is unchanged.
+- **The research protocol hash** binds `RESEARCH_ADMISSION_POLICY` on the second path only: the version, the reserve rule, the share, the token rule and the refusal rule. So the default hash stays 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. A card's rates are not protocol: they enter the session identity and the records.
+- **The session identity** binds the rates, spread only when set. A resume under another card's rates ends `session_contract_drift`.
+- **freeze.json's pipeline block** records the protocol under the policy and `admission: {basis, rates}`, spread only when set.
+- **`SERVING_CARD_CONSUMED.admission`** becomes true. The reader's tests that expected `admission` to be unconsumed are updated to the new refusal and resolution.
+
+(8) **Failed calls stay as they are.** A denied or failed call still ends the stage, so item 1's failed-counted producer rule stays unreachable for packets. The lane plan's regression, that a `request_failed` extraction call ends the stage `research_request_denied` with no packet, is added if no test holds it already.
+
+(9) **What 7b.3 shows, for the card amendment that registers its measurement.**
+- **An r3 run** under a card with basis `serving_card` shows the admission record only: a reserve of 6, an expected estimate of minutes and a share near 45 minutes, so the decision is `admitted`. No change to the incomplete-chunk rule is expected from 7b.3.
+- **The extractor fixture** never passes through admission.
+- **The rule's re-measurement on r3** runs under the adopted card and measures its extract flag (the coordinating session's decision).
+
+(10) **What is left out:**
+- a context check against P1's limit, which the token admission and the model layer guard per request;
+- reserving index repairs;
+- clock-derived call ceilings apart from decision (4);
+- anything for web-scale corpora, which item 12 owns.
+
+Changes: This entry only. The implementation follows in its own pull request, with:
+- src/main/private-agent/research-admission.ts (the policy, the reserve, the estimate and the decision);
+- research-pipeline.ts (the input, the checks, the summary record and the hash);
+- serving-card.ts and serving-card-flags.ts (the rates, the refusal and the flag);
+- session.ts (the option and the identity);
+- scripts/private-agent-local-screen.ts (the option and freeze.json);
+- docs/experiments/README.md;
+- the tests.
+
+Evidence: None yet; this is a design.
+- The r3 figures are from docs/experiments/e0-planner-fixture-v1.json (24 sources, 24 chunks, `extractionCallBudget` 40) and from the E0 rows of docs/experiments/registry.jsonl (46, 43, 47 and 39 dispatches, run 1 "after 10 repairs").
+- The rates are those of docs/experiments/serving-card-2026-11-16.json:
+  - P11 prefill 3,473.6 to 3,576.2 tokens per second, and decode 81.78 to 98.31;
+  - P10 means of 2,426.6 (plan, thinking on), 199.9 (extract, thinking off) and 2,811.3 (synthesis, thinking on) completion tokens.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **The estimate is coarse.** The rates are one-shot measurements, and the token count is a fixed 4 bytes per token.
+- **P10's means are of synthetic replies that carry `response_format`.** An unflagged role's replies may run longer or shorter.
+- **The refusal protects the clock, not quality.** It says nothing about whether the corpus's evidence can be extracted.
+
+Paid exposure: None.
+
+Next gate:
+- the coordinating session's decision of values 1 and 2, recorded in its next entry or here as a Correction;
+- the implementation, its `Implemented` entry and one light review;
+- CI and the merge;
+- then item (ii)'s `Proposed` design entry.
+
+References:
+- BL-20261117-0940-owner-direction-decisions-delegated (topic 5);
+- BL-20261109-0334-research-request-shapes-design (7b.1's admission module);
+- BL-20261115-1939-research-priority-trim-design (7b.2's incomplete-chunk rule);
+- BL-20261116-1213-local-fanout-design (8.2b's K);
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261116-1546-e0-structured-fixtures-result;
+- docs/PROJECT_REVIEW_2026-11-05.md, findings D3 and D8 and stage S1.
+
+### BL-20261117-1132-research-card-admission-implemented -- 2026-11-17 -- Item 7b.3 implemented: under a card whose admission basis is `serving_card`, the reading stage keeps room for repairs and is refused before any request only when its expected time exceeds half the session's remaining clock; the two values are decided
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1131-research-card-admission-design, implemented, with the two values the coordinating session decided and the departures below.
+
+Decisions:
+(1) **The two values are decided.** The coordinating session decided both under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, as proposed in decisions (5) and (6) of the design. The coordinating session carries the same decision in its own next entry.
+- **Value 1, the refusal rule.** Refuse with `research_infeasible_in_clock`, before any request, only when the expected (lower-bound) estimate exceeds the stage's share. Otherwise admit, and disclose both estimates. Never refuse without a session deadline.
+- **Value 2, the share:** half of the session's remaining clock at admission.
+- **The condition on value 2, in one plain sentence:** the share is used only in the admission test, and an admitted reading stage may still use the whole remaining clock, as before.
+
+(2) **As designed.**
+- research-admission.ts: `RESEARCH_ADMISSION_POLICY`, `ResearchAdmissionRatesSchema`, `researchRepairReserve` and `researchCardAdmission`.
+- research-pipeline.ts:
+  - the input `admission`;
+  - the checks before any request, after the readable-source check;
+  - summary.json's `admission`;
+  - `researchProtocolSha256`'s third argument, which binds the policy only when set.
+- serving-card.ts:
+  - `ServingPolicy.admission` is `{basis: "none"}` or `{basis: "serving_card", rates}`;
+  - `servingCardAdmissionRates` derives the rates;
+  - the new code `serving_card_admission_unmeasured`.
+  - The fail-closed step still compares the basis alone with the defaults, so under mocked flags an unconsumed basis is refused as before.
+- serving-card-flags.ts: `admission` is true.
+- session.ts: the option, which the identity binds and passes to the pipeline.
+- scripts/private-agent-local-screen.ts: the card's rates reach the research option, and freeze.json's pipeline block, only under a `serving_card` basis.
+
+(3) **Departures from the design, each smaller than it:**
+- **The decision values** are `admitted`, `refused_budget` and `refused_clock`, not `refused_reserve`. The budget's own check and the reserve end the run with one reason, and the record's `work` shows which bound it.
+- **The rates carry no card sha256.** freeze.json's `servingCard` block already names the card, and the reader derives the rates without the file's digest. The summary's record carries the rates themselves.
+- **The ready-packet gate** (research-coverage.ts) parses summary.json strictly. It now accepts an `admission` record, and only an admitted one. A refused run never makes a packet.
+- **The seed loader's** `PipelineFreezeSchema` accepts the block's `admission` and recomputes the source's protocol with it. Admission decides only whether a stage runs, never a packet, so a seeding run still compares its role policy alone.
+- **A rates object the schema refuses** ends the run `research_admission_invalid` before any request.
+
+(4) **What 7b.3 shows** (the coordinating session's decision; decision (9) of the design).
+- An r3 run under a card with basis `serving_card` shows the admission record only. No change to the incomplete-chunk rule is expected from 7b.3.
+- The extractor fixture never passes through admission.
+- The rule's re-measurement on r3 runs under the adopted card and measures its extract flag.
+
+Changes:
+- src/main/private-agent: research-admission.ts, research-pipeline.ts, research-coverage.ts, research-seed.ts, serving-card.ts, serving-card-flags.ts and session.ts.
+- scripts/private-agent-local-screen.ts.
+- docs/experiments/README.md: the admission bullet, replacing "refused until 7(b)".
+- Tests:
+  - tests/unit/private-agent-research-admission.test.ts: the policy pin; the reserve; the estimate, worked by hand; the clock's boundaries; the rates schema.
+  - tests/unit/private-agent-research-pipeline.test.ts:
+    - no record and the pinned hash without rates;
+    - an admitted run whose index, plan and extraction bodies equal the run without rates;
+    - the clock refusal and the budget refusal with zero requests;
+    - invalid rates;
+    - the gate's refusal of a refused or malformed record;
+    - the hash's four distinct values.
+  - tests/unit/serving-card-reader.test.ts:
+    - five `serving_card_admission_unmeasured` cases;
+    - the rates at K 4, with a first attempt that thinks;
+    - the flags pin;
+    - the code count, 17.
+  - tests/unit/private-agent-research-session.test.ts: the identity's drift on other rates or none, and the stage's record read from the transfer.
+  - tests/unit/private-agent-research-seed.test.ts: a seed under admission, and two refusals.
+  - tests/unit/private-agent-local-role-config.test.ts: a card loaded through the pair with its rates, the research option and the freeze block.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **Without a card's rates nothing changes.**
+  - The pipeline's summary has no `admission` key, and its protocol is the pinned 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+  - Every earlier test passes unchanged, except the reader's admission expectations of decision (2).
+- **With rates, a run is admitted.**
+  - Its index, plan and extraction request bodies equal those of the same run without rates.
+  - Its record's work and estimates equal `researchCardAdmission` on the same corpus.
+  - Its share lies between 1,790 and 1,800 s under an hour's deadline.
+- **The refusals:**
+  - on the clock, with a 1 s deadline;
+  - on the budget, with extraction calls equal to the chunks;
+  - and on rates the schema refuses.
+  Each ends before any request: the fixture broker's request is never called.
+- **The estimate, worked by hand,** for two batches and three chunks: 43.0 s expected and 885.7 s cap-bound.
+  - Admitted when the share equals the estimate, and refused 0.1 s below it.
+  - Never refused without a deadline.
+- **The reader:**
+  - rates at K 1 and at K 4, from P11's sizes and burst and P10's means in each role's first-attempt mode;
+  - five `serving_card_admission_unmeasured` cases.
+- **The session:**
+  - the identity drifts on other rates, and on none;
+  - the transfer's summary.json records an admitted record against a share of the session's clock.
+- **The seed:** a source under admission seeds, and the loader refuses a block and a protocol that disagree.
+- **The driver:** a card with the basis loads through the pair with its rates, and the freeze block and the research option carry them.
+- **Mutants:** twenty-five single edits, of which 22 fail a test. The three that survive:
+  - M25, removing the reader's own check for a missing burst rate, is equivalent: the rates schema refuses the same card with the same code at the same path.
+  - M22 and M23 drop the rates at the driver's two call sites in `runLocalArtifactScreen`. Only the Docker-gated suite, tests/integration/private-agent-runtime.test.ts, runs that function past its refusals, and it was not run.
+- **Hashes.**
+  - `researchProtocolSha256()` is 7100b7a2…, pinned and unchanged.
+  - Under the admission policy with the default roles it is 865b82c07844d9603fcf51f0cf8d7110aced0c41acc82f71c3c456023dd9b196. Nothing pins it.
+- **The source freeze** moves on this head from 19beba427465d4537ca62350f6f0e52fbd43ebcf7f2da86fd91cb7d8f474aa48 (`main` b359613, and #136's head) to a34f6cd74ff3967414d1baf6ea49266ab6a806f9b8a688707bf0e76e8c6b4ff2.
+- **Checks at this head,** which merges #136's head 73c7f14:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass;
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly;
+  - the six changed test files pass: 362 tests;
+  - the full suite:
+    - 191 files passed and 13 skipped; 3,891 tests passed and 86 skipped.
+    - Two failed, both by timing out at 5 s: one in tests/unit/inspect-git-changes.test.ts and one in tests/unit/private-agent-sandbox-capture.test.ts. Neither file is changed here, and both pass alone (46 tests passed, 1 skipped).
+    - An earlier run, on e6384da's tree before the merge of #136's head, timed out once the same way in tests/unit/patch-routing-comparison.test.ts. That file passes alone (63 tests).
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called, and no card with a `serving_card` basis has been adopted.
+- The limits of the design stand:
+  - the estimate is coarse;
+  - P10's means are of synthetic replies that carry the format;
+  - the refusal protects the clock, not quality.
+- **A split arm's cloud planner and synthesiser** are estimated at the card's local rates. The card measures no cloud route.
+- **The driver's two call sites** hand the card's rates to freeze.json and to the research option. They are held by typecheck and by the tests of the helpers they call, not by a run, so mutants M22 and M23 survive them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review of this pull request, CI, and the coordinating session's merge after #136;
+- then item (ii)'s `Proposed` design entry;
+- the r3 re-measurement under the adopted card.
+
+References:
+- BL-20261117-1131-research-card-admission-design;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261116-1213-local-fanout-design;
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261115-1939-research-priority-trim-design.
+
+### BL-20261117-1142-correction-research-card-admission-review-restamp -- 2026-11-17 -- Correction to BL-20261117-1132-research-card-admission-implemented: 7b.3's light review (three minors fixed, the nits recorded) and the re-stamp of its two entries after the chain's tail
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session's one reviewer read pull request #137 at 7722ba1 and found no blocker or major issue: three minor findings and four nits. This entry records the fixes. It also records the re-stamp of the PR's two entries after the tail of the merge chain, which is #146's entry. Both entries stay as written. Where this entry differs from them, this entry governs.
+
+Decisions:
+(1) **Minor 1: a refused admission's record now reaches disk.**
+- **Before.** The session keeps no summary of an incomplete stage, and a refused stage writes no file and no stage row. So the record behind `research_infeasible_in_clock` or `research_mandatory_budget_exceeded` (the work, both estimates, the share and the decision) reached disk only for a direct pipeline caller. BL-20261117-1132-research-card-admission-implemented decision (3) said "the record's `work` shows which bound it", and that held for such callers alone.
+- **Now.** On a non-admitted decision the session appends `research_admission`, with its `contextId` and the record, to the run's events.
+- An admitted run writes no such event: its record is in its summary.json.
+- Readers that filter events by type (scripts/registry-row.py, selection.ts, the seed loader) ignore it. A refused run makes no packet, so it is never seeded.
+
+(2) **Minor 2: the fan-out floor, and the word "expected".**
+- **The fan-out floor.** At K above 1, `fanOutDecodeTokensPerSecond.fastest` is now the larger of the K burst's aggregate and single-stream decode, and `slowest` the smaller.
+  - Before, a burst slower than one stream gave the expected estimate the slower rate. The committed card's K 1 burst is 84.51 tokens a second, against 98.31 for single-stream decode.
+  - So a one-chunk corpus would have been refused with less than about 119 s left, and an r3-shaped one with less than about 6 minutes.
+- **The wording.** BL-20261117-1131-research-card-admission-design and BL-20261117-1132-research-card-admission-implemented call the estimate "a lower bound in intent", and this entry supersedes that. The code's comments and the README now call it "expected".
+  - It uses the fastest measured rates and P10's mean outputs, and it leaves out what is not known before the first request.
+  - So it tends to fall below the run's time, but it is not a bound.
+- **Value 1 stands.** The coordinating session's decision on the refusal rule holds with that wording: refuse only when the expected estimate exceeds the share.
+
+(3) **Minor 3: one helper for the driver's two call sites.**
+- `localScreenCardResearch(servingCard, planner)` builds freeze.json's pipeline block and the research option's card values together, and both call sites read it. The block is built inside #140's `fixedFreeze`.
+- A unit test pins that both carry the same roles and rates, and that the block's protocol hash is the one computed under them.
+- This kills BL-20261117-1132-research-card-admission-implemented's two surviving driver mutants, M22 and M23, without Docker.
+
+(4) **The nits:**
+- **No call ceiling is derived from the card.** The ceilings are the budget's, less the reserve, and the rates enter only the clock test. BL-20261117-1131-research-card-admission-design's "card-derived ceilings" names that budget less the reserve. The README now says so.
+- **Both new reasons classify as `task`.** `research_infeasible_in_clock` and `research_admission_invalid` are task causes in scripts/registry-row.py's run classes, since neither is listed among the infrastructure reasons. This is stated here before E3 freezes those lists.
+- **"Failures or blockers: None" in BL-20261117-1132-research-card-admission-implemented stands for the change.** The two full-suite timeouts in its Evidence were in files the change does not touch, and both passed alone. They are not blockers.
+
+(5) **The re-stamp,** under BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates.
+- **The design entry** was authored at 10:22 UTC on 2026-11-17 as 1022 (commit ed320e6). It is now BL-20261117-1131-research-card-admission-design.
+- **The implemented entry** was authored at 10:48 UTC on 2026-11-17 as 1048 (commit 7722ba1). It is now BL-20261117-1132-research-card-admission-implemented.
+- **Only headings and references change.** There are 4 in the two entries, the headings included, and 19 in 15 files outside the log: eight freeze-covered files (seven under src/main/private-agent, and scripts/private-agent-local-screen.ts), the README, and six test files. The bodies keep what they state as written.
+- **The source freeze moves with the references,** because the design entry's ID is cited in freeze-covered source files. At this head it is 5974b2e9d9e28b5900c3593ea6ece602bd335bd6b17773275b049147bb908783. BL-20261117-1132-research-card-admission-implemented's a34f6cd74ff3967414d1baf6ea49266ab6a806f9b8a688707bf0e76e8c6b4ff2 was its value at 7722ba1.
+
+(6) **The merge.** This head merges #146's head 623d87f540a3736b3bbc0be88637f3eea2e983a6, the coordinating session's decisions entry. That head holds #135's head f590881, #143's head and `main` e8b3aa7, and #143 has since merged as 25910c9.
+- **The log** is #146's head's, then the two re-stamped entries, then this entry.
+- **The driver** takes #140's `fixedFreeze`, with the pipeline block read from the helper of decision (3).
+
+(7) **The coordinating session's entry.** BL-20261117-1132-research-card-admission-implemented decision (1) said the coordinating session would carry the two values in its own next entry. That entry is BL-20261117-1130-lane-decisions-second-repair-before-reprobe: its decision 2 holds 7b.3's two values. This head is chained on its pull request.
+
+Changes:
+- src/main/private-agent/session.ts: decision (1).
+- src/main/private-agent/serving-card.ts: decision (2).
+- src/main/private-agent/research-admission.ts: decision (2)'s wording.
+- scripts/private-agent-local-screen.ts: decision (3) and the merge.
+- docs/experiments/README.md: decisions (2) and (4).
+- Tests:
+  - tests/unit/private-agent-research-session.test.ts: refusals on the budget and on the clock write the event, and an admitted run writes none.
+  - tests/unit/serving-card-reader.test.ts: the fan-out floor.
+  - tests/unit/private-agent-local-role-config.test.ts: the helper.
+- The references of decision (5).
+- docs/BUILD_LOG.md: decision (5) and this entry.
+
+Evidence:
+- **Tests.** The changed test files, with #140's tests/unit/local-screen-write-bound.test.ts, pass: 368 tests in 7 files. Among them:
+  - in a session, a refusal on the budget and one on the clock each write the event, and an admitted run writes none;
+  - the reader's fan-out floor, with a burst at 10 tokens a second;
+  - the helper's freeze block and option agree under both planners, without a card, and under the basis `none`.
+- **Mutants.** Four single edits each fail a test:
+  - the helper's freeze block dropping the rates, and its option dropping them (the counterparts of BL-20261117-1132-research-card-admission-implemented's M22 and M23);
+  - the session writing no refusal event;
+  - the fan-out floor dropped.
+- **The re-stamp.** With the IDs mapped back, the two bodies equal the branch's entries at 7722ba1 byte for byte, and no old full ID remains in the tree.
+- **Hashes.** The default `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. Under the admission policy with the default roles it is 865b82c07844d9603fcf51f0cf8d7110aced0c41acc82f71c3c456023dd9b196. Both are unchanged. The source freeze is decision (5)'s.
+- **Checks at this head:**
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+  - The full suite: 195 files passed and 14 skipped; 3,919 tests passed and 88 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **An admitted run that ends incomplete keeps no admission record.** The session drops an incomplete stage's summary, and the event is written only for a refusal.
+- `Implemented`, not `Verified`. No model was called.
+
+Paid exposure: None.
+
+Next gate: CI on this head, and the coordinating session's merge in the chain's order: #135, #144, #145, #146, this PR, #139, #142, then #141.
+
+References:
+- BL-20261117-1131-research-card-admission-design;
+- BL-20261117-1132-research-card-admission-implemented;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261117-1130-lane-decisions-second-repair-before-reprobe.

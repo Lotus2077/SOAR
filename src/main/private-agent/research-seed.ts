@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
 import { canonical, digest, sha256Schema } from "./contracts";
+import { ResearchAdmissionRatesSchema } from "./research-admission";
 import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256 } from "./research-pipeline";
 import { RESEARCH_FILES } from "./research-contract";
 import { validateReadyResearchPacket } from "./research-coverage";
@@ -31,11 +32,13 @@ export type ResearchSeed = z.infer<typeof ResearchSeedSchema>;
 /**
  * The source run's pipeline block, carried into the seeded run's freeze so a registry row still names the pipeline and its planner.
  * 7a.2 (BL-20261116-1203-research-role-policy-design): `roles` is the role policy a non-default serving card set, present only then;
- * the block's protocolSha256 is computed with it.
+ * the block's protocolSha256 is computed with it. 7b.3 (BL-20261117-1131-research-card-admission-design): `admission` is a card's
+ * admission rates under a `serving_card` basis, present only then, and the protocol binds the admission policy with it.
  */
 export const PipelineFreezeSchema = z.object({ name: z.literal("research"), version: z.number().int().positive(), protocolSha256: sha256Schema,
   budget: z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict(),
-  planner: z.enum(["cloud", "local"]), writer: z.literal("local"), roles: ResearchRolePolicySchema.optional() }).strict();
+  planner: z.enum(["cloud", "local"]), writer: z.literal("local"), roles: ResearchRolePolicySchema.optional(),
+  admission: z.object({ basis: z.literal("serving_card"), rates: ResearchAdmissionRatesSchema }).strict().optional() }).strict();
 export type PipelineFreeze = z.infer<typeof PipelineFreezeSchema>;
 
 function insidePath(path: string, base: string): string {
@@ -67,7 +70,9 @@ export function loadResearchSeed(runDirectory: string, expected: { jobSha256: st
   if (!parsedPipeline.success) throw new Error("research_seed_no_pipeline");
   const pipeline = parsedPipeline.data;
   // 7a.2: the source's protocol is recomputed under the role policy it recorded; the seeding driver compares that policy with its own.
-  if (pipeline.version !== RESEARCH_PIPELINE_VERSION || pipeline.protocolSha256 !== researchProtocolSha256(pipeline.budget, pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY) ||
+  // 7b.3: and under the admission policy when it recorded a card's admission; admission decides only whether a stage runs, never a packet,
+  // so the seeding driver does not compare it.
+  if (pipeline.version !== RESEARCH_PIPELINE_VERSION || pipeline.protocolSha256 !== researchProtocolSha256(pipeline.budget, pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY, pipeline.admission !== undefined) ||
     canonical(pipeline.budget) !== canonical(RESEARCH_PIPELINE_BUDGET)) throw new Error("research_seed_protocol_mismatch");
   const jobId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u).parse(freeze.jobId);
   const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });

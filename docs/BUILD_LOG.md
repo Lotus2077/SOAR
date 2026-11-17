@@ -50723,3 +50723,117 @@ References:
 - BL-20261113-0938-correction-restamp-rule-dates;
 - BL-20261117-0940-owner-direction-decisions-delegated;
 - BL-20261117-1130-lane-decisions-second-repair-before-reprobe.
+
+### BL-20261117-1143-research-second-repair-design -- 2026-11-17 -- Item (ii) designed for a decision: under a card's `serving_card` admission basis, a chunk still unfinished after its one repair gets a second repair from the calls admission reserved; it moves the default protocol hash, so the adopted card would need a full re-probe
+
+Status: `Proposed`
+
+Scope or hypothesis: The coordinating session asked for this design after 7b.3's implementation pull request was up (its decision after lane S-pipe's finding of 2026-11-17).
+- **Why.** E0's r3 runs 1 to 4 ended `research_extraction_incomplete` on chunks whose one repair failed, never on a repair cut by the budget. 7b.3's reserve (BL-20261117-1131-research-card-admission-design) cannot move that. A second repair is the budget-side lever that can.
+- **The rule for building it** is the coordinating session's: it is built only if the r3 re-measurement under the adopted card still ends runs on chunks whose one repair failed.
+- **The hypothesis, for that re-measurement to decide:** a second repair completes some of the chunks a first repair leaves unfinished.
+
+Decisions:
+(1) **When.** Only under a card whose admission basis is `serving_card`, the basis whose reserve guarantees the calls. Without it, a chunk gets one repair, as today.
+
+(2) **What.**
+- **Who gets one.** After the first repair pass, every chunk that is still not complete gets one more repair, while extraction calls are left: invalid, truncated or needing follow-up. Chunks go in coverage order, at the stage's K.
+- **Held chunks** get none. A held chunk that was not repaired keeps its first attempt, as today.
+- **Its payload** is the repair payload the pipeline builds today, with the second attempt's state as its `repairReason`.
+- **Its cap, thinking and `response_format`** are the card's second attempt slot's. For extraction, "attempt 2" in the role policy then means every repair. The card's schema keeps its two slots.
+- **P10's binding** already covers it: the reader checks each flagged mode's cap, and the second repair uses the same cap and mode as the first.
+
+(3) **The contracts that change.** Each is a persisted contract or a frozen file, so each needs this entry's approval before code.
+- **coverage.json.** A chunk's `attempts` may hold 3, up from 2 (`ResearchCoverageSchema`). `schemaVersions.coverage` goes from 3 to 4.
+  - The ready-packet gate's counts already hold for three attempts. They are sums over the attempts: the extract row's calls, invalid replies and truncated replies (research-coverage.ts).
+  - The gate also accepts a third attempt only when summary.json's admission record is present.
+- **The extract stage row** gains `secondRepairCalls`, and `repairCalls` keeps counting every repair. `DOCUMENTED_STAGE_KEYS` is extended. scripts/registry-row.py reads only `calls`, usage and `truncatedReplies`, so the rows are unchanged.
+- **`RESEARCH_ADMISSION_POLICY`** goes to version 2, with `repairsPerChunk: 2`. It is bound only under the basis, as now.
+
+(4) **The default protocol hash moves.** This is the main cost, and it does not depend on a card.
+- `researchProtocolSha256()` binds the JSON schema of `ResearchCoverageSchema` and `schemaVersions`. Allowing a third attempt changes both for every run, with or without a card.
+- So the default hash moves from 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 to a new value, re-pinned in tests/helpers/research-protocol-pin.ts.
+- **The consequences.** The serving card adopted after #136's re-probe binds its P10 evidence to the old hash, and the reader would then refuse its flags with `serving_card_p10_protocol_drift`. Building (ii) therefore means another full re-probe (P1, P10, P11 and the adapter) and another adoption. Every earlier run directory also becomes unseedable, as after any protocol change.
+- **Sequencing.** If (ii) is built, it should merge before a re-probe, not after one.
+- No design that records a third attempt in coverage.json avoids this. A second repair that replaces the first in the record would hide a settled call from the producer's binding.
+
+(5) **An alternative with no protocol change.**
+- If the r3 re-measurement's unfinished chunks are mostly truncations, the card can give extraction's second attempt a larger cap. 7a.2 already reads per-attempt caps.
+- The flagged extract mode needs a P10 cell at that cap, as topic 6 needed for plan. That is an export option like `--plan-cap` (BL-20261117-1000-p10-plan-cap-export-design), and a re-probe.
+- The default hash would not move, and the card's other evidence would stand.
+- **Which to prefer** depends on the re-measurement's failure classes. The coordinating session decides that with the run's record.
+
+(6) **What the measurement would show.** Under the adopted card, with basis `serving_card` and (ii) built, an r3 run's extract row would show:
+- `secondRepairCalls`;
+- each chunk's three attempts in coverage.json;
+- whether runs that ended `research_extraction_incomplete` now reach `research_packet_ready`.
+
+The extractor fixture sends initial attempts only and shows nothing about (ii).
+
+Changes: This entry only. Nothing is implemented.
+
+Evidence: None yet; this is a design.
+- The hash binding is read from `researchProtocolSha256` in research-pipeline.ts: its `schemas.coverage` is `z.toJSONSchema(ResearchCoverageSchema)`, and its `schemaVersions` holds `coverage: 3`.
+- The two-attempt bound is `attempts: ...max(2)` in research-coverage.ts.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. The coordinating session decides whether to build it, under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, on the r3 re-measurement.
+- **A second repair may not complete more chunks.** Run 2's diagnostics name `schema_too_big`, `needs_followup` and quote-location failures, and a repair may repeat the same failure.
+- **It adds calls** within the extraction budget, so time and receipts grow with it.
+
+Paid exposure: None.
+
+Next gate: the r3 re-measurement under the adopted card, then the coordinating session's decision, and only then an implementation pull request.
+
+References:
+- BL-20261117-1131-research-card-admission-design;
+- BL-20261117-1132-research-card-admission-implemented;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261117-1000-p10-plan-cap-export-design;
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261115-1939-research-priority-trim-design.
+
+### BL-20261117-1144-correction-research-second-repair-design-restamp -- 2026-11-17 -- Correction: item (ii)'s design entry is re-stamped after #137's tail, with its original ID, and the coordinating session's decision to merge (ii) before the re-probe
+
+Status: `Implemented`
+
+Scope or hypothesis: Pull request #139 holds one entry, item (ii)'s design. It is chained on #137 and merges after it, so its entry is re-stamped after #137's tail, BL-20261117-1142-correction-research-card-admission-review-restamp. The rules are BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates.
+
+Decisions:
+(1) **The re-stamp.**
+- The design entry was authored at 10:49 UTC on 2026-11-17 as 1049 (commit 5e01323). It is now BL-20261117-1143-research-second-repair-design.
+- Only its heading and its references change:
+  - its own ID;
+  - its citations of #137's two entries, now BL-20261117-1131-research-card-admission-design and BL-20261117-1132-research-card-admission-implemented.
+- The body keeps what it states as written.
+- No file outside the log cites it in this PR.
+
+(2) **What changed since it was written.**
+- The design is `Proposed`, and it said the coordinating session would decide on the r3 re-measurement.
+- On 2026-11-17 the coordinating session decided, on lane S-pipe's classification of E0's r3 repair failures, that (ii) merges before the re-probe. One probe, one adoption and one r3 re-measurement then cover the extract flag and the second repair together.
+- The classification: 8 failed repairs, of which needs_followup 5, schema_too_big 2 and question_set_mismatch 1. None was truncated, so the larger-cap alternative of decision (5) is not needed.
+- The coordinating session records it as decision 1 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe: an `Approved` approval for the second repair before the re-probe.
+- The implementation is pull request #142.
+
+Changes: docs/BUILD_LOG.md: the re-stamp, and this entry.
+
+Evidence:
+- With the IDs mapped back, the re-stamped body equals 5e01323's entry byte for byte.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The design entry keeps its status, `Proposed`. The decision of (2) is the coordinating session's to record.
+
+Paid exposure: None.
+
+Next gate: CI, and the coordinating session's merge after #137.
+
+References:
+- BL-20261117-1143-research-second-repair-design;
+- BL-20261117-1142-correction-research-card-admission-review-restamp;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261117-1130-lane-decisions-second-repair-before-reprobe.

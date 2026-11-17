@@ -4,6 +4,7 @@ import { ResearchPlanSchema, validatePlanCoverage, validateResearchPlanAttempts,
 export { ResearchPlanSchema, validatePlanCoverage, type ResearchPlan } from "./research-plan";
 import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_SLOT_POLICY, type ResearchBudget, type ResearchSourceIdentity } from "./research-contract";
 import { hostFallbackPlan, hostSkeletonSynthesis } from "./research-fallback";
+import { ResearchAssistStageRecordSchema } from "./research-assist-record";
 
 const id = z.string().min(1).max(2048), qid = z.string().regex(/^Q[0-9]{1,2}$/u), uid = z.string().regex(/^U[0-9]{1,4}$/u), eid = z.string().regex(/^E[0-9]{1,4}$/u);
 const integer = z.number().int().nonnegative();
@@ -152,7 +153,9 @@ export function renderResearchEvidence(evidence: ResearchEvidence, plan: Researc
 }
 const budgetSchema = z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict();
 const summarySchema = z.object({ version: z.literal(RESEARCH_PIPELINE_VERSION), protocolSha256: sha256Schema, budget: budgetSchema,
-  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional() }).passthrough()).length(4) }).strict();
+  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional(),
+    // 10.b (BL-20261117-1036-assist-wiring-design, decision 8): a stage's assist record is parsed strictly; every other key passes as before.
+    assist: ResearchAssistStageRecordSchema.optional() }).passthrough()).length(4) }).strict();
 export function validateReadyResearchPacket(files: readonly ResearchPacketFile[], expected: ResearchPacketExpectation = {}) {
   const names = Object.values(RESEARCH_FILES).sort();
   if (canonical(files.map(f => f.path).sort()) !== canonical(names)) fail("files");
@@ -180,13 +183,25 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
     .some(s => (fallbackOf(s) ? s.invalidReplies !== s.calls : s.invalidReplies >= s.calls) || (s.truncatedReplies ?? 0) > s.invalidReplies)) fail("stage_success_contradiction");
   if (canonical(summary.stages.map(s => s.stage)) !== canonical(["index", "plan", "extract", "synthesise"]) || summary.stages.some(s => s.calls < 1 || s.calls > stageLimits[s.stage] || s.denied)) fail("stage_counts");
   // 7(c): attempt records and fallback markers belong to their own stage's row only.
-  const stageKeys: Record<string, readonly string[]> = { index: [], plan: ["planAttempts", "fallback"], extract: [], synthesise: ["synthesisAttempts", "fallback"] };
-  if (summary.stages.some(s => ["planAttempts", "synthesisAttempts", "fallback"].some(key => key in s && !stageKeys[s.stage]!.includes(key)))) fail("stage_keys");
+  const stageKeys: Record<string, readonly string[]> = { index: [], plan: ["planAttempts", "fallback", "assist"], extract: [], synthesise: ["synthesisAttempts", "fallback", "assist"] };
+  if (summary.stages.some(s => ["planAttempts", "synthesisAttempts", "fallback", "assist"].some(key => key in s && !stageKeys[s.stage]!.includes(key)))) fail("stage_keys");
   const brief = coverage.units.map(u => u.text).join("");
   if (digest(Buffer.from(brief)) !== coverage.briefSha256 || Buffer.byteLength(brief) !== coverage.briefBytes || canonical(deriveBriefUnits(brief)) !== canonical(coverage.units) || (expected.brief !== undefined && expected.brief !== brief)) fail("brief");
   validatePlanCoverage(plan, coverage.units, coverage.sources);
   validateResearchPlanAttempts(summary.stages[1]!, plan, coverage.units, { plannerCalls: summary.budget.plannerCalls });
   validateSynthesisAttempts(summary.stages[3]!, summary.budget.synthesisCalls);
+  // 10.b (decision 8), after the attempt records are validated: a configured hook records both touchpoints, under one policy. A record matches its own row's slot attempts: each
+  // settled assist reply is one slot attempt, the record is accepted exactly when a slot attempt was, and no slot attempt appears
+  // without a fired record (BL-20261113-0927-research-v5-design, Limitations).
+  const touchpoints = summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise");
+  if (touchpoints.some(s => s.assist !== undefined) && (touchpoints.some(s => s.assist === undefined) || new Set(touchpoints.map(s => s.assist!.policy)).size !== 1)) fail("stage_assist");
+  for (const s of touchpoints) {
+    const listed = s.stage === "plan" ? (s as { planAttempts?: unknown }).planAttempts : (s as { synthesisAttempts?: unknown }).synthesisAttempts;
+    const slotted = (Array.isArray(listed) ? listed : []).filter((a: { slot?: unknown }) => a && a.slot !== undefined) as { accepted?: unknown }[], record = s.assist;
+    if (!slotted.length && record === undefined) continue;
+    if (!record || record.touchpoint !== (s.stage === "plan" ? "T1" : "T2") || (slotted.length > 0 && !record.fired) ||
+        record.attempts.filter(a => a.outcome === "settled").length !== slotted.length || record.accepted !== slotted.some(a => a.accepted === true)) fail("stage_assist");
+  }
   // 7(c): a marked fallback must be the host's own recomputation, byte for byte, and only a marked stage may carry one.
   if ((coverage.fallbacks.plan === "host_plan") !== fallbackOf(summary.stages[1]!) || (coverage.fallbacks.synthesis === "skeleton") !== fallbackOf(summary.stages[3]!)) fail("fallback_marker");
   if (coverage.fallbacks.plan === "host_plan" && canonical(plan) !== canonical(hostFallbackPlan(coverage.units))) fail("fallback_plan");

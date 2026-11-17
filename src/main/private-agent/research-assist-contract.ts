@@ -93,6 +93,8 @@ export interface ResearchAssistAttemptRecord {
   /** The settled row's fee. */
   feeMicrousd?: number;
   packet?: ResearchAssistPacketRecord;
+  /** Settled only, since 10.b: the model string the provider reported, exact text of at most 200 characters; absent when it reported none. */
+  servedModel?: string;
 }
 
 export type ResearchAssistOutcome =

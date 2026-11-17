@@ -208,6 +208,24 @@ export function frozen<T>(value: T): T {
 }
 
 /**
+ * 10.b (BL-20261117-1036-assist-wiring-design, decision 7): the attempt record the real wrapper attaches to each outcome, for a fake
+ * hook. A reply settled with no fee and a reported zero write; a skip or failure was dispatched, a refusal or stop was not. An
+ * outcome that carries a record already, or that is not an outcome of a known kind, is returned as it is.
+ */
+export function withAttemptRecord(outcome: ResearchAssistOutcome, touchpoint: "T1" | "T2", retry = false): ResearchAssistOutcome {
+  const raw = outcome as unknown as { kind?: unknown; record?: unknown } | null;
+  if (!raw || typeof raw !== "object" || !["reply", "no_reply", "stop"].includes(raw.kind as string) || raw.record !== undefined) return outcome;
+  const base = { version: 1 as const, touchpoint, ordinal: (retry ? 2 : 1) as 1 | 2, retryAfterTruncation: retry };
+  // A malformed outcome (a reply without usage, say) is returned as it is, so the pipeline's own outcome check still sees it.
+  if (outcome.kind === "reply" && (!outcome.usage || typeof outcome.usage !== "object")) return outcome;
+  const record = outcome.kind === "reply" ? { ...base, outcome: "settled" as const, dispatched: true, finish: outcome.truncated ? "length" as const : "stop" as const, feeMicrousd: 0,
+      usage: { inputTokens: outcome.usage.inputTokens, outputTokens: outcome.usage.outputTokens, cacheReadTokens: outcome.usage.cacheReadTokens, cacheWriteTokens: outcome.usage.cacheWriteTokens, cacheWriteReported: true } }
+    : outcome.kind === "no_reply" ? { ...base, outcome: outcome.outcome, code: outcome.code, dispatched: outcome.outcome !== "refused" }
+    : { ...base, outcome: "stopped" as const, code: outcome.code, dispatched: false };
+  return { ...outcome, record } as ResearchAssistOutcome;
+}
+
+/**
  * A fake hook for item 7(c)'s pipeline tests: it answers as the real wrapper does, in the opaque namespace. A plan reply names
  * sources by S{n} with `sourceAliases`, so the pipeline must assess it with `assessResearchPlanReply({ ..., sourceAliases })`;
  * a synthesis reply carries the evidence ids its packet would have held. `script` may replace either answer with any outcome.
@@ -219,17 +237,17 @@ export function fakeResearchAssists(firing: ResearchAssists["firing"], script: {
   return { firing, calls,
     async plan(request) {
       calls.push("plan");
-      if (script.plan) return script.plan(request);
+      if (script.plan) return withAttemptRecord(script.plan(request), "T1");
       const sourceAliases = Object.fromEntries(request.sources.map((source, i) => [`S${i + 1}`, source.id]));
-      return { kind: "reply", truncated: false, usage, sourceAliases, content: JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?",
-        requirementIds: request.units.map(unit => unit.id), sourceIds: Object.keys(sourceAliases).slice(0, 8) }] }) };
+      return withAttemptRecord({ kind: "reply", truncated: false, usage, sourceAliases, content: JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?",
+        requirementIds: request.units.map(unit => unit.id), sourceIds: Object.keys(sourceAliases).slice(0, 8) }] }) }, "T1");
     },
     async synthesis(request) {
       calls.push(request.retryAfterTruncation ? "synthesis retry" : "synthesis");
-      if (script.synthesis) return script.synthesis(request);
+      if (script.synthesis) return withAttemptRecord(script.synthesis(request), "T2", request.retryAfterTruncation === true);
       const evidenceIds = request.evidence.quotes.map(quote => quote.id);
-      return { kind: "reply", truncated: false, usage, evidenceIds, content: JSON.stringify({ version: 1, argument: `A finding [${evidenceIds[0]}].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.`,
+      return withAttemptRecord({ kind: "reply", truncated: false, usage, evidenceIds, content: JSON.stringify({ version: 1, argument: `A finding [${evidenceIds[0]}].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.`,
         questions: request.plan.questions.map(question => { const ids = request.evidence.quotes.filter(quote => quote.questionIds.includes(question.id)).map(quote => quote.id);
-          return { questionId: question.id, disposition: ids.length ? "findings" : "unresolved", evidenceIds: ids }; }) }) };
+          return { questionId: question.id, disposition: ids.length ? "findings" : "unresolved", evidenceIds: ids }; }) }) }, "T2", request.retryAfterTruncation === true);
     } };
 }

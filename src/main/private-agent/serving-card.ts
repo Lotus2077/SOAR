@@ -303,7 +303,7 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
 }
 
 /**
- * 7b.3 (BL-20261117-1022-research-card-admission-design): the measured rates a `serving_card` admission basis reads, from the card's own
+ * 7b.3 (BL-20261117-1131-research-card-admission-design): the measured rates a `serving_card` admission basis reads, from the card's own
  * evidence, or `serving_card_admission_unmeasured` at `admission.basis` when the card lacks one:
  * - prefill and decode: the fastest and the slowest of P11's sizes that ran (thinking off);
  * - fan-out decode: the single-stream rates at K 1; at K above 1 the aggregate of P11's burst at that K, never slower than one stream

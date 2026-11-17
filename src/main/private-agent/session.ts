@@ -72,7 +72,7 @@ export interface GeneralSessionOptions {
     /** 7a.2: the role policy an adopted serving card resolved; absent is the default, and the identity and every request are as without it. */
     roles?: ResearchRolePolicy;
     /**
-     * 7b.3 (BL-20261117-1022-research-card-admission-design): the admission rates of an adopted card whose admission basis is `serving_card`.
+     * 7b.3 (BL-20261117-1131-research-card-admission-design): the admission rates of an adopted card whose admission basis is `serving_card`.
      * Bound into the identity (so a resume under another card's rates ends `session_contract_drift`) and the protocol hash; absent, both
      * and every request are as without it.
      */
@@ -435,7 +435,7 @@ export class GeneralAgentSession {
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {
-            // 7b.3's review (BL-20261117-1022-research-card-admission-design): a refused admission writes no file and no stage row, and the
+            // 7b.3's review (BL-20261117-1131-research-card-admission-design): a refused admission writes no file and no stage row, and the
             // session keeps no summary of an incomplete stage, so the record (the work, both estimates, the share and the decision) is its own event.
             if (outcome.summary.admission && outcome.summary.admission.decision !== "admitted")
               store.append(jobId, { type: "research_admission", contextId: readerContextId, admission: outcome.summary.admission });

@@ -2,7 +2,7 @@
  * Research admission (backlog item 7(b); review section 5.2, stage S1): what the host decides from the inputs before the
  * first research request. Part 1 (BL-20261109-0334-research-request-shapes-design) holds the index batches by preview size
  * (finding D8's batching), the mandatory-work ceilings and the synthesis length cap taken from the brief (finding D13); part 3
- * (7b.3, BL-20261117-1022-research-card-admission-design) adds, under a card whose admission basis is `serving_card` only, the
+ * (7b.3, BL-20261117-1131-research-card-admission-design) adds, under a card whose admission basis is `serving_card` only, the
  * reserved repair budget and the wall-clock feasibility estimate (researchCardAdmission).
  * Pure: no I/O, no clock, no model text. Every policy here is bound into researchProtocolSha256 (research-pipeline.ts), so a
  * changed value or pattern is a protocol change; RESEARCH_ADMISSION_POLICY is bound only under such a card. This module must not
@@ -48,7 +48,7 @@ export function researchMandatoryWorkFits(work: { batches: number; chunks: numbe
 }
 
 /**
- * 7b.3 (BL-20261117-1022-research-card-admission-design): card-derived admission, applied only under a serving card whose admission
+ * 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission, applied only under a serving card whose admission
  * basis is `serving_card`, and bound into researchProtocolSha256 then and only then. The run keeps room for repair calls, and is
  * refused before any request only when its expected time exceeds its share of the session clock. The share is
  * used only in that test: an admitted stage may still use the whole remaining clock.

@@ -256,7 +256,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const defaulted = options(f, "job-default", runs); defaulted.research = { ...defaulted.research!, roles: structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy };
     expect(await new GeneralAgentSession(defaulted).run()).toMatchObject({ status: "submitted" });
   });
-  it("7b.3: the identity binds a card's admission rates, so a resume under other rates, or without them, drifts (BL-20261117-1022-research-card-admission-design)", async () => {
+  it("7b.3: the identity binds a card's admission rates, so a resume under other rates, or without them, drifts (BL-20261117-1131-research-card-admission-design)", async () => {
     const rates = (plan: number): ResearchAdmissionRates => ({ prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
       fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan, extract: 100, synthesis: 2000 } });
     const f = await fixture(), runs: Run[] = [], first = options(f, "job-admission", runs); first.research = { ...first.research!, admission: rates(1000) };

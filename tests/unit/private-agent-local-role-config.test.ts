@@ -222,7 +222,7 @@ describe("shared harness local role configuration", () => {
     expect(existsSync(options.outputDirectory)).toBe(false);
   });
 
-  it("7b.3: a card whose admission basis is serving_card loads through the pair with its evidence's rates, and the research option and freeze.json carry them (BL-20261117-1022-research-card-admission-design)", () => {
+  it("7b.3: a card whose admission basis is serving_card loads through the pair with its evidence's rates, and the research option and freeze.json carry them (BL-20261117-1131-research-card-admission-design)", () => {
     const root = workspace(), card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
     (card as { admission: { basis: string } }).admission.basis = "serving_card";
     const written = writeCard(root, card), paired = config(true); paired.vllm.servingCard = { path: written.path, sha256: written.sha256 };

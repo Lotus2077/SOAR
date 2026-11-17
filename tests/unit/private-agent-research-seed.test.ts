@@ -17,12 +17,17 @@ import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 import type { ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest } from "../../src/main/private-agent/research-assist-contract";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
+import { withAttemptRecord } from "../helpers/research-assist-fixture";
+import { researchAssistProtocolSha256 } from "../../src/main/private-agent/research-assist";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const h = (n: string) => n.repeat(64), task = { jobSha256: h("1"), briefSha256: h("2") }, jobId = "job-a", contextId = "reader";
 const researchInput = (sources: Parameters<typeof createResearchInput>[1] = researchV4Sources()) => createResearchInput(RESEARCH_V4_TEST_BRIEF, sources);
 const pipeline = () => ({ name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: { ...RESEARCH_PIPELINE_BUDGET }, planner: "local", writer: "local" });
+/** 10.b (BL-20261117-1202-assist-wiring-design, decision 10): the freeze block of a run whose reading stage had an assist hook of this firing. */
+const assistedPipeline = (firing: "local_first" | "forced_split") => ({ ...pipeline(), protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, firing),
+  assist: { version: 1, firing, protocolSha256: researchAssistProtocolSha256(firing) } });
 let produced: SessionFile[], receipts: Record<string, unknown>[];
 
 beforeAll(async () => {
@@ -98,7 +103,11 @@ function sourceRun(input: Options = {}): string {
     };
     const config = { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium" as const, inputUsdPerMillion: 0, outputUsdPerMillion: 0 };
     const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, jobId, contextId);
-    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal, record() {}, assists });
+    // 10.b: each outcome carries the attempt record the real wrapper attaches (withAttemptRecord), unless the script gave one.
+    const recorded = assists && { firing: assists.firing,
+      ...(assists.plan ? { plan: async (request: ResearchAssistPlanRequest, signal: AbortSignal) => withAttemptRecord(await assists.plan!(request, signal), "T1") } : {}),
+      ...(assists.synthesis ? { synthesis: async (request: ResearchAssistSynthesisRequest, signal: AbortSignal) => withAttemptRecord(await assists.synthesis!(request, signal), "T2", request.retryAfterTruncation === true) } : {}) };
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal, record() {}, assists: recorded });
     expect(outcome.status).toBe("completed"); return { files: outcome.files, receipts: [...rows], summary: outcome.summary };
   };
   const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 };
@@ -305,7 +314,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === forcedPlan ? { ...row, status: "unknown" } : row) }, { jobId, files: split.files, receipts: forced, input: researchInput() })).toThrow("research_producer_receipts_drift");
     expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === forcedPlan ? { id: row.id, stage: row.stage, sha256: row.sha256, status: "unknown" } : row) }, { jobId, files: split.files, receipts: forced, input: researchInput() })).toThrow();
     // The seed loader takes a forced-split ledger through the same producer path.
-    const dir = sourceRun({ base: split, producer: () => createResearchProducer({ ...input, kind: "session", files: split.files, receipts: forced }) });
+    const dir = sourceRun({ base: split, producer: () => createResearchProducer({ ...input, kind: "session", files: split.files, receipts: forced }), freeze: { pipeline: assistedPipeline("forced_split") } });
     expect(loadResearchSeed(dir, task).seed.producer.receipts[forcedPlan]).toMatchObject({ stage: "plan", role: "assist" });
   });
   it("7c: seeds a [stage, stage, assist] plan stage and a truncated synthesis assist with its retry, and binds skipped and failed assist rows uncounted", async () => {
@@ -316,7 +325,11 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const localInput = { kind: "session" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: local.files, receipts: local.receipts };
     const localProducer = createResearchProducer(localInput);
     expect(localProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", undefined], ["synthesise", undefined], ["synthesise", undefined]]);
-    const loaded = loadResearchSeed(sourceRun({ base: local, producer: () => localProducer }), task);
+    const loaded = loadResearchSeed(sourceRun({ base: local, producer: () => localProducer, freeze: { pipeline: assistedPipeline("local_first") } }), task);
+    // 10.b: the block's own digest must be today's assist protocol, and an assisted packet needs the block that bound its hash.
+    expect(() => loadResearchSeed(sourceRun({ base: local, producer: () => localProducer, freeze: { pipeline: { ...assistedPipeline("local_first"),
+      assist: { ...assistedPipeline("local_first").assist, protocolSha256: "f".repeat(64) } } } }), task)).toThrow("research_seed_protocol_mismatch");
+    expect(() => loadResearchSeed(sourceRun({ base: local, producer: () => localProducer }), task)).toThrow();
     expect(loaded.files).toEqual(local.files); expect(loaded.seed.producer.receipts).toEqual(localProducer.receipts);
     // A settled assist the summary does not count is one reply too many.
     expect(() => createResearchProducer({ ...localInput, receipts: [...local.receipts, { ...local.receipts.find(r => r.purpose === PLAN_ASSIST_PURPOSE)!, id: "receipt-extra" }] })).toThrow("research_producer_receipt_count");
@@ -327,7 +340,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(forced.summary.stages.map(stage => stage.calls)).toEqual([1, 1, 2, 1]);
     const forcedProducer = createResearchProducer({ ...localInput, files: forced.files, receipts: forced.receipts });
     expect(forcedProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", "unknown"], ["synthesise", "failed"]]);
-    expect(loadResearchSeed(sourceRun({ base: forced, producer: () => forcedProducer }), task).seed.producer.receipts).toEqual(forcedProducer.receipts);
+    expect(loadResearchSeed(sourceRun({ base: forced, producer: () => forcedProducer, freeze: { pipeline: assistedPipeline("forced_split") } }), task).seed.producer.receipts).toEqual(forcedProducer.receipts);
   });
   it("7a.2: a source read under a non-default role policy seeds under its recorded protocol, and only a run under the same policy may seed from it (BL-20261116-1203-research-role-policy-design)", async () => {
     const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy; roles.extract.maxOutputTokens = [1024, 2048]; roles.plan.thinking = ["disabled", "model"];

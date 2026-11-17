@@ -8,9 +8,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { loadConfig, type LoadConfigOptions, type SoarConfig } from "../src/main/config";
 import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-agent/broker";
-import { canonical, digest } from "../src/main/private-agent/contracts";
+import { canonical, digest, exactText } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
-import { PrivateAgentModel, type PrivateModelConfig } from "../src/main/private-agent/model";
+import { ASSIST_CACHE_MODE, PrivateAgentModel, type PrivateModelConfig } from "../src/main/private-agent/model";
+import { researchAssistProtocolSha256 } from "../src/main/private-agent/research-assist";
+import type { ResearchAssistFiring } from "../src/main/private-agent/research-assist-contract";
 import { loadFlashNextTokenAdmission } from "../src/main/private-agent/flash-next-admission";
 import { ANTHROPIC_API_VERSION, ANTHROPIC_MESSAGES_ENDPOINT } from "../src/main/private-agent/anthropic";
 import { GeneralAgentSession, SESSION_LIMITS, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type GeneralSessionOptions, type GeneralSessionResult,
@@ -245,23 +247,39 @@ export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm" | "s
 /**
  * The session's research option (H2b/H2c): the local reader, and the planner and synthesiser on the local configuration or, under the
  * split arm, the cloud model's; the operator's diagnostics sink; and since 7a.2 the role policy an adopted card set, which the session
- * hands to the pipeline and binds into its identity.
+ * hands to the pipeline and binds into its identity. Since 10.b the driver's assist arm passes no cloud planner: the planner and
+ * synthesiser are local, and `extras.assist` gives the session item 10's assists.
  */
 export function localScreenResearchOption(broker: PrivateAgentBroker, jobId: string, local: PrivateModelConfig, cloud: PrivateModelConfig | undefined,
-  extras: { diagnostics?: ResearchDiagnosticsSink; roles?: ResearchRolePolicy; admission?: ResearchAdmissionRates } = {}): NonNullable<GeneralSessionOptions["research"]> {
+  extras: { diagnostics?: ResearchDiagnosticsSink; roles?: ResearchRolePolicy; admission?: ResearchAdmissionRates;
+    /** 10.b (BL-20261117-1202-assist-wiring-design, decision 2): the assist arm's firing, assist model configuration and authored brief. */
+    assist?: { firing: ResearchAssistFiring; modelConfig: PrivateModelConfig; authoredBrief: string } } = {}): NonNullable<GeneralSessionOptions["research"]> {
+  const assist = extras.assist;
   return { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, local, jobId, contextId), planner: new PrivateAgentModel(broker, cloud ?? local, jobId, contextId),
     synthesiser: new PrivateAgentModel(broker, cloud ?? local, jobId, contextId) }),
-    ...(extras.diagnostics ? { diagnostics: extras.diagnostics } : {}), ...(extras.roles ? { roles: extras.roles } : {}), ...(extras.admission ? { admission: extras.admission } : {}) };
+    ...(extras.diagnostics ? { diagnostics: extras.diagnostics } : {}), ...(extras.roles ? { roles: extras.roles } : {}), ...(extras.admission ? { admission: extras.admission } : {}),
+    ...(assist ? { assist: { firing: assist.firing, model: (contextId: string) => new PrivateAgentModel(broker, assist.modelConfig, jobId, contextId), authoredBrief: assist.authoredBrief } } : {}) };
 }
 /**
  * freeze.json's pipeline block for a run with the reading stage: the protocol under the card's role policy, which the block names
  * only when it is not the default (7a.2, BL-20261116-1203-research-role-policy-design), so a run without a card records what it did.
+ * 10.b: under the assist arm, also under the assist's firing, which the block names with its own digest.
  */
-export function researchPipelineFreeze(planner: "cloud" | "local", roles?: ResearchRolePolicy, admission?: ResearchAdmissionRates) {
-  return { name: "research" as const, version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, admission !== undefined), budget: RESEARCH_PIPELINE_BUDGET,
+export function researchPipelineFreeze(planner: "cloud" | "local", roles?: ResearchRolePolicy, admission?: ResearchAdmissionRates, assist?: ResearchAssistFiring) {
+  return { name: "research" as const, version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, admission !== undefined, assist), budget: RESEARCH_PIPELINE_BUDGET,
     planner, writer: "local" as const, ...(roles && nonDefaultRoleParameters(roles).length ? { roles } : {}),
     // 7b.3: a card's admission rates under a `serving_card` basis, named only then, beside the protocol that binds their policy.
-    ...(admission ? { admission: { basis: "serving_card" as const, rates: admission } } : {}) };
+    ...(admission ? { admission: { basis: "serving_card" as const, rates: admission } } : {}),
+    // 10.b (decision 10): the assist arm's firing and its block's digest; the pipeline hash above binds the same firing.
+    ...(assist ? { assist: { version: 1 as const, firing: assist, protocolSha256: researchAssistProtocolSha256(assist) } } : {}) };
+}
+/**
+ * 10.b (BL-20261117-1202-assist-wiring-design, decision 2): on the assist arm (`--pipeline research` with the cloud arm), its firing
+ * (forced_split absent) and the assist model's configuration, the cloud arm's in the assist cache mode; off that arm, none.
+ */
+export function localScreenAssistArm(input: { pipeline?: "research"; assistFiring?: ResearchAssistFiring }, cloud: { modelConfig: PrivateModelConfig } | undefined):
+  { firing: ResearchAssistFiring; modelConfig: PrivateModelConfig } | undefined {
+  return cloud && input.pipeline === "research" ? { firing: input.assistFiring ?? "forced_split", modelConfig: { ...cloud.modelConfig, promptCaching: ASSIST_CACHE_MODE } } : undefined;
 }
 /**
  * 7a.2 and item (ii)'s review (BL-20261117-1143-research-second-repair-design): a seeded run writes from a packet read under its source's
@@ -273,11 +291,11 @@ export function assertLocalScreenSeed(seed: { pipeline: Pick<PipelineFreeze, "ro
 /**
  * 7b.3's review (BL-20261117-1131-research-card-admission-design): a card's research values, read once, for both freeze.json's pipeline
  * block and the session's research option, so the two cannot drift apart; a drift would surface only when the run is later seeded. The
- * role policy goes to both; the admission rates only under a `serving_card` basis.
+ * role policy goes to both; the admission rates only under a `serving_card` basis. 10.b: the assist arm's firing goes to the pipeline block.
  */
-export function localScreenCardResearch(servingCard: LoadedServingCard | undefined, planner: "cloud" | "local") {
+export function localScreenCardResearch(servingCard: LoadedServingCard | undefined, planner: "cloud" | "local", assist?: ResearchAssistFiring) {
   const roles = servingCard?.policy.roles, admission = servingCard?.policy.admission.basis === "serving_card" ? servingCard.policy.admission.rates : undefined;
-  return { pipeline: researchPipelineFreeze(planner, roles, admission), option: { ...(roles ? { roles } : {}), ...(admission ? { admission } : {}) } };
+  return { pipeline: researchPipelineFreeze(planner, roles, admission, assist), option: { ...(roles ? { roles } : {}), ...(admission ? { admission } : {}) } };
 }
 /**
  * 8.2b: the session's K, the pair's card's `localStreams`, in every run with a card: the research loops and the claims judge run that
@@ -412,8 +430,14 @@ export interface LocalScreenInput {
   claimsLedger?: boolean;
   /** H2a: salt the owned server's prefix cache per job (default true); `--cache-salt false` is the unsalted control arm of the isolation probe. */
   cacheSalt?: boolean;
-  /** H2b/H2c: run the host-run research stage before the write phase; with the cloud arm the planner and synthesiser are the cloud model (split arm). */
+  /**
+   * H2b/H2c: run the host-run research stage before the write phase. With the cloud arm, since 10.b (BL-20261117-1202-assist-wiring-design,
+   * decision 2), this is the assist arm: the planner and synthesiser are local and the cloud model serves only item 10's T1 and T2.
+   * Earlier runs' freezes record the legacy split arm (`planner: "cloud"`) as history.
+   */
   pipeline?: "research";
+  /** 10.b: the assist arm's firing policy (`forced_split` absent, the legacy split arm's switch; `local_first`); only with `pipeline` and the cloud arm. */
+  assistFiring?: ResearchAssistFiring;
   /** PR-I: the job reviews its one input .docx through an edit plan, the pinned applier and the fidelity check (closed corpus). */
   documentReview?: boolean;
   /** Phase 2 cloud arm: the coordinator is a cloud model; the local model still judges claims. */
@@ -450,6 +474,8 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
       !/^sha256:[a-f0-9]{64}$/u.test(input.imageId) ||
       (input.pauseAfterTools !== undefined && (!Number.isInteger(input.pauseAfterTools) || input.pauseAfterTools < 1 || input.pauseAfterTools > 20))
       || (input.publicSnapshot !== undefined && input.publicRetrieval !== true)
+      // 10.b: a firing only on the assist arm, and only one of the two the contract names.
+      || (input.assistFiring !== undefined && (input.pipeline !== "research" || input.cloudArm === undefined || !["local_first", "forced_split"].includes(input.assistFiring)))
       // H4: a seeded run is the write phase of a research pipeline run, so it keeps the pipeline's own requirements and never runs the stage or a cloud writer itself.
       || (input.researchFrom !== undefined && (input.pipeline !== undefined || input.cloudArm !== undefined || input.profile !== "heavy" || input.claimsLedger !== true ||
         input.publicRetrieval || input.documentReview))
@@ -492,9 +518,9 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   const roles = servingCard?.policy.roles;
   assertLocalScreenSeed(seed, servingCard);
   // 7a.2: a card whose synthesis attempts cannot hold the 100-word floor would be refused inside the session, after the run directory,
-  // freeze.json and the database exist; it is refused here instead, like any card refusal. A split-arm synthesiser never reads the policy,
-  // and the pipeline keeps its own check (research-pipeline.ts).
-  if (input.pipeline === "research" && !input.cloudArm && roles && nonDefaultRoleParameters(roles).length && researchSynthesisBelowFloor(roles.synthesis))
+  // freeze.json and the database exist; it is refused here instead, like any card refusal, and the pipeline keeps its own check
+  // (research-pipeline.ts). Since 10.b the assist arm's synthesiser is local and reads the card too, so its runs are checked as well.
+  if (input.pipeline === "research" && roles && nonDefaultRoleParameters(roles).length && researchSynthesisBelowFloor(roles.synthesis))
     throw new Error("research_role_policy_invalid");
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
@@ -504,7 +530,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   const localEndpoint = `${config.vllm.baseUrl}/chat/completions`;
   const fixedFreeze = (run: { modelConfig: PrivateModelConfig; localModelConfig: PrivateModelConfig; endpoint: string; cloud: ReturnType<typeof buildCloudArm> | undefined;
     publicPhase: ReturnType<typeof buildPublicRetrievalPhase> | undefined; diagnostics: boolean }) => {
-    const pipeline = input.pipeline === "research", { cloud, publicPhase } = run;
+    const pipeline = input.pipeline === "research", { cloud, publicPhase } = run, assist = localScreenAssistArm(input, cloud);
     return { version: 1, sourceFreeze: sourceFreeze.files, sourceFreezeSha256: sourceFreeze.sha256, imageId: input.imageId,
       modelConfig: run.modelConfig, endpointIdentitySha256: digest(run.endpoint), deployment: "synthetic_only_unverified_for_private_data",
       taskBinding: task.binding, sourceBindingSha256: task.sourceBindingSha256, ...(cloud ? { judgeModelConfig: run.localModelConfig } : {}),
@@ -512,9 +538,12 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
       publicPhaseSha256: publicPhase ? sessionPhaseIdentity(publicPhase) : null,
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
-      profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}), arm: cloud ? cloud.freeze : { arm: "local" as const },
+      profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}),
+      // 10.b (BL-20261117-1202-assist-wiring-design, decision 10): the assist arm records the effective assist configuration (the assist
+      // cache mode) as the arm's model configuration, and its firing in the pipeline block, whose planner is local.
+      arm: cloud ? (assist ? { ...cloud.freeze, modelConfig: assist.modelConfig } : cloud.freeze) : { arm: "local" as const },
       // 7b.3: the card's roles and, under a `serving_card` admission basis, its rates, from the one helper the research option reads too.
-      ...(pipeline ? { pipeline: localScreenCardResearch(servingCard, cloud ? "cloud" : "local").pipeline } : {}),
+      ...(pipeline ? { pipeline: localScreenCardResearch(servingCard, "local", assist?.firing).pipeline } : {}),
       ...(run.diagnostics ? { diagnosticsRetained: true } : {}),
       ...(pipeline || seed ? { researchPresentationPolicySha256: researchPresentationPolicySha256() } : {}),
       ...(pipeline && !publicPhase ? { researchInput: createResearchInput(privatePhase.contract.goal,
@@ -603,9 +632,13 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
     // local configuration serves the coordinator and the judge; freeze.json records it as modelConfig on local-arm runs and as
     // judgeModelConfig on cloud-arm runs. Runs before H2a sent no salt.
     const localModelConfig = buildLocalScreenModelConfig(config, coordinator, input.cacheSalt !== false);
-    // The all-cloud arm writes with the cloud model; under the research pipeline the writer and reader are local and the cloud plans and synthesises (split arm).
+    // The all-cloud arm writes with the cloud model (E3's arm D, unchanged by 10.b). Under the research pipeline the writer and reader are local; since 10.b the
+    // cloud arm there is the assist arm: the planner and synthesiser are local too, and the cloud model, in the assist cache mode, serves only T1 and T2.
     const pipeline = input.pipeline === "research";
     const modelConfig = cloud && !pipeline ? cloud.modelConfig : localModelConfig;
+    const assistArm = localScreenAssistArm(input, cloud);
+    // 10.b (decision 4): the authored brief is the prepared task's brief.md, the bytes task.binding.briefSha256 binds, never the composed goal.
+    const authoredBrief = assistArm ? exactText(new TextDecoder("utf-8", { fatal: true }).decode(task.phase.files.find(file => file.path === "brief.md")!.bytes)) : undefined;
     // Backlog item 4: the file sink exists only for a run with a reading stage and the operator's flag; the freeze records the fact, never the text.
     const diagnostics = input.retainDiagnostics && pipeline ? createDiagnosticsFileSink(directory) : undefined;
     const freeze = { ...fixedFreeze({ modelConfig, localModelConfig, endpoint: destinations[0]!.endpoint, cloud, publicPhase, diagnostics: diagnostics !== undefined }), jobId,
@@ -615,7 +648,8 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
       trustedHostModelFactory: contextId => new PrivateAgentModel(broker, modelConfig, jobId, contextId),
       ...(cloud ? { cloudArm: { destinationId: cloud.destination.id, maxFeeMicrousd: cloud.maxFeeMicrousd },
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
-      ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, cloud?.modelConfig, { ...(diagnostics ? { diagnostics } : {}), ...localScreenCardResearch(servingCard, cloud ? "cloud" : "local").option }) } : {}),
+      ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, undefined, { ...(diagnostics ? { diagnostics } : {}),
+        ...localScreenCardResearch(servingCard, "local", assistArm?.firing).option, ...(assistArm && authoredBrief !== undefined ? { assist: { ...assistArm, authoredBrief } } : {}) }) } : {}),
       // 8.2b: the card's K reaches the research loops and the claims judge, with or without a pipeline; freeze.json records it (servingCardFreeze).
       ...localScreenStreams(servingCard),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
@@ -673,7 +707,7 @@ function messagesPath(endpoint: string | undefined): boolean {
 export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenInput {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--cloud-long-context", "--max-fee-usd"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", "--cache-salt", "--pipeline", "--research-from", "--retain-diagnostics", ...snapshotNames,
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", "--assist-firing", ...cloudNames, "--proxy-fake-ip", "--cache-salt", "--pipeline", "--research-from", "--retain-diagnostics", ...snapshotNames,
       "--write-bound", "--dry-run"];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
@@ -685,7 +719,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenIn
         // H2b/H2c: the stage needs the heavy profile's 200 session requests (reader 68 + writer 80) and the claims-ledger check that verifies its packet at finish.
         (values.has("--pipeline") && (values.get("--pipeline") !== "research" || values.has("--repair-from") || values.has("--document-review") ||
           values.get("--profile") !== "heavy" || values.get("--claims-ledger") !== "true")) ||
-        // H3: the split arm's two cloud slots (one retry each) run on the Responses shape, or on Anthropic's Messages endpoint
+        // H3, and since 10.b the assist arm: the cloud model's T1 and T2 run on the Responses shape, or on Anthropic's Messages endpoint
         // (BL-20261030-0620), under a per-task fee cap of RESEARCH_SPLIT_MAX_FEE_USD.
         (values.has("--pipeline") && values.get("--arm") === "cloud" && (!(Number(values.get("--max-fee-usd")) > 0 && Number(values.get("--max-fee-usd")) <= RESEARCH_SPLIT_MAX_FEE_USD) ||
           !(/^https:\/\/[^/?#]+\/v1\/responses$/u.test(values.get("--cloud-endpoint") ?? "") || values.get("--cloud-endpoint") === ANTHROPIC_MESSAGES_ENDPOINT))) ||
@@ -699,7 +733,9 @@ export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenIn
         // E2: a named write bound (LOCAL_SCREEN_WRITE_BOUNDS) is a seeded writer's alone; the dry run is the local arm's, without public retrieval.
         (values.has("--write-bound") && (!Object.hasOwn(LOCAL_SCREEN_WRITE_BOUNDS, values.get("--write-bound")!) || !values.has("--research-from") || values.has("--repair-from"))) ||
         (values.has("--dry-run") && (values.get("--dry-run") !== "true" || values.get("--arm") === "cloud" || values.has("--public-retrieval"))) ||
-        (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
+        (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!)) ||
+        // 10.b: a firing only on the assist arm (`--pipeline research --arm cloud`), never on the all-cloud arm D or a local run.
+        (values.has("--assist-firing") && (!["local_first", "forced_split"].includes(values.get("--assist-firing")!) || values.get("--pipeline") !== "research" || values.get("--arm") !== "cloud"))) throw new Error("local_screen_cli_invalid");
     const cloudCount = cloudNames.filter(name => values.has(name)).length, cloudArm = values.get("--arm") === "cloud";
     // `/v1/messages` takes no long-context tier for the proposed model, only the published host and only the heavy profile
     // (the standard profile's thinking is `disabled`, which that model refuses), refused here before any directory exists.
@@ -719,6 +755,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenIn
       claimsLedger: values.get("--claims-ledger") === "true" ? true : undefined,
       ...(values.has("--cache-salt") ? { cacheSalt: values.get("--cache-salt") === "true" } : {}),
       ...(values.get("--pipeline") === "research" ? { pipeline: "research" as const } : {}),
+      ...(values.has("--assist-firing") ? { assistFiring: values.get("--assist-firing") as ResearchAssistFiring } : {}),
       ...(values.get("--document-review") === "true" ? { documentReview: true } : {}),
       ...(values.has("--repair-from") ? { repairFrom: values.get("--repair-from")! } : {}),
       ...(values.has("--research-from") ? { researchFrom: values.get("--research-from")! } : {}),

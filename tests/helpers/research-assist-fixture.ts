@@ -165,21 +165,33 @@ function localReply(system: string, user: string): string {
   return JSON.stringify({ version: 1, argument: `Synthetic finding [${quotes[0]!.id}].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.`,
     questions: input.plan.questions.map((q: any) => ({ questionId: q.id, disposition: "findings", evidenceIds: quotes.filter(e => e.questionIds.includes(q.id)).map(e => e.id) })) });
 }
-/** A zero-fee local model on a fake broker answering with `localReply`. */
-function localModels() {
+/**
+ * A zero-fee local model on a fake broker answering with `localReply`. 10.b: `reject` makes the local planner or synthesiser reply with
+ * text the host rejects, so a local-first assist fires after two of them. 10.b's second review: `extractFailures` makes the first
+ * extraction attempts of the first chunk the reader is sent invalid, so under a card's admission rates a second repair completes it.
+ */
+export function assistLocalModels(reject: ReadonlySet<"plan" | "synthesis"> = new Set(), options: { extractFailures?: number } = {}) {
+  let target: string | undefined, tries = 0;
   const request = vi.fn(async (input: { body: string }, settle: (bytes: Buffer) => number) => {
-    const body = JSON.parse(input.body), content = localReply(body.messages[0].content as string, body.messages[1].content as string);
+    const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string;
+    const chunk = system.startsWith("You extract") ? (Object.assign({}, ...user.split("\n").map(line => JSON.parse(line))) as { chunk: { id: string } }).chunk.id : undefined;
+    if (chunk !== undefined && chunk === (target ??= chunk)) tries++;
+    const content = chunk !== undefined && chunk === target && tries <= (options.extractFailures ?? 0) ? "not an extraction"
+      : reject.has("plan") && system.startsWith("You plan") ? "not a plan" : reject.has("synthesis") && system.startsWith("You write") ? "not a synthesis"
+      : localReply(system, user);
     const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
     return { bytes, receipt: { feeMicrousd: settle(bytes) } };
   });
   const config: PrivateModelConfig = { destinationId: "owned_local_model", model: "Synthetic", maxOutputTokens: 16_384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" };
-  const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, "job", "reader");
+  // A zero-risk local destination, as the owned server is: a session deadline never refuses its calls (model.ts, deadlineRefuses).
+  const broker = { request, requestTimeoutMs: () => 60_000, zeroRiskDispatch: () => true } as unknown as PrivateAgentBroker;
+  const make = () => new PrivateAgentModel(broker, config, "job", "reader");
   return { reader: make(), planner: make(), synthesiser: make() };
 }
 /** Runs the unchanged v4 pipeline over the planted corpus and builds the T1 and T2 hook requests from its packet. */
 export async function assistRequests(options: { authored?: string; composed?: string } = {}) {
   const brief = options.composed ?? assistComposedGoal(options.authored), sources = assistSources();
-  const outcome = await runResearchPipeline({ brief, sources, models: localModels(), signal: new AbortController().signal, record: () => {} });
+  const outcome = await runResearchPipeline({ brief, sources, models: assistLocalModels(), signal: new AbortController().signal, record: () => {} });
   if (outcome.status !== "completed") throw new Error(`assist_fixture_pipeline_${outcome.reason}`);
   const read = (path: string) => JSON.parse(outcome.files.find(file => file.path === path)!.bytes.toString("utf8"));
   const coverage = read(RESEARCH_FILES.coverage), index = read(RESEARCH_FILES.index), plan = read(RESEARCH_FILES.plan), evidence = read(RESEARCH_FILES.evidence);
@@ -208,6 +220,24 @@ export function frozen<T>(value: T): T {
 }
 
 /**
+ * 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the attempt record the real wrapper attaches to each outcome, for a fake
+ * hook. A reply settled with no fee and a reported zero write; a skip or failure was dispatched, a refusal or stop was not. An
+ * outcome that carries a record already, or that is not an outcome of a known kind, is returned as it is.
+ */
+export function withAttemptRecord(outcome: ResearchAssistOutcome, touchpoint: "T1" | "T2", retry = false): ResearchAssistOutcome {
+  const raw = outcome as unknown as { kind?: unknown; record?: unknown } | null;
+  if (!raw || typeof raw !== "object" || !["reply", "no_reply", "stop"].includes(raw.kind as string) || raw.record !== undefined) return outcome;
+  const base = { version: 1 as const, touchpoint, ordinal: (retry ? 2 : 1) as 1 | 2, retryAfterTruncation: retry };
+  // A malformed outcome (a reply without usage, say) is returned as it is, so the pipeline's own outcome check still sees it.
+  if (outcome.kind === "reply" && (!outcome.usage || typeof outcome.usage !== "object")) return outcome;
+  const record = outcome.kind === "reply" ? { ...base, outcome: "settled" as const, dispatched: true, finish: outcome.truncated ? "length" as const : "stop" as const, feeMicrousd: 0,
+      usage: { inputTokens: outcome.usage.inputTokens, outputTokens: outcome.usage.outputTokens, cacheReadTokens: outcome.usage.cacheReadTokens, cacheWriteTokens: outcome.usage.cacheWriteTokens, cacheWriteReported: true } }
+    : outcome.kind === "no_reply" ? { ...base, outcome: outcome.outcome, code: outcome.code, dispatched: outcome.outcome !== "refused" }
+    : { ...base, outcome: "stopped" as const, code: outcome.code, dispatched: false };
+  return { ...outcome, record } as ResearchAssistOutcome;
+}
+
+/**
  * A fake hook for item 7(c)'s pipeline tests: it answers as the real wrapper does, in the opaque namespace. A plan reply names
  * sources by S{n} with `sourceAliases`, so the pipeline must assess it with `assessResearchPlanReply({ ..., sourceAliases })`;
  * a synthesis reply carries the evidence ids its packet would have held. `script` may replace either answer with any outcome.
@@ -219,17 +249,17 @@ export function fakeResearchAssists(firing: ResearchAssists["firing"], script: {
   return { firing, calls,
     async plan(request) {
       calls.push("plan");
-      if (script.plan) return script.plan(request);
+      if (script.plan) return withAttemptRecord(script.plan(request), "T1");
       const sourceAliases = Object.fromEntries(request.sources.map((source, i) => [`S${i + 1}`, source.id]));
-      return { kind: "reply", truncated: false, usage, sourceAliases, content: JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?",
-        requirementIds: request.units.map(unit => unit.id), sourceIds: Object.keys(sourceAliases).slice(0, 8) }] }) };
+      return withAttemptRecord({ kind: "reply", truncated: false, usage, sourceAliases, content: JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?",
+        requirementIds: request.units.map(unit => unit.id), sourceIds: Object.keys(sourceAliases).slice(0, 8) }] }) }, "T1");
     },
     async synthesis(request) {
       calls.push(request.retryAfterTruncation ? "synthesis retry" : "synthesis");
-      if (script.synthesis) return script.synthesis(request);
+      if (script.synthesis) return withAttemptRecord(script.synthesis(request), "T2", request.retryAfterTruncation === true);
       const evidenceIds = request.evidence.quotes.map(quote => quote.id);
-      return { kind: "reply", truncated: false, usage, evidenceIds, content: JSON.stringify({ version: 1, argument: `A finding [${evidenceIds[0]}].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.`,
+      return withAttemptRecord({ kind: "reply", truncated: false, usage, evidenceIds, content: JSON.stringify({ version: 1, argument: `A finding [${evidenceIds[0]}].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.`,
         questions: request.plan.questions.map(question => { const ids = request.evidence.quotes.filter(quote => quote.questionIds.includes(question.id)).map(quote => quote.id);
-          return { questionId: question.id, disposition: ids.length ? "findings" : "unresolved", evidenceIds: ids }; }) }) };
+          return { questionId: question.id, disposition: ids.length ? "findings" : "unresolved", evidenceIds: ids }; }) }) }, "T2", request.retryAfterTruncation === true);
     } };
 }

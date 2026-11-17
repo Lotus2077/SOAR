@@ -51443,3 +51443,562 @@ Paid exposure: None.
 Next gate: #141, then #144, then this pull request, as the coordinating session merges each on green CI.
 
 References: BL-20261117-1200-e6-planted-defect-tasks-frozen; BL-20261117-1159-correction-e2-synthetic-tasks-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; pull requests #135, #141, #144 and #145.
+
+### BL-20261117-1202-assist-wiring-design -- 2026-11-17 -- Item 10's PR 10.b decided: the assist wrapper wired into the reading stage through 7(c)'s hook, with its stage record, its protocol binding, the session's and driver's plumbing, and the legacy split arm switched to the forced split
+
+Status: `Proposed`
+
+Scope or hypothesis:
+- **What 10.b is.** BL-20261113-0920-assist-wrapper-design set its scope: "both firing policies through item 7(c)'s hook, the stage record, the protocol binding, the session and driver plumbing, the legacy split arm and the end-to-end tests." 10.a (#79) built the wrapper with no caller.
+- **Its dependencies are met.** 7(c) and 7b.2 have merged. Scrub policy 5 (#105) has merged.
+- **The gate is met within one scope.** 10.b's dispatch gate, the Next gate of BL-20261113-0925-correction-assist-core-rereview, is met within the scope of decision 1 of BL-20261117-0941-group-a-decided-under-delegation, by the reading recorded in BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
+- **What this entry adds.** It decides what 0920 left to 10.b, and how 10.b meets the obligations that later entries gave it.
+- **The hypothesis.** Each decision below can be built and tested offline with loopback fixtures, and a run without an assist sends, records and hashes exactly what it does today.
+
+Decisions:
+1. **Where an assist runs.** 10.b wires the assists only in the headless driver, the harness.
+   - **The desktop.** It gets none until item 13.
+   - **The cloud destination** stays the driver's `cloud_coordinator`: `syntheticOnly` and `grantFreeSynthetic`.
+     - So the broker refuses it for any lineage that is not wholly synthetic.
+     - The session still refuses a cloud arm without a synthetic or public input approval.
+   - **What this enforces in code.** Decision 1 of 0941 covers T1 and T2 packets on public and synthetic tasks in E3's and E4's harness arms only. These rules enforce the harness and the synthetic lineage.
+   - **What stays procedure.** That no packet leaves before E3's card is on `main`, and the pre-run packet scan.
+2. **The firing policies and the legacy split arm.**
+   - **`--arm cloud` under `--pipeline research`** becomes the assist arm. This switches the legacy split arm to the forced split, as 0920's default says, and BL-20261107-0839 anticipated it.
+     - The planner and the synthesiser run on the local model at zero fee.
+     - The cloud model serves only T1 and T2, through `createResearchAssists`.
+   - **A new flag, `--assist-firing`,** takes `forced_split` or `local_first`. Absent, it is `forced_split`, the switch.
+     - In E3's terms, arm C is `forced_split` and arm B is `local_first`.
+     - The flag is refused without `--pipeline research` and `--arm cloud`.
+   - **Earlier freezes and registry rows** keep `planner: "cloud"` as history.
+   - **Arm D, E3's all-cloud ceiling, is launched as before,** and 10.b does not change it.
+     - It is `--arm cloud` without `--pipeline research`, where the cloud model is the coordinator and writes.
+     - Its fee cap is at most `CLOUD_ARM_MAX_FEE_USD` (USD 8).
+     - `--assist-firing` is refused there.
+3. **The assist model.** It is the cloud arm's model configuration with `promptCaching: assist_no_cache_write_v1`, the only mode the wrapper and `PrivateAgentModel` admit for an assist.
+   - It keeps the endpoint's shape: Responses, or Anthropic Messages.
+   - It keeps the heavy profile's medium thinking and its output and body caps, which meet the wrapper's floors of 8,192 tokens and 98,304 bytes.
+   - The fee cap is the cloud arm's, as before: at most USD 0.60 (`RESEARCH_SPLIT_MAX_FEE_USD`).
+   - The model, prices and endpoint stay the run's flags (0920's provider-agnostic default). Decision 2 of 0941 (`claude-sonnet-5-5`) therefore goes in E3's card and its flags, not in code.
+4. **The authored brief.** It is the prepared task's `brief.md` text, as `exactText` gives it, from the same bytes `task.binding.briefSha256` binds (0920 decision (4)). It is never `task.phase.contract.goal`.
+   - The composed goal still begins with it.
+   - The wrapper stops a call whose request brief does not (`assist_brief_not_prefix`).
+5. **The session.** A new research option, `assist`, holds the firing, a model factory per reader context, and the authored brief.
+   - **The wrapper.** The session builds one wrapper per reading stage, from the cloud arm's fee cap (0920 decision (10)).
+   - **Refused before any dispatch** (0920 decision (14)), as `session_research_assist_invalid`:
+     - an assist without a cloud arm, which means without `cloud_help` mode and a fee cap;
+     - an assist whose planner or synthesiser is not a zero-fee local model;
+     - an assist whose model is not on the cloud arm's destination;
+     - an assist the wrapper refuses to build (`research_assist_config_invalid`).
+   - **The request pool.** Its check adds the assists' worst case of nine rows: three calls, each with up to three attempts.
+   - **The pipeline** gets the hook with the session's deadline, which it already passes.
+   - **A producer refusal at the transfer.** It ends the session incomplete with its code, instead of an uncaught throw (BL-20261113-0927 decision (5)).
+6. **The protocol binding** (0920 decision (13)). `researchProtocolSha256(budget, roles, assist?)` binds `assist: researchAssistProtocol(firing)` only when a firing is given.
+   - **The default** stays 7100b7a2….
+   - **The signature.** It stays positional, as 7a.2 left it, and is not the options object 0920 named. The third argument is the only change, and every caller without an assist stays as it is.
+   - **Every site that recomputes the hash passes the firing:**
+     - the pipeline's own call, from the hook's firing;
+     - the session identity;
+     - the driver's freeze;
+     - the seed loader.
+7. **The stage record** (0920 decision (12)). With a hook configured:
+   - The plan row carries `assist` for T1, and the synthesise row carries it for T2. They do so even when the touchpoint did not fire: `fired` false, `trigger` null, no attempts and `usage` null.
+   - **Its values:**
+     - `policy` is the firing;
+     - `trigger` is `forced_split`, `local_plans_rejected` or `local_syntheses_refused`;
+     - `attempts` are the outcomes' attempt records, each parsed with `ResearchAssistAttemptRecordSchema`;
+     - `outcome` is the last attempt's;
+     - `accepted` is the host's verdict on the reply;
+     - `code` is the last attempt's code when it did not settle, or a fixed host code (`assist_reply_rejected`) when it settled and was rejected;
+     - `usage` is the settled attempts' sum.
+   - **A fired touchpoint without a valid record** ends the stage as `research_assist_record_invalid`. A hook that reports no record therefore cannot leave a slot attempt unrecorded (BL-20261113-0927 Limitations).
+   - **Without a hook,** no row gains a key, and every row is byte-identical to today's.
+   - **Accounting.** `calls` still counts replies, and the stage's `usage` stays the authoritative total. The record's usage is never added to it again (BL-20261113-0927 decision (5)).
+8. **The ready gate.**
+   - `validateReadyResearchPacket` parses each stage's `assist` strictly with `ResearchAssistStageRecordSchema`.
+   - It refuses an `assist` key on the index or extract row.
+   - It refuses a plan or synthesise row that has an attempt with slot `assist` or `assist_retry` but no fired record.
+9. **The wrapper's three additions.** Each moves both assist protocol hashes, which are re-pinned.
+   - **(a) The served model** (the Rayline carry-over (d) on draft #86, item 10.b's part). A settled attempt record gains `servedModel`, the provider's reported model string.
+     - It is exact text of at most 200 characters, and it is omitted when the reply has none or it fails those rules.
+     - The cloud `model_finished` field and the registry column are item 11's.
+   - **(b) A length cap on every string the scrubber reads** (C8 of 0925). Each string is held to its caller's own cap:
+     - a gist, 600 characters;
+     - a plan question's text, 300;
+     - a `lookFor` item, 120;
+     - a `conflictsToCheck` item, 200;
+     - `deliverableNotes`, 1,000;
+     - a quote, 600;
+     - a unit, the brief's bound.
+
+     A packet with a longer string is refused, as `assist_packet_field_too_long`, with no request, and the stage goes on as after any refused assist. PACKET_POLICY lists the caps.
+   - **(c) T2's local trim counts** (decision (10) of BL-20261115-1939). T2's counts-only coverage gains two counts, and PACKET_POLICY names them:
+     - `quotesTrimmedLocally`, the evidence count `leftByCap`;
+     - per question, `chunksWithTrimmedEvidence`, the chunks whose status is `evidence_trimmed`.
+10. **The freeze and the seed loader.**
+    - **The driver's freeze.** A run with an assist records `pipeline.planner: "local"` and an `assist` block: `{ version: 1, firing, protocolSha256 }`. Here `protocolSha256` is `researchAssistProtocolSha256(firing)`. The pipeline block's `protocolSha256` binds the firing.
+    - **The seed loader** admits the optional block and recomputes the hash with its firing. A seeded run writes without an assist of its own.
+    - **The loop.** phase4-loop's `DRIVER_INPUT_SPEND` classifies the new driver key (`assistFiring`) as spend-free, since only the cloud arm spends. `seeded()` strips it with `cloudArm`.
+11. **What the driver shows** (0920 decision (3)). It shows the stage record and nothing else:
+    - each attempt's packet record (its field bytes and substitution counts);
+    - its request bytes and reserved fee;
+    - its usage, cache-write flag, fee and served model.
+
+    No packet text is written to the run directory. A zero-fee capture of the exact packets, for the scan that decision 1 of 0941 requires before the first paid assisted run, is proposed as a follow-up (Next gate).
+12. **Tests**, all on loopback fixtures, with no live, paid, cloud or Docker-dependent call.
+    - **E1 clause 3, re-proved end to end** under its describe name, "E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)" (E1-2). It runs the real wrapper through the session and the real broker:
+      - the cloud never answers, so T1's row stays unknown and is skipped, and the wrapper latches;
+      - the local planner and synthesiser go on, T2 is suppressed, and the writer is reached.
+    - **The pins named after 10.b flip.** The legacy split arm's tests in the research-session test become assist-arm tests, and the recoverability test's copy of the split wiring follows the driver.
+    - **A malformed provider reply on the real broker** ends `transport_or_settlement_unknown`, a skip that latches (0921).
+    - **Attempt ordinals above 2, the assist slot and mixed sequences** (0920 decision (6)).
+    - **Both cloud shapes.**
+    - **The rest:**
+      - the configuration refusals and the pool's nine rows;
+      - the hash with and without an assist, in the pipeline, the identity, the freeze and the seed loader;
+      - the ready gate;
+      - the three wrapper additions;
+      - the producer refusal.
+13. **What 10.b does not do:**
+    - RA's registry columns, which go with 11.6;
+    - the served-model registry column and cloud event field (item 11);
+    - passing the deadline to the broker, which 0920 decision (10) left optional;
+    - the desktop's toggle, badge, preview and `reportedIssues` (item 13);
+    - concurrency for assists, which stay serial and at most once;
+    - any cloud claim verification, which decision 5 of 0941 rules out.
+
+Changes: Planned, with the Implemented entry:
+- src/main/private-agent/research-pipeline.ts: the hash's third argument, the stage records, `research_assist_record_invalid`.
+- src/main/private-agent/research-coverage.ts: the ready gate's record checks.
+- src/main/private-agent/research-assist.ts and research-assist-contract.ts: the three additions.
+- src/main/private-agent/session.ts: the `assist` option, its refusals, the pool, the identity and the producer refusal.
+- src/main/private-agent/research-seed.ts: the optional assist block.
+- scripts/private-agent-local-screen.ts: the assist arm, `--assist-firing`, the authored brief and the freeze.
+- scripts/phase4-loop.ts: the spend table and `seeded()`.
+- Tests and helpers, as decision 12 lists.
+- docs/BUILD_LOG.md: this entry, then the `Implemented` entry.
+
+Evidence: The decisions rest on these sources, read on `main` at b359613:
+- the entries BL-20261113-0920 to 0929, BL-20261115-1939 and BL-20261117-0941;
+- the wrapper, the pipeline's hook, the session, the driver, the seed loader, the ready gate and the loop.
+
+A read-only agent mapped every obligation the log gives 10.b, with its source. This entry cites each one it meets.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims:
+- **`Proposed` only.** Nothing is built by this entry.
+- **The protocol hash's signature** departs from 0920's "options object" (decision 6).
+- **The served model** follows the Rayline carry-over (d) on draft #86, which `main` does not hold. BL-20261114-1523 said the served-model pieces wait for #86. The coordinating session listed the field among 10.b's items on 2026-11-17.
+- **No owner loop or E-run may span 10.b's merge.** It changes src/main/private-agent, so it moves the harness source-freeze digest. With an assist configured, it also moves the protocol hash of that run, never the default.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. No packet is sent by 10.b's tests, and none leaves under decision 1 of 0941 before E3's card is on `main`.
+
+Next gate:
+- The `Implemented` entry with the code and tests, one light review, and then the pull request.
+- **A follow-up for E3:** a zero-fee capture mode that builds T1 and T2 packets from a local run and writes them for the pre-run scan in decision 1 of 0941, without dispatching.
+
+References: BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0928-research-v5-implemented; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261115-1939-research-priority-trim-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261113-0836-infra-resume-design; BL-20261114-1523-registry-columns-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
+
+### BL-20261117-1203-correction-assist-wiring-restamp -- 2026-11-17 -- Correction: 10.b's design entry is re-stamped after `main`'s tail at this branch's merge of `main`, with its original ID and authoring time, and what the merge keeps from each side
+
+Status: `Implemented`
+
+Scope or hypothesis: Branch `feat/10b-assist-wiring` brings in `main` at 9b37ea2 with the merge commit that adds this entry.
+- `main`'s last ID is now BL-20261117-1130-lane-decisions-second-repair-before-reprobe, which comes after this branch's design entry. The validator refuses an ID that moves backward.
+- So the design entry is re-stamped after that tail, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+
+The entry, with its original ID and authoring time: **the design entry**, authored at 10:36 UTC on 2026-11-17 as BL-20261117-1036 in commit 8c6281a, is now BL-20261117-1202-assist-wiring-design.
+
+Decisions:
+1. **Only the ID changed.**
+   - The heading's ID moved, and so did 31 citations of it on this branch, in code, tests and docs/experiments/README.md. Of those:
+     - 28 came from the branch;
+     - 2 were written in this merge's resolution, in the driver;
+     - 1 was written by the light review's fix with the ID BL-20261117-1054, from a re-stamp this branch dropped (decision 3).
+   - Mapped back, the entry equals 8c6281a's byte for byte.
+   - No entry on `main` cites it.
+2. **The merge keeps both sides.** #140 (the E2 write bound and dry run) and this branch both changed the driver and the loop.
+   - **The freeze.** `main` builds freeze.json in `fixedFreeze`, which the run and the new dry run share. The assist arm's changes now live there:
+     - `arm.modelConfig` is the effective assist configuration;
+     - the pipeline block's planner is `local`, and the block carries the firing.
+
+     A new helper, `localScreenAssistArm`, gives the firing and the assist configuration to the freeze and to the session's research option alike.
+   - **The command line.** Both sides' flags and checks are kept: `--write-bound` and `--dry-run` from `main`, and `--assist-firing` from this branch. The dry run is the local arm's, so it never carries an assist.
+   - **The loop's spend table.** Both sides' entries are kept, all spend-free: `writeBound` and `dryRun`, and `assistFiring`.
+   - **Everything else on `main` since b359613 merged cleanly.**
+3. **Two earlier local merges were dropped.** Each went stale before any push, because `main` moved past its re-stamped IDs:
+   - b81381a, at `main` e8b3aa7, re-stamped the entry to 1054, with a Correction at 1055;
+   - 717b2e4, at `main` 25910c9, re-stamped it to 1106, with a Correction at 1107.
+
+   `main` later gained entries of its own at 1055 and 1107. Neither of this branch's pairs reached a remote. This merge's resolution of the driver and the loop is theirs, line for line, and the light review read the first.
+
+Changes:
+- docs/BUILD_LOG.md: the design entry's heading, and this entry.
+- The citations of decision 1.
+- The merge resolution in scripts/private-agent-local-screen.ts and scripts/phase4-loop.ts.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref 9b37ea2` exits 0, append-only. The `Implemented` entry that follows gives the count and the rest of the checks.
+- **Byte identity.** Mapped back, the design entry equals 8c6281a's byte for byte. The re-stamp script checks it.
+
+Failures or blockers: Two local merges went stale before any push (decision 3).
+
+Limitations and non-claims:
+- This entry records a re-stamp and a merge. Commit messages keep the original ID.
+- If `main` moves again before this branch merges, the branch re-stamps again at its next merge of `main`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The `Implemented` entry that follows, and the pull request.
+
+References: BL-20261117-1202-assist-wiring-design; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1204-assist-wiring-implemented -- 2026-11-17 -- Item 10's PR 10.b implemented: the assist wrapper wired into the reading stage, with its stage record, its protocol binding, the session's and driver's plumbing, the legacy split arm switched to the forced split, and E1's clause 3 re-proved end to end
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261117-1202-assist-wiring-design, decisions 1 to 13. BL-20261117-1203-correction-assist-wiring-restamp records that entry's re-stamp. Everything below is built and tested offline on loopback fixtures. Nothing live, paid, cloud or Docker-dependent ran.
+
+Decisions:
+1. **The stage record** (design decision 7).
+   - The pipeline keeps each touchpoint's attempt records. An outcome the hook returns without a record that parses, for its touchpoint, ends the stage as `research_assist_record_invalid`.
+   - **Two kinds of outcome are the pipeline's own, not the hook's:**
+     - a cancel before the call, which leaves the touchpoint unfired;
+     - a broken hook (an invalid outcome, an invalid stop code, a throw), whose stage row ends denied with its fixed code and carries no record.
+   - **`accepted`** is the host's verdict on the assist reply. A settled reply the host rejected gives the record the code `assist_reply_rejected`. That holds even when a cancel then ends the stage before T2's retry: the record describes the assist's last reply, and the row's denial says how the stage ended.
+   - **Without a hook,** no row gains a key.
+   - **The contract.** research-assist-contract.ts states that the pipeline requires the record since 10.b. Its type stays optional, so the tests' fake hooks can attach one later.
+2. **The protocol binding** (design decision 6).
+   - The pipeline reads the hook's firing once, before the hash, so the hash binds exactly the firing the stage runs under.
+   - `researchProtocolSha256(budget, roles, assist?)` stays positional.
+   - The default is unchanged: 7100b7a2….
+3. **The ready gate** (design decision 8). After the attempt validators, the gate checks seven things:
+   - each record parses strictly;
+   - only the plan and synthesise rows carry one;
+   - both touchpoints carry one or neither does, under one policy;
+   - a fired record's trigger is its policy's, for its touchpoint;
+   - a record's settled attempts equal its row's slot attempts;
+   - a record is accepted exactly when a slot attempt was;
+   - **the expected firing.** Where the caller knows the firing (`expected.assistFiring`), the records are exactly its: a firing needs both records under it, and null forbids any. The pipeline's own check and the seed loader pass it.
+4. **Where the record schemas live.** `research-assist-record.ts` is new and holds the attempt and stage record schemas. The gate can then parse them without importing the wrapper, whose scrubber imports `research-coverage.ts`. `research-assist.ts` re-exports them.
+5. **The wrapper's additions** (design decision 9).
+   - **The served model.** A settled attempt records `servedModel`: a model identifier, never free text. That is a letter or digit, then letters, digits and `. _ : @ / + -`, at most 200 characters. It is omitted otherwise, and the schema refuses it on any other outcome.
+   - **The field caps, `ASSIST_FIELD_CAPS`.** Each model-written or quoted field is held to its caller's own cap, checked before any scrub. Over a cap, the packet is refused as `assist_packet_field_too_long`, a refused code that falls back to local:
+     - gist 600, which is INDEX_LIMITS' value;
+     - plan question text 300, `lookFor` 120, `conflictsToCheck` 200 and `deliverableNotes` 1,000, which are the plan schema's;
+     - quote 600, which is the evidence schema's.
+   - **The brief bound now holds at T2 as well as T1:** 8,192 bytes, `assist_brief_too_large`. This is a behaviour change: a T2 brief between 8 KiB and 48 KiB used to be sent, and is now refused.
+     - T2's earlier refusal of a brief whose double exceeds its body, and PACKET_POLICY's matching rule, are unreachable under that bound.
+     - Both stay, as defence in depth.
+   - **T2's counts-only coverage** gains `quotesTrimmedLocally`, the evidence count `leftByCap`, and per question `chunksWithTrimmedEvidence`.
+   - **`ASSIST_WORST_CASE_ROWS`** is 9: three calls times BROKER_MAX_ATTEMPTS.
+   - **Both assist protocol hashes are re-pinned** (Evidence).
+6. **The session** (design decision 5).
+   - **The option.** `research.assist` holds the firing, a model factory and the authored brief.
+   - **The wrapper.** One is built per reading stage, with the cloud arm's fee cap. It is built again for the stored reader context on a resume.
+   - **`session_research_assist_invalid`.** Every check sits inside one try, so a refusal is never a throw. The session refuses with it before any dispatch:
+     - when there is no cloud arm;
+     - when the planner or synthesiser is not zero-risk local, a destination the broker does not know included;
+     - when the model is on another destination;
+     - when the wrapper refuses to be built.
+   - **The pool check** adds 9 rows.
+   - **The identity.** The research block's hash binds the firing. An `assist` block holds the firing, the model's identity and the authored brief's digest, and the model-factory drift check includes it.
+   - **A producer refusal** at the transfer, or at a resume's validation, ends the session incomplete. The reason is the producer's own `research_producer_` code, or `research_producer_invalid`.
+7. **The seed loader** (design decision 10).
+   - It admits the optional `assist` block and recomputes the pipeline hash under its firing.
+   - It refuses a block whose own digest is not today's assist protocol.
+   - It passes the block's firing, or null, to the gate.
+8. **The driver** (design decisions 2 to 4 and 10).
+   - **The assist arm.** Under `--pipeline research`, `--arm cloud` is the assist arm: the reader, planner and synthesiser are local, and the cloud model's configuration in `assist_no_cache_write_v1` is the assist model.
+   - **`localScreenAssistArm`** gives the firing and that configuration to the freeze (`fixedFreeze`, which `main` added) and to the session alike.
+   - **`--assist-firing`** takes `forced_split`, the default, or `local_first`. It is refused off the assist arm.
+   - **The authored brief** is `exactText` of the task's `brief.md`.
+   - **freeze.json** records three things:
+     - `pipeline.planner: "local"`;
+     - `pipeline.assist`: `{ version: 1, firing, protocolSha256 }`;
+     - `arm.modelConfig`, set to the effective assist configuration.
+   - **What the run writes.** No packet text is written. With `--retain-diagnostics true`, rejected or truncated T1 and T2 replies, which are cloud model text, reach the diagnostics directory under the assist purposes, as stage replies do. That is a correction to design decision 11, which said the driver shows only the stage record.
+   - **Arm D,** `--arm cloud` without the pipeline, is unchanged.
+9. **The loop.** `assistFiring` is spend-free in `DRIVER_INPUT_SPEND`, and `seeded()` strips it.
+10. **The tests.**
+    - **E1 clause 3** is re-proved end to end under its describe name (E1-2). The session's assist option runs the real wrapper on the real broker:
+      - T1's row stays unknown after the cloud's timeout and is skipped, and the wrapper latches;
+      - T2 is suppressed, the local stages reach the writer, and the producer binds the skip uncounted;
+      - a later cloud call is refused before a row, and the reservation stays pinned.
+    - **The two tests named after 10.b flip.**
+      - A pause of T1 leaves an assist row that blocks nothing, and the task ends `research_stage_not_replayed`, where the split arm's ended `unresolved_dispatch_no_replay`. A resume repeats it.
+      - An external abort ends the run `research_cancelled`, and its resume ends `research_stage_not_replayed`.
+      - With no answer, T1 is skipped and the job is submitted.
+    - **The recoverability test's copy of the driver's cloud wiring** follows the assist arm. The Anthropic T1 retried after a 529 still reaches the writer, and both assists' records show the served model, a reported zero write and the settled fee. Clause 2's describe is renamed within its "E1 recoverability" prefix.
+    - **A malformed provider reply on the real broker** leaves T1's row unknown at settlement. It is skipped as `transport_or_settlement_unknown` and latches.
+    - **The real wrapper inside the pipeline, on both shapes, under local-first.** T1 fires after two rejected plans at ordinal 3. T2 fires after two refused syntheses at ordinal 3, and its retry after truncation is at ordinal 4, with at most half the evidence.
+    - **A forced-split mixed sequence** has a rejected T1 followed by an accepted local plan.
+    - **An unfired record,** with the firing in the summary's hash.
+    - **The gate's forgeries,** each refused with its own code, and its expected-firing tie.
+    - **The caps' equality with the callers' schemas,** and their refusals.
+    - **The trim counts, and the served model's identifier rule.**
+    - **The session's refusals,** an unknown destination included, its pool, its identity (under another firing, without the assist, or with another authored brief) and its producer refusal.
+    - **The driver's CLI, freeze block and research option, and the loop's spend table.**
+11. **Existing tests that change, and why:**
+    - 7(c)'s and the seed test's fake hooks attach the attempt record the real wrapper attaches (`withAttemptRecord`).
+    - The hook contract's pinned digest moves, with its documented record.
+    - **The "keeps the request bytes" test.**
+      - It now puts the default hash back in the synthesis request's coverage before comparing. That hash, one 64-character value, is all a configured hook moves.
+      - So an assisted run's local synthesis requests differ from arm A's, and from the bodies P10 measured, by that value. The serving card checks P10 evidence against the default hash.
+    - **10.a's tests change at six places:** T2's brief bound, the hostile-brief test's refusal and its name, the coverage keys, the refused-code table, the block hashes and one request count.
+    - The run-reason scan reads the session's producer refusal.
+    - The invented-reply helper answers T1 and T2 packets.
+    - The fixture's local broker is zero-risk.
+12. **Docs.** docs/experiments/README.md describes the assist arm.
+
+Changes:
+- src/main/private-agent/research-assist-record.ts (new);
+- research-assist.ts and research-assist-contract.ts;
+- research-pipeline.ts and research-coverage.ts;
+- session.ts and research-seed.ts;
+- scripts/private-agent-local-screen.ts and scripts/phase4-loop.ts;
+- tests/unit/private-agent-research-assist-wiring.test.ts (new);
+- the research session, recoverability, pipeline, assist, seed, local-role-config and loop-resume tests;
+- tests/helpers: research-assist-fixture.ts, research-v4-fixture.ts and run-reason-scan.ts;
+- docs/experiments/README.md;
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref 9b37ea2` exits 0: 757 entries, append-only.
+- **Typecheck and readiness.** `pnpm typecheck` and `pnpm validate:readiness` exit 0, on Node 22.22.2 and pnpm 10.12.4.
+- **The full suite.** `pnpm exec vitest run`, at the first local merge (b81381a, before the light review's fixes): 3,895 passed, 86 skipped and 2 failed.
+  - Both failures were 5 s timeouts under load, in patch-routing-comparison and private-agent-host-flags, which this branch does not change.
+  - Both files pass alone, twice: 104 passed.
+  - At this head, the affected files pass: 449 passed in twelve files (the assist wiring, the wrapper, the pipeline, the session, the recoverability, the seed, the driver's role configuration and write bound, the loop and its resume, the run reasons and the build-log validator). CI runs the full suite on the pull request.
+- **E1.** `-t "E1 recoverability"` selects 121 tests in 12 files, as on `main`.
+- **Mutation.** Twenty single-edit mutants ran against the code before the review, one per guarded rule, and all were killed.
+  - One survived at first, the gate's both-or-neither rule. Its forgery test took any throw, so it accepted the TypeError the mutant raised. Each forgery now expects its own code.
+  - Five more ran against the review's fixes: four were killed.
+  - The fifth, dropping the firing from the pipeline's own gate check, is equivalent. The pipeline always records the hook's firing, so the tie only guards against a fault in building the record. The gate's tie itself is tested directly.
+- **The hashes.**
+  - `researchProtocolSha256()` stays 7100b7a2….
+  - With an assist configured, a run's hash is 6a5bf67b… under `forced_split` and 482b8a64… under `local_first`.
+  - The assist protocol blocks move from 2fe123ba… to e887963a… (`forced_split`), and from 5966a089… to 0cdb73d7… (`local_first`).
+  - The harness source freeze moves from 3213c9d9… on `main` (61 files) to 9d39ba87… (62 files, with research-assist-record.ts).
+- **Privacy.** The diff against `main` holds no local path, account name, e-mail address, endpoint or credential. Its e-mail-shaped and path-shaped strings are synthetic test values.
+- **The light review.** One reviewer read the first local merge, b81381a. It found no correctness problem for valid runs.
+  - **Its one major was process.** `main` had moved past the re-stamped IDs. BL-20261117-1203-correction-assist-wiring-restamp and this merge settle it.
+  - **Its minors are taken here:**
+    - the gate's expected-firing tie and its trigger check;
+    - the served model's identifier rule;
+    - the contract's documented record;
+    - the session's guarded checks;
+    - `producerRefusal` passing only producer codes;
+    - this entry's corrections: the external abort's reason, six changes to 10.a's tests, the unreachable T2 rule, the 64-character value and P10, and the diagnostics sink.
+  - **Not taken:**
+    - the record's type stays optional, documented instead (decision 1);
+    - a record keeps `assist_reply_rejected` when a cancel ends the stage before T2's retry (decision 1).
+
+Failures or blockers:
+- **7(c)'s fake hooks** returned no attempt records, so 27 pipeline tests and 2 seed tests failed until the hooks attached them.
+- **The fixture's local broker** lacked `requestTimeoutMs`, so a pipeline run with a session deadline threw until it was made zero-risk.
+- **The run-reason contract test** failed on the new computed reason until the scan learned it.
+- **The mutation check** found the gate forgery test too loose (Evidence).
+- **Two local merges of `main` went stale before any push,** because `main` moved past their re-stamped IDs (BL-20261117-1203-correction-assist-wiring-restamp).
+
+Limitations and non-claims:
+- **Nothing live ran.** No assist packet has reached a provider, and E3's first paid assisted run needs its card and the pre-run packet scan of decision 1 of BL-20261117-0941-group-a-decided-under-delegation.
+- **The zero-fee capture mode** that the scan needs is a follow-up, outside this pull request.
+- **The served model** is recorded on assist attempt records only. The cloud `model_finished` field and the registry column are item 11's.
+- **RA's registry columns** (with 11.6), passing the deadline to the broker, and the desktop's assist (item 13) are not here.
+- **T2's brief bound is a behaviour change** (decision 5). Briefs over 8 KiB get no assist at either touchpoint.
+- **What the code enforces.** The scope of decision 1 of 0941 is enforced in code only as the harness wiring and the synthetic-only, grant-free destination. That no packet leaves before E3's card is on `main` is procedure.
+- **The Docker-gated suites** were not run.
+- **No owner loop or E-run may span this merge.** It moves the harness source-freeze digest (Evidence). With an assist configured it also moves that run's protocol hash; the default does not move.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The pull request, and the coordinating session's merge on green CI.
+- The capture-mode follow-up for E3's pre-run packet scan.
+
+References: BL-20261117-1202-assist-wiring-design; BL-20261117-1203-correction-assist-wiring-restamp; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261109-0501-research-stage-pause-design; BL-20261115-1939-research-priority-trim-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
+
+### BL-20261117-1216-correction-assist-wiring-card-admission-merge -- 2026-11-17 -- Correction: 10.b's three entries are re-stamped after `main`'s tail at this branch's merge of lane S-e1's #145 head, with what the merge with 7b.3's card admission and item (ii)'s second repair keeps from each side, the re-pinned hashes, and what an assisted run does under a `serving_card` admission basis
+
+Status: `Implemented`
+
+Scope or hypothesis: Pull request #147 (10.b) merges the head of lane S-e1's #145, 76677dc, in the merge commit that adds this entry. The coordinating session set that order.
+- **What 76677dc holds:**
+  - `main` at 6b121eb, with lane S-pipe's 7b.3 (#137, the card's admission) and item (ii) (#139 and #142, the second extraction repair);
+  - #141, #144 and #145, which change only docs/: the log, the experiments README, the E0 card, and E2's and E6's frozen task files.
+- **The re-stamp.** The tail is now BL-20261117-1201-correction-e6-planted-defect-tasks-restamp, which comes after #147's three entries. So they are re-stamped after it, under BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates:
+  - **the design entry,** authored at 10:36 UTC as BL-20261117-1036 and pushed as BL-20261117-1131, is now BL-20261117-1202-assist-wiring-design;
+  - **the Correction for its earlier re-stamp,** pushed as BL-20261117-1132, is now BL-20261117-1203-correction-assist-wiring-restamp;
+  - **the `Implemented` entry,** authored at 11:51 UTC and pushed as BL-20261117-1151, is now BL-20261117-1204-assist-wiring-implemented.
+
+  `main` holds an entry of minute 1131 of its own, BL-20261117-1131-research-card-admission-design (7b.3), which is a different entry. Its citations keep their ID.
+- **The direction.** BL-20261117-1130-lane-decisions-second-repair-before-reprobe records the coordinating session's direction for this work:
+  - decision 5 holds 10.b's agreed design, and makes the capture mode a precondition of the first paid assisted run;
+  - decision 6 holds the wider packet scan before it.
+
+Decisions:
+1. **Only the IDs changed in the three entries.**
+   - Each heading's ID and every reference to the three IDs moved.
+   - So did 31 citations of the design entry in code, tests and docs/experiments/README.md, each written in full except one short form.
+   - Mapped back, the three entries equal the pushed head 299e714's byte for byte.
+2. **The merge keeps both sides.**
+   - **The protocol hash.** 7b.3 added a third positional argument to `researchProtocolSha256`, `cardAdmission`. The assist's firing is now the fourth: `researchProtocolSha256(budget, roles, cardAdmission, assist)`.
+     - The admission policy and the assist protocol block are each bound only when set, so a run with neither hashes as before.
+     - Every site passes both: the pipeline (`input.admission !== undefined`, `hooks?.firing`), the session identity, the driver's freeze, and the seed loader.
+   - **The freeze.**
+     - `researchPipelineFreeze(planner, roles, admission, assist)` records `admission` and `assist`, each only when set.
+     - 7b.3's `localScreenCardResearch` takes the assist arm's firing, so the freeze's pipeline block and the research option are still read from one helper.
+     - The pipeline block's planner is `local`, even under the assist arm.
+     - The research option still passes no cloud planner. 7b.3's line passed the cloud arm's configuration there, as for the legacy split arm, which 10.b retired.
+   - **The seed loader.** `PipelineFreezeSchema` admits both optional blocks, and the hash is recomputed under both.
+   - **The ready gate.** The summary parses the stage's `assist` record and 7b.3's top-level `admission` record.
+   - **The stage-key guard.** The pipeline tests' guard admits item (ii)'s `secondRepairCalls` and `secondRepairsComplete` and 10.b's `assist`.
+   - Everything else merged cleanly.
+3. **The hashes, re-pinned on the merged tree.**
+   - **The default.** `researchProtocolSha256()` is `main`'s new default, e3e08871…, because item (ii) raised the coverage schema to version 4. It was 7100b7a2….
+   - **A run with an assist** now hashes 9bf39cad… under `forced_split` and d7febeb8… under `local_first`. At 299e714 these were 6a5bf67b… and 482b8a64….
+   - **Under a card's admission as well,** a run hashes c12285bd… under `forced_split` and f5aace28… under `local_first`.
+   - **The assist protocol blocks** are unchanged: e887963a… (`forced_split`) and 0cdb73d7… (`local_first`).
+   - Every test pin of a firing-bound hash is computed, not literal, so none needed a new value. The calls that passed the firing as the third argument now pass it fourth.
+4. **What an assisted run does under a `serving_card` admission basis** (checked on the merged tree).
+   - **Admission comes first.** The run takes 7b.3's admission exactly as an unassisted run does. The pipeline decides it from the local roles' caps and the card's rates before its first request, so a run refused on the budget or the clock sends neither T1 nor T2. Those refusals are `research_mandatory_budget_exceeded` and `research_infeasible_in_clock`.
+   - **The estimate leaves out the assists.** It counts the local roles only, never the assists' cloud calls. Each assist is still refused before its request when the session's remaining time is under the cloud destination's timeout (`deadline_before_request`), a refusal that falls back to local.
+   - **The second repair is local only.** Item (ii) is an extraction pass on the local reader.
+     - **T1 cannot see it.** T1 is built before extraction under either firing, so it is unaffected.
+     - **T2 can carry its effect.** T2 is built after every repair pass, so a quote a second repair recovered can enter T2's evidence.
+     - **T2 sends no attempt.** Its counts-only coverage reads each chunk's question statuses. A chunk's attempts, up to three under coverage version 4, enter only the scrubber's set of known digests.
+     - So the extra pass can change what T2 cites and its coverage counts, never the shape of either packet.
+   - **The record.** A refused admission writes 7b.3's `research_admission` event and no stage row, so no assist record exists for that run.
+
+Changes:
+- docs/BUILD_LOG.md: the three entries' headings and references, and this entry.
+- The 31 citations of decision 1.
+- The merge resolution in:
+  - src/main/private-agent/research-pipeline.ts, research-coverage.ts, research-seed.ts and session.ts;
+  - scripts/private-agent-local-screen.ts;
+  - tests/unit/private-agent-research-pipeline.test.ts.
+- Four test files, where the firing moves to the hash's fourth argument and the freeze's.
+- tests/unit/private-agent-research-pipeline.test.ts: the hook contract's byte pin, now d2aeb2f8…, because the contract's comment cites the design entry.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref 76677dc` exits 0: 772 entries, append-only against 76677dc.
+- **Readiness and types.** `pnpm --silent validate:readiness` and `pnpm --silent typecheck` exit 0.
+- **Byte identity.** Mapped back, the three entries equal 299e714's byte for byte. The re-stamp script checks it.
+- **The merge resolution is scripted.**
+  - Before the citations moved, every code and test file of this merge equalled, file by file, a dry-run merge of `main` 6b121eb into 299e714 made with the same script. Only docs/ differed.
+  - That dry run's full suite passed 3,949 tests, with none failed and 88 skipped.
+- **The full suite on this merge:** 3,948 passed, 1 failed and 88 skipped, in 210 files.
+  - The failure is the sandbox-capture lister's 1,024-file test. It timed out at 5 s under the suite's load, as it did at 299e714.
+  - Run alone, its file passes: 13 passed, 1 skipped.
+- **The hashes** of decision 3 are computed on the merged tree, by a scratch script that imports its modules.
+- **The source freeze.** `localScreenSourceFreeze()` gives:
+  - fade2bcf… over 61 files at 76677dc, as at `main` 6b121eb;
+  - 52ce1d3f… over 62 files on this merge.
+
+  The added file is 10.b's src/main/private-agent/research-assist-record.ts. The digest also moves because the code citations of decision 1 moved.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **This entry records a re-stamp and a merge.** Nothing live ran. Commit messages keep the original IDs.
+- **No run combines a card's admission with an assist.** The combination is reasoned from the code (decision 4) and covered by the hashes. 10.b's own tests run without a card.
+- **No owner loop or E-run may span this merge.** It moves the harness source-freeze digest (Evidence).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The coordinating session's merge of #147 after #145, on green CI.
+
+References: BL-20261117-1202-assist-wiring-design; BL-20261117-1203-correction-assist-wiring-restamp; BL-20261117-1204-assist-wiring-implemented; BL-20261117-1201-correction-e6-planted-defect-tasks-restamp; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1131-research-card-admission-design; BL-20261117-1143-research-second-repair-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1257-assist-wiring-second-review -- 2026-11-17 -- 10.b's second review: an assist under a card's admission and a second repair tested, with the bound hashes pinned; the synthesis-floor pre-flight on the assist arm; and T2's scrubber told the plan stage's reply digests
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session put a second reviewer on #147 at 72590a1, on its merge resolution and its privacy surface, because the merge with 7b.3 and item (ii) came after 10.b's own light review.
+
+**The reviewer's reading.** There was no blocker and no major.
+- **The merge.** The reviewer redid it in memory. Every hand-resolved hunk is right, nothing is lost or duplicated, and all five hashes match BL-20261117-1216-correction-assist-wiring-card-admission-merge.
+- **Privacy,** as the coordinating session relayed it:
+  - a cloud arm without a synthetic or public approval is refused at construction;
+  - a labelled source added mid-stage got T1 and T2 refused at the broker, with no row and no request;
+  - every packet field is capped, scrubbed and audited, a second repair's quotes included;
+  - records and errors hold no packet text;
+  - a refused admission sends neither packet.
+
+This commit takes the review's two minors and three nits, which the coordinating session asked for on #147 before its merge.
+
+Decisions:
+1. **Minor 1: an assist under a card's admission is tested, and the four bound hashes are pinned.**
+   - **The pins.** The four hashes that 1216 lists are now literal in tests/helpers/research-protocol-pin.ts, the one file where tests pin protocol hashes:
+     - `RESEARCH_PROTOCOL_SHA256_ASSIST`: 9bf39cad… and d7febeb8…;
+     - `RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST`: c12285bd… and f5aace28….
+
+     A test compares each computed value with its pin.
+   - **The pipeline, with the real wrapper,** under a card's rates (private-agent-research-assist-wiring.test.ts):
+     - forced_split on both shapes, with a chunk whose first attempt and first repair fail, so that item (ii)'s second repair completes it;
+     - local_first, with every local plan and synthesis rejected;
+     - each firing refused on its budget, and on its clock.
+   - **The session, on the real broker** (private-agent-research-recoverability.test.ts): an admitted assisted run, and one refused on its clock.
+2. **Minor 2: the driver's synthesis-floor pre-flight now covers the assist arm.**
+   - `--pipeline research --arm cloud` no longer skips it. Since 10.b that arm's synthesiser is local and reads the card.
+   - So a card below the 100-word floor is refused on that arm before the run directory, freeze.json or the database exist, as it is on the local arm.
+   - The comment about the split arm is gone.
+3. **Nit 3, fixed rather than stated: T2's scrubber knows the plan stage's reply digests.**
+   - **The gap.** The local planner sees a rejected reply's `replyContentSha256` in its repair request. T1's scrubber knew its prior attempts' digests, but T2's did not. An 8- to 63-character piece of one, copied into the plan, could therefore have reached T2. A whole 64-character digest was always scrubbed.
+   - **The fix.** The synthesis request now carries the plan stage's attempts, stage and assist (`planAttempts`). It is optional in research-assist-contract.ts, and the pipeline always passes it. The wrapper reads it only into the scrubber's known digests, and never sends it.
+   - **The re-pin.** The hook contract's byte pin moves, deliberately, from d2aeb2f8… to 2c974306….
+   - **Unchanged:** the assist protocol blocks and every protocol hash. The scrub policy names the digest rule, not where known digests come from.
+4. **The other two nits:**
+   - **The wiring test's default-hash check** now passes `false` as `cardAdmission`, the third argument since 7b.3. It passed `undefined` there, and held only by accident.
+   - **research-seed.ts:** 10.b's comment moves out of the `if` condition, to above it.
+5. **What the tests showed that 1216 did not say:**
+   - **The second repair is what lets such a run reach T2.** Without the card's rates, the same chunk ends the run at extraction (`research_extraction_incomplete`), and T2 is never built.
+   - **With the rates, T2 carries every quote of a run whose chunk never failed,** the recovered chunk's included. Its counts-only coverage, and every other field, are that run's.
+     - Only the evidence's order moves. It follows when each chunk completed, so the recovered chunk's quotes come last, and the evidence ids after them are renumbered.
+     - T1, built before extraction, is that run's byte for byte.
+   - **Admission's estimate leaves out up to three assist calls:** T1, T2 and T2's retry, each up to the cloud destination's timeout. Decision 4 of 1216 says the estimate counts the local roles only. The coordinating session said it will note this on E3's card.
+
+Changes:
+- src/main/private-agent/research-assist-contract.ts, research-assist.ts and research-pipeline.ts: decision 3.
+- scripts/private-agent-local-screen.ts: decision 2.
+- src/main/private-agent/research-seed.ts: the comment.
+- tests/helpers/research-protocol-pin.ts: the four pins.
+- tests/helpers/research-assist-fixture.ts: `assistLocalModels` takes `extractFailures`, which fails the first attempts on the first chunk the reader is sent.
+- **Tests:**
+  - tests/unit/private-agent-research-assist-wiring.test.ts, private-agent-research-recoverability.test.ts, private-agent-research-pipeline.test.ts and private-agent-local-role-config.test.ts: the cases above;
+  - the pipeline test also lists `planAttempts` among T2's request keys, and re-pins the contract.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The changed test files pass:**
+  - private-agent-research-assist-wiring.test.ts, 17/17;
+  - private-agent-research-recoverability.test.ts, 9/9;
+  - private-agent-research-pipeline.test.ts, 144/144;
+  - the pre-flight case in private-agent-local-role-config.test.ts.
+- **Each fix is shown by a test that fails without it:**
+  - the pre-flight test, with `!input.cloudArm` restored;
+  - the pipeline's pass-through test, with `planAttempts` dropped from the T2 request;
+  - the scrub test, with T2's known digests reading no plan attempt.
+- **The full suite:** 3,960 passed, none failed and 88 skipped, in 210 files.
+- **Types, the log and readiness.** `pnpm typecheck` exits 0. `pnpm --silent validate:build-log -- --base-ref 72590a1` exits 0: 773 entries, append-only. `pnpm --silent validate:readiness` exits 0.
+- **The hashes are unchanged, and now pinned:**
+  - the default, e3e08871…;
+  - the four bound values in decision 1;
+  - the assist blocks, e887963a… (forced_split) and 0cdb73d7… (local_first).
+- **The source freeze** moves from 52ce1d3f… at 72590a1 to c2741079…, both over 62 files.
+- **The privacy scan of the diff** is clean.
+
+Failures or blockers: The first form of the second-repair test expected T2 to equal a clean run's byte for byte. It failed on the evidence order (decision 5). It now compares the quotes, the counts and every other field.
+
+Limitations and non-claims:
+- **The privacy findings in Scope are the reviewer's,** relayed by the coordinating session. This entry does not re-derive them.
+- **The admission and second-repair cases run on fixtures and loopback only.** No run on a real card ran.
+- **No owner loop or E-run may span this merge.** It moves the harness source-freeze digest.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. Nothing live ran, during the coordinating session's re-probe window or otherwise.
+
+Next gate: The coordinating session's merge of #147 on green CI, after the re-probe is assessed.
+
+References: BL-20261117-1216-correction-assist-wiring-card-admission-merge; BL-20261117-1202-assist-wiring-design; BL-20261117-1204-assist-wiring-implemented; BL-20261117-1131-research-card-admission-design; BL-20261117-1143-research-second-repair-design; BL-20261117-1130-lane-decisions-second-repair-before-reprobe.

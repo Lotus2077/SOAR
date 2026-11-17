@@ -49409,3 +49409,131 @@ References:
 - BL-20261116-1203-research-role-policy-design;
 - BL-20261116-1546-e0-structured-fixtures-result;
 - docs/PROJECT_REVIEW_2026-11-05.md, findings D3 and D8 and stage S1.
+
+### BL-20261117-1048-research-card-admission-implemented -- 2026-11-17 -- Item 7b.3 implemented: under a card whose admission basis is `serving_card`, the reading stage keeps room for repairs and is refused before any request only when its expected time exceeds half the session's remaining clock; the two values are decided
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1022-research-card-admission-design, implemented, with the two values the coordinating session decided and the departures below.
+
+Decisions:
+(1) **The two values are decided.** The coordinating session decided both under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, as proposed in decisions (5) and (6) of the design. The coordinating session carries the same decision in its own next entry.
+- **Value 1, the refusal rule.** Refuse with `research_infeasible_in_clock`, before any request, only when the expected (lower-bound) estimate exceeds the stage's share. Otherwise admit, and disclose both estimates. Never refuse without a session deadline.
+- **Value 2, the share:** half of the session's remaining clock at admission.
+- **The condition on value 2, in one plain sentence:** the share is used only in the admission test, and an admitted reading stage may still use the whole remaining clock, as before.
+
+(2) **As designed.**
+- research-admission.ts: `RESEARCH_ADMISSION_POLICY`, `ResearchAdmissionRatesSchema`, `researchRepairReserve` and `researchCardAdmission`.
+- research-pipeline.ts:
+  - the input `admission`;
+  - the checks before any request, after the readable-source check;
+  - summary.json's `admission`;
+  - `researchProtocolSha256`'s third argument, which binds the policy only when set.
+- serving-card.ts:
+  - `ServingPolicy.admission` is `{basis: "none"}` or `{basis: "serving_card", rates}`;
+  - `servingCardAdmissionRates` derives the rates;
+  - the new code `serving_card_admission_unmeasured`.
+  - The fail-closed step still compares the basis alone with the defaults, so under mocked flags an unconsumed basis is refused as before.
+- serving-card-flags.ts: `admission` is true.
+- session.ts: the option, which the identity binds and passes to the pipeline.
+- scripts/private-agent-local-screen.ts: the card's rates reach the research option, and freeze.json's pipeline block, only under a `serving_card` basis.
+
+(3) **Departures from the design, each smaller than it:**
+- **The decision values** are `admitted`, `refused_budget` and `refused_clock`, not `refused_reserve`. The budget's own check and the reserve end the run with one reason, and the record's `work` shows which bound it.
+- **The rates carry no card sha256.** freeze.json's `servingCard` block already names the card, and the reader derives the rates without the file's digest. The summary's record carries the rates themselves.
+- **The ready-packet gate** (research-coverage.ts) parses summary.json strictly. It now accepts an `admission` record, and only an admitted one. A refused run never makes a packet.
+- **The seed loader's** `PipelineFreezeSchema` accepts the block's `admission` and recomputes the source's protocol with it. Admission decides only whether a stage runs, never a packet, so a seeding run still compares its role policy alone.
+- **A rates object the schema refuses** ends the run `research_admission_invalid` before any request.
+
+(4) **What 7b.3 shows** (the coordinating session's decision; decision (9) of the design).
+- An r3 run under a card with basis `serving_card` shows the admission record only. No change to the incomplete-chunk rule is expected from 7b.3.
+- The extractor fixture never passes through admission.
+- The rule's re-measurement on r3 runs under the adopted card and measures its extract flag.
+
+Changes:
+- src/main/private-agent: research-admission.ts, research-pipeline.ts, research-coverage.ts, research-seed.ts, serving-card.ts, serving-card-flags.ts and session.ts.
+- scripts/private-agent-local-screen.ts.
+- docs/experiments/README.md: the admission bullet, replacing "refused until 7(b)".
+- Tests:
+  - tests/unit/private-agent-research-admission.test.ts: the policy pin; the reserve; the estimate, worked by hand; the clock's boundaries; the rates schema.
+  - tests/unit/private-agent-research-pipeline.test.ts:
+    - no record and the pinned hash without rates;
+    - an admitted run whose index, plan and extraction bodies equal the run without rates;
+    - the clock refusal and the budget refusal with zero requests;
+    - invalid rates;
+    - the gate's refusal of a refused or malformed record;
+    - the hash's four distinct values.
+  - tests/unit/serving-card-reader.test.ts:
+    - five `serving_card_admission_unmeasured` cases;
+    - the rates at K 4, with a first attempt that thinks;
+    - the flags pin;
+    - the code count, 17.
+  - tests/unit/private-agent-research-session.test.ts: the identity's drift on other rates or none, and the stage's record read from the transfer.
+  - tests/unit/private-agent-research-seed.test.ts: a seed under admission, and two refusals.
+  - tests/unit/private-agent-local-role-config.test.ts: a card loaded through the pair with its rates, the research option and the freeze block.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **Without a card's rates nothing changes.**
+  - The pipeline's summary has no `admission` key, and its protocol is the pinned 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+  - Every earlier test passes unchanged, except the reader's admission expectations of decision (2).
+- **With rates, a run is admitted.**
+  - Its index, plan and extraction request bodies equal those of the same run without rates.
+  - Its record's work and estimates equal `researchCardAdmission` on the same corpus.
+  - Its share lies between 1,790 and 1,800 s under an hour's deadline.
+- **The refusals:**
+  - on the clock, with a 1 s deadline;
+  - on the budget, with extraction calls equal to the chunks;
+  - and on rates the schema refuses.
+  Each ends before any request: the fixture broker's request is never called.
+- **The estimate, worked by hand,** for two batches and three chunks: 43.0 s expected and 885.7 s cap-bound.
+  - Admitted when the share equals the estimate, and refused 0.1 s below it.
+  - Never refused without a deadline.
+- **The reader:**
+  - rates at K 1 and at K 4, from P11's sizes and burst and P10's means in each role's first-attempt mode;
+  - five `serving_card_admission_unmeasured` cases.
+- **The session:**
+  - the identity drifts on other rates, and on none;
+  - the transfer's summary.json records an admitted record against a share of the session's clock.
+- **The seed:** a source under admission seeds, and the loader refuses a block and a protocol that disagree.
+- **The driver:** a card with the basis loads through the pair with its rates, and the freeze block and the research option carry them.
+- **Mutants:** twenty-five single edits, of which 22 fail a test. The three that survive:
+  - M25, removing the reader's own check for a missing burst rate, is equivalent: the rates schema refuses the same card with the same code at the same path.
+  - M22 and M23 drop the rates at the driver's two call sites in `runLocalArtifactScreen`. Only the Docker-gated suite, tests/integration/private-agent-runtime.test.ts, runs that function past its refusals, and it was not run.
+- **Hashes.**
+  - `researchProtocolSha256()` is 7100b7a2…, pinned and unchanged.
+  - Under the admission policy with the default roles it is 865b82c07844d9603fcf51f0cf8d7110aced0c41acc82f71c3c456023dd9b196. Nothing pins it.
+- **The source freeze** moves on this head from 19beba427465d4537ca62350f6f0e52fbd43ebcf7f2da86fd91cb7d8f474aa48 (`main` b359613, and #136's head) to a34f6cd74ff3967414d1baf6ea49266ab6a806f9b8a688707bf0e76e8c6b4ff2.
+- **Checks at this head,** which merges #136's head 73c7f14:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass;
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly;
+  - the six changed test files pass: 362 tests;
+  - the full suite:
+    - 191 files passed and 13 skipped; 3,891 tests passed and 86 skipped.
+    - Two failed, both by timing out at 5 s: one in tests/unit/inspect-git-changes.test.ts and one in tests/unit/private-agent-sandbox-capture.test.ts. Neither file is changed here, and both pass alone (46 tests passed, 1 skipped).
+    - An earlier run, on e6384da's tree before the merge of #136's head, timed out once the same way in tests/unit/patch-routing-comparison.test.ts. That file passes alone (63 tests).
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called, and no card with a `serving_card` basis has been adopted.
+- The limits of the design stand:
+  - the estimate is coarse;
+  - P10's means are of synthetic replies that carry the format;
+  - the refusal protects the clock, not quality.
+- **A split arm's cloud planner and synthesiser** are estimated at the card's local rates. The card measures no cloud route.
+- **The driver's two call sites** hand the card's rates to freeze.json and to the research option. They are held by typecheck and by the tests of the helpers they call, not by a run, so mutants M22 and M23 survive them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review of this pull request, CI, and the coordinating session's merge after #136;
+- then item (ii)'s `Proposed` design entry;
+- the r3 re-measurement under the adopted card.
+
+References:
+- BL-20261117-1022-research-card-admission-design;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261116-1213-local-fanout-design;
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261115-1939-research-priority-trim-design.

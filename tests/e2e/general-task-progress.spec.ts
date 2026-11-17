@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,7 +29,10 @@ function environment(root: string, origin: string): Record<string, string> {
     SOAR_DB_PATH: path.join(root, "desktop.sqlite"), SOAR_VLLM_BASE_URL: `${origin}/v1`, SOAR_VLLM_MODEL: progressModel,
     SOAR_VLLM_API_KEY: "", SOAR_VLLM_COST_POLICY: "local_zero_cost", SOAR_ALLOW_INSECURE_VLLM_HTTP: "true",
     SOAR_MAX_OUTPUT_TOKENS: "4096", SOAR_REQUEST_TIMEOUT_MS: "30000", SOAR_GENERAL_TASK_IMAGE_ID: imageId,
-    SOAR_PATCH_MODE: "scripted", SOAR_PATCH_API_KEY: "", SOAR_PATCH_LOCAL_API_KEY: "", SOAR_TEST_WORKSPACE: "" };
+    SOAR_PATCH_MODE: "scripted", SOAR_PATCH_API_KEY: "", SOAR_PATCH_LOCAL_API_KEY: "", SOAR_TEST_WORKSPACE: "",
+    // The budget assertions below are the standard profile's: 20 model calls, 40 broker requests and 30 tool calls. The app's default
+    // profile has been heavy since 4806282.
+    SOAR_GENERAL_TASK_PROFILE: "standard" };
 }
 async function bounded<T>(promise: Promise<T>, ms: number, code: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -89,6 +92,11 @@ test.describe("desktop execution progress intervention", () => {
 async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
   const relative = path.relative(path.join(projectRoot, ".soar"), testInfo.outputDir);
   if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("fixture_requires_ignored_output_directory");
+  // The app fills every setting the environment above leaves unset from .env.local and .env in its working directory and its app path
+  // (loadEnvironmentFiles in src/main/config.ts). Its working directory is this checkout, and so is its app path unless
+  // SOAR_E2E_EXECUTABLE names a packaged app. So a run is hermetic only in a checkout that has neither file, such as a fresh worktree.
+  // The files are tested for existence only, never opened. The user-data directory's .env.local is kept out by launch() below.
+  if ([".env.local", ".env"].some(name => existsSync(path.join(projectRoot, name)))) throw new Error("fixture_requires_no_checkout_environment_file");
   const expectedCalls = scenario === "recover" ? 4 : 3, expectedTools = scenario === "recover" ? 4 : 2;
   const runtimeSha256 = generalTaskRuntimeIdentity(projectRoot);
   const root = await mkdtemp(path.join(tmpdir(), "soar-progress-e2e-")), model = await generalTaskProgressFixture(scenario);
@@ -105,7 +113,14 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     expect(generalTaskRuntimeIdentity(projectRoot)).toBe(runtimeSha256); appClosed = false;
     app = await electron.launch({ ...(process.env.SOAR_E2E_EXECUTABLE ? { executablePath: process.env.SOAR_E2E_EXECUTABLE } : {}),
       args: [`--user-data-dir=${path.join(root, "browser-data")}`, ...(process.env.SOAR_E2E_EXECUTABLE ? [] : [projectRoot])],
-      cwd: projectRoot, env: environment(root, model.origin), timeout: 45000 }); return app.firstWindow();
+      cwd: projectRoot, env: environment(root, model.origin), timeout: 45000 });
+    // The app also reads .env.local from its user-data directory, so that directory must be this run's own. Assert that Electron
+    // honoured --user-data-dir instead of trusting it: `pnpm setup:general --write` writes the default user-data file.
+    const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath("userData"));
+    if (path.basename(userData) !== "browser-data" || realpathSync(path.dirname(userData)) !== realpathSync(root)) {
+      throw new Error("fixture_requires_temporary_user_data");
+    }
+    return app.firstWindow();
   };
   try {
     const source = path.join(root, "source.csv"); await writeFile(source, progressInput);

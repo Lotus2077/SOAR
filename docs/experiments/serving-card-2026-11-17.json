@@ -3,8 +3,8 @@
   "version": 1,
   "date": "2026-11-17",
   "decision": {
-    "status": "proposed",
-    "entry": null
+    "status": "adopted",
+    "entry": "BL-20261117-1356-e0-reprobe-result-plan-cap-16384"
   },
   "identity": {
     "servedModel": "RM-01 VLM",
@@ -89,7 +89,7 @@
     "localStreams": 1
   },
   "admission": {
-    "basis": "none"
+    "basis": "serving_card"
   },
   "evidence": {
     "p10": {

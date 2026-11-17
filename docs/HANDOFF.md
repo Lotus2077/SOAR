@@ -29,10 +29,11 @@ these places too, until it is restated:
 - 7b.3 and the second repair are on `main`, so the default research protocol hash is
   `e3e08871…` (BL-20261117-1130-lane-decisions-second-repair-before-reprobe, decision 1).
   The source freeze has moved several times; recompute it.
-- The serving card was re-probed under E0's Amendment 5. Both binding cells passed, and
-  docs/experiments/serving-card-2026-11-17.json is `proposed`
-  (BL-20261117-1356-e0-reprobe-result-plan-cap-16384). Its adoption commit is asked of the
-  owner by name (§5 step 2).
+- The serving card was re-probed under E0's Amendment 5, and both binding cells passed
+  (BL-20261117-1356-e0-reprobe-result-plan-cap-16384). The owner gave the go, and
+  docs/experiments/serving-card-2026-11-17.json is adopted
+  (BL-20261117-1616-serving-card-2026-11-17-adopted). The owner's two `.env.local` lines come
+  next (§5 step 2, item 3), then the r3 re-measurement.
 - E5's owner build is cut as the local tag `owner-v0.2.1`, and `pnpm check` passes there
   (BL-20261117-1157-e5-owner-build-cut;
   BL-20261117-1357-owner-build-check-scorer-docker-e2e-attempts). The rehearsal and
@@ -435,6 +436,8 @@ Follow the order in review §5.6. Each step is done when its condition holds.
         The 2026-11-16 card stays `proposed` and is not adopted. A reviewer checks
         that only `decision`, `roles`, `concurrency` and `admission` differ from the
         writer's output (docs/experiments/README.md, "Adoption" and "Audit").
+        The owner gave the go on 2026-11-17, and this commit adopts the card
+        (BL-20261117-1616-serving-card-2026-11-17-adopted).
      3. The owner's local pin: the JSON file's absolute path in
         `SOAR_SERVING_CARD_FILE` and its sha256 in `SOAR_SERVING_CARD_SHA256`, both in
         the ignored `.env.local` the headless driver reads. The path is local and is

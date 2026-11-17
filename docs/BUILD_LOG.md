@@ -52788,6 +52788,54 @@ Next gate: The owner's go for the adoption commit.
 
 References: BL-20261117-1356-e0-reprobe-result-plan-cap-16384; BL-20261117-1357-owner-build-check-scorer-docker-e2e-attempts; BL-20261117-1355-correction-general-task-progress-e2e-restamp; pull requests #150 and #152.
 
+### BL-20261117-1616-serving-card-2026-11-17-adopted -- 2026-11-17 -- The serving card of 2026-11-17 is adopted on the owner's go: the planner at 16,384 tokens with structured output, extraction's structured output, and admission from the card
+
+Status: `Approved`
+
+Scope or hypothesis: The re-probe under E0's Amendment 5 gave the outcome whose next step is the adoption commit, on the owner's go asked by name (item 4 of the amendment; decision 2 of BL-20261117-1356-e0-reprobe-result-plan-cap-16384). The owner gave that go. This entry records the owner's words and the commit that acts on them. `Approved` covers the adoption. No run has read the card.
+
+Decisions:
+1. **The owner's words.** On 2026-11-17, at about 16:13 UTC by the session's record, the owner answered the session's question "Do you give the go for the serving card's adoption commit?" with: "Yes, adopt".
+   - The session had put the question with the probe's result at about 13:55 UTC, and again at about 14:00 UTC with the edit and the file's digest after it.
+2. **What is adopted.** docs/experiments/serving-card-2026-11-17.json, with two keys edited and nothing else in that file:
+   - `decision`, from `proposed` with no entry to `adopted` with BL-20261117-1356-e0-reprobe-result-plan-cap-16384 as its entry;
+   - `admission.basis`, from `none` to `serving_card`.
+3. **What a run reads from it,** once the owner's settings name it:
+   - the planner at [16384, 16384] tokens, thinking on, with strict structured output;
+   - extraction at [2048, 2048], thinking off, with strict structured output;
+   - synthesis at [8192, 8192], thinking on, with no structured output;
+   - the index at [1536, 1536], thinking off, and one local stream;
+   - the card also carries the planner's thinking-off flag and extraction's thinking-on flag. The reader checks both and the protocol hash binds them, but no call reads them: the planner's thinking is on and extraction's is off on both attempts;
+   - admission from the card's own rates. That turns on 7b.3's admission test and repair reserve, and the second repair (decisions 1 and 2 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe).
+4. **Not adopted with it.** Structured output for synthesis, since neither synthesis cell met the rule. More than one local stream. The 2026-11-16 card, which stays `proposed`.
+5. **What is the owner's now.** Two lines in the ignored `.env.local` that the headless driver reads: the JSON file's absolute path in `SOAR_SERVING_CARD_FILE`, and the edited file's sha256 in `SOAR_SERVING_CARD_SHA256`. The session gives the owner both values in its chat and does not open that file. Until they are set, no run reads the card.
+
+Changes:
+- docs/experiments/serving-card-2026-11-17.json: the two keys, three lines.
+- docs/HANDOFF.md: the note at the head of "Start here" and the adoption step say the card is adopted.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The owner's sentence** is in the session's chat. It is quoted as written.
+- **The edit** was made with the card writer's own serialization, so the key order and layout are the writer's. The diff is three lines. The file's sha256 is now 79ce24812e1619a041476f73c761288e0518dfddac751cefba3d6e45de4d2d64, at 8,656 bytes. Before the edit it was f228bd744c85692a7f534a942043ca03105d6508335f3dd7345a84d6347d111c, at 8,602 bytes.
+- **Lane S-pipe computed the same digest before the go,** by making the same edit and loading the file through `main`'s own reader. It also computed the protocol hash a research run binds under the adopted card: af4715a1d6946edbf4260d057c541b34226a17474dc9838f50695733c92014cf. The default hash stays e3e08871….
+- **The audit.** An independent verifier re-ran the card writer on the retained probe record with the same `--date`: only `decision` and `admission` differ from its output, `probe.sha256` equals the probe file's, the edited file's digest and size are as stated, and this tree's reader loads it as adopted under the `serving_card` basis with its rates and no refusal, binding protocol hash af4715a1… against the default e3e08871…. It found no blocker and no major finding; its three minor findings are applied.
+- **Tests on this branch:** tests/unit/serving-card-writer.test.ts, serving-card-reader.test.ts, config.test.ts, planner-fixture.test.ts and extractor-fixture.test.ts pass, 178 tests. None reads the edited file; the audit loaded it through the reader. `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **No run has read the card.** What the basis turns on has unit tests only. The r3 re-measurement is its first live use.
+- **The card rests on one probe run,** with the limits BL-20261117-1356-e0-reprobe-result-plan-cap-16384 states: a small synthetic payload, one probe cut by a disconnect, and later first tokens than on 2026-11-16.
+- **The owner's go is one sentence,** given in answer to the session's question. The reasons for adopting are the session's.
+- **The desktop reads no card,** so E5's owner build is not affected.
+
+Paid exposure: None.
+
+Next gate: The owner's two lines. Then the doctor, which must report the card as configured. Then the r3 re-measurement, registered by an amendment before its first run.
+
+References: docs/experiments/serving-card-2026-11-17.json; docs/experiments/README.md ("Adoption", "Audit"); docs/experiments/e0-card-2026-11-13.md (Amendment 5); BL-20261117-1356-e0-reprobe-result-plan-cap-16384; BL-20261117-1155-e0-card-amendment-5; BL-20261117-1156-correction-e0-card-amendment-5-second-repair-restamp; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-0940-owner-direction-decisions-delegated; pull request #152.
+
 ### BL-20261117-1641-fixture-tests-loopback-address-forms -- 2026-11-17 -- The role-fixture tests look for the loopback address's forms, not the port's bare digits, after a chance match failed CI on #153
 
 Status: `Implemented`

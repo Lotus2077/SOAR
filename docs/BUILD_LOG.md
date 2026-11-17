@@ -51190,3 +51190,126 @@ Paid exposure: None. The doctor made one zero-fee completion on the owner's endp
 Next gate: `pnpm check` exiting 0 there, before the rehearsal. The owner's three steps of decision 4, then day 1. The tag's push, on the owner's go.
 
 References: docs/experiments/e5-card-2026-11-17.md (O1, O2, O10; "How a build is cut"); BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261008-1210-owner-v0-1-released; pull request #134.
+
+### BL-20261117-1158-e2-synthetic-tasks-frozen -- 2026-11-17 -- E2's two synthetic research tasks are written and frozen by hash in docs/experiments/e2-tasks-v1.json; the authoring session holds their gold and scorer
+
+Status: `Implemented`
+
+Scope or hypothesis: E2's card (docs/experiments/e2-card-2026-11-17.md, items 4 and 5) has a separate session write the two synthetic research tasks and their gold at zero fee. That session commits a hashes-only manifest before any run, so that the session running E2 never sees the gold. The coordinating session assigned lane S-e1 to be that authoring session and the scorer session for the two tasks. This entry is the card's "tasks' freeze". It holds ids, counts and hashes only; no gold is in it, in the manifest or in the pull request.
+
+Decisions:
+- **The two tasks.** Both have exposure `fresh`, as the card's item 15 and the coordinating session ask.
+  - `s1-harbour-flood-defence` (job `e2-s1-harbour-flood-defence`): a council choosing which flood-defence option to bid for. 11 sources, 23,191 bytes.
+  - `s2-elending-platform` (job `e2-s2-elending-platform`): a library consortium choosing which e-lending platform bid to award. 11 sources, 17,433 bytes.
+- **The shape item 5 fixes.** Each task has:
+  - 8 to 12 invented plain-text sources, each under 64 KiB. The largest is 4,024 bytes, so every source is one chunk of the research pipeline.
+  - 7 critical checks, 14 in all.
+  - A scorer.
+  - One planted conflict between two sources.
+- **Modelled on Phase 4's tasks** (BL-20261027-0145-phase4-tasks-design):
+  - The sources are Markdown under `input/corpus/`, each opening with a `#` title line, which the index stage reads.
+  - The briefs name no figure from the sources and ask which source was followed where documents disagree. They name their report headings, both claims-ledger headings among them, unnumbered. They set "at most 1,500 words".
+  - Each brief also asks the writer to open the Recommendation section with one line: "Recommended option: Option <letter>" (s1), or "Recommended bidder: <bidder's name>" (s2). The reason is under "The light review and the skeptic".
+  - The gold for each task is `checks.json`, `key-facts.json`, `conflicts.json` and a reference output (`reference/output/report.md` and `claims.json`).
+  - The scorer is `score.py`, with `make_fake_run.py`, `run_unittest.py` and a README outside its tree.
+  - The organisations, places, figures and dates are invented and drawn from no real record. No model wrote any of it.
+- **The scorer's output.** It is standard-library Python and deterministic. It prints its name and version, the task id, the critical checks passed, their total and whether all passed, and nothing else.
+  - It refuses a task directory whose `job.json` or `brief.md` differs from its checks, and a run whose `freeze.json` binds another task.
+  - It reads a run's files under the host check's own file rules.
+  - The checks' names and rules stay in the private README.
+- **The scorer session's own reading.** For each graded run, the scorer session also reads the Recommendation section and reports, as a count, the runs where its reading disagrees with the recommendation check.
+- **The manifest** follows `phase4-tasks-v1.json` field for field, plus `exposure`.
+  - Its hash rules are Phase 4's: `goldTreeSha256` and `scorer.treeSha256` are the sha256 of the canonical JSON of their `{path, sha256}` lists, and `tasksSha256` is that of the tasks sorted by id. Recomputed on `phase2-tasks-v1.json` and `phase4-tasks-v1.json`, these rules reproduce every committed value, and re-serialising reproduces both files byte for byte.
+  - `driverModeFlags` are the packet runs' mode flags, as in Phase 4's manifest. The graded writer runs replace `--pipeline research` with `--research-from`, as the card says.
+  - `proposedFreezeTag` is a proposal; cutting a tag is the coordinating session's call.
+- **The light review and the skeptic.**
+  - The review (one reviewer) found no blocker and two major findings in the scorer:
+    - it crashed on malformed run files: a list as a `sourceId`, JSON nested 100,000 deep;
+    - its free-text recommendation check failed correct recommendations in common forms.
+  - Fixes before the freeze:
+    - every read is guarded;
+    - fatal ledger errors abort the ledger as the host's check does;
+    - report line endings are normalised as the host reads them;
+    - value and fact patterns were widened or narrowed;
+    - a test now fails each check on its own.
+  - The review's minor findings were fixed in the corpus too:
+    - the name of a real grant programme was replaced by an invented one;
+    - three source details were corrected: the WCAG levels in an accessibility audit, a surge's return period, and a letter's reference to a later meeting.
+  - The skeptic, called in for the majors, confirmed the crash fix: 79 malformed run directories, no traceback.
+  - On the recommendation check, the skeptic measured 116 varied sections (72 correct, 44 wrong or ambiguous). The rule rejected 26% of the correct ones and passed 43% of the wrong ones, with errors that followed the writer's structure.
+  - So the free-text rule was dropped, and the brief now asks for the one recommendation line. The check reads that line and passes when it names the target and no rival. The coordinating session agreed to this change.
+  - The skeptic's minor findings were also fixed: the host's handling of odd `sourceId` types, its file limits and symlink rule, and a `--detail` path in a missing directory.
+- **Where things are.**
+  - The tasks sit under `taskRoot`, `.soar/experiments/e2-v1/tasks`.
+  - The gold and scorer sit under `goldRoot`, in the authoring session's own ignored `.soar/`, with one backup copy outside every checkout.
+  - The inputs-only task directories reached the coordinating session through the shared notes folder. It copies them into the main checkout's `.soar/experiments/` and checks each against the manifest before any run.
+- **The manifest's identity.** The committed file's sha256 is `c540401a3eeb55cc4f7b3f2deef00fd9706f694fe59e428300e8e7a54d8219b1`, and its `tasksSha256` is `ba59819aacc2d33cd846f5d4dc93c23b8a1c3c421fba1aa6c240b34d4fe0747f`.
+
+Changes:
+- docs/experiments/e2-tasks-v1.json: new, hashes and counts only.
+- docs/experiments/README.md: one bullet naming the manifest.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The loader.** Both task directories load through the driver's own loader at `main` c02366a (`node --import tsx scripts/private-agent-run.ts --task-directory … --expected-job-sha256 … --expected-brief-sha256 …`): `prepared: true`, `executionStarted: false`, with `output/report.md` the one required artifact.
+- **The pipeline's admission.** At the same commit, `briefWordLimit` reads 1,500 for both briefs. Each task plans 4 index batches and 11 chunks, and `researchMandatoryWorkFits` holds against `RESEARCH_PIPELINE_BUDGET`.
+- **The host's claims check.** The check `claimsLedgerCheck` builds passes on both reference outputs: 23 and 25 claims, every quote found, no citation missing or unknown, both required sections present.
+- **The scorer's tests.** `python3 -I run_unittest.py` passes 26 tests on fake runs:
+  - the reference scores 7 of 7, and so do a report in other conventions and the reference with CRLF or CR line endings or re-wrapped;
+  - a flawed report fails at least two checks;
+  - each check has a case that fails it alone;
+  - malformed artifacts never crash it;
+  - the refusals and the host's file rules are tested;
+  - the recommendation line is tested on 37 sections.
+- **No paid or networked step.** No model request was made and nothing reached a network. No Docker command ran for E2. The dependencies were installed with `pnpm install --frozen-lockfile --offline`.
+
+Failures or blockers: None. The free-text recommendation rule was a negative result, and it is recorded above.
+
+Limitations and non-claims:
+- **No model has run on these tasks.** Whether the research stage reaches `research_packet_ready` on them is unknown; the card's item 7 allows up to 5 attempts a task.
+- **The checks are pattern rules.** A correct report in unforeseen wording can fail one. They decide nothing in E2: the card reports them beside the blind proxy grade.
+- **The recommendation check needs the brief's line.** A report that recommends the right option without the line fails it. The scorer session's own reading is reported beside it as a disagreement count.
+- **The scorer has seen only fake runs.** It was tested on runs built from the reference outputs, not on a real run directory. The run layout it reads is the one `scripts/private-agent-local-screen.ts` writes at c02366a.
+- **Who has read the gold.** Only the authoring session and its own review agents.
+- **The tasks are small and synthetic.** They show nothing about E3's packets or web-scale work, as the card says. Both were written by one session.
+
+Paid exposure: None. Zero model requests and zero envelope spend. The card's USD 1 for fixtures stays unspent.
+
+Next gate:
+1. The coordinating session copies the two task directories and checks them against this manifest.
+2. Its amendment names the commit, the protocol hash and these ids.
+3. The scorer runs once on each graded run after unblinding, and reports counts only.
+
+References: docs/experiments/e2-card-2026-11-17.md; BL-20261117-0944-e2-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261027-0145-phase4-tasks-design; BL-20261013-1627-phase2-scoring-protocol; docs/experiments/phase4-tasks-v1.json.
+
+### BL-20261117-1159-correction-e2-synthetic-tasks-restamp -- 2026-11-17 -- Correction: E2's synthetic-task freeze entry is re-stamped after #141's tail, with its original ID and authoring time, and cites the coordinating session's decisions entry
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries, corrected by BL-20261113-0938-correction-restamp-rule-dates) moves an entry on an unmerged branch after the log's tail at merge. A Correction records the entry's original ID and time. The coordinating session chains #144 on its #141, whose head c0a7697 ends at BL-20261117-1157, so the freeze entry now follows that tail. The entry's body is unchanged.
+
+Decisions:
+- **The re-stamp.** BL-20261117-1158-e2-synthetic-tasks-frozen was authored at 11:26 UTC on 2026-11-17 as BL-20261117-1126. Only its ID changed. Its body is byte-identical.
+- **The decisions entry the freeze entry names without an ID** is BL-20261117-1130-lane-decisions-second-repair-before-reprobe, the coordinating session's decisions of 2026-11-17. Its decision 4 covers:
+  - where the gold lives, under the authoring session's own ignored `.soar/`;
+  - its one backup copy outside every checkout;
+  - the handover of the inputs-only task directories through the shared notes folder.
+- **The research protocol hash.** After the second repair on `main`, the default research protocol hash is `e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c`.
+  - The freeze entry and `docs/experiments/e2-tasks-v1.json` name no protocol hash. The task directories, briefs, inputs and gold do not depend on it.
+  - E2's amendment names the hash, with the commit, before the first packet run, as the card requires.
+
+Changes:
+- docs/BUILD_LOG.md: the re-stamp and this entry.
+- The merge of #141's head. No other file of this pull request changed, and docs/experiments/e2-tasks-v1.json is byte-identical.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref <ref>` exits 0 against #141's head c0a7697 and against `origin/main`, with its exit status checked directly. `pnpm typecheck` and `pnpm validate:readiness` pass.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. No task, gold or scorer changed.
+
+Paid exposure: None.
+
+Next gate: #141 merges, then this pull request, as the coordinating session merges each on green CI.
+
+References: BL-20261117-1158-e2-synthetic-tasks-frozen; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; pull requests #141 and #144.

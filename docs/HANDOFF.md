@@ -8,6 +8,22 @@ session" below is the orchestrating session: the one that coordinates the lanes,
 the experiments on the owner's Mac and talks to the owner. The next session takes that
 role.
 
+**Superseding note (2026-11-17, after this section was written).** The owner has since
+given one direction on every question §4 lists: each recommended answer and each
+proposed card value is accepted, and the session decides the rest
+(BL-20261117-0940-owner-direction-decisions-delegated). The session's choices for
+the questions no source decided are in
+BL-20261117-0941-group-a-decided-under-delegation. #105's residues, which §4 keeps
+for the owner's explicit answer, are the session's choice under that delegation and
+are put to the owner by name. E5's, E2's and E6's cards are `Approved`
+(docs/experiments/e5-card-2026-11-17.md, e2-card-2026-11-17.md and
+e6-card-2026-11-17.md), and two more Docker-gated suites are `Verified`
+(BL-20261117-0942-document-review-and-runtime-suites-docker-verified). What stays
+the owner's is decision 7 of the first entry, with the tag push for E5's build, the
+serving card's adoption commit and the first query to a new search destination, each
+asked by name. Where this section says a question is open, a card does not exist or a
+step waits for the owner, those entries govern until the section is restated.
+
 **In brief.**
 - **State.** E0 has run every step of its card, and BL-20261116-1357-e0-verified closes
   it. Its serving card is `proposed`, so no run reads it. E1's gate is released. No card

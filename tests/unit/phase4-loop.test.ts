@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { ServingCardError } from "../../src/main/private-agent/serving-card";
-import { LOOP_VERSION, failureCode, loopExitCode, loopFailureLine, parseLoopArguments, productionDependencies, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
+import { LOOP_VERSION, closeLoop, failureCode, loopExitCode, loopFailureLine, parseLoopArguments, productionDependencies, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 import { localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
 const cleanups: (() => void)[] = [];
@@ -177,7 +177,13 @@ describe("H4 select-and-repair loop", () => {
     expect(read(two)).toMatchObject({ samplesPlanned: 2, failure: "loop_test_stop", selected: { final: null } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: two, samples: 1 }, fakes({ summaries }).deps)).rejects.toThrow("loop_record_mismatch");
     // A record saved before the field held none: it planned two samples.
-    const saved = read(two) as unknown as Record<string, unknown>; delete saved.samplesPlanned; writeFileSync(join(two, "loop.json"), `${JSON.stringify(saved)}\n`);
+    const saved = read(two) as unknown as Record<string, unknown>;
+    // A recorded count of another shape matches neither count.
+    for (const value of [null, "1", "2", 3, 0]) {
+      writeFileSync(join(two, "loop.json"), `${JSON.stringify({ ...saved, samplesPlanned: value })}\n`);
+      for (const samples of [1, 2] as const) await expect(runSelectionLoop({ base: base(), loopDirectory: two, samples }, fakes({ summaries }).deps), `${value} ${samples}`).rejects.toThrow("loop_record_mismatch");
+    }
+    delete saved.samplesPlanned; writeFileSync(join(two, "loop.json"), `${JSON.stringify(saved)}\n`);
     await expect(runSelectionLoop({ base: base(), loopDirectory: two, samples: 1 }, fakes({ summaries }).deps)).rejects.toThrow("loop_record_mismatch");
     const resumed = await runSelectionLoop({ base: base(), loopDirectory: two, samples: 2 }, fakes({ summaries }).deps);
     expect(resumed).toMatchObject({ samplesPlanned: 2, selected: { stage1: { candidate: "a", step: "tie" }, final: { candidate: "a" } } });
@@ -191,6 +197,11 @@ describe("H4 select-and-repair loop", () => {
     rmSync(join(one, "b"), { recursive: true });
     const finished = await runSelectionLoop({ base: base(), loopDirectory: one, samples: 1 }, fakes({ summaries }).deps);
     expect(finished).toMatchObject({ samplesPlanned: 1, candidates: { b: null }, selected: { stage1: { candidate: "a", step: "single_sample" }, final: { candidate: "a" } } });
+    const closing = loopDir();
+    await expect(runSelectionLoop({ base: base(), loopDirectory: closing, samples: 1 }, fakes({ summaries, onRun: stopAt("repair") }).deps)).rejects.toThrow("loop_test_stop");
+    const closed = await closeLoop(closing, fakes({ summaries }).deps);
+    expect(closed).toMatchObject({ samplesPlanned: 1, closed: true, candidates: { b: null }, selected: { stage1: { candidate: "a", step: "single_sample" }, final: { candidate: "a", step: "repair_failed" } } });
+    expect(read(closing)).toMatchObject({ samplesPlanned: 1, closed: true });
   });
   it("adds a truncated critique to the samples' length stops without changing the selection rule", async () => {
     const dir = loopDir();
@@ -583,6 +594,7 @@ describe("H4 select-and-repair loop", () => {
       expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...extra]), extra.join(" ")).toThrow("loop_cli_invalid");
     // The flag in a value's place, and the driver's own parser, which never takes it.
     expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", "--task-directory", "--samples", ...driver.slice(2)])).toThrow("loop_cli_invalid");
+    expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", "--task-directory", "--samples", "2", "t", ...driver.slice(2)])).toThrow("loop_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments(["--execute-synthetic-local", ...driver, "--output-directory", "o", "--samples", "1"])).toThrow("local_screen_cli_invalid");
   });
   it("parses the loop's command line from the driver's flags, refuses the flags the loop sets itself, a cloud writer without the pipeline and any profile but heavy; the driver accepts --research-from only as a local heavy claims-ledger writer", () => {

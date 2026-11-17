@@ -25,7 +25,7 @@
  * seeded from the moved run). A stage directory without a freeze is a start that sent nothing, moved to `<stage>.void-<n>`.
  * The operator never moves a directory by hand; every moved run's spend stays in the record's totals. A loop that cannot go
  * on stops for good (`stopped`), and `--close` ends a loop at any other stop. A loop is never resumed under another loop
- * version, selection protocol, runtime, task, arm or pipeline, and a loop that has chosen or stopped for good is terminal.
+ * version, selection protocol, runtime, task, arm, pipeline or sample count, and a loop that has chosen or stopped for good is terminal.
  */
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -326,17 +326,17 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
 async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies, control: { signal?: AbortSignal }): Promise<LoopRecord> {
   const log = (line: string) => appendFileSync(join(loop, "log.txt"), `${deps.now()} ${line}\n`, { mode: 0o600 });
   // A loop that already chose or stopped for good is terminal; a loop that stopped earlier keeps its start, the times of the stages
-  // it reuses, its begun stages and its moves, and only under the version, selection rule, runtime, task, arm and pipeline it started
-  // with (its record is left as it was).
+  // it reuses, its begun stages and its moves, and only under the version, selection rule, runtime, task, arm, pipeline and sample count
+  // it started with (its record is left as it was).
   let prior: LoopRecord | undefined;
-  // BL-20261117-1027-loop-single-sample-design: a record saved before `samplesPlanned` planned two samples.
+  // BL-20261117-1027-loop-single-sample-design: two samples unless `--samples 1`.
   const samples: LoopSamples = input.samples ?? 2;
   if (existsSync(join(loop, "loop.json"))) {
     prior = JSON.parse(readFileSync(join(loop, "loop.json"), "utf8")) as LoopRecord;
     if (prior.selected?.final || prior.stopped) throw new Error("loop_terminal");
     if (!Array.isArray(prior.stages) || prior.version !== LOOP_VERSION || prior.selectionRule !== SELECTION_PROTOCOL_VERSION || prior.runtimeSha256 !== input.base.expectedRuntimeSha256 ||
         prior.task?.jobSha256 !== input.base.expectedJobSha256 || prior.task?.briefSha256 !== input.base.expectedBriefSha256 ||
-        prior.arm !== (input.base.cloudArm ? "cloud" : "local") || prior.pipeline !== (input.base.pipeline ?? null) || (prior.samplesPlanned ?? 2) !== samples ||
+        prior.arm !== (input.base.cloudArm ? "cloud" : "local") || prior.pipeline !== (input.base.pipeline ?? null) || ("samplesPlanned" in prior ? prior.samplesPlanned : 2) !== samples ||
         !priorFields(prior)) throw new Error("loop_record_mismatch");
   }
   const carried: CarriedFields = prior ? priorFields(prior)! : { begun: [], resumes: [], voids: [], candidates: { a: null, b: null, repair: null }, critique: null,

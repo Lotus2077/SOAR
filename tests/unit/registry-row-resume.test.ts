@@ -115,6 +115,12 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     const cases: [Record<string, unknown>, string][] = [
       ...[0, 3, "1", true, null, 1.5].map(value => [{ samplesPlanned: value }, "samplesPlanned is neither 1 nor 2"] as [Record<string, unknown>, string]),
       [{ candidates: { a: candidate("submitted"), b: candidate("submitted"), repair: candidate("submitted") } }, "a single-sample loop record holds a second sample"],
+      // Every other trace of a second sample: stage 1 choosing b, b seeded, two writes compared, a second rate, and b begun.
+      [{ selected: { stage1: { candidate: "b", step: "single_sample", entailmentRates: [null, null] }, final: single.selected.final } }, "a single-sample loop record holds a second sample"],
+      [{ seeded: { a: false, b: true, repair: false, snapshotSha256: null } }, "a single-sample loop record holds a second sample"],
+      [{ writeIdentityEqual: true }, "a single-sample loop record holds a second sample"],
+      [{ selected: { stage1: { candidate: "a", step: "single_sample", entailmentRates: [null, 0.5] }, final: single.selected.final } }, "a single-sample loop record holds a second sample"],
+      [{ begun: ["a", "b", "critique", "repair"].map(stage => ({ stage, at: time(0) })) }, "a single-sample loop record holds a second sample"],
       [{ selected: twoStep }, "stage-1 step does not match its planned samples"],
       [{ samplesPlanned: 2 }, "stage-1 step does not match its planned samples"],
     ];

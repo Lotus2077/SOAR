@@ -1208,8 +1208,14 @@ def loop_row(args) -> dict:
     if type(planned) is not int or planned not in (1, 2):
         sys.exit("the loop record's samplesPlanned is neither 1 nor 2")
     stage1 = loop["selected"].get("stage1") if isinstance(loop.get("selected"), dict) else None
-    if planned == 1 and isinstance(loop.get("candidates"), dict) and loop["candidates"].get("b") is not None:
-        sys.exit("a single-sample loop record holds a second sample")
+    if planned == 1:
+        seeded = loop.get("seeded") if isinstance(loop.get("seeded"), dict) else {}
+        rates = stage1.get("entailmentRates") if isinstance(stage1, dict) else None
+        if (isinstance(loop.get("candidates"), dict) and loop["candidates"].get("b") is not None) or seeded.get("b") is True \
+                or loop.get("writeIdentityEqual") is not None or (isinstance(stage1, dict) and stage1.get("candidate") != "a") \
+                or (isinstance(rates, list) and len(rates) == 2 and rates[1] is not None) \
+                or (isinstance(loop.get("begun"), list) and any(isinstance(entry, dict) and entry.get("stage") == "b" for entry in loop["begun"])):
+            sys.exit("a single-sample loop record holds a second sample")
     if (isinstance(stage1, dict) and stage1.get("step") == "single_sample") != (planned == 1 and isinstance(stage1, dict)):
         sys.exit("the loop record's stage-1 step does not match its planned samples")
     if version == 2:

@@ -32,9 +32,10 @@ BL-20261117-1005-e6-planted-defect-scorer-design.
   - Write every cross-reference as plain text ("see Section 8"), never as a field.
   - Why: the applier's anchor search skips text inside a field, and the scorer's
     standard-library reading does not.
-  - So the scorer refuses a source that has a field (`w:fldSimple`, `w:fldChar` or
-    `w:instrText`) or a tracked change. The applier itself refuses a source with tracked
-    changes.
+  - So `--check-gold` and `--gold` refuse a source that has a field (`w:fldSimple`,
+    `w:fldChar` or `w:instrText`) or a tracked change. The applier itself refuses a
+    source with tracked changes. `--list` prints any source, so that its listing can be
+    compared with the applier's.
 
 ## The file
 
@@ -51,8 +52,11 @@ One JSON object with exactly these keys:
 Every object below also has exactly the keys shown. An unknown or missing key refuses
 the file, so a misspelt key cannot pass unnoticed.
 
-- **Ids.** Each defect and each control has an `id`: 1 to 32 characters, a letter first,
-  then letters, digits, `_` or `-`. An id is unique in the file.
+- **Ids.** Each defect and each control has an `id`, unique in the file.
+  - The forms: defects are `D1`, `D2`, … and controls `K1`, `K2`, …: the letter, then a
+    number from 1 to 99 with no leading zero.
+  - Why opaque: the scorer's refusals name items by id, so an id must carry no word of
+    the gold.
 - **What E6 plants.** Each file has eight defects and two controls (card item 2):
   - two `numeric`, two `clause_contradiction`, two `table_arithmetic`;
   - one `reference_definition` and one `missing_section`.
@@ -140,6 +144,8 @@ A condition is a literal test or a combination of tests, nested at most four dee
 - **A literal** is 1 to 200 characters: one line, with no control character. It matches
   within one paragraph, or within the edit's text, and never across a paragraph break.
 - **The match is normalized on both sides.**
+  - The text is composed (Unicode NFC), so an accent typed as a separate mark matches the
+    same letter typed as one character.
   - The applier's lookalikes are folded: curly quotes become straight, a no-break space
     becomes a space, the non-breaking hyphen, the hyphen and the en and em dashes become
     `-`, and a soft hyphen is dropped.
@@ -149,6 +155,9 @@ A condition is a literal test or a combination of tests, nested at most four dee
   - `true`: the characters just before and just after the match are not letters or
     digits, or the match is at the start or end of the text. So `"12,500"` does not match
     inside `"112,500"`, and `"not"` does not match inside `"notice"`.
+  - Punctuation is neither a letter nor a digit. So with `true`, `"13,500"` still
+    matches inside `"13,500,000"` and `"13,500.00"`. Where that matters, add a `lacks`
+    test or use a longer literal.
   - `false`: the literal may sit inside a word, so `"indemnif"` matches
     `"indemnification"`.
 
@@ -160,11 +169,16 @@ It takes the run's directory, as the driver writes it, and reads its `candidate/
   applier would refuse for its shape scores nothing.
 - `candidate/output/clean.docx`: the clean copy.
 - `candidate/input/*.docx`: the source, the one top-level `.docx`. Its sha256 must equal
-  the gold's `source.sha256`, or the scorer refuses the whole invocation and prints no
-  count.
+  the gold's `source.sha256`.
+  - When it is missing, ambiguous or another document, the run gets the status
+    `source_missing`, `source_ambiguous` or `source_mismatch`, with no counts. The other
+    runs are still scored.
+  - The first run whose source is the gold's binds the gold to it. If the gold does not
+    fit that source, the whole invocation is refused, as `--check-gold` would refuse it.
 - `candidate/output/review-flags.json`: only `counts.inversionEdits`, rule C1's count.
-  - It is reported as `null` when the file is missing or unreadable, or when the file
-    records an `error`. In that case its counts are the applier's fallback zeros, not a
+  - It is reported as `null` when the file is missing or unreadable, or when it records
+    an `error`. The error can be the whole record's, at the top level, or rule C1's alone,
+    under `edits`. Either way the count is the applier's fallback zero, not a
     measurement.
 
 **Placing an edit.**
@@ -204,8 +218,9 @@ python3 -I scripts/e6-score.py --gold GOLD.json LABEL=RUN_DIR [LABEL=RUN_DIR ...
 
   It never holds a word from any file. The statuses:
   - `scored`;
-  - `candidate_missing`, `plan_missing`, `plan_invalid`, `clean_missing` and `clean_invalid`.
-    These carry no counts, because absent is not zero.
+  - `candidate_missing`, `source_missing`, `source_ambiguous`, `source_mismatch`,
+    `plan_missing`, `plan_invalid`, `clean_missing` and `clean_invalid`. These carry no
+    counts, because absent is not zero.
 - **Exit codes:** 0 on success; 2 on a refusal, with `{"ok": false, "errors": […]}`; 1 on
   an internal error.
 

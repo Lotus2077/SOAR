@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -49,7 +50,9 @@ SOURCE_NAME_RE = re.compile(r"^[^\x00-\x1f/\\]{1,200}\.docx$", re.IGNORECASE)
 CLASSES = ("clause_contradiction", "missing_section", "numeric", "reference_definition", "table_arithmetic")
 SPAN_CLASSES = ("clause_contradiction", "numeric", "reference_definition", "table_arithmetic")
 CHANGING_ACTIONS = ("replace", "delete", "insert_after")
-GOLD_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+# Opaque ids, so that no refusal can carry a word of the gold: D1, D2, ... for defects and K1, K2, ... for controls.
+DEFECT_ID_RE = re.compile(r"^D[1-9][0-9]?$")
+CONTROL_ID_RE = re.compile(r"^K[1-9][0-9]?$")
 LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_GOLD_BYTES = 1024 * 1024
@@ -295,10 +298,11 @@ def load_gold(path):
         refuse("gold_shape_invalid", at="controls", maxItems=MAX_CONTROLS)
     seen = set()
     for kind, items in (("defects", defects), ("controls", controls)):
+        id_re = DEFECT_ID_RE if kind == "defects" else CONTROL_ID_RE
         for index, item in enumerate(items):
             where = "%s[%d]" % (kind, index)
-            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not GOLD_ID_RE.match(item["id"]):
-                refuse("gold_id_invalid", at=where)
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not id_re.match(item["id"]):
+                refuse("gold_id_invalid", at=where, expected=id_re.pattern)
             if item["id"] in seen:
                 refuse("gold_id_duplicate", item=item["id"])
             seen.add(item["id"])
@@ -327,13 +331,19 @@ def load_gold(path):
     return gold, hashlib.sha256(raw).hexdigest()
 
 
+def find_all(texts, needle):
+    """Every (paragraph index, start) of needle, overlapping occurrences included: the applier's find_all without its field masks."""
+    hits = []
+    for index, text in enumerate(texts):
+        start = text.find(needle)
+        while start != -1:
+            hits.append((index, start))
+            start = text.find(needle, start + 1)
+    return hits
+
+
 def occurrences(text, needle):
-    """Every start of needle in text, overlapping ones included, as the applier's find_all counts an anchor."""
-    found, start = [], text.find(needle)
-    while start >= 0:
-        found.append(start)
-        start = text.find(needle, start + 1)
-    return found
+    return [start for _, start in find_all([text], needle)]
 
 
 def bind_gold(gold, texts, sha256):
@@ -375,8 +385,8 @@ def planted_counts(gold):
 # ---------- conditions ----------
 
 def normalize(text):
-    """Lookalikes folded as the applier folds them, each whitespace run one space, casefolded."""
-    return WHITESPACE_RE.sub(" ", text.translate(LOOKALIKES)).casefold()
+    """Composed (NFC), lookalikes folded as the applier folds them, each whitespace run one space, casefolded."""
+    return WHITESPACE_RE.sub(" ", unicodedata.normalize("NFC", text).translate(LOOKALIKES)).casefold()
 
 
 def found_in(text, needle, word):
@@ -448,17 +458,13 @@ def load_plan(raw):
 
 
 def place_edits(edits, texts):
-    """Each edit whose anchor occurs exactly once in the source, as (edit, paragraph, start, end); the rest are unplaced."""
+    """Each edit whose anchor occurs exactly once in the source, as (edit, (paragraph, start, end)); the rest are unplaced."""
     placed = []
     for edit in edits:
-        hits = []
-        for index, text in enumerate(texts):
-            hits.extend((index + 1, start) for start in occurrences(text, edit["anchor"]))
-            if len(hits) > 1:
-                break
+        hits = find_all(texts, edit["anchor"])
         if len(hits) == 1:
-            paragraph, start = hits[0]
-            placed.append((edit, (paragraph, start, start + len(edit["anchor"]))))
+            index, start = hits[0]
+            placed.append((edit, (index + 1, start, start + len(edit["anchor"]))))
     return placed
 
 
@@ -467,18 +473,18 @@ def overlaps(a, b):
     return a[0] == b[0] and a[1] < b[2] and b[1] < a[2]
 
 
-def find_source(candidate, label):
-    """The run's own source: the one .docx under candidate/input, at its top level, as the review check requires."""
+def find_source(candidate):
+    """The run's own source, the one .docx at the top of candidate/input as the review check requires, or the status that says why not."""
     found = []
     for root, directories, files in os.walk(os.path.join(candidate, "input")):
         directories.sort()
         found.extend(os.path.join(root, name) for name in sorted(files) if name.lower().endswith(".docx"))
     if not found:
-        refuse("source_missing", candidate=label)
+        return None, "source_missing"
     top = os.path.join(candidate, "input")
     if len(found) != 1 or os.path.dirname(found[0]) != top or not SOURCE_NAME_RE.match(os.path.basename(found[0])):
-        refuse("source_ambiguous", candidate=label, docx=len(found))
-    return found[0]
+        return None, "source_ambiguous"
+    return found[0], None
 
 
 def read_flags(path):
@@ -493,7 +499,9 @@ def read_flags(path):
         return None, "invalid"
     if not isinstance(data, dict):
         return None, "invalid"
-    if "error" in data:
+    # The whole record failed (top-level error), or rule C1 alone did (the applier's flag_rule records it under "edits"): either way the
+    # count is the applier's fallback zero, not a measurement.
+    if "error" in data or (isinstance(data.get("edits"), dict) and "error" in data["edits"]):
         return None, "error"
     counts = data.get("counts")
     value = counts.get("inversionEdits") if isinstance(counts, dict) else None
@@ -502,21 +510,30 @@ def read_flags(path):
     return value, "recorded"
 
 
-def score_run(label, directory, gold, spans):
+def score_run(label, directory, gold, bound):
+    """One run's record, and the gold bound to its source as (texts, spans), which the first run whose source is the gold's sets."""
     candidate = os.path.join(directory, "candidate")
     record = {"label": label}
     if not os.path.isdir(candidate):
         record.update({"status": "candidate_missing", "flags": "missing", "inversionEdits": None})
-        return record, None
-    source = find_source(candidate, label)
-    texts, sha256 = read_source(source)
-    if sha256 != gold["source"]["sha256"]:
-        refuse("source_mismatch", candidate=label)
+        return record, bound
     record["inversionEdits"], record["flags"] = read_flags(os.path.join(candidate, "output", "review-flags.json"))
+    # A run whose own source is missing, ambiguous or not the gold's gets a status without counts; the other runs are still scored.
+    source, problem = find_source(candidate)
+    if problem is None and file_sha256(source) != gold["source"]["sha256"]:
+        problem = "source_mismatch"
+    if problem is not None:
+        record["status"] = problem
+        return record, bound
+    if bound is None:
+        # The gold's own source cannot be read, or the gold does not fit it: the invocation is refused, as --check-gold refuses it.
+        texts, sha256 = read_source(source)
+        bound = (texts, bind_gold(gold, texts, sha256))
+    texts, spans = bound
     plan_path = os.path.join(candidate, "review", "edits.json")
     if not os.path.isfile(plan_path):
         record["status"] = "plan_missing"
-        return record, texts
+        return record, bound
     try:
         with open(plan_path, "rb") as handle:
             raw = handle.read(MAX_PLAN_BYTES + 1)
@@ -528,19 +545,19 @@ def score_run(label, directory, gold, spans):
     except Unusable as error:
         edits, record["status"], record["reason"] = None, "plan_invalid", error.code
     if edits is None:
-        return record, texts
+        return record, bound
     clean_path = os.path.join(candidate, "output", "clean.docx")
     if not os.path.isfile(clean_path):
         record["status"] = "clean_missing"
-        return record, texts
+        return record, bound
     try:
         clean = [normalize(text) for text in paragraph_texts(read_body(clean_path))]
     except Unusable as error:
         record.update({"status": "clean_invalid", "reason": error.code})
-        return record, texts
+        return record, bound
     if len(clean) != len(texts):
         record.update({"status": "clean_invalid", "reason": "paragraphs_differ"})
-        return record, texts
+        return record, bound
     placed = place_edits(edits, texts)
     addressed = dict((name, 0) for name in CLASSES)
     for defect in gold["defects"]:
@@ -560,7 +577,7 @@ def score_run(label, directory, gold, spans):
             changed += 1
     record.update({"status": "scored", "addressed": addressed, "controlsChanged": changed, "edits": len(edits),
                    "editsUnplaced": len(edits) - len(placed)})
-    return record, texts
+    return record, bound
 
 
 # ---------- commands ----------
@@ -601,14 +618,9 @@ def command_score(gold_path, pairs):
         labels.add(label)
         runs.append((label, directory))
     gold, gold_sha256 = load_gold(gold_path)
-    spans, records = None, []
+    bound, records = None, []
     for label, directory in runs:
-        if spans is None and os.path.isdir(os.path.join(directory, "candidate")):
-            texts, sha256 = read_source(find_source(os.path.join(directory, "candidate"), label))
-            if sha256 != gold["source"]["sha256"]:
-                refuse("source_mismatch", candidate=label)
-            spans = bind_gold(gold, texts, sha256)
-        record, _ = score_run(label, directory, gold, spans)
+        record, bound = score_run(label, directory, gold, bound)
         records.append(record)
     emit({"candidates": records, "gold": {"sha256": gold_sha256, "planted": planted_counts(gold), "controls": len(gold["controls"])},
           "scorer": scorer_identity()})

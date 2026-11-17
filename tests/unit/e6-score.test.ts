@@ -128,17 +128,43 @@ describe("E6's planted-defect scorer", () => {
       clean: { 2: "1. Fees. The Client pays a fee of 11,500 per month." } });
     // A literal matches within the new text or within the rationale, never across the two.
     const join2 = run(root, "r-join", { edits: [edit("E1", "insert_after", "9. Signatures.", "law applies.", " Under governing")] });
-    const out = scorer("--gold", goldPath, `t=${table}`, `i=${inside}`, `f=${folded}`, `w=${word}`, `o=${outside}`, `x=${touch}`, `j=${join2}`);
+    // Every member of an "all" must hold: prose that keeps the old figure beside the new one does not meet the condition.
+    const both = run(root, "r-both", { edits: [edit("E1", "replace", "a fee of 12,500", "Corrected.", "a fee of 11,500 (formerly 12,500)")],
+      clean: { 2: "1. Fees. The Client shall pay a fee of 11,500 (formerly 12,500) per month." } });
+    // "word" holds on the right of a match too: 13,500 does not match the start of 13,5000.
+    const right = run(root, "r-right", { edits: [edit("E1", "replace", "14,500", "Sum.", "13,5000")], clean: { 10: "13,5000" } });
+    // An overlap of one character counts, at either end of a span.
+    const fixed = { 2: "1. Fees. The Client shall pay a fee of 11,500 per month." };
+    const edgeStart = run(root, "r-edge-start", { edits: [edit("E1", "comment", "shall pay a", "Figure.")], clean: fixed });
+    const edgeEnd = run(root, "r-edge-end", { edits: [edit("E1", "comment", "0 per month", "Figure.")], clean: fixed });
+    const out = scorer("--gold", goldPath, `t=${table}`, `i=${inside}`, `f=${folded}`, `w=${word}`, `o=${outside}`, `x=${touch}`, `j=${join2}`,
+      `b=${both}`, `r=${right}`, `s=${edgeStart}`, `e=${edgeEnd}`);
     expect(out.status, out.stdout).toBe(0);
     expect(out.json.candidates.map((c: any) => c.addressed)).toEqual([
-      { ...NONE, numeric: 1, total: 1 }, NONE, { ...NONE, missing_section: 1, total: 1 }, NONE, NONE, NONE, NONE]);
+      { ...NONE, numeric: 1, total: 1 }, NONE, { ...NONE, missing_section: 1, total: 1 }, NONE, NONE, NONE, NONE,
+      NONE, NONE, { ...NONE, numeric: 1, total: 1 }, { ...NONE, numeric: 1, total: 1 }]);
   });
 
-  it("never counts a comment as changing a control", () => {
+  it("folds the applier's lookalikes and composes accents before matching", () => {
+    const { root, goldPath } = setup(g => { g.defects[4].edit = { all: [{ contains: "client's data", word: true }, { contains: "caf\u00e9", word: true }] }; });
+    // A curly apostrophe folds to the literal's straight one, and a decomposed accent composes to the literal's single code point.
+    const dir = run(root, "r-fold", { edits: [edit("E1", "comment", "9. Signatures.", "The Client\u2019s data and the cafe\u0301 clause are missing.")] });
+    expect(scorer("--gold", goldPath, `f=${dir}`).json.candidates[0].addressed).toEqual({ ...NONE, missing_section: 1, total: 1 });
+  });
+
+  it("counts a control changed by a replace, a delete or an insertion on its span, and never by a comment", () => {
     const { root, goldPath } = setup();
+    const replaced = run(root, "r-replace", { edits: [edit("E1", "replace", "shall not be liable", "Simpler.", "shall be liable")],
+      clean: { 11: "2. Liability. The Supplier shall be liable for indirect losses." } });
+    const deleted = run(root, "r-delete", { edits: [edit("E1", "delete", "shall not ", "Simpler.")],
+      clean: { 11: "2. Liability. The Supplier be liable for indirect losses." } });
+    const inserted = run(root, "r-insert", { edits: [edit("E1", "insert_after", "shall not", "Stronger.", " always")],
+      clean: { 11: "2. Liability. The Supplier shall not always be liable for indirect losses." } });
     // The clean text fails the control's condition, but the only edit on its span is a comment.
-    const dir = run(root, "r-comment", { edits: [edit("E1", "comment", "within 30 days", "Short.")], clean: { 13: "4. Payment. Invoices are due promptly." } });
-    expect(scorer("--gold", goldPath, `c=${dir}`).json.candidates[0]).toMatchObject({ status: "scored", controlsChanged: 0 });
+    const commented = run(root, "r-comment", { edits: [edit("E1", "comment", "within 30 days", "Short.")], clean: { 13: "4. Payment. Invoices are due promptly." } });
+    const out = scorer("--gold", goldPath, `r=${replaced}`, `d=${deleted}`, `i=${inserted}`, `c=${commented}`);
+    expect(out.status, out.stdout).toBe(0);
+    expect(out.json.candidates.map((c: any) => c.controlsChanged)).toEqual([1, 1, 1, 0]);
   });
 
   it("reads a literal inside a word when \"word\" is false", () => {
@@ -157,6 +183,9 @@ describe("E6's planted-defect scorer", () => {
       noClean: run(root, "r-no-clean", { clean: null, flags: null }),
       notZip: run(root, "r-not-zip", { clean: "not a zip", flags: { version: 1, counts: { inversionEdits: 0 }, error: "ValueError" } }),
       shorter: run(root, "r-shorter", { flags: "{" }),
+      // Rule C1 alone failed: the applier's flag_rule records the error under "edits" and leaves the count at zero.
+      c1Failed: run(root, "r-c1-failed", { clean: null, flags: { version: 1, counts: { inversionEdits: 0 }, edits: { error: "ValueError", flags: [], truncated: false } } }),
+      negative: run(root, "r-negative", { clean: null, flags: { version: 1, counts: { inversionEdits: -1 } } }),
     };
     // A clean copy with one paragraph fewer than the source cannot be read against it.
     docx(join(runs.shorter, "candidate", "output", "clean.docx"), agreement({}, TEXTS.slice(0, 17)));
@@ -171,18 +200,31 @@ describe("E6's planted-defect scorer", () => {
       // A flags file that records an error carries the applier's fallback zeros, which are not a measurement.
       { label: "notZip", status: "clean_invalid", reason: "docx_unreadable", flags: "error", inversionEdits: null },
       { label: "shorter", status: "clean_invalid", reason: "paragraphs_differ", flags: "invalid", inversionEdits: null },
+      { label: "c1Failed", status: "clean_missing", flags: "error", inversionEdits: null },
+      { label: "negative", status: "clean_missing", flags: "invalid", inversionEdits: null },
     ]);
   });
 
-  it("refuses the whole invocation when a run's source is not the gold's", () => {
+  it("gives a run whose own source is missing, ambiguous or another document a status without counts, and scores the others", () => {
+    const { root, goldPath } = setup();
+    const other = run(root, "r-other", { source: agreement({ 1: "Another Agreement" }) });
+    const none = run(root, "r-none"); rmSync(join(none, "candidate", "input"), { recursive: true });
+    const two = run(root, "r-two"); docx(join(two, "candidate", "input", "deeper", "copy.docx"), agreement());
+    const good = run(root, "r-good", { edits: GOOD, clean: GOOD_CLEAN });
+    // None of the first three sources is the gold's, so the gold is bound to the last run's source.
+    const out = scorer("--gold", goldPath, `o=${other}`, `n=${none}`, `t=${two}`, `g=${good}`);
+    expect(out.status, out.stdout).toBe(0);
+    expect(out.json.candidates.slice(0, 3)).toEqual([
+      { label: "o", status: "source_mismatch", flags: "recorded", inversionEdits: 0 },
+      { label: "n", status: "source_missing", flags: "recorded", inversionEdits: 0 },
+      { label: "t", status: "source_ambiguous", flags: "recorded", inversionEdits: 0 },
+    ]);
+    expect(out.json.candidates[3]).toMatchObject({ label: "g", status: "scored", addressed: { total: 5 } });
+  });
+
+  it("refuses arguments it cannot read", () => {
     const { root, goldPath } = setup();
     const good = run(root, "r-good", { edits: GOOD, clean: GOOD_CLEAN });
-    const other = run(root, "r-other", { source: agreement({ 1: "Another Agreement" }) });
-    expect(scorer("--gold", goldPath, `a=${good}`, `b=${other}`)).toMatchObject({ status: 2, json: { ok: false, errors: [{ code: "source_mismatch", candidate: "b" }] } });
-    const none = run(root, "r-none"); rmSync(join(none, "candidate", "input"), { recursive: true });
-    expect(scorer("--gold", goldPath, `n=${none}`).json.errors).toEqual([{ code: "source_missing", candidate: "n" }]);
-    const two = run(root, "r-two"); docx(join(two, "candidate", "input", "deeper", "copy.docx"), agreement());
-    expect(scorer("--gold", goldPath, `t=${two}`).json.errors).toEqual([{ code: "source_ambiguous", candidate: "t", docx: 2 }]);
     expect(scorer("--gold", goldPath, `a=${good}`, `a=${good}`).json.errors).toEqual([{ code: "label_duplicate", label: "a" }]);
     expect(scorer("--gold", goldPath, `bad label=${good}`).json.errors[0].code).toBe("run_argument_invalid");
     expect(scorer("--gold", goldPath).json.errors[0].code).toBe("usage_invalid");
@@ -201,7 +243,11 @@ describe("E6's planted-defect scorer", () => {
       ["an unknown key", g => { g.defects[2].comment_only = true; }, { code: "gold_shape_invalid", at: "defects[2]" }],
       ["another format", g => { g.format = "soar-e6-gold-draft"; }, { code: "gold_format_unsupported" }],
       ["a boolean version", g => { g.version = true; }, { code: "gold_format_unsupported" }],
-      ["a repeated id", g => { g.controls[0].id = "D1"; }, { code: "gold_id_duplicate", item: "D1" }],
+      ["a repeated id", g => { g.defects[1].id = "D1"; }, { code: "gold_id_duplicate", item: "D1" }],
+      ["a word as an id", g => { g.defects[0].id = "fee_total"; }, { code: "gold_id_invalid", at: "defects[0]" }],
+      ["a control named as a defect", g => { g.controls[0].id = "D9"; }, { code: "gold_id_invalid", at: "controls[0]" }],
+      ["a quote that repeats only by overlapping", g => { g.defects[1].spans[0] = { paragraph: 8, quote: "00" }; },
+        { code: "gold_quote_not_unique", item: "D2", span: 0, count: 2 }],
       ["an unknown class", g => { g.defects[0].class = "style"; }, { code: "gold_class_invalid", at: "defects[0]" }],
       ["a clean condition beside commentOnly", g => { g.defects[2].clean = { paragraphs: [12, 12], lacks: "Section 7", word: true }; }, { code: "gold_shape_invalid", at: "defects[2]" }],
       ["a missing section with spans", g => { g.defects[4].spans = [{ paragraph: 17, quote: "Notices" }]; }, { code: "gold_shape_invalid", at: "defects[4]" }],
@@ -263,12 +309,18 @@ describe("E6's planted-defect scorer", () => {
     expect(pinned.constants).toEqual(Object.fromEntries(PINNED.map(name => [name, true])));
     expect(pinned.viewText).toHaveLength(LISTED.length + TEXTS.length);
     expect(pinned.viewText.every(Boolean)).toBe(true);
+    // The plan's shape rules and the anchor search are the applier's own: each plan gets the same outcome and first code from both.
+    expect(pinned.loadPlan).toHaveLength(24);
+    expect(pinned.loadPlan.every(Boolean)).toBe(true);
+    expect(pinned.findAll).toHaveLength(6);
+    expect(pinned.findAll.every(Boolean)).toBe(true);
   });
 });
 
 /** Structures the plain view must handle; LISTED is the text of each paragraph in order. */
 const LISTING = [
   "<w:p><w:r><w:t>One</w:t><w:tab/><w:t>two</w:t><w:br/><w:t>three</w:t></w:r></w:p>",
+  "<w:p><w:r><w:t>a</w:t><w:cr/><w:t>b</w:t><w:ptab/><w:t>c</w:t></w:r></w:p>",
   "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>nested</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc></w:tr></w:tbl>",
   '<w:p><w:r><w:t xml:space="preserve">box </w:t><w:pict><w:txbxContent><w:p><w:r><w:t>inside</w:t></w:r></w:p></w:txbxContent></w:pict></w:r>'
     + "<w:r><w:txbxContent><w:p><w:r><w:t>also inside</w:t></w:r></w:p></w:txbxContent></w:r></w:p>",
@@ -277,7 +329,7 @@ const LISTING = [
   "<w:p><w:hyperlink><w:r><w:t>link</w:t></w:r></w:hyperlink><w:r><w:instrText>REF x</w:instrText></w:r></w:p>",
   "<w:p/>",
 ].join("");
-const LISTED = ["One\ttwo\nthree", "cell", "nested", "box ￼", "sym￼‑­", "newold", "link", ""];
+const LISTED = ["One\ttwo\nthree", "a\nb\tc", "cell", "nested", "box ￼", "sym￼‑­", "newold", "link", ""];
 
 /** The applier's constants the scorer copies; each must equal the applier's own value. */
 const PINNED = ["OBJECTS", "LOOKALIKES", "ACTIONS", "SEVERITIES", "REVISION_TAGS", "ID_RE", "INVALID_RE", "MAX_EDITS", "MAX_SOURCE_BYTES", "MAX_PART_BYTES",
@@ -308,5 +360,34 @@ ported = {"local": scorer.local, "OBJECTS": applier["OBJECTS"]}
 exec(compile(ast.Module(body=functions, type_ignores=[]), "applier", "exec"), ported)
 body = ET.fromstring(open(xml_path, "rb").read()).find(scorer.w("body"))
 view = [ported["view_text"](paragraph, "plain") == scorer.view_text(paragraph) for paragraph in scorer.body_paragraphs(body)]
-print(json.dumps({"constants": constants, "viewText": view}))
+applier["json"] = json
+for name in ("PlanError", "load_plan", "find_all"):
+    nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name == name]
+    assert len(nodes) == 1, name
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "applier", "exec"), applier)
+valid = {"id": "E1", "anchor": "a", "action": "comment", "rationale": "r", "severity": "low"}
+def edit(**changes):
+    value = dict(valid)
+    value.update(changes)
+    return value
+def plan(edits, **top):
+    data = {"version": 1, "edits": edits}
+    data.update(top)
+    return json.dumps(data).encode("utf-8")
+plans = [b"not json", b"[]", plan([valid], version=2), plan([valid], version=True), plan([valid], extra=1), plan([]),
+         plan([edit(id="E%d" % n) for n in range(1, 202)]), plan([1]), plan([edit(action="rewrite")]), plan([edit(extra=1)]),
+         plan([edit(action="replace")]), plan([edit(action="replace", newText="n")]), plan([edit(action="insert_after", newText="n")]),
+         plan([edit(action="delete")]), plan([edit(id="X1")]), plan([edit(), edit()]), plan([edit(anchor="")]), plan([edit(anchor="a\nb")]),
+         plan([edit(anchor="a" * 1001)]), plan([edit(rationale="r" * 1001)]), plan([edit(action="replace", newText="n" * 4001)]),
+         plan([edit(severity="urgent")]), plan([edit(anchor="\ufffc")]), plan([edit(id=7)])]
+def outcome(load, error_type, code_of, raw):
+    try:
+        return ["ok", len(load(raw))]
+    except error_type as error:
+        return ["error", code_of(error)]
+load_plan = [outcome(applier["load_plan"], applier["PlanError"], lambda e: e.errors[0]["code"], raw)
+             == outcome(scorer.load_plan, scorer.Unusable, lambda e: e.code, raw) for raw in plans]
+texts = ["aaa", "xaay", "", "a"]
+find_all = [applier["find_all"](texts, anchor) == scorer.find_all(texts, anchor) for anchor in ("aa", "a", "x", "zz", "aaa", "y")]
+print(json.dumps({"constants": constants, "viewText": view, "loadPlan": load_plan, "findAll": find_all}))
 `;

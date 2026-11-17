@@ -48444,3 +48444,119 @@ Paid exposure: None.
 Next gate: Pull request #134's merge, on green CI, under the session's reading in decision 5 of BL-20261117-0940-owner-direction-decisions-delegated.
 
 References: docs/PLAN.md §4; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261008-1210-owner-v0-1-released; pull request #134; issue #53.
+
+### BL-20261117-1005-e2-write-bound-and-dry-run-design -- 2026-11-17 -- E2's writer bound, the driver's dry run and the bound in the registry row: `--write-bound twelve-call` sets a seeded writer's three write-phase limits and nothing else, freeze.json's `limits` records it, and `--dry-run true` prints the freeze a run would write while creating and sending nothing
+
+Status: `Proposed`
+
+Scope or hypothesis: E2's card (docs/experiments/e2-card-2026-11-17.md, "What the card needs that does not exist yet"; BL-20261117-0944-e2-card-approved) needs three things from one lane pull request: a writer bound below Heavy's, a dry run in the driver, and the bound in the registry row. Its items 1, 2 and 16 decide them, accepted under BL-20261117-0940-owner-direction-decisions-delegated:
+- **Item 1:** writer-2's write phase runs under 12 model requests, 12 tool actions and 20 minutes.
+- **Item 2:** nothing else changes from Heavy. The model profile, the 16,384-token cap a call, the 900 s clock, the session's pool of 200 requests and its 90-minute limit all stay.
+- **Item 16:** lane S-harn builds them in one pull request; this entry fixes the option's name.
+
+This entry comes before the code because it changes what a frozen run records (AGENTS.md).
+
+What exists at c02366a:
+- **One budget for both clocks.** scripts/private-agent-local-screen.ts takes a run's budget from `LOCAL_SCREEN_BUDGETS`, which holds `standard` and `heavy`. It gives `budget.maxElapsedMs` both to the write phase's contract and to the session, so one figure serves both clocks.
+- **No other bound.** `--research-from` is refused unless the profile is `heavy`, and no flag sets another bound.
+- **How the limits reach the model.** The runner states the contract's model-call and tool allowances in the system prompt (`systemPrompt` in runner.ts). Each request carries the remaining calls and time (`budgetMessage`). The remaining time is the contract's `maxElapsedMs` less the session's elapsed time, capped by the session's deadline (`remainingActiveMs`).
+- **No dry run.** The driver's flag list holds no `--dry-run`.
+- **A row cannot tell the arms apart.** It records `profile`, `thinking` and `maxOutputTokens`, which are the same in both arms. freeze.json's `limits` holds the write phase's `modelCalls`, `toolCalls` and `elapsedMs` beside the session's `requests`, but no row reads them.
+
+Decisions:
+- **(1) The option is `--write-bound <name>`, with one name: `twelve-call`.**
+  - **The figures.** 12 model calls, 12 tool calls and 1,200,000 ms for the write phase. They are the review's "12-call writer bound" in the form E2's card takes from the research-coverage v4 trial (BL-20261105-0417-research-coverage-v4-design-reviewed).
+  - **Where they live.** A frozen table in the driver, `LOCAL_SCREEN_WRITE_BOUNDS`. A name outside it is refused, so no number is ever typed on a command line.
+  - **Admitted only on a seeded writer:** with `--research-from`, which already requires `--profile heavy` and `--claims-ledger true`, and never with `--repair-from`.
+  - **The loop refuses it,** and so do the driver's own argument checks for any other run. Its stages take no bound.
+- **(2) What the bound changes, and what it keeps.**
+  - **Changed:** the write phase's contract only. `maxModelCalls` is 12, `maxToolCalls` 12 and `maxElapsedMs` 1,200,000. So the system prompt's two allowances and each request's budget line differ between the arms, as the card says.
+  - **Kept, under item 2:** the session's request pool (`budget.maxRequests`, 200) and its elapsed limit (`budget.maxElapsedMs`, 5,400,000 ms). The claims judge's pass after a submitted run draws on that same pool and clock, as it does today.
+  - **Unchanged files and functions.** No file under src/main/private-agent/ changes. So these are untouched:
+    - `researchProtocolSha256()`;
+    - `COORDINATOR_PROFILES.heavy` and `GENERAL_TASK_BUDGETS`;
+    - `buildLocalScreenModelConfig`, and how the model layer builds the owned request body.
+  - **Writer-1's write phase.** A seeded Heavy run without the option builds its phase exactly as today.
+- **(3) freeze.json records the bound in `limits`.**
+  - **With the bound.** `modelCalls`, `toolCalls` and `elapsedMs` are the write phase's, as these three always were: 12, 12 and 1,200,000. `limits` gains:
+    - `writeBound: "twelve-call"`;
+    - `sessionElapsedMs: 5400000`, the session's limit, which `elapsedMs` no longer equals.
+  - **`requests`** stays the session's pool, 200.
+  - **Without the bound,** on writer-1 and every other run, `limits` is unchanged, and so is the rest of the freeze.
+- **(4) `--dry-run true` checks and prints, and creates and sends nothing.**
+  - **What it checks.** Everything a run checks before it creates its directory:
+    - the arguments;
+    - the source freeze against `--runtime-sha256`;
+    - the task's job and brief hashes;
+    - the seed, against its own ledger, the current protocol and the role policy;
+    - a repair directory;
+    - the configuration: provider mode, cost policy and the serving card;
+    - the diagnostics directory rule.
+
+    It also checks that the output directory does not exist yet and that its parent does: a run's `mkdir` needs both.
+  - **What it prints.** One canonical JSON line: `state: "dry_run"`, then every field freeze.json would record that is fixed before the run starts. Four are left out: `jobId`, `startedAt`, `artifactAccepted`, and the per-file `sourceFreeze` list, whose `sourceFreezeSha256` is printed. The line includes:
+    - `limits`;
+    - `researchFrom`, the seed with its snapshot sha256;
+    - `initialEvidenceIdentity`, the presentation's identity;
+    - the `pipeline` block with its protocol hash;
+    - `privatePhaseSha256`, `modelConfig`, `git` and `servingCard`;
+    - `endpointIdentitySha256`, a hash, never the endpoint.
+  - **One construction.** The run and the dry run build these fields with one function: the freeze literal moves into it with every value's expression unchanged. So the line is what the run's freeze.json will hold. `canonical()` sorts keys, so a run's freeze bytes do not change.
+  - **What it never does.** It never:
+    - creates a directory, a file or a database;
+    - starts a receiver;
+    - reads a cloud key;
+    - contacts Docker or the endpoint.
+
+    It exits 0. A run's command line is its dry run's with the flag removed (E2's card, "The dry run").
+  - **Scope:** the local arm without public retrieval. A cloud arm's key and a public receiver are built only after the directory exists. E2's, E3's and E6's local runs are closed-corpus. The loop refuses `--dry-run`.
+- **(5) The registry row reads the bound from the freeze's `limits`.**
+  - **The field.** scripts/registry-row.py gains one field, `writeLimits`: `{bound, modelCalls, toolCalls, elapsedMs}`.
+    - `bound` is `limits.writeBound`, or null for the profile's own limits.
+    - The three numbers are the write phase's, as `limits` records them.
+  - **When it is null.** The field is null when the freeze records no `limits`, and a number the freeze lacks reads null. A present value of another shape refuses the row, naming the field, never its value.
+  - **Where it is set.** Both row builders set it (`run_counts` and `freeze_fields`), so a loop row takes it from the run it takes its other run fields from. A stopped loop with no stage freeze records null.
+  - **Not recorded:** the session's two limits. E2's arms keep them equal, and the freeze holds them.
+  - **The README** gains one table row.
+- **(6) Tests.**
+  - **Writer-1's write phase is pinned byte for byte.**
+    - The test uses a fixed synthetic task and a seed source (tests/helpers/research-seed-source.ts).
+    - The dry run's `privatePhaseSha256` for a seeded Heavy writer without the option must be `047f181ce77830e47681b94ed33c7ec454f13e0740d5201c98ce967b69a1e05f`. The base commit computes that value for the same phase. It was read on 2026-11-17 by stopping the unmodified driver (main 60aebc9, whose driver equals c02366a's) right after it builds `privatePhase`, in two runs on fresh fixtures.
+    - Its protocol hash must equal the pin, `7100b7a2…` (tests/helpers/research-protocol-pin.ts).
+  - **Writer-2's phase is today's construction** with the contract's three numbers set to the bound, and nothing else differs.
+  - **The model configuration** both dry runs print is Heavy's, and `COORDINATOR_PROFILES.heavy` keeps its literal values.
+  - **The dry run** leaves no output directory and changes no file in the task, the seed or the working directory. A loopback counter on the configured endpoint receives zero requests.
+  - **Refusals:** each argument the option or the dry run refuses.
+  - **The row:**
+    - `writeLimits` for both arms, for older freezes and for malformed values;
+    - a loop row and a stopped loop;
+    - the offline proof the card asks for. `--run-dir` rows a seeded single run whose freeze.json is the dry run's line, plus a job id, a start and the frozen files' list, beside the ledger and result of a submitted write phase.
+- **(7) The source-freeze digest moves.** The driver and scripts/phase4-loop.ts are frozen files. The Implemented entry states the new digest at its commit, and `--runtime-sha256` is recomputed after the merge. Another pull request that lands first and changes a frozen file moves it again.
+
+Changes: None yet. This entry precedes the code. Planned:
+- scripts/private-agent-local-screen.ts, scripts/phase4-loop.ts and scripts/registry-row.py;
+- docs/experiments/README.md;
+- tests under tests/unit/.
+
+Evidence: Read at c02366a:
+- the driver's `runLocalArtifactScreen` and `parseLocalArtifactScreenArguments`;
+- `LOCAL_SCREEN_BUDGETS`, and the profiles in src/main/private-agent/profiles.ts;
+- the runner's `systemPrompt`, `budgetMessage` and `remainingActiveMs`;
+- the session's limits check and deadline (session.ts);
+- the loop's `parseLoopArguments` and `DRIVER_INPUT_SPEND`;
+- the row writer's `run_counts`, `freeze_fields` and stopped-loop fields.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- The bound is not shown to be safe, sufficient or better than Heavy's. That is E2's question.
+- The dry run checks no Docker image and no endpoint. The doctor (`pnpm setup:general`) checks the endpoint.
+- No loop stage takes the bound. If E2 ends with writer-2 earning the change, E3's loops need a later pull request: sample a's write phase follows its own research stage and is not seeded.
+- Rows written before this change lack `writeLimits`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, one light review with privacy checked, the `Implemented` entry with the new source-freeze digest, then the pull request and the coordinator's merge.
+
+References: BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0944-e2-card-approved; BL-20261105-0417-research-coverage-v4-design-reviewed; BL-20261116-1358-run-row-card-and-doctor-sources-design; docs/experiments/e2-card-2026-11-17.md (items 1, 2 and 16).

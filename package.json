@@ -28,6 +28,7 @@
     "fixture:planner": "node --import tsx scripts/planner-fixture.ts",
     "fixture:judge": "node --import tsx scripts/judge-fixture.ts",
     "fixture:extractor": "node --import tsx scripts/extractor-fixture.ts",
+    "assist:capture": "node --import tsx scripts/assist-capture.ts",
     "label:judge": "node --import tsx scripts/judge-labeller.ts",
     "card:serving": "python3 scripts/serving-card.py",
     "launcher": "node --import tsx scripts/experiment-launcher.ts",

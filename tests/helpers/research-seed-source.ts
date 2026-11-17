@@ -14,23 +14,35 @@ import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { researchV4Reply } from "./research-v4-fixture";
 
 /**
- * A finished research run directory the seed loader accepts (research-seed.ts, the session producer kind), for tests that seed a run
- * from it (the driver's --research-from): freeze.json, the ledger and the checkpoints of a stage that read `sources` for `brief` under
- * `roles` (absent: the default policy), with fixture receipts. The same shapes as the seed test's own source runs.
+ * The fixture's local model: each request answered by `reply` (by default researchV4Reply) in the chat-completions shape and settled
+ * at zero fee, its receipt kept in `receipts`. 10.c: a run given a deadline asks the model whether the deadline refuses it, so the
+ * broker answers that too (a 600 s timeout, not zero-risk), as the seed source's own run, which has no deadline, never asks.
  */
-export async function writeResearchSeedSource(directory: string, input: { taskBinding: { jobSha256: string; briefSha256: string }; brief: string;
-  sources: { id: string; path: string; bytes: Buffer }[]; roles?: ResearchRolePolicy; jobId?: string; admission?: ResearchAdmissionRates }): Promise<void> {
-  const jobId = input.jobId ?? "seed-source", contextId = "reader", h = (n: string) => n.repeat(64), receipts: Record<string, unknown>[] = [];
+export function researchSeedSourceModel(options: { jobId?: string; reply?: (system: string, user: string) => string; receipts?: Record<string, unknown>[] } = {}): PrivateAgentModel {
+  const jobId = options.jobId ?? "seed-source", contextId = "reader", h = (n: string) => n.repeat(64), receipts = options.receipts ?? [], reply = options.reply ?? researchV4Reply;
   const request = async (call: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
-    const body = JSON.parse(call.body) as { messages: { content: string }[] }, content = researchV4Reply(body.messages[0]!.content, body.messages[1]!.content);
+    const body = JSON.parse(call.body) as { messages: { content: string }[] }, content = reply(body.messages[0]!.content, body.messages[1]!.content);
     const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
     receipts.push({ id: `receipt-${receipts.length}`, jobId, contextId, contextSha256: h("3"), packetSha256: digest(call.body), destinationId: "fixture", destinationSha256: h("4"),
       purpose: call.purpose, policyRevision: 0, committedAt: receipts.length + 1, reservedFeeMicrousd: 0, status: "settled", feeMicrousd: settle(bytes), responseSha256: digest(bytes),
       scan: { status: "not_required_for_synthetic_local_test" } });
     return { bytes, receipt: receipts.at(-1) };
   };
-  const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium",
-    inputUsdPerMillion: 0, outputUsdPerMillion: 0 }, jobId, contextId);
+  return new PrivateAgentModel({ request, requestTimeoutMs: () => 600_000, zeroRiskDispatch: () => false } as unknown as PrivateAgentBroker, { destinationId: "fixture", model: "cpu-fixture",
+    maxOutputTokens: 16384, thinking: "medium", inputUsdPerMillion: 0, outputUsdPerMillion: 0 }, jobId, contextId);
+}
+
+/**
+ * A finished research run directory the seed loader accepts (research-seed.ts, the session producer kind), for tests that seed a run
+ * from it (the driver's --research-from): freeze.json, the ledger and the checkpoints of a stage that read `sources` for `brief` under
+ * `roles` (absent: the default policy), with fixture receipts. The same shapes as the seed test's own source runs.
+ */
+export async function writeResearchSeedSource(directory: string, input: { taskBinding: { jobSha256: string; briefSha256: string }; brief: string;
+  sources: { id: string; path: string; bytes: Buffer }[]; roles?: ResearchRolePolicy; jobId?: string; admission?: ResearchAdmissionRates;
+  /** 10.c: the local model's answers (by default researchV4Reply), and the freeze's arm block as the driver writes it (absent: none). */
+  reply?: (system: string, user: string) => string; arm?: "local" }): Promise<void> {
+  const jobId = input.jobId ?? "seed-source", contextId = "reader", h = (n: string) => n.repeat(64), receipts: Record<string, unknown>[] = [];
+  const model = researchSeedSourceModel({ jobId, receipts, ...(input.reply ? { reply: input.reply } : {}) });
   const outcome = await runResearchPipeline({ brief: input.brief, sources: input.sources, models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal,
     record() {}, ...(input.roles ? { roles: input.roles } : {}), ...(input.admission ? { admission: input.admission } : {}) });
   if (outcome.status !== "completed") throw new Error(`research_seed_source_${outcome.reason}`);
@@ -39,7 +51,7 @@ export async function writeResearchSeedSource(directory: string, input: { taskBi
   writeFileSync(join(directory, "freeze.json"), `${canonical({ version: 1, jobId, taskBinding: input.taskBinding, deployment: "synthetic_only_unverified_for_private_data",
     pipeline: { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, input.roles, input.admission !== undefined), budget: { ...RESEARCH_PIPELINE_BUDGET },
       planner: "local", writer: "local", ...(rolesSet ? { roles: input.roles } : {}), ...(input.admission ? { admission: { basis: "serving_card", rates: input.admission } } : {}) },
-    researchInput, researchProducerKind: "session", startedAt: new Date(1).toISOString() })}\n`);
+    researchInput, researchProducerKind: "session", startedAt: new Date(1).toISOString(), ...(input.arm ? { arm: { arm: input.arm } } : {}) })}\n`);
   const producer = createResearchProducer({ kind: "session", jobId, contextId, brief: input.brief, sources: input.sources, files: outcome.files, receipts });
   const db = new Database(join(directory, "state.sqlite")), store = new PrivateAgentStore(db);
   try {

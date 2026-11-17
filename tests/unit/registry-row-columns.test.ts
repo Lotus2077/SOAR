@@ -8,6 +8,7 @@ import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
 import { canonical } from "../../src/main/private-agent/contracts";
 import { PROMPT_LAYOUT_VERSIONS, promptProtocol, type PromptProtocolOptions } from "../../src/main/private-agent/runner";
 import { MAX_LOCAL_STREAMS, ServingCardV1Schema } from "../../src/main/private-agent/serving-card";
+import { LOCAL_SCREEN_WRITE_BOUNDS } from "../../scripts/private-agent-local-screen";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 /**
@@ -89,6 +90,42 @@ describe("registry columns (plan 11.4)", () => {
       expect(stderr, message).toContain(message); expect(stderr).not.toContain("/Users/someone");
     });
   }, 60_000);
+
+  it("records the write phase's bound from the freeze's limits, so E2's two writer arms differ in the row, and refuses a limits record of another shape (BL-20261117-1005-e2-write-bound-and-dry-run-design)", () => {
+    const root = scratch(), heavy = { requests: 200, modelCalls: 80, toolCalls: 120, outputTokens: 16384, inputBytes: 655360, requestTimeoutMs: 900_000, elapsedMs: 5_400_000, feeMicrousd: 0 };
+    const bounded = { ...heavy, modelCalls: 12, toolCalls: 12, elapsedMs: 1_200_000, writeBound: "twelve-call", sessionElapsedMs: 5_400_000 };
+    const writer1 = row(["--run-dir", runDirectory(root, "writer-1", { freeze: { limits: heavy } })], "accepted");
+    const writer2 = row(["--run-dir", runDirectory(root, "writer-2", { freeze: { limits: bounded } })], "accepted");
+    expect(writer1.writeLimits).toEqual({ bound: null, modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000 });
+    expect(writer2.writeLimits).toEqual({ bound: "twelve-call", modelCalls: 12, toolCalls: 12, elapsedMs: 1_200_000 });
+    // The profile's three columns are the same in both arms: only writeLimits tells them apart.
+    expect([writer2.profile, writer2.thinking, writer2.maxOutputTokens]).toEqual([writer1.profile, writer1.thinking, writer1.maxOutputTokens]);
+    // Older freezes: none of the three (this file's default limits hold only the fee cap), no limits at all, and a number missing.
+    expect(row(["--run-dir", runDirectory(root, "fee-only")], "accepted").writeLimits).toBeNull();
+    expect(row(["--run-dir", runDirectory(root, "no-limits", { freeze: { limits: null } })], "accepted").writeLimits).toBeNull();
+    expect(row(["--run-dir", runDirectory(root, "partial", { freeze: { limits: { feeMicrousd: 0, modelCalls: 40, toolCalls: 80 } } })], "accepted").writeLimits)
+      .toEqual({ bound: null, modelCalls: 40, toolCalls: 80, elapsedMs: null });
+    // A present value of another shape, or a bound without its three numbers, refuses the row; the refusal names the field and never prints the value.
+    const { elapsedMs: _e, ...withoutElapsed } = bounded;
+    const cases: [Record<string, unknown>, string][] = [
+      [{ limits: "/Users/someone/limits" }, "limits is not an object"], [{ limits: ["/Users/someone/limits"] }, "limits is not an object"],
+      ...[0, -12, 1.5, true, "12", "/Users/someone/12"].flatMap(value => (["modelCalls", "toolCalls", "elapsedMs"] as const).map(key =>
+        [{ limits: { ...bounded, [key]: value } }, `limits.${key} is not a positive whole number`] as [Record<string, unknown>, string])),
+      ...["Twelve-Call", "twelve-call\n", "twelve--call", "-twelve", "", "/Users/someone/bound", 12, true, ["twelve-call"]].map(value =>
+        [{ limits: { ...bounded, writeBound: value } }, "limits.writeBound is not a bound's name"] as [Record<string, unknown>, string]),
+      [{ limits: withoutElapsed }, "limits.writeBound is recorded without the write phase's three limits"],
+    ];
+    cases.forEach(([freeze, message], index) => {
+      const stderr = refused(["--run-dir", runDirectory(root, `bad-${index}`, { freeze })], "accepted");
+      expect(stderr, message).toContain(message); expect(stderr).not.toContain("/Users/someone");
+    });
+    // The writer's bound-name pattern admits every name in the driver's table.
+    const python = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('row', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+      "print(json.dumps([m.WRITE_BOUND.fullmatch(name) is not None for name in json.loads(sys.argv[2])]))"].join("\n");
+    const names = Object.keys(LOCAL_SCREEN_WRITE_BOUNDS);
+    expect(names.length).toBeGreaterThan(0);
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", python, SCRIPT, JSON.stringify(names)], { encoding: "utf8" }))).toEqual(names.map(() => true));
+  }, 120_000);
 
   it("keys actions.tools by the runner's closed set of tool names, which the registry script mirrors exactly", () => {
     // Every tool the runner can offer: its base tools, with public fetches, a consultation and the claims check all enabled.

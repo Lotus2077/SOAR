@@ -154,6 +154,8 @@ const DRIVER_INPUT_SPEND: { readonly [K in keyof Required<DriverInput>]: "free" 
   taskDirectory: "free", expectedJobSha256: "free", expectedBriefSha256: "free", syntheticAuthoritySha256: "free", expectedRuntimeSha256: "free", imageId: "free",
   outputDirectory: "free", publicRetrieval: "free", publicSnapshot: "free", pauseAfterTools: "free", profile: "free", claimsLedger: "free", cacheSalt: "free",
   pipeline: "free", documentReview: "free", cloudArm: "spends", repairFrom: "free", researchFrom: "free", retainDiagnostics: "free",
+  // E2 (BL-20261117-1005-e2-write-bound-and-dry-run-design): both are refused on the loop's command line, and neither spends.
+  writeBound: "free", dryRun: "free",
 };
 /** Whether a rerun with this driver input cannot spend: every key set is marked spend-free, and none is unknown. */
 export function rerunCannotSpend(input: Partial<DriverInput>): boolean {
@@ -768,7 +770,8 @@ export async function closeLoop(loopDirectory: string, deps: Pick<LoopDependenci
 /** The loop takes the driver's own flags; the per-stage output, repair and seed are the loop's to set. */
 export function parseLoopArguments(args: string[]): LoopInput {
   if (args[0] !== "--select-and-repair" || args.length % 2 !== 1 || args.indexOf("--loop-directory") < 1 || args.indexOf("--loop-directory") % 2 !== 1) throw new Error("loop_cli_invalid");
-  for (const name of ["--output-directory", "--repair-from", "--research-from", "--pause-after-tools"]) if (args.includes(name)) throw new Error("loop_cli_invalid");
+  // E2: no stage takes a named write bound, and the loop has no dry run of its own.
+  for (const name of ["--output-directory", "--repair-from", "--research-from", "--pause-after-tools", "--write-bound", "--dry-run"]) if (args.includes(name)) throw new Error("loop_cli_invalid");
   const at = args.indexOf("--loop-directory"), loopDirectory = args[at + 1]!;
   if (!loopDirectory) throw new Error("loop_cli_invalid");
   const rest = [...args.slice(1, at), ...args.slice(at + 2)];

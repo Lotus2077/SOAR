@@ -12,12 +12,12 @@ afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "registry-row.py");
 const h = (n: string) => n.repeat(64);
 /** A run directory the way the driver leaves one, with the counts the row script reads. */
-function run(root: string, name: string, input: { calls: number; tokens: number; fee: number; status: string; startedAt: string; finishedAt: string; pipeline?: Record<string, unknown>; servingCard?: Record<string, unknown>; entailment?: Record<string, number>; arm?: Record<string, unknown>; research?: { calls: number; truncatedReplies?: number }[] }) {
+function run(root: string, name: string, input: { calls: number; tokens: number; fee: number; status: string; startedAt: string; finishedAt: string; pipeline?: Record<string, unknown>; servingCard?: Record<string, unknown>; limits?: Record<string, unknown>; entailment?: Record<string, number>; arm?: Record<string, unknown>; research?: { calls: number; truncatedReplies?: number }[] }) {
   const dir = join(root, name); mkdirSync(dir, { recursive: true });
   const jobId = `job-${name}`;
   writeFileSync(join(dir, "freeze.json"), `${canonical({ version: 1, jobId, startedAt: input.startedAt, taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, profile: "heavy",
     modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, ...(input.pipeline ? { pipeline: input.pipeline } : {}), ...(input.servingCard ? { servingCard: input.servingCard } : {}),
-    ...(input.arm ? { arm: input.arm } : {}) })}\n`);
+    ...(input.arm ? { arm: input.arm } : {}), ...(input.limits ? { limits: input.limits } : {}) })}\n`);
   writeFileSync(join(dir, "result.json"), `${canonical({ status: input.status, reason: input.status === "submitted" ? "independent_acceptance_pending" : "bounded_allowance_exhausted", finishedAt: input.finishedAt,
     candidateFiles: [{ path: "output/report.md", sha256: h("9") }], dispatches: [{ status: "settled", feeMicrousd: input.fee }, { status: "superseded", feeMicrousd: 0 },
       // Backlog item 10: an unknown or failed assist row is counted in its own column, never as the run's unresolved or failed dispatch.
@@ -44,7 +44,8 @@ describe("registry row of an H4 loop", () => {
     run(root, "a", { calls: 3, tokens: 100, fee: 120_000, status: "submitted", startedAt: "2026-10-26T10:00:00.000Z", finishedAt: "2026-10-26T10:10:00.000Z", pipeline, entailment: { supported: 20, partial: 1, unsupported: 0, contradicted: 0, not_judged: 0 }, research: [{ calls: 2, truncatedReplies: 2 }, { calls: 1 }] });
     run(root, "b", { calls: 2, tokens: 200, fee: 0, status: "incomplete", startedAt: "2026-10-26T10:10:00.000Z", finishedAt: "2026-10-26T10:17:00.000Z", pipeline: { ...pipeline, seededFrom: "job-a" } });
     run(root, "repair", { calls: 4, tokens: 50, fee: 0, status: "submitted", startedAt: "2026-10-26T10:20:00.000Z", finishedAt: "2026-10-26T10:26:00.000Z", pipeline: { ...pipeline, seededFrom: "job-a", protocolSha256: h("8") },
-      servingCard: { sha256: h("c"), version: 1, date: "2026-10-26", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 2 }, entailment: { supported: 25, partial: 2, unsupported: 1, contradicted: 0, not_judged: 2 } });
+      servingCard: { sha256: h("c"), version: 1, date: "2026-10-26", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 2 }, entailment: { supported: 25, partial: 2, unsupported: 1, contradicted: 0, not_judged: 2 },
+      limits: { requests: 200, modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000, feeMicrousd: 0 } });
     const candidate = (status: string, reason: string) => ({ status, reason });
     mkdirSync(join(root, "critique"));
     writeFileSync(join(root, "critique", "critique.json"), `${canonical({ critic: "local", critiqueSha256: h("e"), finishReason: "length", usage: { inputTokens: 700, outputTokens: 60, cacheReadTokens: 10 }, feeMicrousd: 0 })}\n`);
@@ -55,6 +56,8 @@ describe("registry row of an H4 loop", () => {
     const loop = row(["--loop-dir", root]);
     // BL-20261116-1358-run-row-card-and-doctor-sources-design: the protocol hash, the card and K come from the selected run (repair), as its other run fields do.
     expect([loop.researchProtocolSha256, loop.servingCard, loop.localStreams]).toEqual([h("8"), { sha256: h("c"), entry: "BL-20261116-1203-research-role-policy-design" }, 2]);
+    // BL-20261117-1005-e2-write-bound-and-dry-run-design: so does the write phase's bound; samples a and b recorded no limits.
+    expect(loop.writeLimits).toEqual({ bound: null, modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000 });
     // The three runs' counts plus the critique's one call; every sample's own ending stays in the row.
     expect(loop).toMatchObject({ modelCalls: 13, toolCalls: 3, inputTokens: 3 * 100 + 2 * 200 + 4 * 50 + 700 + 100, outputTokens: 160, cachedTokens: 95, cacheWriteTokens: 20, lengthStops: 6, usd: 0.12, retriedDispatches: 3, failedDispatches: 0, unknownDispatches: 0, assistSkippedDispatches: 3, assistFailedDispatches: 3,
       wallSeconds: 1650, runStatus: "submitted", terminalCause: "independent_acceptance_pending", date: "2026-10-26", taskJobSha256: h("1"), pipeline: "research", pipelinePlanner: "cloud", profile: "heavy",

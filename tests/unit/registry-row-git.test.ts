@@ -224,8 +224,11 @@ describe("the driver's git state (backlog item 11, part 2)", { timeout: 30_000 }
     const check = driver.indexOf('if (sourceFreeze.sha256 !== input.expectedRuntimeSha256) throw new Error("local_screen_reviewed_source_changed");');
     const read = driver.indexOf("const git = localScreenGitState(sourceFreeze.files);");
     expect(check).toBeGreaterThan(0); expect(read).toBeGreaterThan(check); expect(read).toBeLessThan(driver.indexOf("mkdirSync(directory, { mode: 0o700 });"));
-    const literal = driver.slice(driver.indexOf("const freeze = { version: 1, jobId,"), driver.indexOf('save("freeze.json", freeze);'));
-    expect(literal).toMatch(/\n\s+git,\n/u);
+    // E2 (BL-20261117-1005-e2-write-bound-and-dry-run-design, decision (4)): the freeze's fixed fields are one function's, which the
+    // run's freeze spreads and the dry run prints; `git` is among them.
+    const [fields, dryRun, freeze, save] = ["const fixedFreeze = (", "if (input.dryRun) {", "const freeze = { ...fixedFreeze(", 'save("freeze.json", freeze);'].map(text => driver.indexOf(text));
+    expect(read).toBeLessThan(fields!); expect(fields).toBeLessThan(dryRun!); expect(dryRun).toBeLessThan(freeze!); expect(freeze).toBeLessThan(save!);
+    expect(driver.slice(fields, dryRun)).toMatch(/\n\s+git,\n/u);
   });
 });
 

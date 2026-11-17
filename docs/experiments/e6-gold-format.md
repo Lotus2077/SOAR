@@ -175,11 +175,18 @@ It takes the run's directory, as the driver writes it, and reads its `candidate/
     runs are still scored.
   - The first run whose source is the gold's binds the gold to it. If the gold does not
     fit that source, the whole invocation is refused, as `--check-gold` would refuse it.
-- `candidate/output/review-flags.json`: only `counts.inversionEdits`, rule C1's count.
-  - It is reported as `null` when the file is missing or unreadable, or when it records
-    an `error`. The error can be the whole record's, at the top level, or rule C1's alone,
-    under `edits`. Either way the count is the applier's fallback zero, not a
+- `candidate/output/review-flags.json`: `counts.inversionEdits`, rule C1's count, and
+  `edits.flags`, the ids of the edits that rule coded.
+  - The count is reported as `null` when the file is missing or unreadable, or when it
+    records an `error`. The error can be the whole record's, at the top level, or rule
+    C1's alone, under `edits`. Either way the count is the applier's fallback zero, not a
     measurement.
+  - **Why the coded edits.** A correct fix of a planted clause contradiction flips a
+    negation or a polarity, so rule C1 codes it too, and the total is not all harm. A
+    scored run therefore also reports `inversionEditsOnPlants`: the coded edits whose
+    anchors overlap a planted defect's span. A control's span is not a planted defect's.
+  - `inversionEditsOnPlants` is `null` when the file cannot say which edits were coded:
+    its list was cut at the applier's cap of 40, or it does not match the count.
 
 **Placing an edit.**
 - An edit's anchor is placed where it occurs in the source's paragraph texts. It must occur
@@ -214,7 +221,7 @@ python3 -I scripts/e6-score.py --gold GOLD.json LABEL=RUN_DIR [LABEL=RUN_DIR ...
   - the planted defects addressed, by class and in total;
   - the controls changed;
   - the edits and the unplaced edits;
-  - `inversionEdits`.
+  - `inversionEdits`, and for a scored run `inversionEditsOnPlants` beside it.
 
   It never holds a word from any file. The statuses:
   - `scored`;

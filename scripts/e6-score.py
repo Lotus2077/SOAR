@@ -488,26 +488,34 @@ def find_source(candidate):
 
 
 def read_flags(path):
-    """Rule C1's count from the run's own flags file, or None with the reason it is not a measurement."""
+    """Rule C1's count and the ids of the edits it coded, from the run's own flags file.
+
+    Returns (count, status, ids). The count is None, with the status saying why, when it is not a measurement. ids is None when the file
+    cannot say which edits were coded: its list was cut at the applier's cap (truncated), or it does not agree with the count."""
     if not os.path.isfile(path):
-        return None, "missing"
+        return None, "missing", None
     try:
         with open(path, "rb") as handle:
             raw = handle.read(MAX_FLAGS_BYTES + 1)
         data = json.loads(raw.decode("utf-8")) if len(raw) <= MAX_FLAGS_BYTES else None
     except (OSError, ValueError, UnicodeDecodeError, RecursionError):
-        return None, "invalid"
+        return None, "invalid", None
     if not isinstance(data, dict):
-        return None, "invalid"
+        return None, "invalid", None
     # The whole record failed (top-level error), or rule C1 alone did (the applier's flag_rule records it under "edits"): either way the
     # count is the applier's fallback zero, not a measurement.
     if "error" in data or (isinstance(data.get("edits"), dict) and "error" in data["edits"]):
-        return None, "error"
+        return None, "error", None
     counts = data.get("counts")
     value = counts.get("inversionEdits") if isinstance(counts, dict) else None
     if not is_int(value) or value < 0:
-        return None, "invalid"
-    return value, "recorded"
+        return None, "invalid", None
+    edits, ids = data.get("edits"), None
+    if isinstance(edits, dict) and edits.get("truncated") is False and isinstance(edits.get("flags"), list):
+        listed = [flag.get("id") if isinstance(flag, dict) else None for flag in edits["flags"]]
+        if all(isinstance(edit_id, str) for edit_id in listed) and len(set(listed)) == len(listed) == value:
+            ids = set(listed)
+    return value, "recorded", ids
 
 
 def score_run(label, directory, gold, bound):
@@ -517,7 +525,7 @@ def score_run(label, directory, gold, bound):
     if not os.path.isdir(candidate):
         record.update({"status": "candidate_missing", "flags": "missing", "inversionEdits": None})
         return record, bound
-    record["inversionEdits"], record["flags"] = read_flags(os.path.join(candidate, "output", "review-flags.json"))
+    record["inversionEdits"], record["flags"], coded = read_flags(os.path.join(candidate, "output", "review-flags.json"))
     # A run whose own source is missing, ambiguous or not the gold's gets a status without counts; the other runs are still scored.
     source, problem = find_source(candidate)
     if problem is None and file_sha256(source) != gold["source"]["sha256"]:
@@ -575,8 +583,13 @@ def score_run(label, directory, gold, bound):
         touched = any(edit["action"] in CHANGING_ACTIONS and overlaps(where, span) for edit, where in placed for span in spans[control["id"]])
         if touched and not holds(control["clean"], clean_test(clean)):
             changed += 1
+    # Rule C1 codes a correct fix of a planted contradiction too, since it flips a negation or a polarity: count the coded edits that
+    # sit on a planted defect's span, beside the total. None when the flags file cannot say which edits were coded.
+    plant_spans = [span for defect in gold["defects"] for span in spans[defect["id"]]]
+    on_plants = None if coded is None else sum(
+        1 for edit, where in placed if edit["id"] in coded and any(overlaps(where, span) for span in plant_spans))
     record.update({"status": "scored", "addressed": addressed, "controlsChanged": changed, "edits": len(edits),
-                   "editsUnplaced": len(edits) - len(placed)})
+                   "editsUnplaced": len(edits) - len(placed), "inversionEditsOnPlants": on_plants})
     return record, bound
 
 

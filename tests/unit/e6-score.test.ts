@@ -68,7 +68,7 @@ function run(root: string, name: string, input: RunInput = {}) {
     else docx(join(candidate, "output", "clean.docx"), agreement(input.clean ?? {}));
   }
   if (input.flags !== null) {
-    writeFileSync(join(candidate, "output", "review-flags.json"), typeof input.flags === "string" ? input.flags : JSON.stringify(input.flags ?? { version: 1, counts: { inversionEdits: 0 } }));
+    writeFileSync(join(candidate, "output", "review-flags.json"), typeof input.flags === "string" ? input.flags : JSON.stringify(input.flags ?? { version: 1, counts: { inversionEdits: 0 }, edits: { flags: [], truncated: false } }));
   }
   return dir;
 }
@@ -90,8 +90,12 @@ describe("E6's planted-defect scorer", () => {
 
   it("scores each run by the card's three rules and reports counts only", () => {
     const { root, goldPath } = setup();
-    const good = run(root, "r-good", { edits: GOOD, clean: GOOD_CLEAN, flags: { version: 1, counts: { inversionEdits: 0 } } });
-    const harm = run(root, "r-harm", { edits: HARM, clean: HARM_CLEAN, flags: { version: 1, counts: { inversionEdits: 2 } } });
+    // Rule C1 codes the fix of the planted contradiction (E4, on its span) in the good plan; in the harm plan it codes an edit on a
+    // control (E2) and an unplaced one (E6), neither on a planted span.
+    const good = run(root, "r-good", { edits: GOOD, clean: GOOD_CLEAN,
+      flags: { version: 1, counts: { inversionEdits: 1 }, edits: { flags: [{ codes: ["negation_removed"], id: "E4" }], truncated: false } } });
+    const harm = run(root, "r-harm", { edits: HARM, clean: HARM_CLEAN, flags: { version: 1, counts: { inversionEdits: 2 },
+      edits: { flags: [{ codes: ["negation_removed"], id: "E2" }, { codes: ["negation_added"], id: "E6" }], truncated: false } } });
     const out = scorer("--gold", goldPath, `a=${good}`, `b=${harm}`);
     expect(out.status, out.stdout).toBe(0);
     expect(out.json.gold).toEqual({ sha256: sha(readFileSync(goldPath)), planted: PLANTED, controls: 2 });
@@ -99,11 +103,11 @@ describe("E6's planted-defect scorer", () => {
     expect(out.json.candidates).toEqual([
       // A fix on each span that meets its clean condition, a comment on the comment-only defect, and an insertion in the region.
       { label: "a", status: "scored", addressed: { ...NONE, clause_contradiction: 1, missing_section: 1, numeric: 1, reference_definition: 1, table_arithmetic: 1, total: 5 },
-        controlsChanged: 0, edits: 5, editsUnplaced: 0, flags: "recorded", inversionEdits: 0 },
+        controlsChanged: 0, edits: 5, editsUnplaced: 0, flags: "recorded", inversionEdits: 1, inversionEditsOnPlants: 1 },
       // A comment on a defect that needs a fix is not enough; an edit beside a span is not on it; the rationale meets the missing
       // section's condition; a replace that keeps a control's condition changes nothing, one that breaks it changes the control.
       { label: "b", status: "scored", addressed: { ...NONE, missing_section: 1, total: 1 }, controlsChanged: 1, edits: 7, editsUnplaced: 2,
-        flags: "recorded", inversionEdits: 2 },
+        flags: "recorded", inversionEdits: 2, inversionEditsOnPlants: 0 },
     ]);
     // The same inputs give the same bytes, and no word of any file reaches the output.
     expect(scorer("--gold", goldPath, `a=${good}`, `b=${harm}`).stdout).toBe(out.stdout);
@@ -171,6 +175,25 @@ describe("E6's planted-defect scorer", () => {
     const { root, goldPath } = setup(g => { g.defects[4].edit = { contains: "jurisdict", word: false }; });
     const dir = run(root, "r-loose", { edits: [edit("E1", "comment", "9. Signatures.", "No jurisdiction clause.")] });
     expect(scorer("--gold", goldPath, `l=${dir}`).json.candidates[0].addressed).toEqual({ ...NONE, missing_section: 1, total: 1 });
+  });
+
+  it("counts C1's coded edits on planted spans only when the flags file lists every coded edit", () => {
+    const { root, goldPath } = setup();
+    const coded = (count: number, ids: string[], truncated = false) =>
+      ({ version: 1, counts: { inversionEdits: count }, edits: { flags: ids.map(id => ({ codes: ["negation_removed"], id })), truncated } });
+    const runs = {
+      // The applier lists at most 40 coded edits; a cut list cannot say which of the 41 sit on a planted span.
+      cut: run(root, "r-cut", { edits: GOOD, clean: GOOD_CLEAN, flags: coded(41, Array.from({ length: 40 }, (_, i) => `E${i + 1}`), true) }),
+      // A list that disagrees with the count, or none at all, says nothing either.
+      short: run(root, "r-short", { edits: GOOD, clean: GOOD_CLEAN, flags: coded(2, ["E4"]) }),
+      bare: run(root, "r-bare", { edits: GOOD, clean: GOOD_CLEAN, flags: { version: 1, counts: { inversionEdits: 1 } } }),
+      // Every edit of the good plan coded: four sit on planted spans (E1, E2, E3, E4); E5 is an insertion outside every span.
+      all: run(root, "r-all", { edits: GOOD, clean: GOOD_CLEAN, flags: coded(5, ["E1", "E2", "E3", "E4", "E5"]) }),
+    };
+    const out = scorer("--gold", goldPath, ...Object.entries(runs).map(([label, dir]) => `${label}=${dir}`));
+    expect(out.status, out.stdout).toBe(0);
+    expect(out.json.candidates.map((c: any) => [c.label, c.inversionEdits, c.inversionEditsOnPlants])).toEqual([
+      ["cut", 41, null], ["short", 2, null], ["bare", 1, null], ["all", 5, 4]]);
   });
 
   it("gives a run it cannot read a status without counts, and reads C1's count only as recorded", () => {

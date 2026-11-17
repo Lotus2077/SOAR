@@ -52981,3 +52981,38 @@ Next gate:
 4. The result entry, reviewed before its commit.
 
 References: docs/experiments/e0-card-2026-11-13.md (Amendments 1, 3, 4, 5 and 6); docs/experiments/serving-card-2026-11-17.json; docs/experiments/README.md; docs/experiments/LAUNCHER.md; docs/experiments/phase2-tasks-v1.json; docs/experiments/registry.jsonl; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1616-serving-card-2026-11-17-adopted; BL-20261117-1356-e0-reprobe-result-plan-cap-16384; BL-20261117-1155-e0-card-amendment-5; BL-20261117-1132-research-card-admission-implemented; BL-20261117-1142-correction-research-card-admission-review-restamp; BL-20261117-1145-research-second-repair-implemented; BL-20261117-1148-correction-research-second-repair-merge-before-reprobe; BL-20261117-1326-research-admission-record-incomplete-stage; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0838-correction-e0-amendment-1-review; BL-20261116-1357-e0-verified; BL-20261116-1358-run-row-card-and-doctor-sources-design; BL-20261115-1937-owner-adopts-standing-defaults; pull requests #137, #142 and #151.
+
+### BL-20261117-1709-correction-e0-card-amendment-6-lane-check -- 2026-11-17 -- Correction to BL-20261117-1701-e0-card-amendment-6-r3-remeasurement: lane S-pipe's check of Amendment 6 against the code, with two faults and four smaller fixes, before any run
+
+Status: `Implemented`
+
+Scope or hypothesis: Lane S-pipe, whose proposal the amendment follows, read Amendment 6 at 8769d80 against its proposal and the code on `main` at 53813fd. It found two factual faults and two points of precision, and offered two additions. This entry records them. The amendment's text in the card is corrected in place, since no run has started under it. The amendment's entry stays as written; where it and this entry differ, this entry governs.
+
+Decisions:
+1. **Which ends leave no admission record** (item 3.5). The amendment named three. Six more ends come before the admission test and leave none either: `research_cancelled` at the stage's start, `research_assists_invalid`, `research_budget_invalid`, `research_role_policy_invalid`, `research_input_invalid` and `research_source_unreadable`. None leaves an extract row, so each is a stopped run. The limitation of BL-20261117-1701-e0-card-amendment-6-r3-remeasurement that counts three such ends is superseded by this.
+2. **What an end before the first request is** (item 5). `research_admission_invalid` is invalid rates, not a refusal. `research_mandatory_budget_exceeded` also ends a stage whose mandatory work does not fit the budget. The two refusals leave their record in the `research_admission` event, and the other ends leave none.
+3. **The doctor's fields** are `model.modelsOk`, `model.modelListed` and `model.completionOk` (item 2).
+4. **Kept replies are counted apart** (item 3.6). The retained manifest also holds replies that were accepted with part of their content dropped or corrected. They carry a `disposition`, and they are not failures.
+5. **The dry run's list gains `sourceFreezeSha256`,** which must equal the `--runtime-sha256` given (item 1).
+6. **The chunk count is each run's own.** 24 is E0's count; each run's admission record gives its `work.chunks` (item 3.2).
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: Amendment 6, six passages, as the decisions say.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The lane's check** confirmed against the code: the command and the parser's rules; the job and brief digests; the dry run's checks and printed fields; the doctor's card fields; every reading's field name; the derived counts, with held second repairs inside the two second-repair counts; the per-run reading; that the reading rule's outcomes are complete and exclusive; the clock end's code; and the rows.
+- **The replacement texts** are the lane's, applied as written. All six applied once each.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **The fixes were not reviewed again.** The lane read the code for each.
+- **Nothing has run.**
+
+Paid exposure: None.
+
+Next gate: The owner's two settings lines, the doctor, the dry run, then the first run.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendment 6); BL-20261117-1701-e0-card-amendment-6-r3-remeasurement; BL-20261117-1326-research-admission-record-incomplete-stage; pull request #155.

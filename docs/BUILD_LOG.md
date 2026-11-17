@@ -48402,3 +48402,45 @@ Next gate: The card's "What the card needs that does not exist yet", in its orde
 Also before the first run: this card's pull request merges after a light review and green CI, and the serving-card state for the batch is recorded.
 
 References: docs/experiments/e6-card-2026-11-17.md; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E6; docs/HANDOFF.md "Start here" section 5, step 5; PLAN.md section 4; issues #54 and #53; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0354-document-review-flags-design; BL-20261117-0530-owner-merge-go-handoff-restatements.
+
+### BL-20261117-0953-correction-owner-direction-second-pass -- 2026-11-17 -- Correction to BL-20261117-0940-owner-direction-decisions-delegated and BL-20261117-0943-e5-card-approved: the second review pass of pull request #134, the budget reading set against topic 1's rider, and how the three cards were re-created before the commit
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the reviewer's second pass on pull request #134 at c3ad331 and its fixes. The two entries stay as written. Where this entry differs from either, this entry governs. The three cards are corrected in place, since a card is a current document and not a log entry.
+
+Decisions:
+1. **Moving money between the envelope's lines** (decision 5 of BL-20261117-0940-owner-direction-decisions-delegated). Such a move changes PLAN.md §4's approved allocation, and the adopted default is no reallocation (decision 1 of BL-20261115-1937-owner-adopts-standing-defaults). Topic 1's rider, in decision 2 of the same entry, keeps a change to an approved rule for the owner. The session reads "including the budget" as covering such a move, against that rider. It tells the owner of each move before the run that needs it, and the owner may replace the reading.
+2. **E5's first gate** (Next gate of BL-20261117-0943-e5-card-approved). The build is cut as BL-20261008-1210-owner-v0-1-released cut it, except that the tag stays local until the owner's go for the push.
+3. **E5's entry, Evidence.** Beside the additions it lists, the card gained sentences on review decision 9 (O12), on PLAN's branches (O5) and on issue #53's decision entry.
+4. **Three card sentences gave the merge go without its limits.** E5's and E2's header notes and E6's item 15 now say what decision 2 of BL-20261117-0940-owner-direction-decisions-delegated says: the merge go covers a `Proposed` card's pull request after review and green CI, and its reach to an `Approved` card is the session's reading.
+5. **How the cards reached the commit.** After the first review and before anything was staged, a script of the session's emptied the three card files: it opened each file for writing before reading it. Nothing was committed or pushed in that state.
+   - The three agents that had made the cards re-created each from its draft with the same edits.
+   - The session re-applied its own patches by a script that reads a file fully before writing it and checks every replacement.
+   - The reviewer's second pass rebuilt the first-pass cards from its saved diffs. It found the committed cards differ from them only by its own findings as applied and two re-wraps.
+
+Changes:
+- docs/experiments/e5-card-2026-11-17.md, e2-card-2026-11-17.md and e6-card-2026-11-17.md: one passage each, as decision 4 says.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The first pass** read the six entries, the handoff note and the three cards before the commit. It found no blocker and four major findings, all applied before the commit, so the entries as committed hold them:
+  - the tag push for E5's build and the serving card's adoption commit are asked of the owner by name;
+  - a new search destination needs the owner's explicit approval;
+  - the role-level-gap reasoning states what E0 shows and what it does not;
+  - the merge go's reach to `Approved` cards is the session's reading.
+- **The second pass,** at c3ad331, found no blocker and no major finding, two minor findings and two nits. All four are decisions 1 to 4 above. It confirmed that the first pass's findings are applied and that every cited ID resolves.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: The script error of decision 5. No content was lost: the drafts were intact, and the cards were re-created and re-checked.
+
+Limitations and non-claims:
+- **One reviewer.** No skeptic checked it, since no blocker or major finding stood at the second pass.
+- **The fixes of this entry were not reviewed again.** They are the reviewer's replacement texts, applied by the session.
+- **Decision 1 is a reading.** The owner's sentence names the budget and says nothing of the allocation.
+
+Paid exposure: None.
+
+Next gate: Pull request #134's merge, on green CI, under the session's reading in decision 5 of BL-20261117-0940-owner-direction-decisions-delegated.
+
+References: docs/PLAN.md §4; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261008-1210-owner-v0-1-released; pull request #134; issue #53.

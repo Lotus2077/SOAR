@@ -1236,6 +1236,21 @@ def loop_row(args) -> dict:
         sys.exit("the loop record's task is malformed")
     if loop.get("pipeline") not in ("research", None):
         sys.exit("the loop record's pipeline is neither research nor null")
+    # BL-20261117-1055-loop-single-sample-design: the samples the loop planned (`--samples`); a record saved before it planned two.
+    planned = loop.get("samplesPlanned", 2)
+    if type(planned) is not int or planned not in (1, 2):
+        sys.exit("the loop record's samplesPlanned is neither 1 nor 2")
+    stage1 = loop["selected"].get("stage1") if isinstance(loop.get("selected"), dict) else None
+    if planned == 1:
+        seeded = loop.get("seeded") if isinstance(loop.get("seeded"), dict) else {}
+        rates = stage1.get("entailmentRates") if isinstance(stage1, dict) else None
+        if (isinstance(loop.get("candidates"), dict) and loop["candidates"].get("b") is not None) or seeded.get("b") is True \
+                or loop.get("writeIdentityEqual") is not None or (isinstance(stage1, dict) and stage1.get("candidate") != "a") \
+                or (isinstance(rates, list) and len(rates) == 2 and rates[1] is not None) \
+                or (isinstance(loop.get("begun"), list) and any(isinstance(entry, dict) and entry.get("stage") == "b" for entry in loop["begun"])):
+            sys.exit("a single-sample loop record holds a second sample")
+    if (isinstance(stage1, dict) and stage1.get("step") == "single_sample") != (planned == 1 and isinstance(stage1, dict)):
+        sys.exit("the loop record's stage-1 step does not match its planned samples")
     if version == 2:
         begun = loop.get("begun")
         if not isinstance(begun, list) or not all(isinstance(entry, dict) and entry.get("stage") in LOOP_STAGES and isinstance(entry.get("at"), str) for entry in begun):
@@ -1285,7 +1300,7 @@ def loop_row(args) -> dict:
         if read_result(os.path.join(loop_dir, name)) is not None:
             candidates[name]["runClass"] = classify_run_end(run_end_evidence(os.path.join(loop_dir, name), marked(name)))
     extra = {"wallSeconds": round((ended - started).total_seconds(), 1) if started and ended else None,
-             "loop": {"version": version, "rule": loop["selectionRule"], "samples": len([name for name in named if name != "repair"]), "repaired": "repair" in named,
+             "loop": {"version": version, "rule": loop["selectionRule"], "samples": len([name for name in named if name != "repair"]), "samplesPlanned": planned, "repaired": "repair" in named,
                       "seeded": loop.get("seeded"), "selected": final["candidate"] if final else None, "step": final["step"] if final else None,
                       "stage1": (loop["selected"].get("stage1") or {}).get("candidate") if loop.get("selected") else None,
                       "critiqued": critiqued, "candidates": candidates,

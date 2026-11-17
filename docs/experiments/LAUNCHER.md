@@ -64,7 +64,7 @@ The operator writes the queue from the card. Unknown keys are refused.
   "windows": [{ "start": "2026-11-20T01:00:00Z", "end": "2026-11-20T07:00:00Z" }],
   "runs": [
     { "id": "e3-b-01", "kind": "loop", "capUsd": 0.6,
-      "argv": ["--select-and-repair", "--loop-directory", ".soar/experiments/e3/b-01", "...the driver's flags...", "--max-fee-usd", "0.6"] },
+      "argv": ["--select-and-repair", "--loop-directory", ".soar/experiments/e3/b-01", "--samples", "1", "...the driver's flags...", "--max-fee-usd", "0.6"] },
     { "id": "e3-d-01", "kind": "run", "capUsd": 0.6, "projectedSeconds": 2400,
       "argv": ["--execute-synthetic-local", "...the driver's flags...", "--output-directory", ".soar/experiments/e3/d-01", "--max-fee-usd", "0.6"] }
   ]
@@ -76,8 +76,8 @@ The operator writes the queue from the card. Unknown keys are refused.
 - **Ids.** Lower-case identifiers. They are the only names of runs in the ledger.
 - **`argv`.** The script's arguments. They are checked by the script's own parser when the queue is read, so a run the script would
   refuse is refused before the batch starts:
-  - a loop's go through `parseLoopArguments`: `--select-and-repair` first, `--loop-directory` once, and a cloud arm only on a research
-    loop;
+  - a loop's go through `parseLoopArguments`: `--select-and-repair` first, `--loop-directory` once, `--samples` 1 or 2 at most once (E3's
+    loops draw one sample, BL-20261117-1055-loop-single-sample-design), and a cloud arm only on a research loop;
   - a run's go through the driver's parser: `--execute-synthetic-local` first, and `--output-directory` once.
 
   Directories are relative to the repository root, and two runs may not share one.

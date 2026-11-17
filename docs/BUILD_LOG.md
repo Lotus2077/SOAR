@@ -48444,3 +48444,79 @@ Paid exposure: None.
 Next gate: Pull request #134's merge, on green CI, under the session's reading in decision 5 of BL-20261117-0940-owner-direction-decisions-delegated.
 
 References: docs/PLAN.md §4; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261008-1210-owner-v0-1-released; pull request #134; issue #53.
+
+### BL-20261117-1027-loop-single-sample-design -- 2026-11-17 -- The select-and-repair loop's single-sample mode: `--samples 1` runs one sample, one critique and one repair, loop.json records the sample count the loop planned, a loop resumes only under the count it started with, and the registry row records it
+
+Status: `Proposed`
+
+Scope or hypothesis: Decision 4 of BL-20261117-0941-group-a-decided-under-delegation makes one sample for each E3 loop the standing default. The owner's direction accepted it (BL-20261117-0940-owner-direction-decisions-delegated).
+- **Where the option was first proposed.** Option (b) of BL-20261109-0331-loop-selection-protocol-2-design: "one sample, as v5's S8 (one write) and S11 (one round) specify, through a small `--samples 1` mode added in its own pull request only on the owner's yes". The same option keeps E6's review-2 arm at two samples.
+- **The loop today.** scripts/phase4-loop.ts always runs two samples, `a` and `b`. The host-checked selection picks one, which is critiqued once and repaired once from the identical draft, and a final host-checked selection follows.
+
+This entry comes before the code because it changes what a loop runs and what its record and its registry row hold.
+
+Decisions:
+- **(1) The option is `--samples <1|2>` on the loop's command line.**
+  - **The default is 2,** so every existing command line runs as today.
+  - **Where it is read.** The loop reads the option and removes it from the driver's flags before they reach the driver's parser, so no single run takes it.
+  - **Refused:** any other value, the flag twice, and a flag in a value's place (`loop_cli_invalid`).
+  - **The launcher** reads a queued loop through `parseLoopArguments`, so it takes the option unchanged.
+- **(2) What `--samples 1` runs: sample `a`, then the critique of `a`, then the repair of `a`, and never `b`.**
+  - **Research tasks.** As today, `a` runs the one reading stage, and the repair writes from `a`'s packet (`--research-from`).
+  - **When a's stage leaves no packet,** the loop ends at `stage_failed`, as today.
+  - **A draft with no artifacts** ends at `no_draft`, as today.
+  - **The stage-1 selection** is `{candidate: "a", step: "single_sample", entailmentRates: [a's rate, null]}`. No comparison runs, and the new step value says so. `a`'s rate is `entailmentRate` (selection.ts), the value a comparison would have recorded for it, and it decides nothing.
+  - **The critique and the repair are unchanged,** and so is the final selection between `a` and its repair under selection protocol 2: a tie keeps the draft. `SELECTION_PROTOCOL_VERSION` stays 2, and selection.ts does not change.
+  - **The rest of the record.** `candidates.b` stays null; `seeded.b` is false; `writeIdentityEqual` is null, since there is no second write to compare.
+- **(3) loop.json records the plan: `samplesPlanned`, 1 or 2.**
+  - **Every new record writes it,** and two-sample loops write 2.
+  - **A record saved before this change lacks it,** and reads as 2.
+  - **A resume refuses** with `loop_record_mismatch` when the invocation's count differs from the record's. A loop is never resumed under another sample count, as it is never resumed under another version, selection protocol, runtime, task, arm or pipeline.
+  - **`LOOP_VERSION` stays 2.** The field is additive, and the registry writer reads both versions.
+  - **A stray directory.** A `b` directory in a single-sample loop is unexplained, so reconciliation refuses it (`loop_resume_mismatch`), as it refuses any other directory the record does not name.
+  - **`--close`** keeps the field, since it rewrites the record it read.
+- **(4) The registry row records the plan.**
+  - **The new field.** `registry-row.py --loop-dir` adds `loop.samplesPlanned` from the record: 2 when the field is absent (both versions), and a refusal for any value but 1 or 2.
+  - **The existing `loop.samples`** keeps its meaning: the samples that are candidates. So a two-sample loop whose sample `a` ended the loop shows `samples` 1 and `samplesPlanned` 2, and a single-sample loop shows 1 and 1.
+  - **A malformed record is refused.** That covers a single-sample record holding a second sample, and a stage-1 step `single_sample` on a two-sample record.
+  - **The README's loop row** gains the field and the step.
+- **(5) Tests.**
+  - **Runs:**
+    - a single-sample loop on a plain task and on a research task;
+    - a draft with no artifacts;
+    - a stage-1 entailment rate;
+    - the default's recorded count.
+  - **Resumes:**
+    - a count that differs in either direction;
+    - a record without the field;
+    - a stray `b` directory.
+  - **Parsing:** the values and the refusals.
+  - **Rows:**
+    - a single-sample loop's row;
+    - an older record;
+    - each malformed value and contradiction.
+- **(6) The source-freeze digest moves,** since scripts/phase4-loop.ts is a frozen file. The `Implemented` entry states the new value. Another pull request that lands first and changes a frozen file moves it again.
+
+Changes: None yet. This entry precedes the code. Planned:
+- scripts/phase4-loop.ts and scripts/registry-row.py;
+- docs/experiments/README.md;
+- tests under tests/unit/.
+
+Evidence: Read at c02366a:
+- scripts/phase4-loop.ts: `parseLoopArguments`, `runLocked`'s stage 1, the critique and the repair, `priorFields`, `reconcile` and `closeLoop`;
+- `compareCandidates` and `entailmentRate` (src/main/private-agent/selection.ts);
+- the row writer's loop fields, `loop.samples` among them, which counts the samples present among the candidates.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- **Not shown:** that one sample is as good as two. E6 compares one sample against two; E3 runs one by its standing default.
+- **E3's runs** use `--samples 1` once its card names the loop's command line. E6's review-2 arm runs with the default.
+- **Records and rows written before this change** lack `samplesPlanned`, and read as 2.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, one light review with privacy checked, the `Implemented` entry with the new source-freeze digest, then the pull request and the coordinator's merge.
+
+References: BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation (decision 4); BL-20261109-0331-loop-selection-protocol-2-design (open question (b)); BL-20261113-0836-infra-resume-design; docs/experiments/e6-card-2026-11-17.md (item 7).

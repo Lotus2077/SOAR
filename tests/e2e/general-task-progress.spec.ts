@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -93,8 +93,9 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
   const relative = path.relative(path.join(projectRoot, ".soar"), testInfo.outputDir);
   if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("fixture_requires_ignored_output_directory");
   // The app fills every setting the environment above leaves unset from .env.local and .env in its working directory and its app path
-  // (loadEnvironmentFiles in src/main/config.ts). Both are this checkout, so a run is hermetic only in a checkout that has neither file,
-  // such as a fresh worktree. The files are tested for existence only, never opened.
+  // (loadEnvironmentFiles in src/main/config.ts). Its working directory is this checkout, and so is its app path unless
+  // SOAR_E2E_EXECUTABLE names a packaged app. So a run is hermetic only in a checkout that has neither file, such as a fresh worktree.
+  // The files are tested for existence only, never opened. The user-data directory's .env.local is kept out by launch() below.
   if ([".env.local", ".env"].some(name => existsSync(path.join(projectRoot, name)))) throw new Error("fixture_requires_no_checkout_environment_file");
   const expectedCalls = scenario === "recover" ? 4 : 3, expectedTools = scenario === "recover" ? 4 : 2;
   const runtimeSha256 = generalTaskRuntimeIdentity(projectRoot);
@@ -112,7 +113,14 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     expect(generalTaskRuntimeIdentity(projectRoot)).toBe(runtimeSha256); appClosed = false;
     app = await electron.launch({ ...(process.env.SOAR_E2E_EXECUTABLE ? { executablePath: process.env.SOAR_E2E_EXECUTABLE } : {}),
       args: [`--user-data-dir=${path.join(root, "browser-data")}`, ...(process.env.SOAR_E2E_EXECUTABLE ? [] : [projectRoot])],
-      cwd: projectRoot, env: environment(root, model.origin), timeout: 45000 }); return app.firstWindow();
+      cwd: projectRoot, env: environment(root, model.origin), timeout: 45000 });
+    // The app also reads .env.local from its user-data directory, so that directory must be this run's own. Assert that Electron
+    // honoured --user-data-dir instead of trusting it: `pnpm setup:general --write` writes the default user-data file.
+    const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath("userData"));
+    if (path.basename(userData) !== "browser-data" || realpathSync(path.dirname(userData)) !== realpathSync(root)) {
+      throw new Error("fixture_requires_temporary_user_data");
+    }
+    return app.firstWindow();
   };
   try {
     const source = path.join(root, "source.csv"); await writeFile(source, progressInput);

@@ -49353,3 +49353,69 @@ Next gate:
 3. The orchestrating session runs the command above on the owner's Mac.
 
 References: BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented.
+
+### BL-20261117-1048-correction-general-task-progress-e2e-review -- 2026-11-17 -- Correction to BL-20261117-1030-general-task-progress-e2e-runnable after its light review: each launch asserts the run's own user-data directory, and the command names the image, the pass criterion and the conditions it needs
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1030-general-task-progress-e2e-runnable (plan 72.E2E, lane S-desk, #138).
+- **The light review.** It found no blocker, no major issue, two minor findings and seven nits.
+- **The merge.** #138 merged `main` at 9673bb9, which carries #105 and #136, in 4e8d0b3. The corrected entry already follows that tail, BL-20261117-1010-p10-plan-cap-export-implemented, so nothing is re-stamped.
+
+Decisions:
+
+(1) **Review minor 2: the user-data directory is asserted, not assumed.**
+- **Why.** `loadEnvironmentFiles` also reads `.env.local` from the app's user-data directory. The spec kept that file out only by passing `--user-data-dir`, and nothing checked that Electron honours the switch. `pnpm setup:general --write` writes the default user-data file.
+- **The fix.** After every launch, the spec reads `app.getPath("userData")` in the main process.
+  - It refuses to go on unless that is the run's own `browser-data` directory under its temporary root. The refusal code is `fixture_requires_temporary_user_data`.
+  - The comparison uses `realpath`, since macOS's temporary directory is a symbolic link.
+
+(2) **Review minor 3: the command now states the image id's form and the pass criterion.** See the command below.
+
+(3) **Nits taken.**
+- **The spec's comment.** It no longer says the app path is always the checkout. With `SOAR_E2E_EXECUTABLE` set, the app path is the packaged app's.
+- **The command.** It now states the conditions it needs, where step 1 runs, the real install, and the output directory being emptied on each run.
+
+(4) **Nit not taken.** .gitignore keeps `test-results/`, for two reasons:
+- directories from runs before this change stay ignored;
+- a run that passes `--output test-results` stays ignored too.
+
+(5) **The command.** It supersedes the one in BL-20261117-1030-general-task-progress-e2e-runnable.
+- **Conditions:**
+  - Node 22.22.2 and pnpm 10.12.4 on `PATH`;
+  - Docker running, with the qualified image already installed, since the run pulls nothing;
+  - a desktop (GUI) session;
+  - `SOAR_E2E_EXECUTABLE` unset.
+- **Steps:**
+  1. From the existing checkout, run `git worktree add --detach <a new directory> <the commit to test>`.
+  2. In the new worktree, run `pnpm install --frozen-lockfile`. This must be a real install, not a linked `node_modules`.
+  3. Run `pnpm build`.
+  4. Run `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f pnpm test:e2e tests/e2e/general-task-progress.spec.ts`.
+- **The image id.** It is exactly `sha256:` and 64 lowercase hex characters: the value of `QUALIFIED_IMAGE` in src/main/private-agent/capabilities.ts, as in step 4. With any other form, the spec skips both cases and exits 0.
+- **The pass criterion.** Playwright reports "2 passed". "2 skipped" is not a pass.
+- **A rerun.** Playwright empties `.soar/test-results/` at the start of every run. Copy the directory out first if the earlier run's evidence is wanted.
+
+Changes:
+- tests/e2e/general-task-progress.spec.ts: the user-data assertion and the corrected comment.
+- docs/BUILD_LOG.md: this Correction.
+- 4e8d0b3: the merge of `main` at 9673bb9.
+
+Evidence:
+- **Checks.** `pnpm typecheck` passes. After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm validate:readiness` passes.
+- **The spec still loads and stays gated.** `pnpm exec playwright test --list` lists the spec's two cases. Without `SOAR_RUN_GENERAL_TASK_E2E`, both cases are skipped and no app is launched.
+- **The new assertion is not exercised here.** It runs only after a launch, and a launch needs the gated run.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Whether Electron honours `--user-data-dir`** is now checked by the run itself. Nothing here shows it.
+- **The status stays `Implemented`.** Nothing about #72's assertion is `Verified` until the orchestrating session's run passes.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The reviewer re-checks the two fixes, then CI runs.
+2. The coordinator merges #138 before #135.
+3. The orchestrating session runs the command above on the owner's Mac.
+
+References: BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261117-0942-document-review-and-runtime-suites-docker-verified.

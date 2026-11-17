@@ -49290,3 +49290,47 @@ References:
 - BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution;
 - BL-20261116-1208-research-structured-output-design;
 - BL-20261113-1011-p10-align-design.
+
+### BL-20261117-1054-e0-card-amendment-5 -- 2026-11-17 -- E0 card Amendment 5: the re-probe with P10's plan cells at 16,384 tokens is registered before it runs, with the rule that reads its counts and what follows each outcome
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner accepted that the probe's plan cell is measured at 16,384 tokens and that the serving card is then adopted with the planner at that cap (decision 2 of BL-20261117-0940-owner-direction-decisions-delegated). Pull request #136 added the export option that makes the measurement possible (BL-20261117-1010-p10-plan-cap-export-implemented). This entry records Amendment 5 to E0's card, which registers the re-probe before it runs. `Implemented` covers the amendment's text. Nothing has run under it. Hypothesis: at a cap of 16,384 tokens the endpoint returns a valid plan for P10's planner request in at least 19 of 20 calls, as it did at 8,192, and extraction's cell meets the same rule again.
+
+Decisions:
+1. **One run is added after E0's close.** E0's closing entry stands (BL-20261116-1357-e0-verified). The re-probe is a new run under E0's card, with rows of its own.
+2. **Six steps.** The export with `--plan-cap 16384`; P1 alone, checked by hand; all twelve probes in one invocation; the assessment; the card writer; and the export once more without the option. The amendment gives each command.
+3. **The conditions.** The owner's main checkout at a commit that contains #136 and the amendment, with a clean tracked tree. The doctor first: it must reach and identify the model, and it need not report `ready`, which also needs Docker and the task image. Nothing else on the endpoint during the probes. No pull or change of the main checkout from the export to the card. A pull request that changes `researchProtocolSha256()` and merges between the export and the assessment voids the run.
+4. **A new card file,** dated by the probe's start. The 2026-11-16 card's two files stay as committed, `proposed` and never adopted. The Markdown goes to a temporary file first.
+5. **The reading rule is the writer's 95% rule, and nothing else.** Two cells bind the adoption: plan/on at 16,384 and extract/off at 2,048. No cell is carried over from the 2026-11-16 card. Counts, tokens and times of the plan cell are descriptive only, and any comparison with the 8,192 cell is post hoc.
+6. **What follows each outcome is fixed now.**
+   - Both binding cells meet the rule: the session asks the owner by name for the adoption commit, with the result.
+   - Either cell misses the rule: the session does not ask for adoption on this run. It reports the counts, and a further amendment registers the next measurement.
+   - Synthesis's thinking-on cell meets the rule, which it missed on 2026-11-16: the card would then send the format on every synthesis call, which no fixture has measured. The session asks for adoption with that flag set to false, and names it. The three other cells bind no run.
+   - A void or stopped run is run again once. A second void stops the work.
+7. **This choice is the session's.** The owner's answer names the measurement and the adoption. The steps' details, the binding cells and the outcomes' rules are the session's, under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, and the owner may replace them.
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: Amendment 5.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The commands** are those of pull request #136's description, which its reviewer checked: every script and flag exists, the order fits E0's stop rule, and only the probe contacts the endpoint, behind its zero-fee guard. The probe has no dry run, so P1 alone is the pre-check.
+- **That reviewer's points on the instructions** are in the amendment: the card's date, the temporary file for the Markdown, the check of the probe's own record before the assessment, the binding cells, and the export once more afterwards.
+- **The reading rule** is lane S-pipe's account of the writer's rule, which the reviewer of #136 confirmed against the writer.
+- **A reviewer read this amendment before the commit,** against the probe's scripts and E0's card. It found no blocker and two major findings, and both are applied. The doctor's `ready` cannot be required, since it also needs Docker and the task image. And no outcome covered synthesis's thinking-on cell meeting the rule. Its minor findings are applied too: the full card command, what a stopped run is, the request-settings check, the load readings and the rows' arguments. The fixes are the reviewer's replacement texts and were not reviewed again.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Nothing has run.** No probe, no card and no row exists for this run yet.
+- **P10's payload is small and synthetic.** A pass shows that the endpoint takes the planner's flagged request at that cap. It does not show how plans fare on a real index.
+- **The adoption is not decided here.** It needs the owner's go, asked by name.
+- **The session did not read the writer's code itself.** The rule's wording rests on lane S-pipe's account, which the reviewer checked against the writer.
+
+Paid exposure: None. The probe is zero-fee, on the owner's endpoint.
+
+Next gate: The re-probe, from the main checkout at a commit that contains this amendment. Then its result entry, reviewed before its commit.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendments 1, 4 and 5); docs/experiments/serving-card-2026-11-16.md; docs/experiments/README.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-1000-p10-plan-cap-export-design; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261116-1357-e0-verified; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0939-e0-probes-serving-card; BL-20261116-1218-serving-probe-direct-transport-implemented; pull request #136.

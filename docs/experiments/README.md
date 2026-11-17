@@ -146,6 +146,29 @@ This folder holds the committed, sanitized record of live trials (see
     and the served model. The stage row's own usage already holds the assists'
     usage, so the record is never summed again. Arm D, the all-cloud ceiling, is
     still `--arm cloud` without `--pipeline research`, and takes no firing.
+  - **The assist capture, before the first paid assisted run** (10.c;
+    BL-20261117-1130-lane-decisions-second-repair-before-reprobe, decisions 5 and
+    6). `pnpm assist:capture -- --run-directory RUN --task-directory TASK
+    --job-sha256 H --brief-sha256 H --firing forced_split|local_first
+    --cloud-model M --cloud-endpoint URL --cloud-prices IN,OUT,CACHED[,WRITE]`
+    reads a finished zero-fee local run of the task (`--pipeline research --arm
+    local`) through the seed loader. The endpoint must be one the assist arm
+    admits: a `/v1/responses` endpoint or Anthropic's Messages endpoint.
+    - **What it writes.** T1, T2 and T2's retry, as request bodies with a
+      counts-only `capture.json`, into `RUN/assist-capture/`. The repository that
+      holds the run must ignore that directory. The wrapper's own configuration
+      checks run first. A touchpoint the wrapper would refuse is recorded with its
+      code and no body. Nothing is dispatched: no key, destination, broker request
+      or fee is involved.
+    - **What the bodies show.** Each is the body the wrapper sends for the request
+      the pipeline would make from this run's index, plan, evidence and coverage.
+      An assisted run sends the same bodies only where those are this run's, and
+      only for the touchpoints it fires.
+    - **Each touchpoint's `trigger`** says whether this run would fire it, in the
+      stage record's words. Under `forced_split` it always would, though T2 not
+      after a T1 outcome that ended the stage. Under `local_first` it would only
+      after every local attempt of its stage failed, and otherwise the trigger is
+      null. The retry is sent only after a truncated first T2 reply.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and

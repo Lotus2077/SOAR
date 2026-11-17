@@ -51911,3 +51911,135 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The coordinating session's merge of #147 after #145, on green CI.
 
 References: BL-20261117-1202-assist-wiring-design; BL-20261117-1203-correction-assist-wiring-restamp; BL-20261117-1204-assist-wiring-implemented; BL-20261117-1201-correction-e6-planted-defect-tasks-restamp; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1131-research-card-admission-design; BL-20261117-1143-research-second-repair-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1241-assist-capture-implemented -- 2026-11-17 -- 10.c, the assist capture: T1, T2 and T2's retry built from a finished zero-fee local run as item 10's wrapper builds them, each with whether the run would fire it, and written into the run's git-ignored directory without dispatching, for the pre-run packet scan
+
+Status: `Implemented`
+
+Scope or hypothesis: Two decisions of BL-20261117-1130-lane-decisions-second-repair-before-reprobe set this work:
+- **decision 5** makes the capture mode a precondition of the first paid assisted run;
+- **decision 6** sets the wider packet scan that the coordinating session runs on its output.
+
+This branch is stacked on #147, 10.b (BL-20261117-1202-assist-wiring-design and BL-20261117-1204-assist-wiring-implemented), at its head 72590a1. It uses 10.b's packet builders and wrapper, and it merges after #147.
+
+**The draft.** A first draft (local commit f18a193 on 10.b's earlier head 299e714, never pushed) had one light review. Decision 6 gives its findings and what was done with each. This entry is 10.c's first committed record:
+- The draft's entry was drafted as BL-20261117-1201-assist-capture-implemented, with its evidence still open, and was never published.
+- That minute now belongs to lane S-e1's BL-20261117-1201-correction-e6-planted-defect-tasks-restamp.
+
+Decisions:
+1. **A script, not a driver mode.** `scripts/assist-capture.ts` (`pnpm assist:capture`) reads a finished zero-fee local run of the task (`--pipeline research --arm local`) through the seed loader.
+   - **What it calls.** It rebuilds the hook requests from the run's research packet and the task's own files, then calls the wrapper's packet builders.
+   - **What it needs.** No key, no destination and no session. The model it builds with is bound to a broker that refuses every request.
+   - **The alternative.** A driver mode that runs the assist arm with a capturing model was not chosen. It would configure a cloud destination, with its key, for a run that must send nothing.
+2. **The requests are the pipeline's, and the model and checks are the assist arm's.**
+   - **T1's prior attempts** are the stage's attempts so far (research-pipeline.ts):
+     - none under forced_split, where T1 comes before any local attempt;
+     - under local_first, the run's rejected attempts, which are every attempt when T1 fires.
+   - **T2 and its retry** carry the run's plan, evidence and coverage. The retry's evidence is held to the wrapper's bound: at most half the first packet's, and never over 32 KiB.
+   - **The bodies are `model.requestBody(...)`** with the wrapper's system prompt, cap and purpose: the bytes the wrapper hands its broker.
+   - **The model is the assist arm's:** the cloud arm's configuration (`cloudArmModelConfig`, extracted from `buildCloudArm`), under the heavy profile, which `--pipeline research` requires, in the assist cache mode.
+   - **The endpoint is one the assist arm admits:** a `/v1/responses` endpoint or Anthropic's Messages endpoint. The driver's command line and the capture now read one rule, `assistArmEndpoint`.
+   - **The wrapper's own configuration checks run first** (`createResearchAssists`), at the assist arm's largest fee cap, `RESEARCH_SPLIT_MAX_FEE_USD`. A brief, cache mode or cap the wrapper refuses yields its code and no capture.
+3. **Each touchpoint's `trigger`** says whether this run's assisted twin would fire it, in the stage record's words:
+   - **under forced_split:** `forced_split` for T1 and T2, though T2 is not sent after a T1 outcome that ended the stage;
+   - **under local_first:** `local_plans_rejected` when the run's plan fell back to the host plan, and `local_syntheses_refused` when its synthesis fell back to the host skeleton;
+   - **otherwise null.** The twin would not send that touchpoint, and the body is the request it would get had every local attempt failed.
+
+   The retry shares T2's trigger, and is sent only after a truncated first T2 reply.
+4. **What it refuses,** each with a fixed code, before writing anything:
+   - a firing other than the two (`assist_capture_firing_invalid`);
+   - an endpoint the assist arm refuses (`assist_capture_endpoint_invalid`);
+   - **an existing capture path** (`assist_capture_exists`), a dangling link included. This is checked before the run is read, and the non-recursive directory creation stays as the race guard;
+   - **a run directory that the repository holding it does not ignore** (`local_screen_retain_directory_not_ignored`).
+     - Git asks that repository, never the one the command runs in, so an outer repository that ignores a whole worktree cannot vouch for a run inside it.
+     - A run outside any repository is refused.
+   - a run the seed loader refuses: another task, a seeded run, or a packet that drifted;
+   - **a source that is not a local run** (`assist_capture_source_not_local`): a run with an assist or a cloud planner, or a freeze that does not name the local arm. Every driver run writes the arm block;
+   - a composed brief that does not match the run's coverage or does not begin with the task's brief.md (`assist_capture_brief_mismatch`);
+   - a run whose sources are not the task's bytes (`assist_capture_source_mismatch`);
+   - a configuration the wrapper refuses (`research_assist_config_invalid`).
+5. **What it writes:** `RUN/assist-capture/` (mode 0700, created once).
+   - **The bodies.** `T1.body.json`, `T2.body.json` and `T2-retry.body.json` (mode 0600), one for each touchpoint built.
+   - **`capture.json`.** It holds:
+     - the firing and the assist protocol block's digest;
+     - the API shape and the model;
+     - the source run's job id, freeze digest and protocol hash;
+     - the authored brief's digest;
+     - per touchpoint, its trigger, its body's digest and bytes and its packet record (counts only), or the code that refused it.
+   - **A touchpoint the wrapper would refuse** gets its code and no body.
+   - **The command line** prints only the touchpoints' triggers, digests and codes. It drops the one leading `--` that `pnpm assist:capture -- ...` passes on, as the launcher does.
+6. **The light review of the draft** (one reviewer, at f18a193; no blocker):
+   - **Major, taken.** pnpm 10.12.4 passes a literal `--`, so the documented `pnpm assist:capture -- ...` always refused with `assist_capture_cli_invalid`. The parser now drops one leading `--`, and a test runs the command line as pnpm invokes it.
+   - **Minor, taken.** The ignore check asked the repository of the command's working directory (decision 4).
+   - **Minor, taken: the fidelity was overstated.**
+     - (a) The draft built T1 and T2 whether or not the run would fire them. Under either firing it passed the local run's attempts as T1's prior attempts, the accepted one included. Decisions 2 and 3 fix both.
+     - (b) T1's variable content is the index's gists, which the draft's non-claims did not name. The limitations now do.
+     - (c) The draft skipped the wrapper's constructor checks. Decision 2 runs them.
+     - (d) The draft's byte test proved only that `requestBody` equals what the wrapper hands its broker, for a request the test built itself. The end-to-end test in Evidence replaces it.
+   - **Nits, taken:**
+     - `buildCloudArm` calls `cloudArmModelConfig` before its fee check, so its order of checks is the original's, and a test pins it;
+     - `assist_capture_exists` is checked up front;
+     - a freeze without the arm block is refused.
+   - **Found while fixing, and fixed:** the draft accepted a chat-completions endpoint, whose bodies the assist arm never sends (decision 2).
+
+Changes:
+- scripts/assist-capture.ts (new);
+- scripts/private-agent-local-screen.ts: `cloudArmModelConfig` extracted, `buildCloudArm` reading it before its fee check, and `assistArmEndpoint`;
+- package.json, with `assist:capture`;
+- tests/unit/assist-capture.test.ts (new);
+- tests/helpers/research-seed-source.ts:
+  - the fixture's local model is exported as `researchSeedSourceModel`, with an optional reply and an answer to the deadline check;
+  - the freeze can carry an optional arm block;
+  - its existing callers are unchanged.
+- docs/experiments/README.md;
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The end-to-end test, three cases.** Each runs the same fixture's assisted twin, then compares its bodies with the capture's, byte for byte.
+  - **The twin:** `runResearchPipeline` with the run's own local answers, and `createResearchAssists` on a capturing broker.
+  - **The broker** refuses T1 and the retry (`budget_denied`) and truncates T2's first reply. So every touchpoint that fires is sent once, and the stage goes on as the local run did.
+  - **The results:**
+    - forced_split on Anthropic's Messages shape: T1, T2 and the retry are equal, and the stage records name `forced_split`;
+    - local_first on the Responses shape, with every local plan and synthesis rejected: T1 (carrying both rejected attempts), T2 and the retry are equal, and the triggers are `local_plans_rejected` and `local_syntheses_refused`;
+    - local_first with the local plan and synthesis accepted: the twin sends nothing, the capture's triggers are null, and its T1 carries no prior attempt.
+- **The other tests** cover:
+  - the counts-only manifest and the file modes;
+  - every refusal of decision 4, each leaving no capture directory;
+  - the parser, with and without the leading `--`;
+  - the command line as pnpm invokes it, run from the repository root, outside the run's repository, and its refusal of a second capture;
+  - `buildCloudArm`'s order of checks;
+  - the refused retry of a two-source run.
+
+  `tests/unit/assist-capture.test.ts` passes 9/9.
+- **Mutation:** 
+  - 11 single-edit mutants of the fixes, all killed: ten of scripts/assist-capture.ts, and one that puts `buildCloudArm`'s fee check first.
+  - The draft's prior attempts (both firings, unfiltered) is killed by the local_first case.
+  - That mutant's forced_split half alone survives, and is equivalent for the body. Under forced_split the T1 builder sends no prior attempt, and they reach only the scrubber's set of known digests, which no packet text contains.
+- **Types and the affected files.** `pnpm typecheck` exits 0. The 22 test files that touch the driver, the seed helper or the capture pass: 487 tests, 12 skipped.
+- **The full suite:** 3,958 passed, none failed and 88 skipped, in 211 files.
+- **The log and readiness.** `pnpm --silent validate:build-log -- --base-ref 72590a1` exits 0: 773 entries, append-only. `pnpm --silent validate:readiness` exits 0.
+- **The source freeze** moves from 52ce1d3f… at 72590a1 to 73fd0490…, both over 62 files, because the driver is part of it.
+- **The privacy scan of the diff** is clean.
+
+Failures or blockers:
+- **The draft's two-source fixture.** Its two short sources were too few for a retry to hold a quote, so the retry was refused, as the wrapper would refuse it. The fixture now has six sources, so the retry is built. A separate case keeps the two-source run and checks that the refusal is recorded with its code.
+- **The draft's documented command could not run** (decision 6, the major).
+
+Limitations and non-claims:
+- **The bodies follow this run.**
+  - T1 carries the brief's units and the index's gists. T2 and its retry carry the plan, the evidence and counts-only coverage.
+  - An assisted run of the task sends the same bodies only where its own index, plan, evidence and coverage are this run's, and only for the touchpoints it fires.
+  - Under forced_split, T2 follows the plan T1 returned, which no capture can know.
+- **A null trigger's body is hypothetical:** the request as it would be had every local attempt failed, carrying only the run's rejected attempts.
+- **The fee bound is checked at the assist arm's largest cap.** A run whose own `--max-fee-usd` is below the wrapper's bound is refused at its start, before any packet.
+- **Nothing ran on a real task here.** The capture of E3's tasks, and its scan, are the coordinating session's.
+- **This is not a scanner.** It writes the bodies. Finding a credential, query, account-name or home-path shape in them is the scan's job.
+- **No owner loop or E-run may span this merge.** It moves the harness source-freeze digest.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. Nothing live ran, during the coordinating session's re-probe window or otherwise.
+
+Next gate:
+- The pull request, stacked on #147, and its merge after #147.
+- The coordinating session's capture and scan of E3's tasks before the first paid assisted run.
+
+References: BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1202-assist-wiring-design; BL-20261117-1204-assist-wiring-implemented; BL-20261117-1216-correction-assist-wiring-card-admission-merge; BL-20261117-0941-group-a-decided-under-delegation.

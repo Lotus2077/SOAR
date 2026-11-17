@@ -365,22 +365,17 @@ export function parseCloudPrices(value: string): CloudArmInput["prices"] {
   if (![3, 4].includes(parts.length) || parts.some(part => !Number.isFinite(part) || part < 0) || parts[2]! > parts[0]!) throw new Error("local_screen_cli_invalid");
   return { input: parts[0]!, output: parts[1]!, cached: parts[2]!, ...(parts.length === 4 ? { write: parts[3]! } : {}) };
 }
-export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessEnv, coordinator: { maxOutputTokens: number; thinking: "disabled" | "medium"; maxRequestBytes: number }) {
+/**
+ * The cloud arm's endpoint, API shape and model configuration, without a key or a destination: what buildCloudArm sends, and since
+ * 10.c (the assist capture, scripts/assist-capture.ts) what a capture builds request bodies with, so both use the same configuration.
+ */
+export function cloudArmModelConfig(input: Pick<CloudArmInput, "model" | "endpoint" | "prices" | "longContext">, coordinator: { maxOutputTokens: number; thinking: "disabled" | "medium"; maxRequestBytes: number }) {
   const endpoint = new URL(input.endpoint);
   const api = Object.hasOwn(CLOUD_API_BY_PATH, endpoint.pathname) ? CLOUD_API_BY_PATH[endpoint.pathname]! : undefined;
-  if (endpoint.protocol !== "https:" || !(input.maxFeeUsd > 0 && input.maxFeeUsd <= CLOUD_ARM_MAX_FEE_USD) || !api || endpoint.search) throw new Error("local_screen_cloud_arm_invalid");
+  if (endpoint.protocol !== "https:" || !api || endpoint.search) throw new Error("local_screen_cloud_arm_invalid");
   // Anthropic: the one published host only, so the Claude key reaches no other; adaptive thinking only (the model refuses `disabled`).
   const anthropic = api === "anthropic_messages";
   if (anthropic && (endpoint.href !== ANTHROPIC_MESSAGES_ENDPOINT || coordinator.thinking !== "medium")) throw new Error("local_screen_cloud_arm_invalid");
-  const apiKey = environment[anthropic ? CLAUDE_ARM_KEY_VARIABLE : CLOUD_ARM_KEY_VARIABLE];
-  if (!apiKey || !/^[\x21-\x7e]{8,512}$/u.test(apiKey)) throw new Error("local_screen_cloud_key_missing");
-  const credentialVersion = Number((anthropic ? environment.SOAR_CLAUDE_CLOUD_CREDENTIAL_VERSION : environment.SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION) ?? "1");
-  if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) throw new Error("local_screen_cloud_arm_invalid");
-  const accountId = anthropic ? environment.SOAR_CLAUDE_CLOUD_ACCOUNT_ID ?? "owner_anthropic_account" : environment.SOAR_PHASE2_CLOUD_ACCOUNT_ID ?? "owner_cloud_account";
-  // Synthetic-only and explicitly grant-free: the broker admits this destination to a wholly synthetic lineage and nothing else.
-  const destination: BrokerDestination = { id: "cloud_coordinator", kind: "cloud_model", endpoint: endpoint.href, apiKey, accountId, credentialVersion,
-    privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes,
-    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}), ...(anthropic ? { anthropicVersion: ANTHROPIC_API_VERSION } : {}) };
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
   // /v1/responses is the only OpenAI shape that serves tools with reasoning (BL-20261008-1300).
   // The Responses shape places explicit breakpoints and settles its reported cache writes at the published write price
@@ -396,6 +391,21 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
       outputUsdPerMillion: input.longContext.output, cachedInputUsdPerMillion: input.longContext.cached,
       ...(writes ? { cacheWriteUsdPerMillion: input.longContext.write ?? CLOUD_CACHE_WRITE_FACTOR * input.longContext.input } : {}) } } : {}),
     ...(responses ? { promptCaching: "responses_explicit_v1" as const } : anthropic ? { promptCaching: "anthropic_explicit_5m_v1" as const } : {}) };
+  return { endpoint, api, anthropic, modelConfig };
+}
+export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessEnv, coordinator: { maxOutputTokens: number; thinking: "disabled" | "medium"; maxRequestBytes: number }) {
+  // The configuration's checks run first and the fee's after them, the order of the single check this replaced (10.c's review).
+  const { endpoint, anthropic, modelConfig } = cloudArmModelConfig(input, coordinator);
+  if (!(input.maxFeeUsd > 0 && input.maxFeeUsd <= CLOUD_ARM_MAX_FEE_USD)) throw new Error("local_screen_cloud_arm_invalid");
+  const apiKey = environment[anthropic ? CLAUDE_ARM_KEY_VARIABLE : CLOUD_ARM_KEY_VARIABLE];
+  if (!apiKey || !/^[\x21-\x7e]{8,512}$/u.test(apiKey)) throw new Error("local_screen_cloud_key_missing");
+  const credentialVersion = Number((anthropic ? environment.SOAR_CLAUDE_CLOUD_CREDENTIAL_VERSION : environment.SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION) ?? "1");
+  if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) throw new Error("local_screen_cloud_arm_invalid");
+  const accountId = anthropic ? environment.SOAR_CLAUDE_CLOUD_ACCOUNT_ID ?? "owner_anthropic_account" : environment.SOAR_PHASE2_CLOUD_ACCOUNT_ID ?? "owner_cloud_account";
+  // Synthetic-only and explicitly grant-free: the broker admits this destination to a wholly synthetic lineage and nothing else.
+  const destination: BrokerDestination = { id: "cloud_coordinator", kind: "cloud_model", endpoint: endpoint.href, apiKey, accountId, credentialVersion,
+    privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes,
+    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}), ...(anthropic ? { anthropicVersion: ANTHROPIC_API_VERSION } : {}) };
   const maxFeeMicrousd = Math.round(input.maxFeeUsd * 1_000_000);
   return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig,
     ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}), ...(anthropic ? { anthropicVersion: ANTHROPIC_API_VERSION } : {}) } };
@@ -703,6 +713,13 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
 function messagesPath(endpoint: string | undefined): boolean {
   try { return endpoint !== undefined && new URL(endpoint).pathname === "/v1/messages"; } catch { return false; }
 }
+/**
+ * The assist arm's endpoints (H3, and since 10.b the assist arm): the Responses shape on any HTTPS host, or Anthropic's one Messages
+ * endpoint (BL-20261030-0620). The CLI refuses any other for `--pipeline research --arm cloud`, and 10.c's capture refuses it too.
+ */
+export function assistArmEndpoint(endpoint: string | undefined): boolean {
+  return /^https:\/\/[^/?#]+\/v1\/responses$/u.test(endpoint ?? "") || endpoint === ANTHROPIC_MESSAGES_ENDPOINT;
+}
 
 export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenInput {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
@@ -722,7 +739,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenIn
         // H3, and since 10.b the assist arm: the cloud model's T1 and T2 run on the Responses shape, or on Anthropic's Messages endpoint
         // (BL-20261030-0620), under a per-task fee cap of RESEARCH_SPLIT_MAX_FEE_USD.
         (values.has("--pipeline") && values.get("--arm") === "cloud" && (!(Number(values.get("--max-fee-usd")) > 0 && Number(values.get("--max-fee-usd")) <= RESEARCH_SPLIT_MAX_FEE_USD) ||
-          !(/^https:\/\/[^/?#]+\/v1\/responses$/u.test(values.get("--cloud-endpoint") ?? "") || values.get("--cloud-endpoint") === ANTHROPIC_MESSAGES_ENDPOINT))) ||
+          !assistArmEndpoint(values.get("--cloud-endpoint")))) ||
         (values.has("--document-review") && (values.get("--document-review") !== "true" || values.has("--claims-ledger") || values.has("--public-retrieval"))) ||
         (values.has("--repair-from") && (values.get("--arm") === "cloud" || !values.get("--repair-from"))) ||
         // H4: a seeded write phase keeps the pipeline's requirements (heavy profile, claims ledger), runs no stage of its own and never writes with the cloud model.

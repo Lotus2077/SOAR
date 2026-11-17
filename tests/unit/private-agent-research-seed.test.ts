@@ -24,7 +24,7 @@ afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const h = (n: string) => n.repeat(64), task = { jobSha256: h("1"), briefSha256: h("2") }, jobId = "job-a", contextId = "reader";
 const researchInput = (sources: Parameters<typeof createResearchInput>[1] = researchV4Sources()) => createResearchInput(RESEARCH_V4_TEST_BRIEF, sources);
 const pipeline = () => ({ name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: { ...RESEARCH_PIPELINE_BUDGET }, planner: "local", writer: "local" });
-/** 10.b (BL-20261117-1036-assist-wiring-design, decision 10): the freeze block of a run whose reading stage had an assist hook of this firing. */
+/** 10.b (BL-20261117-1131-assist-wiring-design, decision 10): the freeze block of a run whose reading stage had an assist hook of this firing. */
 const assistedPipeline = (firing: "local_first" | "forced_split") => ({ ...pipeline(), protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, firing),
   assist: { version: 1, firing, protocolSha256: researchAssistProtocolSha256(firing) } });
 let produced: SessionFile[], receipts: Record<string, unknown>[];

@@ -15,7 +15,7 @@ import { ASSIST_AUTHORED_BRIEF, ASSIST_FEE_CAP_MICROUSD, assistComposedGoal, ass
   type AssistShape } from "../helpers/research-assist-fixture";
 
 /**
- * Backlog item 10's PR 10.b (BL-20261117-1036-assist-wiring-design): item 10's real wrapper inside the pipeline, the stage record and
+ * Backlog item 10's PR 10.b (BL-20261117-1131-assist-wiring-design): item 10's real wrapper inside the pipeline, the stage record and
  * the ready gate's reading of it, the protocol binding, and the wrapper's three additions. The cloud is a capturing fake that answers
  * by the provider's documented caching rules; no request leaves the process.
  */
@@ -180,7 +180,7 @@ describe("10.b: the wrapper's additions (decision 9)", () => {
 
   it("records the served model on a settled attempt only, as a model identifier of at most 200 characters, never free text", async () => {
     for (const good of ["claude-sonnet-5-5", "gpt-6-sol", "models/gemini-2.5@001", "Qwen3.6-27B:fp8"]) expect(assistServedModel(good)).toBe(good);
-    for (const bad of [undefined, "", "m".repeat(ASSIST_SERVED_MODEL_MAX_CHARS + 1), "model\u0000", 7, "claude sonnet", "gpt-6-sol\n", "-leading-dash", "see /Users/someone/x"]) expect(assistServedModel(bad)).toBeUndefined();
+    for (const bad of [undefined, "", "m".repeat(ASSIST_SERVED_MODEL_MAX_CHARS + 1), "model\u0000", 7, "claude sonnet", "gpt-6-sol\n", "-leading-dash", "see /var/data/x"]) expect(assistServedModel(bad)).toBeUndefined();
     expect(assistServedModel("m".repeat(ASSIST_SERVED_MODEL_MAX_CHARS))).toHaveLength(ASSIST_SERVED_MODEL_MAX_CHARS);
     const refused = { version: 1, touchpoint: "T1", ordinal: 1, retryAfterTruncation: false, outcome: "refused", code: "budget_denied", dispatched: false };
     expect(ResearchAssistAttemptRecordSchema.safeParse(refused).success).toBe(true);

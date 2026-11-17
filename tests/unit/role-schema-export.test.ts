@@ -1,22 +1,26 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
-import { PrivateAgentModel, vllmCacheSalt } from "../../src/main/private-agent/model";
+import { PrivateAgentModel, jsonSchemaResponseFormat, vllmCacheSalt } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { researchSynthesisLengthCap } from "../../src/main/private-agent/research-admission";
 import { ResearchSynthesisSchema, deriveBriefUnits } from "../../src/main/private-agent/research-coverage";
 import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research-plan";
-import { EXTRACT_SYSTEM, ExtractReplySchema, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, runResearchPipeline, synthesisLengthCap } from "../../src/main/private-agent/research-pipeline";
-import { P10_JOB_ID, P10_ROLES, P10_THINKING_MODES, buildRoleSchemaExport, syntheticRoleCorpus, type RequestSettings } from "../../scripts/export-role-schemas";
+import { EXTRACT_SYSTEM, ExtractReplySchema, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, RESEARCH_ROLE_SCHEMAS, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, runResearchPipeline, synthesisLengthCap } from "../../src/main/private-agent/research-pipeline";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import { DEFAULT_ROLE_SCHEMAS_PATH, P10_JOB_ID, P10_ROLES, P10_THINKING_MODES, SYNTHETIC_REQUEST_SETTINGS, buildRoleSchemaExport, parseRoleSchemaExportArguments, syntheticRoleCorpus,
+  type RequestSettings, type RoleSchemaExport } from "../../scripts/export-role-schemas";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
-import { servingCardRequestSettings } from "../../src/main/private-agent/serving-card";
+import { RESEARCH_ROLE_MAX_OUTPUT_TOKENS, parseServingCard, resolveServingCard, servingCardRequestSettings, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
+import { adopt, currentSyntheticProbe, runCardWriter } from "../helpers/serving-card-fixture";
+import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
 
 const ROOT = resolve(__dirname, "..", "..");
 const cleanups: (() => void)[] = [];
@@ -155,5 +159,120 @@ describe("role schema export for probe P10", () => {
       streamingEnabled: recorded.streaming };
     const expected = buildRoleSchemaExport(written.generatedUtc, settings);
     expect(written).toEqual(JSON.parse(JSON.stringify(expected)));
+  });
+});
+
+// Topic 6 (BL-20261117-1000-p10-plan-cap-export-design): a plan cap for P10's re-probe, so a card can flag the planner at 16,384.
+describe("role schema export with a plan cap (topic 6)", () => {
+  const settings: RequestSettings = { vllm: { model: "Synthetic" }, streamingEnabled: true };
+
+  it("builds both plan cells at the cap and records it as the plan's output cap, and changes nothing else", () => {
+    const today = buildRoleSchemaExport("2026-11-17T00:00:00.000Z", settings), capped = buildRoleSchemaExport("2026-11-17T00:00:00.000Z", settings, { planCap: 16384 });
+    // Without a cap the export is today's, with the pipeline's own caps object.
+    expect(canonical(buildRoleSchemaExport("2026-11-17T00:00:00.000Z", settings, {}))).toBe(canonical(today)); expect(today.outputTokens).toBe(OUTPUT_TOKENS);
+    expect(capped.outputTokens).toEqual({ index: 1536, plan: 16384, extract: 2048, synthesis: 8192 });
+    const model = new PrivateAgentModel({} as PrivateAgentBroker, buildLocalScreenModelConfig(settings as never, COORDINATOR_PROFILES.heavy, true), P10_JOB_ID, "p10");
+    for (const mode of P10_THINKING_MODES) {
+      const cell = capped.requests.plan[mode], messages = cell.body.messages as { role: "system" | "user"; content: string }[];
+      const expected = model.requestBody(messages, [], { maxOutputTokens: 16384, ...(mode === "off" ? { thinking: "disabled" as const } : {}) }).body;
+      expect(canonical(cell.body)).toBe(expected); expect(cell.bodySha256).toBe(digest(expected)); expect(cell.body.max_tokens).toBe(16384);
+      // Each plan body is today's with its cap replaced, and nothing else.
+      expect({ ...cell.body, max_tokens: OUTPUT_TOKENS.plan }).toEqual(today.requests.plan[mode].body);
+    }
+    const rest = ({ outputTokens: _caps, requests: { plan: _plan, ...requests }, ...other }: RoleSchemaExport) => ({ requests, other });
+    expect(rest(capped)).toEqual(rest(today));
+    // Only a cap the reader accepts: above the Heavy profile's limit the model layer would clamp the body without a word.
+    for (const planCap of [127, RESEARCH_ROLE_MAX_OUTPUT_TOKENS + 1, 0, -8192, 8192.5, Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() => buildRoleSchemaExport(undefined, settings, { planCap })).toThrow("role_export_plan_cap_invalid");
+    expect(buildRoleSchemaExport(undefined, settings, { planCap: 128 }).requests.plan.off.body.max_tokens).toBe(128);
+    expect(RESEARCH_ROLE_MAX_OUTPUT_TOKENS).toBe(16384);
+  });
+
+  it("reads --out and --plan-cap, each once, after one leading --, and refuses anything else", () => {
+    expect(parseRoleSchemaExportArguments([])).toEqual({ out: DEFAULT_ROLE_SCHEMAS_PATH });
+    expect(parseRoleSchemaExportArguments(["--"])).toEqual({ out: DEFAULT_ROLE_SCHEMAS_PATH });
+    expect(parseRoleSchemaExportArguments(["--", "--out", "x.json", "--plan-cap", "16384"])).toEqual({ out: "x.json", planCap: 16384 });
+    expect(parseRoleSchemaExportArguments(["--plan-cap", "128", "--out", "x.json"])).toEqual({ out: "x.json", planCap: 128 });
+    for (const args of [["--plan-cap", "127"], ["--plan-cap", "16385"], ["--plan-cap", "0"], ["--plan-cap", "-8192"], ["--plan-cap", "8192.5"], ["--plan-cap", "1e4"],
+      ["--plan-cap", "08192"], ["--plan-cap", " 8192"], ["--plan-cap", "0x2000"], ["--plan-cap", ""], ["--plan-cap"], ["--plan-cap", "--out", "x.json"], ["--out"],
+      ["--out", "a.json", "--out", "b.json"], ["--plan-cap", "8192", "--plan-cap", "16384"], ["--plan-caps", "16384"], ["--plan-cap=16384"], ["--out=x.json"],
+      ["x.json"], ["--", "--", "--out", "x.json"], ["--out", "x.json", "--"], ["--out", ""], ["--out", "--plan-cap"], ["--out", "--plan-cap", "16384"]])
+      expect(() => parseRoleSchemaExportArguments(args), JSON.stringify(args)).toThrow("role_export_arguments_invalid");
+    // An option's value is never empty and never another option: the file would otherwise be named after the option.
+    for (const option of ["--out", "--plan-cap"]) for (const value of [[], [""], ["--out"]])
+      expect(() => parseRoleSchemaExportArguments([option, ...value])).toThrow(`role_export_arguments_invalid: ${option} needs a value`);
+    expect(() => parseRoleSchemaExportArguments(["--plan-cap", "16385"])).toThrow("role_export_arguments_invalid: --plan-cap takes an integer from 128 to 16384");
+    expect(() => parseRoleSchemaExportArguments(["--plan-cap", "8192", "--plan-cap", "16384"])).toThrow("role_export_arguments_invalid: --plan-cap given twice");
+  });
+
+  it("is what the pipeline sends under a card with the planner at 16,384 and its thinking-on mode flagged: P10's plan/on body plus the format P10 adds", async () => {
+    const unstreamed: RequestSettings = { vllm: { model: "Synthetic" }, streamingEnabled: false };
+    const data = buildRoleSchemaExport(undefined, unstreamed, { planCap: 16384 }), { brief, sources } = syntheticRoleCorpus();
+    const exportedPlan = JSON.parse(data.payloads.extract.userContent.split("\n")[0]!).plan, sent: Record<string, unknown>[] = [];
+    const request = vi.fn(async (input: { body: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string; sent.push(body);
+      const content = system.startsWith("You plan") ? JSON.stringify(exportedPlan) : researchV4Reply(system, user);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const config = buildLocalScreenModelConfig(unstreamed as never, COORDINATOR_PROFILES.heavy, true);
+    const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, P10_JOB_ID, "reader");
+    // The planner a card written from that export's probe proposes, as the reader returns it once adopted.
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy;
+    roles.plan = { maxOutputTokens: [16384, 16384], thinking: ["model", "model"], structuredOutput: { variant: "strict", thinkingOff: false, thinkingOn: true } };
+    const outcome = await runResearchPipeline({ brief, sources, models: { reader: make(), planner: make(), synthesiser: make() }, signal: new AbortController().signal, record: () => {}, roles });
+    expect(outcome.status).toBe("completed");
+    const plans = sent.filter(body => (body.messages as { content: string }[])[0]!.content === PLAN_SYSTEM);
+    expect(plans).toHaveLength(1); expect(plans[0]!.max_tokens).toBe(16384);
+    // The format P10 adds is the pipeline's own (pinned in serving-probe-helpers.test.ts, item 9); every field but the user message is P10's.
+    const probed = { ...data.requests.plan.on.body, response_format: jsonSchemaResponseFormat({ ...RESEARCH_ROLE_SCHEMAS.plan, strict: true }) };
+    const transport = (body: Record<string, unknown>) => { const { messages: _messages, ...rest } = body; return rest; };
+    expect(transport(plans[0]!)).toEqual(transport(probed));
+  });
+
+  it("reaches the card through the probe's record: the writer proposes the planner at 16,384 beside P10's plan cells at 16,384, and the reader resolves its flag", () => {
+    // What scripts/serving-probe.py records from an export: its caps under roles.output_tokens, and each P10 cell's cap from the body it sent.
+    const probeOf = (data: RoleSchemaExport) => {
+      const probe = currentSyntheticProbe(); probe.roles.output_tokens = { ...data.outputTokens };
+      for (const role of P10_ROLES) for (const mode of P10_THINKING_MODES) probe.P10.cells[`${role}/${mode}`].max_tokens = data.requests[role][mode].body.max_tokens;
+      return probe;
+    };
+    const cardOf = (data: RoleSchemaExport) => { const run = runCardWriter(probeOf(data)); expect(run.status, run.stderr).toBe(0); return parseServingCard(run.policy!); };
+    const capped = cardOf(buildRoleSchemaExport(undefined, SYNTHETIC_REQUEST_SETTINGS, { planCap: 16384 })), today = cardOf(buildRoleSchemaExport(undefined, SYNTHETIC_REQUEST_SETTINGS));
+    expect(capped.roles.plan).toEqual({ maxOutputTokens: [16384, 16384], thinking: ["model", "model"], structuredOutput: { variant: "strict", thinkingOff: false, thinkingOn: true } });
+    expect([capped.evidence.p10!.cells["plan/on"]!.maxTokens, capped.evidence.p10!.cells["plan/off"]!.maxTokens]).toEqual([16384, 16384]);
+    expect(today.roles.plan.maxOutputTokens).toEqual([8192, 8192]);
+    // Apart from the probe's digest, only the planner's caps and its two cells' caps differ from the card today's export gives.
+    const others = (card: ServingCardV1) => {
+      const copy = structuredClone(card) as any; copy.probe.sha256 = null; copy.roles.plan.maxOutputTokens = null;
+      for (const mode of P10_THINKING_MODES) copy.evidence.p10.cells[`plan/${mode}`].maxTokens = null;
+      return copy;
+    };
+    expect(others(capped)).toEqual(others(today));
+    const expectation = { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } };
+    expect(resolveServingCard(adopt(capped), expectation).roles.plan).toEqual(capped.roles.plan);
+    // Without the cap no card can keep plan's flag at 16,384: its cell measured 8,192.
+    const moved = adopt(today); moved.roles.plan.maxOutputTokens = [16384, 16384];
+    expect(() => resolveServingCard(moved, expectation)).toThrow("serving_card_structured_output_cap_unmeasured");
+  });
+
+  it("takes --plan-cap from the command line, prints the caps it wrote, and refuses another argument with exit 2 and no file", () => {
+    const root = mkdtempSync(join(tmpdir(), "soar-role-schemas-cap-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const run = (args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "scripts/export-role-schemas.ts", ...args],
+      { cwd: ROOT, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } });
+    const out = join(root, "capped.json"), written = run(["--", "--out", out, "--plan-cap", "16384"]);
+    expect(written.status, written.stderr).toBe(0);
+    const printed = JSON.parse(written.stdout), file = JSON.parse(readFileSync(out, "utf8"));
+    expect(printed.outputTokens).toEqual({ index: 1536, plan: 16384, extract: 2048, synthesis: 8192 }); expect(file.outputTokens).toEqual(printed.outputTokens);
+    expect(P10_THINKING_MODES.map(mode => file.requests.plan[mode].body.max_tokens)).toEqual([16384, 16384]);
+    expect(printed.bodySha256.plan).toEqual({ on: file.requests.plan.on.bodySha256, off: file.requests.plan.off.bodySha256 });
+    // The file reproduces from the builder with the same cap, under the settings it records.
+    const recorded = file.requestSettings, under: RequestSettings = { vllm: { model: recorded.model, ...(recorded.localReplyContract
+      ? { localReplyContract: recorded.localReplyContract, localContextTokens: recorded.localContextTokens } : {}) }, streamingEnabled: recorded.streaming };
+    expect(file).toEqual(JSON.parse(JSON.stringify(buildRoleSchemaExport(file.generatedUtc, under, { planCap: 16384 }))));
+    for (const args of [["--plan-cap", "16385"], ["--plan-caps", "16384"]]) {
+      const target = join(root, `refused-${args[0]}.json`), refused = run(["--out", target, ...args]);
+      expect(refused.status).toBe(2); expect(refused.stdout).toBe(""); expect(refused.stderr).toContain("role_export_arguments_invalid"); expect(existsSync(target)).toBe(false);
+    }
   });
 });

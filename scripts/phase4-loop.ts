@@ -6,12 +6,16 @@
  * selection protocol 2 (backlog item 11, BL-20261109-0331) a tie keeps sample a over b and the selected draft over its
  * repair, and the entailment rates are recorded evidence only.
  *
- *   node --import tsx scripts/phase4-loop.ts --select-and-repair --loop-directory LOOP <the driver's flags, without --output-directory, --repair-from or --research-from>
+ *   node --import tsx scripts/phase4-loop.ts --select-and-repair --loop-directory LOOP [--samples 1|2] <the driver's flags, without --output-directory, --repair-from or --research-from>
  *   node --import tsx scripts/phase4-loop.ts --close --loop-directory LOOP
  *
  * Research tasks (--pipeline research): sample a runs the one reading stage; sample b and the repair write from a's packet
  * (--research-from), so the loop makes at most one stage's planner and synthesiser calls under sample a's own fee cap. When
  * a's stage leaves no packet the loop ends there: no second stage is ever paid for.
+ *
+ * Single-sample mode (`--samples 1`, BL-20261117-1055-loop-single-sample-design; E3's standing default): sample a, the critique of a
+ * and the repair of a, never b; stage 1 records a with the step `single_sample`, and loop.json records `samplesPlanned`. The default
+ * is two samples (E6's review-2 arm), and a loop is resumed only under the sample count it started with.
  *
  * Resume (LOOP_VERSION 2, backlog item 11, part 3b, BL-20261113-0836-infra-resume-design): an invocation holds the loop's
  * lock (`loop.lock`) for its whole run and saves `loop.json` atomically. A stage whose directory holds its result is reused
@@ -21,7 +25,7 @@
  * seeded from the moved run). A stage directory without a freeze is a start that sent nothing, moved to `<stage>.void-<n>`.
  * The operator never moves a directory by hand; every moved run's spend stays in the record's totals. A loop that cannot go
  * on stops for good (`stopped`), and `--close` ends a loop at any other stop. A loop is never resumed under another loop
- * version, selection protocol, runtime, task, arm or pipeline, and a loop that has chosen or stopped for good is terminal.
+ * version, selection protocol, runtime, task, arm, pipeline or sample count, and a loop that has chosen or stopped for good is terminal.
  */
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -32,22 +36,26 @@ import { repairDraftPaths } from "../src/main/private-agent/repair";
 import { researchTransferStatus } from "../src/main/private-agent/research-seed";
 import { LOOP_INTEGRITY_STOPS, RUN_CLASSIFICATION_VERSION, RUN_UNFINISHED_CAUSE, classifyCritiqueEnd, classifyLoopStop, classifyRunEnd, ledgerStop, type LoopStopRun, type RunClass,
   type RunEndEvidence } from "../src/main/private-agent/run-classification";
-import { SELECTION_PROTOCOL_VERSION, ZERO_FEE_DESTINATIONS, compareCandidates, readRunEndEvidence, readRunLedger, readRunObject, summarizeRun, type CandidateSummary, type RunLedger,
-  type SelectionStep } from "../src/main/private-agent/selection";
+import { SELECTION_PROTOCOL_VERSION, ZERO_FEE_DESTINATIONS, compareCandidates, entailmentRate, readRunEndEvidence, readRunLedger, readRunObject, summarizeRun, type CandidateSummary,
+  type RunLedger, type SelectionStep } from "../src/main/private-agent/selection";
 import { servingCardRefusal } from "../src/main/private-agent/serving-card";
 import { critique, type CritiqueArguments } from "./phase2-repair";
 import { loadPreparedOperatorTask } from "./private-agent-run";
-import { localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen } from "./private-agent-local-screen";
+import { localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen, type LocalScreenInput } from "./private-agent-local-screen";
 
 export const LOOP_VERSION = 2;
-export type DriverInput = Parameters<typeof runLocalArtifactScreen>[0];
+export type DriverInput = LocalScreenInput;
 export type LoopCandidate = "a" | "b" | "repair";
 export type LoopStage = LoopCandidate | "critique";
 const STAGES: readonly LoopStage[] = ["a", "b", "critique", "repair"];
+/** BL-20261117-1055-loop-single-sample-design: the samples a loop draws before its critique, two unless `--samples 1`. */
+export type LoopSamples = 1 | 2;
 export interface LoopInput {
   /** The driver's input for one sample; its output directory, repair and seed are set per stage by the loop. */
   base: Omit<DriverInput, "outputDirectory" | "repairFrom" | "researchFrom">;
   loopDirectory: string;
+  /** Absent: two samples. */
+  samples?: LoopSamples;
 }
 export interface CritiqueUsage { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }
 export interface CritiqueRecord { packetSha256: string; critiqueSha256: string; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null;
@@ -98,6 +106,8 @@ type FinalStep = SelectionStep | "stage_failed" | "no_draft" | "critique_failed"
 export interface LoopRecord {
   version: typeof LOOP_VERSION; selectionRule: typeof SELECTION_PROTOCOL_VERSION; startedAt: string; finishedAt: string | null;
   task: { jobSha256: string; briefSha256: string }; runtimeSha256: string; arm: "local" | "cloud"; pipeline: "research" | null;
+  /** BL-20261117-1055-loop-single-sample-design: the samples the loop planned; a record saved before it holds none and planned two. */
+  samplesPlanned: LoopSamples;
   stages: LoopStageRecord[];
   begun: BegunEntry[]; resumes: ResumeEntry[]; voids: VoidEntry[];
   candidates: { a: CandidateSummary | null; b: CandidateSummary | null; repair: CandidateSummary | null };
@@ -106,7 +116,8 @@ export interface LoopRecord {
   writeIdentityEqual: boolean | null;
   critique: { packetSha256: string; critiqueSha256: string; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null; modelCalls: number }
     | { failure: string; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null; modelCalls: number } | null;
-  selected: { stage1: { candidate: "a" | "b"; step: SelectionStep; entailmentRates: [number | null, number | null] } | null;
+  /** A single-sample loop's stage 1 is sample a with the step `single_sample`: no comparison ran, and a's rate is evidence only. */
+  selected: { stage1: { candidate: "a" | "b"; step: SelectionStep | "single_sample"; entailmentRates: [number | null, number | null] } | null;
     /** `seedRefusal`: the seed loader's code at `stage_failed` (backlog item 4). `cause`: why a `critique_failed` or `repair_failed` loop stopped (part 3b). */
     final: { candidate: LoopCandidate; step: FinalStep; entailmentRates?: [number | null, number | null]; seedRefusal?: string; cause?: string } | null };
   totals: Totals;
@@ -154,8 +165,10 @@ const DRIVER_INPUT_SPEND: { readonly [K in keyof Required<DriverInput>]: "free" 
   taskDirectory: "free", expectedJobSha256: "free", expectedBriefSha256: "free", syntheticAuthoritySha256: "free", expectedRuntimeSha256: "free", imageId: "free",
   outputDirectory: "free", publicRetrieval: "free", publicSnapshot: "free", pauseAfterTools: "free", profile: "free", claimsLedger: "free", cacheSalt: "free",
   pipeline: "free", documentReview: "free", cloudArm: "spends", repairFrom: "free", researchFrom: "free", retainDiagnostics: "free",
-  // 10.b (BL-20261117-1036-assist-wiring-design, decision 10): the assist arm's firing spends nothing of its own; only the cloud arm it needs spends.
+  // 10.b (BL-20261117-1131-assist-wiring-design, decision 10): the assist arm's firing spends nothing of its own; only the cloud arm it needs spends.
   assistFiring: "free",
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): both are refused on the loop's command line, and neither spends.
+  writeBound: "free", dryRun: "free",
 };
 /** Whether a rerun with this driver input cannot spend: every key set is marked spend-free, and none is unknown. */
 export function rerunCannotSpend(input: Partial<DriverInput>): boolean {
@@ -195,6 +208,8 @@ export function ledgerDependencies(): Pick<LoopDependencies, "readRunEnd" | "rea
 /** Every sample runs under the heavy profile with a local writer: a cloud writer is the all-cloud arm, which is a single run and never a loop. */
 export function checkLoopInput(base: LoopInput["base"]): void {
   if (base.profile !== "heavy" || (base.cloudArm !== undefined && base.pipeline !== "research")) throw new Error("loop_cli_invalid");
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run, however its input was built.
+  if (base.writeBound !== undefined || base.dryRun !== undefined) throw new Error("loop_cli_invalid");
 }
 
 /** A stop the loop cannot resume past (decision (6)), with what the stopped stage left, for the stop's class. */
@@ -317,15 +332,18 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
 async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies, control: { signal?: AbortSignal }): Promise<LoopRecord> {
   const log = (line: string) => appendFileSync(join(loop, "log.txt"), `${deps.now()} ${line}\n`, { mode: 0o600 });
   // A loop that already chose or stopped for good is terminal; a loop that stopped earlier keeps its start, the times of the stages
-  // it reuses, its begun stages and its moves, and only under the version, selection rule, runtime, task, arm and pipeline it started
-  // with (its record is left as it was).
+  // it reuses, its begun stages and its moves, and only under the version, selection rule, runtime, task, arm, pipeline and sample count
+  // it started with (its record is left as it was).
   let prior: LoopRecord | undefined;
+  // BL-20261117-1055-loop-single-sample-design: two samples unless `--samples 1`.
+  const samples: LoopSamples = input.samples ?? 2;
   if (existsSync(join(loop, "loop.json"))) {
     prior = JSON.parse(readFileSync(join(loop, "loop.json"), "utf8")) as LoopRecord;
     if (prior.selected?.final || prior.stopped) throw new Error("loop_terminal");
     if (!Array.isArray(prior.stages) || prior.version !== LOOP_VERSION || prior.selectionRule !== SELECTION_PROTOCOL_VERSION || prior.runtimeSha256 !== input.base.expectedRuntimeSha256 ||
         prior.task?.jobSha256 !== input.base.expectedJobSha256 || prior.task?.briefSha256 !== input.base.expectedBriefSha256 ||
-        prior.arm !== (input.base.cloudArm ? "cloud" : "local") || prior.pipeline !== (input.base.pipeline ?? null) || !priorFields(prior)) throw new Error("loop_record_mismatch");
+        prior.arm !== (input.base.cloudArm ? "cloud" : "local") || prior.pipeline !== (input.base.pipeline ?? null) || ("samplesPlanned" in prior ? prior.samplesPlanned : 2) !== samples ||
+        !priorFields(prior)) throw new Error("loop_record_mismatch");
   }
   const carried: CarriedFields = prior ? priorFields(prior)! : { begun: [], resumes: [], voids: [], candidates: { a: null, b: null, repair: null }, critique: null,
     seeded: { a: false, b: false, repair: false, snapshotSha256: null }, writeIdentityEqual: null, held: null, stage1: null };
@@ -333,6 +351,7 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
   reconcile(loop, carried, log);
   const record: LoopRecord = { version: LOOP_VERSION, selectionRule: SELECTION_PROTOCOL_VERSION, startedAt: prior?.startedAt ?? deps.now(), finishedAt: null,
     task: { jobSha256: input.base.expectedJobSha256, briefSha256: input.base.expectedBriefSha256 }, runtimeSha256: input.base.expectedRuntimeSha256, arm: input.base.cloudArm ? "cloud" : "local", pipeline: input.base.pipeline ?? null,
+    samplesPlanned: samples,
     // A stage's interrupt mark (backlog item 11) outlives every invocation that stops before reaching that stage.
     stages: (prior?.stages ?? []).filter(entry => entry.interrupted === true).map(entry => ({ ...entry })),
     begun: carried.begun.map(entry => ({ ...entry })), resumes: carried.resumes.map(entry => ({ ...entry })), voids: carried.voids.map(entry => ({ ...entry })),
@@ -580,14 +599,21 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
       const seedRefusal = transfer?.code ?? undefined;
       record.selected.final = { candidate: "a", step: "stage_failed", ...(seedRefusal ? { seedRefusal } : {}) }; log(`stage failed in a (${seedRefusal ?? "no_packet"}): loop ends`); return record;
     }
-    record.seeded.b = research; record.seeded.snapshotSha256 = packet;
+    record.seeded.b = research && samples === 2; record.seeded.snapshotSha256 = packet;
     const lineage = (): Expectation => research ? { seededFrom: sourceJob, packet, sourceFreeze } : { seededFrom: null };
-    const b = await candidate("b", () => ({ ...input.base, outputDirectory: bDir, ...(research ? seeded(packetSource) : {}) }), lineage);
-    record.writeIdentityEqual = a.writeIdentity !== null && b.writeIdentity !== null ? a.writeIdentity === b.writeIdentity : null;
-    const first = compareCandidates(a, b);
-    const chosen: "a" | "b" = first.winner === "first" ? "a" : "b";
-    record.selected.stage1 = { candidate: chosen, step: first.step, entailmentRates: first.entailmentRates }; save();
-    log(`stage1 ${chosen} (${first.step})`);
+    let chosen: "a" | "b" = "a";
+    if (samples === 1) {
+      // BL-20261117-1055-loop-single-sample-design: one sample and no comparison; a's entailment rate is evidence only, as a comparison's is.
+      record.selected.stage1 = { candidate: "a", step: "single_sample", entailmentRates: [entailmentRate(a.entailment), null] }; save();
+      log("stage1 a (single_sample)");
+    } else {
+      const b = await candidate("b", () => ({ ...input.base, outputDirectory: bDir, ...(research ? seeded(packetSource) : {}) }), lineage);
+      record.writeIdentityEqual = a.writeIdentity !== null && b.writeIdentity !== null ? a.writeIdentity === b.writeIdentity : null;
+      const first = compareCandidates(a, b);
+      chosen = first.winner === "first" ? "a" : "b";
+      record.selected.stage1 = { candidate: chosen, step: first.step, entailmentRates: first.entailmentRates }; save();
+      log(`stage1 ${chosen} (${first.step})`);
+    }
     const selected = record.candidates[chosen]!;
     if (!selected.artifactsPresent) { record.selected.final = { candidate: chosen, step: "no_draft" }; log("no draft to repair"); return record; }
 
@@ -770,13 +796,18 @@ export async function closeLoop(loopDirectory: string, deps: Pick<LoopDependenci
 /** The loop takes the driver's own flags; the per-stage output, repair and seed are the loop's to set. */
 export function parseLoopArguments(args: string[]): LoopInput {
   if (args[0] !== "--select-and-repair" || args.length % 2 !== 1 || args.indexOf("--loop-directory") < 1 || args.indexOf("--loop-directory") % 2 !== 1) throw new Error("loop_cli_invalid");
-  for (const name of ["--output-directory", "--repair-from", "--research-from", "--pause-after-tools"]) if (args.includes(name)) throw new Error("loop_cli_invalid");
+  // E2: no stage takes a named write bound, and the loop has no dry run of its own.
+  for (const name of ["--output-directory", "--repair-from", "--research-from", "--pause-after-tools", "--write-bound", "--dry-run"]) if (args.includes(name)) throw new Error("loop_cli_invalid");
   const at = args.indexOf("--loop-directory"), loopDirectory = args[at + 1]!;
   if (!loopDirectory) throw new Error("loop_cli_invalid");
   const rest = [...args.slice(1, at), ...args.slice(at + 2)];
+  // BL-20261117-1055-loop-single-sample-design: `--samples 1` or `--samples 2` is the loop's own flag, taken out before the driver parses the rest.
+  const samplesAt = rest.indexOf("--samples");
+  if (samplesAt >= 0 && (samplesAt % 2 !== 0 || !["1", "2"].includes(rest[samplesAt + 1] ?? "") || rest.indexOf("--samples", samplesAt + 1) >= 0)) throw new Error("loop_cli_invalid");
+  const samples = samplesAt >= 0 ? Number(rest.splice(samplesAt, 2)[1]) as LoopSamples : undefined;
   const { outputDirectory: _ignored, ...base } = parseLocalArtifactScreenArguments(["--execute-synthetic-local", ...rest, "--output-directory", "loop-stage"]);
   checkLoopInput(base);
-  return { base, loopDirectory };
+  return { base, loopDirectory, ...(samples !== undefined ? { samples } : {}) };
 }
 /** `--close --loop-directory LOOP`: nothing else. */
 export function parseCloseArguments(args: string[]): string {

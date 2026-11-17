@@ -107,7 +107,7 @@ function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Ru
 }
 
 /**
- * 10.b (BL-20261117-1036-assist-wiring-design, decision 5): the assist arm on the fixture's loopback cloud destination, which never answers
+ * 10.b (BL-20261117-1131-assist-wiring-design, decision 5): the assist arm on the fixture's loopback cloud destination, which never answers
  * unless a test answers it: the Responses shape in the no-write mode at the published prices, the cloud arm's fee cap, and the phase's goal
  * as the authored brief. The planner and synthesiser stay the fixture's zero-fee local model.
  */
@@ -784,7 +784,7 @@ describe("E1 recoverability: known limitations of the research stage, pinned unt
 
 describe("E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)", () => {
   // E1-2 keeps this describe's name (BL-20261114-2306-e1-recoverability-gate-ci-verified, decision 3). Until 10.b the case wrapped the
-  // planner and synthesiser in the test. Since 10.b (BL-20261117-1036-assist-wiring-design, decision 12) it re-proves clause 3 end to
+  // planner and synthesiser in the test. Since 10.b (BL-20261117-1131-assist-wiring-design, decision 12) it re-proves clause 3 end to
   // end: the session's own assist option, item 10's real wrapper, the real broker and ledger, and the producer.
   it("lets a plan assist that timed out stay unknown with its reservation pinned, suppresses the later assist, refuses any later cloud call before a row, and reaches the writer", async () => {
     const f = await fixture(), runs: Run[] = [], jobId = "job-assist-unknown", config = withAssist(f, options(f, jobId, runs));
@@ -897,7 +897,7 @@ describe("backlog item 8.2b: the session's K reaches the reader's loops and the 
   }, 20_000);
 });
 
-describe("10.b: the session's assist option (BL-20261117-1036-assist-wiring-design, decision 5)", () => {
+describe("10.b: the session's assist option (BL-20261117-1131-assist-wiring-design, decision 5)", () => {
   const assistModel = (f: Awaited<ReturnType<typeof fixture>>, jobId: string, destinationId: string, mode?: Parameters<typeof assistModelConfig>[1]) =>
     (contextId: string) => new PrivateAgentModel(f.broker, { ...assistModelConfig("openai_responses", mode), destinationId }, jobId, contextId);
   it("refuses, before any dispatch, an assist without a cloud arm, beside a priced planner, on another destination, or one the wrapper refuses to build", async () => {

@@ -131,7 +131,7 @@ describe("T1, the plan assist packet", () => {
     const large = await wrap(f.model, { authoredBrief: authored }).plan!(run.plan, signal());
     expect(large).toMatchObject({ kind: "no_reply", outcome: "refused", code: ASSIST_CODES.briefTooLarge });
     expect(attemptRecord(large)).toMatchObject({ outcome: "refused", dispatched: false, packet: { briefBytes: Buffer.byteLength(authored) } });
-    // 10.b (BL-20261117-1036-assist-wiring-design, decision 9b; C8): the brief bound holds at T2 too, so the scrubber never reads a longer brief.
+    // 10.b (BL-20261117-1131-assist-wiring-design, decision 9b; C8): the brief bound holds at T2 too, so the scrubber never reads a longer brief.
     expect(await wrap(f.model, { authoredBrief: authored }).synthesis!(run.synthesis, signal())).toMatchObject({ kind: "no_reply", outcome: "refused", code: ASSIST_CODES.briefTooLarge });
     const other = await wrap(f.model, { authoredBrief: "A different brief." }).plan!(run.plan, signal());
     expect(other).toMatchObject({ kind: "stop", code: ASSIST_CODES.briefNotPrefix });
@@ -443,7 +443,7 @@ describe("the assist protocol block and the records", () => {
     expect(block.packet.scrub.patterns.path.length).toBeGreaterThan(5);
     expect(block.packet.evidenceTemplate).toContain("notes withheld");
     // Pinned: any change to a prompt, bound, code list or scrub rule must change these on purpose (scrub policy version 5; since 10.b
-    // the field caps, the brief bound at both touchpoints, T2's local trim counts and the field-length refusal code, BL-20261117-1036).
+    // the field caps, the brief bound at both touchpoints, T2's local trim counts and the field-length refusal code, BL-20261117-1131).
     expect(researchAssistProtocolSha256("forced_split")).toBe("e887963a0c4198e6b41be81607a496720b61bc325609cd33d0bbdcf29d78b0bb");
     expect(researchAssistProtocolSha256("local_first")).toBe("0cdb73d752fa40e23ad307adaea4179f3a02e152b481f3a0166102099e7a1e5c");
   });

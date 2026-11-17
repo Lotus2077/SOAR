@@ -79,7 +79,7 @@ export interface GeneralSessionOptions {
      */
     diagnostics?: ResearchDiagnosticsSink;
     /**
-     * 10.b (BL-20261117-1036-assist-wiring-design, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
+     * 10.b (BL-20261117-1131-assist-wiring-design, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
      * session builds one wrapper per reading stage, with the cloud arm's fee cap. Before any dispatch it refuses
      * (`session_research_assist_invalid`) an assist without a cloud arm, one whose planner or synthesiser is not zero-risk local, one
      * whose model is not on the cloud arm's destination, and one the wrapper refuses to build. The firing binds the protocol hash, and

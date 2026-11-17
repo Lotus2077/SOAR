@@ -151,7 +151,7 @@ export interface ResearchStageCounts {
   /** 7b.2: plan questions with a verified quote and none in the packet, and the omissions only the presentation guard made (also counted in quotesLeftByCap). */
   questionsTrimmed?: number; quotesLeftByPresentation?: number;
   /**
-   * 10.b (BL-20261117-1036-assist-wiring-design, decision 7): the touchpoint's assist record, on the plan row (T1) and the synthesise
+   * 10.b (BL-20261117-1131-assist-wiring-design, decision 7): the touchpoint's assist record, on the plan row (T1) and the synthesise
    * row (T2), only when a hook is configured, fired or not. Its usage is already in the row's own usage and is never added again.
    */
   assist?: ResearchAssistStageRecord;
@@ -188,7 +188,7 @@ export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; r
 /**
  * The protocol's digest. 7a.2: a role policy is bound only when nonDefaultRoleParameters finds a value (the predicate the serving-card
  * reader's fail-closed step shares), so without a card, or under a card whose values are all default, the value is unchanged. Item 9:
- * the binding (researchRolePolicyBinding) adds the structured-output rule only when a flag is set. 10.b (BL-20261117-1036-assist-wiring-design,
+ * the binding (researchRolePolicyBinding) adds the structured-output rule only when a flag is set. 10.b (BL-20261117-1131-assist-wiring-design,
  * decision 6): with an assist configured, its firing binds the assist protocol block (research-assist.ts); without one, nothing changes.
  */
 export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY, assist?: ResearchAssistFiring): string {
@@ -392,7 +392,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const roles: ResearchRolePolicy = parsedRoles?.success ? parsedRoles.data : DEFAULT_RESEARCH_ROLE_POLICY;
   // 7(c): the hook object is the host's (item 10's wrapper). Its shape is checked here, once, so that reading it later can neither
   // throw nor return another shape: a firing the contract names, and touchpoints that are functions or absent. 10.b: it is read
-  // before the protocol hash, so the hash binds exactly the firing the stage runs under (BL-20261117-1036-assist-wiring-design, decision 6).
+  // before the protocol hash, so the hash binds exactly the firing the stage runs under (BL-20261117-1131-assist-wiring-design, decision 6).
   let hooks: { firing: ResearchAssists["firing"]; plan?: NonNullable<ResearchAssists["plan"]>; synthesis?: NonNullable<ResearchAssists["synthesis"]> } | undefined, hooksInvalid = false;
   try {
     if (input.assists !== undefined) {
@@ -548,7 +548,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     } catch { return own({ kind: "stop", code: input.signal.aborted ? "cancelled" : "assist_hook_failed" }, "broken"); }
   };
   /**
-   * 10.b (BL-20261117-1036-assist-wiring-design, decision 7): each touchpoint's assist record. Every outcome the hook returns must
+   * 10.b (BL-20261117-1131-assist-wiring-design, decision 7): each touchpoint's assist record. Every outcome the hook returns must
    * carry its attempt record (research-assist-record.ts); a reply or no-reply without one ends the stage as
    * research_assist_record_invalid, so no slot attempt goes unrecorded (BL-20261113-0927-research-v5-design, Limitations). An
    * outcome the pipeline made itself is not the hook's: a cancel before the call leaves the touchpoint unfired, and a broken hook

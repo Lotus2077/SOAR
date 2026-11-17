@@ -25,7 +25,7 @@ import { researchV4Reply } from "../helpers/research-v4-fixture";
  * server answers as an OpenAI-shaped local model and as Anthropic's Messages API, each with the invented reply for the stage
  * its system prompt names. No real model, endpoint or fee is involved. The cloud arm's wiring copies the headless driver's
  * (scripts/private-agent-local-screen.ts). Until 10.b that was the split arm: the reader local, the planner and the synthesiser cloud.
- * Since 10.b (BL-20261117-1036-assist-wiring-design, decision 2) it is the assist arm: the reader, planner and synthesiser local, and the
+ * Since 10.b (BL-20261117-1131-assist-wiring-design, decision 2) it is the assist arm: the reader, planner and synthesiser local, and the
  * cloud model, in the assist cache mode, serving T1 and T2 through item 10's wrapper under the forced split. A PR that rewires it must update this copy.
  */
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -161,7 +161,7 @@ describe("E1 recoverability: the assist arm's Anthropic T1 retried after a 529 s
   }, 20_000);
 });
 
-describe("10.b: a malformed provider reply to an assist, on the real broker (BL-20261113-0921-assist-core-implemented; BL-20261117-1036-assist-wiring-design, decision 12)", () => {
+describe("10.b: a malformed provider reply to an assist, on the real broker (BL-20261113-0921-assist-core-implemented; BL-20261117-1131-assist-wiring-design, decision 12)", () => {
   it("leaves T1's row unknown at settlement, so the wrapper skips it as transport_or_settlement_unknown and latches: T2 is suppressed, and the local stages reach the writer", async () => {
     // On the fixture's fake broker the same bytes stop the stage (assist_failure_unclassified or private_model_response_invalid); the real
     // broker decodes the reply in its fee callback, and a settlement it cannot complete on a priced cloud packet leaves the row unknown.

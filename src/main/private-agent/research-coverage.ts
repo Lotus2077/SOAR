@@ -69,7 +69,7 @@ function validateSynthesisAttempts(stage: { calls: number; invalidReplies: numbe
 export type ResearchPacketFile = { path: string; bytes: Buffer };
 export interface ResearchPacketExpectation { brief?: string; sources?: readonly { id: string; path: string; bytes: Buffer }[]; sourceManifest?: readonly ResearchSourceIdentity[]; protocolSha256?: string; budget?: ResearchBudget;
   /**
-   * 10.b (BL-20261117-1054-assist-wiring-design, decision 8): the firing the packet's stage ran under, where the caller knows it (the
+   * 10.b (BL-20261117-1131-assist-wiring-design, decision 8): the firing the packet's stage ran under, where the caller knows it (the
    * pipeline's own check, the seed loader): a firing requires both touchpoints' records under it, null forbids any; absent, no tie.
    */
   assistFiring?: "local_first" | "forced_split" | null }
@@ -159,7 +159,7 @@ export function renderResearchEvidence(evidence: ResearchEvidence, plan: Researc
 const budgetSchema = z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict();
 const summarySchema = z.object({ version: z.literal(RESEARCH_PIPELINE_VERSION), protocolSha256: sha256Schema, budget: budgetSchema,
   stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional(),
-    // 10.b (BL-20261117-1036-assist-wiring-design, decision 8): a stage's assist record is parsed strictly; every other key passes as before.
+    // 10.b (BL-20261117-1131-assist-wiring-design, decision 8): a stage's assist record is parsed strictly; every other key passes as before.
     assist: ResearchAssistStageRecordSchema.optional() }).passthrough()).length(4) }).strict();
 export function validateReadyResearchPacket(files: readonly ResearchPacketFile[], expected: ResearchPacketExpectation = {}) {
   const names = Object.values(RESEARCH_FILES).sort();

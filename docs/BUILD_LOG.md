@@ -49085,7 +49085,1308 @@ Next gate:
 
 References: BL-20261117-0954-scrub-policy-5-design; BL-20261117-0955-correction-scrub-policy-5-restamp; BL-20261117-0956-scrub-policy-5-implemented; BL-20261117-0957-correction-scrub-policy-5-review; BL-20261117-0958-correction-scrub-policy-5-residues; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1345-experiment-launcher-implemented.
 
-### BL-20261117-1036-assist-wiring-design -- 2026-11-17 -- Item 10's PR 10.b decided: the assist wrapper wired into the reading stage through 7(c)'s hook, with its stage record, its protocol binding, the session's and driver's plumbing, and the legacy split arm switched to the forced split
+### BL-20261117-1000-p10-plan-cap-export-design -- 2026-11-17 -- Topic 6: the role export takes a plan cap, so P10 measures the planner at 16,384 tokens and the writer proposes it there
+
+Status: `Proposed`
+
+Scope or hypothesis: Topic 6 of BL-20261117-0940-owner-direction-decisions-delegated is answered: "The probe's plan cell is measured at 16,384 tokens, by a schema-export change and a full re-probe at zero fee. The serving card is then adopted with the planner at that cap." The coordinating session queued the export change to lane S-pipe. It runs the re-probe and writes the card itself.
+- **Why the change is needed.** The reader refuses a structured-output flag when an attempt that sends it has another cap than its P10 cell measured (`serving_card_structured_output_cap_unmeasured`). P10's plan cells send the export's plan bodies, which carry the pipeline's plan cap, 8,192. So no card can flag a planner at 16,384 today.
+- **What already follows the export.** The probe records each cell's cap from the body it sends. It copies the export's `outputTokens` into probe.json's `roles.output_tokens`. The writer proposes each role's two attempts from those caps, and copies each cell's cap into `evidence.p10`. So an export whose plan bodies and `outputTokens.plan` both say 16,384 carries the cap through to the card, with no other file changed.
+
+Decisions:
+(1) **The option.** `pnpm probe:export-schemas -- --plan-cap <tokens>` builds both plan cells, thinking on and off, at that cap.
+- The bodies are built through `buildRoleRequest`, as today. Only `maxOutputTokens` changes, and with it the body's `max_tokens`.
+- The export records the cap as `outputTokens.plan`. Index, extract and synthesis keep the pipeline's values.
+- **Why record it.** The probe copies `outputTokens` and the writer proposes from it. If the plan bodies ran at 16,384 while `outputTokens` said 8,192, the writer would propose the planner at 8,192 beside a flag measured at 16,384, and the reader would refuse that card.
+- **Why both modes.** The export has one cap per role, as the pipeline does. The plan/off cell then measures a thinking-off planner at the same cap. The planner's thinking stays "model", so only plan/on can bind a run.
+- **Without the option the export is unchanged.** `outputTokens` is the pipeline's `OUTPUT_TOKENS` itself, and the file is byte-identical to today's apart from `generatedUtc`.
+- **The summary line** the command prints gains `outputTokens`, so the operator sees the plan cap before probing.
+
+(2) **The range.** The cap is an integer from 128 to 16,384: `MIN_ROLE_OUTPUT_TOKENS` to `RESEARCH_ROLE_MAX_OUTPUT_TOKENS`, the reader's own range (`serving_card_cap_out_of_range`).
+- Above 16,384 the model layer would clamp the body to the Heavy profile's limit without saying so. The body and the recorded cap would then disagree.
+- A value outside the range, or not a plain integer, is refused with exit 2 before anything is written.
+
+(3) **Strict arguments.** The command line reads only `--out` today and ignores anything else, so a mistyped `--plan-cap` would export 8,192 without a word, and the re-probe would measure the wrong cap.
+- It now accepts only `--out <path>` and `--plan-cap <tokens>`, each at most once, after one optional leading `--`. pnpm 10 passes that `--` through, as scripts/serving-card.py already allows.
+- Anything else is refused with exit 2, and no file is written.
+
+(4) **Nothing else changes.**
+- scripts/serving-probe.py, scripts/assess-probe-replies.ts and scripts/serving-card.py are unchanged, and so is every file under src/.
+- The export's version stays 2. No field is added or removed, so a reader of version 2 reads the file as before.
+- P10 still sends 20 calls per cell, strict, with reasoning kept. Only the two plan cells' `max_tokens` differ.
+
+(5) **What the card will say for the planner,** written from a probe of that export:
+- `roles.plan.maxOutputTokens` is [16384, 16384], and `roles.plan.thinking` is ["model", "model"].
+- `roles.plan.structuredOutput` follows the 95% rule on the cells at 16,384. `thinkingOn` is true when plan/on has at least 20 assessed calls, at least 95% valid, on the requested strict variant. `thinkingOff` likewise from plan/off.
+- `evidence.p10.cells` "plan/on" and "plan/off" carry `maxTokens` 16384.
+- The Markdown's derived-bounds table states the planner's cap as 16,384 against its 300 s and 900 s ceilings. No gate reads that table.
+- Extract and synthesis are proposed as before, from their own cells. Topic 6 does not change them.
+- If plan/on falls below the rule, the card proposes no plan flag. The adoption may then keep the planner at 16,384 without the format, since the reader checks a cap without a flag only against its range. That choice is the coordinating session's when it writes the card.
+
+(6) **What does not move.**
+- `researchProtocolSha256()` stays 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. No protocol input changes. P10's evidence stays bound to that hash: the export records it, and the assessor and the reader check it.
+- The harness source freeze stays e4c29bf0c08d95df95f80a52b470e96596e0158ee2526fbc5e602137627a4dca on this branch, as on `main` 60aebc9. It lists src/main/private-agent/*.ts and named scripts. scripts/export-role-schemas.ts, the tests and the README are not among them.
+- **What moves under the adopted card,** by 7a.2's rule (BL-20261116-1203-research-role-policy-design): a run binds its role policy into its own protocol hash, its session identity and freeze.json's pipeline block. With the planner at 16,384 those values differ from a card with the planner at 8,192. Nothing pins either.
+
+(7) **The re-probe, as the coordinating session will run it.** E0's card and its Amendment 1 set the order, the stop rules and the records; only the export command gains the option.
+1. `pnpm probe:export-schemas -- --plan-cap 16384`, under the desktop's settings in `.env.local`. Check its printed line: `outputTokens.plan` 16384 and `protocolSha256` 7100b7a2….
+2. `python3 scripts/serving-probe.py --only P1`, checked by hand.
+3. `python3 scripts/serving-probe.py`, with no `--only`: all twelve probes in one invocation, reading the export at its default path.
+4. `pnpm probe:assess -- --probe .soar/experiments/serving-probe-<ts>/probe.json`.
+5. `pnpm --silent card:serving -- --input .soar/experiments/serving-probe-<ts>/probe.json --compare-root Qwen3.8-Flash-Next-NVFP4 --compare-version 0.33.0rc1.dev617+g821038729 --compare-context 262144 --policy-out docs/experiments/serving-card-<date>.json > docs/experiments/serving-card-<date>.md`.
+
+E0's stop rule stands: a pull request that changes `researchProtocolSha256()` and merges between step 1 and step 4 voids the run.
+
+(8) **The three points from #130's review** (decision 4 of BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution) are taken here.
+- A test pins `FIXTURE_JOB_ID`'s literal, "e0-planner-fixture". Changing it would change the fixture's salt and every salted digest that Amendment 4's item 6 fixes.
+- The other two points need no change. 1559 itself lists every remaining place of the short form "the card's call" and cites BL-20261116-1441-e0-card-amendment-4. BL-20261116-1539-correction-e0-planner-fixture-salt-pin stays as written.
+
+(9) **Tests,** with no endpoint:
+- Without the option, the export is the one built today.
+- With 16,384:
+  - `outputTokens` is {index 1536, plan 16384, extract 2048, synthesis 8192};
+  - both plan bodies are the model layer's own at 16,384, and each differs from today's only in `max_tokens`;
+  - every other part of the export is unchanged.
+- **The pipeline.** Under a role policy with the planner at [16384, 16384] and plan's thinking-on mode flagged, its first plan call is the export's plan/on body plus the `response_format` P10 adds, in every field but the user message.
+- **The probe.** P10 on a loopback server sends both plan cells at 16,384 and records that cap for each.
+- **The writer and the reader.**
+  - A probe that records the export's caps gives a proposed card with the planner at [16384, 16384] and both plan cells at 16,384.
+  - Adopted, it resolves with the plan flag.
+  - A card from today's export, adopted with the planner moved to 16,384, is refused with `serving_card_structured_output_cap_unmeasured`.
+- **The command line.**
+  - It writes the file with the option and prints `outputTokens`, and the file reproduces from the builder.
+  - It refuses with exit 2, and writes no file, each of: 127, 16385, a non-integer, a missing value, the option twice and an unknown argument.
+- **The pin** of `FIXTURE_JOB_ID`.
+
+Changes: This entry only. The implementation follows in the same pull request.
+
+Evidence: None yet; this is a design. The paths in the Scope were read on `main` 60aebc9:
+- scripts/serving-probe.py records a cell's `max_tokens` from its exported body and copies `outputTokens`;
+- scripts/serving-card.py's `proposed_roles` and its P10 evidence;
+- `resolveServingCard` in src/main/private-agent/serving-card.ts;
+- `PrivateAgentModel.requestBody`, which takes the smaller of the call's cap and the configured one.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **P10's payloads are synthetic and small.** A plan cell at 16,384 shows how the endpoint handles the planner's request at that cap, not how a plan fares on a real index. The planner fixture's 16,384 cell measured that on run-5's index, as a post hoc observation (BL-20261116-1546-e0-structured-fixtures-result).
+- **The export's cap is for probing.** A run's caps come only from an adopted card. The pipeline's own `OUTPUT_TOKENS.plan` stays 8,192.
+
+Paid exposure: None. The re-probe, when the coordinating session runs it, is zero-fee local calls.
+
+Next gate:
+- the implementation, its entry and one light review in this pull request;
+- CI, and the coordinating session's merge;
+- the re-probe of decision (7) and the card it writes; the adoption commit itself is the owner's, by name.
+
+References:
+- BL-20261117-0940-owner-direction-decisions-delegated (topic 6 and question 13);
+- BL-20261113-1011-p10-align-design;
+- BL-20261116-1208-research-structured-output-design;
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261114-2301-serving-card-request-settings-design;
+- BL-20261116-1441-e0-card-amendment-4;
+- BL-20261116-1546-e0-structured-fixtures-result;
+- BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution;
+- docs/experiments/e0-card-2026-11-13.md, Amendment 1.
+
+### BL-20261117-1010-p10-plan-cap-export-implemented -- 2026-11-17 -- Topic 6 implemented: `pnpm probe:export-schemas -- --plan-cap 16384` builds P10's plan cells at 16,384, and a card written from that probe proposes the planner there
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1000-p10-plan-cap-export-design, implemented as designed, with the three points from #130's review that decision (8) of that entry takes.
+
+Decisions:
+(1) **As designed.** scripts/export-role-schemas.ts:
+- `buildRoleSchemaExport` takes `{ planCap }`. Both plan bodies are built at the cap, and `outputTokens` records it. Without it, `outputTokens` is `OUTPUT_TOKENS` itself.
+- `buildP10Requests` builds each cell at its role's cap in the export's `outputTokens`.
+- `parseRoleSchemaExportArguments` is the command line: `--out` and `--plan-cap`, each at most once, after one optional leading `--`. Anything else exits 2 with `role_export_arguments_invalid` and writes no file. So does an option whose value is empty or is another option.
+- `isRoleSchemaExportPlanCap` holds the reader's range, 128 to 16,384.
+- The printed summary line gains `outputTokens`, after `protocolSha256`.
+
+(2) **The builder refuses a cap outside the range itself** (`role_export_plan_cap_invalid`), not only the command line. A caller that bypasses the command line cannot write a plan body that the model layer clamped.
+
+(3) **One type widens.** The export's `outputTokens` was typed as the constant's literal values. It is now a number per role, so a plan cap fits it. The file's JSON shape is unchanged, and the export's version stays 2.
+
+(4) **#130's three points** (decision 4 of BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution):
+- tests/unit/planner-fixture.test.ts pins `FIXTURE_JOB_ID` to "e0-planner-fixture", in the test of the fixture's one salt.
+- The other two points stay as 1559 records them.
+- So decision 4 of 1559 is closed.
+
+(5) **No departure from the design.** The probe's test extends the existing loopback P10 test with a capped export, rather than adding a new one.
+
+Changes:
+- scripts/export-role-schemas.ts: decisions (1) to (3).
+- tests/unit/role-schema-export.test.ts: a new describe, "role schema export with a plan cap (topic 6)", with five tests:
+  - the builder;
+  - the arguments;
+  - the pipeline's plan call under a card with the planner at 16,384;
+  - the writer and the reader;
+  - the command line.
+- tests/unit/serving-probe-helpers.test.ts: the loopback P10 run also runs a capped export, and checks each plan cell's recorded cap.
+- tests/unit/planner-fixture.test.ts: the pin of decision (4).
+- docs/experiments/README.md:
+  - the writer proposes the role export's caps;
+  - a bullet on the plan cap for a probe;
+  - the planner fixture's 16,384 cell says what makes it sendable.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The default export is unchanged.**
+  - On `main` c02366a and on this branch, `buildRoleSchemaExport` at a fixed time gives the same digest under three settings: streaming on, streaming off, and the flash_next_v1 contract.
+  - The digest matches both for the canonical JSON and for the bytes the command line writes.
+- **With 16,384:**
+  - `outputTokens` is {index 1536, plan 16384, extract 2048, synthesis 8192};
+  - both plan bodies are the model layer's own at 16,384, each differs from today's only in `max_tokens`, and the rest of the export is equal.
+- **The pipeline.**
+  - The policy has the planner at [16384, 16384], thinking on, and plan's thinking-on mode flagged strict.
+  - Under that policy, the pipeline's one plan call equals the export's plan/on body plus `jsonSchemaResponseFormat` of the plan schema, strict, in every field but the user message.
+  - item 9's test already pins that format equal to the probe's own `response_format`.
+- **The probe.** `probe_p10` on a loopback server, with a capped export:
+  - it sent both plan cells' bodies with `max_tokens` 16384;
+  - it recorded 16384 as each plan cell's cap, and extract kept 2048.
+- **The writer and the reader.**
+  - From a synthetic probe that records the capped export's caps, the writer proposes the planner at [16384, 16384] with the plan flag on thinking on, and both plan cells at `maxTokens` 16384.
+  - Apart from the probe's digest, nothing else differs from the card written from today's export.
+  - Adopted, the card resolves to that planner.
+  - The card from today's export, adopted with the planner moved to 16,384, is refused with `serving_card_structured_output_cap_unmeasured`.
+- **The command line.**
+  - `-- --out <file> --plan-cap 16384` exits 0, writes plan bodies at 16,384 and prints the same `outputTokens`. The file reproduces from the builder.
+  - `--plan-cap 16385` and `--plan-caps 16384` each exit 2, print nothing to stdout and write no file.
+- **Mutants.** Fourteen single edits each fail at least one test of the three changed test files. A first run left one alive: `--out` with an empty value or another option as its value. Two refusal cases now kill it. The fourteen:
+  - the cap reaching plan/on only, or every role, or not recorded in `outputTokens`;
+  - either bound off by one;
+  - an unknown argument skipped, an option repeated, an empty or option-like value accepted, or the leading `--` kept;
+  - leading zeros accepted;
+  - the builder taking any cap, or the command line dropping it;
+  - the printed line without the caps;
+  - `FIXTURE_JOB_ID` changed.
+- **Unchanged values.**
+  - `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+  - The source freeze is e4c29bf0c08d95df95f80a52b470e96596e0158ee2526fbc5e602137627a4dca, as on `main`.
+- **Checks.**
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+  - The three changed test files pass: 41 tests.
+  - The full suite: 193 files passed and 13 skipped; 3,873 tests passed and 86 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No endpoint was called, and no probe ran. The loopback server answers with a fixed reply. So the tests show the bodies, the recorded caps and the card's arithmetic, not how any endpoint answers at 16,384.
+- The limits of the design entry stand. P10's payloads are synthetic and small, and a run's caps come only from an adopted card.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review of this pull request, CI, and the coordinating session's merge;
+- the re-probe of decision (7) of BL-20261117-1000-p10-plan-cap-export-design and the card it writes;
+- the adoption commit, which is the owner's, by name.
+
+References:
+- BL-20261117-1000-p10-plan-cap-export-design;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution;
+- BL-20261116-1208-research-structured-output-design;
+- BL-20261113-1011-p10-align-design.
+
+### BL-20261117-1030-general-task-progress-e2e-runnable -- 2026-11-17 -- #72's progress e2e spec made runnable: Playwright's output under .soar/, the standard profile pinned in the spec, and a refusal when the checkout holds an environment file
+
+Status: `Implemented`
+
+Scope or hypothesis: #72's assertion has never run on the owner's Mac.
+- **The assertion.** `expect(value.record.reason).toBe(progressStop)` in tests/e2e/general-task-progress.spec.ts. Only the case "blocks the third unchanged failed command before execution and denies replay after restart" reaches it.
+- **Where it came from.** It tests backlog item 6's stored stop reason (BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented).
+- **What stood in the way.** On 2026-11-17 the runner found four obstacles by reading the code (BL-20261117-0942-document-review-and-runtime-suites-docker-verified, "Failures or blockers").
+- **The assignment.** The coordinating session asked lane S-desk to fix what belongs to the spec, and to give the exact command to run it, build step included. Plan ID 72.E2E.
+
+Decisions:
+
+(1) **The output directory (obstacle 3).** playwright.config.ts now sets `outputDir: ".soar/test-results"`.
+- **Why.** Three general-task specs refuse an output directory outside the ignored `.soar/`: progress, request-size and observations. With the new setting, the documented `pnpm test:e2e <spec>` passes their guard without `--output`.
+- **The cost.** Every spec's failure artifacts move from `test-results/` to `.soar/test-results/`. Both are ignored, and CI uploads neither.
+
+(2) **The profile (obstacle 4).** The spec's environment now sets `SOAR_GENERAL_TASK_PROFILE` to `standard`, as general-task-request-size.spec.ts already does.
+- That is the profile its budget assertions describe: 20 model calls, 40 broker requests and 30 tool calls.
+- The app's default has been `heavy` since 4806282.
+
+(3) **The configuration (obstacle 2).** The spec refuses to start, with `fixture_requires_no_checkout_environment_file`, when `.env.local` or `.env` exists in the checkout.
+- **Why.** The app fills every setting the spec's environment leaves unset from those two files in its working directory and its app path (`loadEnvironmentFiles`, src/main/config.ts). The spec launches it with the checkout as both.
+- **What is already hermetic.** The run's user-data directory is its own temporary one, and the spec does not pass `SOAR_ENV_FILE` on.
+- **Not chosen:**
+  - setting every configuration variable in the spec, which breaks each time the schema grows;
+  - an app switch that skips the files. That is a product change, and it would move `localScreenSourceFreeze()`, which hashes src/main/config.ts.
+- **The guard only tests that the files exist.** It never opens them.
+
+(4) **The build (obstacle 1).** The spec runs the built app in `out/`, so the command builds first, as CI's electron-e2e job does.
+- Running in a fresh worktree keeps the build out of the owner's main checkout, which is also where the environment files are.
+
+Changes: One pull request on `fix/72-progress-e2e-runnable`, from `main` at c02366a:
+- playwright.config.ts: `outputDir`.
+- tests/e2e/general-task-progress.spec.ts: the profile and the guard.
+
+Evidence:
+- **Checks.** `pnpm typecheck` passes. After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm validate:readiness` passes.
+- **The configuration resolves as intended.** `pnpm exec playwright test --list` lists the spec's two cases, and resolves the output directory to `.soar/test-results` in the checkout.
+- **The gate still holds.** `pnpm test:e2e tests/e2e/general-task-progress.spec.ts` without `SOAR_RUN_GENERAL_TASK_E2E` skips both cases and launches no app.
+- **The command for the orchestrating session,** each step run from the worktree it creates:
+  1. `git worktree add --detach <a new directory> <the commit to test>`;
+  2. `pnpm install --frozen-lockfile`;
+  3. `pnpm build`;
+  4. `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=<the installed image id> pnpm test:e2e tests/e2e/general-task-progress.spec.ts`.
+- **Not run:** either case. Both need Docker, the installed general-task image and a desktop session, and lane S-desk runs nothing Docker-dependent.
+
+Failures or blockers: None in the checks above. Whether the two cases pass is shown only by the run.
+
+Limitations and non-claims:
+- **The obstacles were found by reading the code.** Whether another obstacle stands behind these four is shown only by a run.
+- **The guard covers the checkout's environment files only.** It does not cover the names the spec passes on from the shell (`HOME`, `PATH`, the `DOCKER_*` variables and the rest), or the keychain.
+- **The sibling specs are unchanged.** request-size and observations also launch the app on the checkout, so the same files reach them. They now pass the output guard through (1), but this pull request gives them no environment-file guard. That is a follow-up.
+- **Not `Verified`.** A pass on the owner's Mac would be the orchestrating session's `Verified` entry for #72's assertion.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. One light review, then CI.
+2. The coordinator merges.
+3. The orchestrating session runs the command above on the owner's Mac.
+
+References: BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented.
+
+### BL-20261117-1048-correction-general-task-progress-e2e-review -- 2026-11-17 -- Correction to BL-20261117-1030-general-task-progress-e2e-runnable after its light review: each launch asserts the run's own user-data directory, and the command names the image, the pass criterion and the conditions it needs
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1030-general-task-progress-e2e-runnable (plan 72.E2E, lane S-desk, #138).
+- **The light review.** It found no blocker, no major issue, two minor findings and seven nits.
+- **The merge.** #138 merged `main` at 9673bb9, which carries #105 and #136, in 4e8d0b3. The corrected entry already follows that tail, BL-20261117-1010-p10-plan-cap-export-implemented, so nothing is re-stamped.
+
+Decisions:
+
+(1) **Review minor 2: the user-data directory is asserted, not assumed.**
+- **Why.** `loadEnvironmentFiles` also reads `.env.local` from the app's user-data directory. The spec kept that file out only by passing `--user-data-dir`, and nothing checked that Electron honours the switch. `pnpm setup:general --write` writes the default user-data file.
+- **The fix.** After every launch, the spec reads `app.getPath("userData")` in the main process.
+  - It refuses to go on unless that is the run's own `browser-data` directory under its temporary root. The refusal code is `fixture_requires_temporary_user_data`.
+  - The comparison uses `realpath`, since macOS's temporary directory is a symbolic link.
+
+(2) **Review minor 3: the command now states the image id's form and the pass criterion.** See the command below.
+
+(3) **Nits taken.**
+- **The spec's comment.** It no longer says the app path is always the checkout. With `SOAR_E2E_EXECUTABLE` set, the app path is the packaged app's.
+- **The command.** It now states the conditions it needs, where step 1 runs, the real install, and the output directory being emptied on each run.
+
+(4) **Nit not taken.** .gitignore keeps `test-results/`, for two reasons:
+- directories from runs before this change stay ignored;
+- a run that passes `--output test-results` stays ignored too.
+
+(5) **The command.** It supersedes the one in BL-20261117-1030-general-task-progress-e2e-runnable.
+- **Conditions:**
+  - Node 22.22.2 and pnpm 10.12.4 on `PATH`;
+  - Docker running, with the qualified image already installed, since the run pulls nothing;
+  - a desktop (GUI) session;
+  - `SOAR_E2E_EXECUTABLE` unset.
+- **Steps:**
+  1. From the existing checkout, run `git worktree add --detach <a new directory> <the commit to test>`.
+  2. In the new worktree, run `pnpm install --frozen-lockfile`. This must be a real install, not a linked `node_modules`.
+  3. Run `pnpm build`.
+  4. Run `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f pnpm test:e2e tests/e2e/general-task-progress.spec.ts`.
+- **The image id.** It is exactly `sha256:` and 64 lowercase hex characters: the value of `QUALIFIED_IMAGE` in src/main/private-agent/capabilities.ts, as in step 4. With any other form, the spec skips both cases and exits 0.
+- **The pass criterion.** Playwright reports "2 passed". "2 skipped" is not a pass.
+- **A rerun.** Playwright empties `.soar/test-results/` at the start of every run. Copy the directory out first if the earlier run's evidence is wanted.
+
+Changes:
+- tests/e2e/general-task-progress.spec.ts: the user-data assertion and the corrected comment.
+- docs/BUILD_LOG.md: this Correction.
+- 4e8d0b3: the merge of `main` at 9673bb9.
+
+Evidence:
+- **Checks.** `pnpm typecheck` passes. After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm validate:readiness` passes.
+- **The spec still loads and stays gated.** `pnpm exec playwright test --list` lists the spec's two cases. Without `SOAR_RUN_GENERAL_TASK_E2E`, both cases are skipped and no app is launched.
+- **The new assertion is not exercised here.** It runs only after a launch, and a launch needs the gated run.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Whether Electron honours `--user-data-dir`** is now checked by the run itself. Nothing here shows it.
+- **The status stays `Implemented`.** Nothing about #72's assertion is `Verified` until the orchestrating session's run passes.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The reviewer re-checks the two fixes, then CI runs.
+2. The coordinator merges #138 before #135.
+3. The orchestrating session runs the command above on the owner's Mac.
+
+References: BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261117-0942-document-review-and-runtime-suites-docker-verified.
+
+### BL-20261117-1049-e2-write-bound-and-dry-run-design -- 2026-11-17 -- E2's writer bound, the driver's dry run and the bound in the registry row: `--write-bound twelve-call` sets a seeded writer's three write-phase limits and nothing else, freeze.json's `limits` records it, and `--dry-run true` prints the freeze a run would write while creating and sending nothing
+
+Status: `Proposed`
+
+Scope or hypothesis: E2's card (docs/experiments/e2-card-2026-11-17.md, "What the card needs that does not exist yet"; BL-20261117-0944-e2-card-approved) needs three things from one lane pull request: a writer bound below Heavy's, a dry run in the driver, and the bound in the registry row. Its items 1, 2 and 16 decide them, accepted under BL-20261117-0940-owner-direction-decisions-delegated:
+- **Item 1:** writer-2's write phase runs under 12 model requests, 12 tool actions and 20 minutes.
+- **Item 2:** nothing else changes from Heavy. The model profile, the 16,384-token cap a call, the 900 s clock, the session's pool of 200 requests and its 90-minute limit all stay.
+- **Item 16:** lane S-harn builds them in one pull request; this entry fixes the option's name.
+
+This entry comes before the code because it changes what a frozen run records (AGENTS.md).
+
+What exists at c02366a:
+- **One budget for both clocks.** scripts/private-agent-local-screen.ts takes a run's budget from `LOCAL_SCREEN_BUDGETS`, which holds `standard` and `heavy`. It gives `budget.maxElapsedMs` both to the write phase's contract and to the session, so one figure serves both clocks.
+- **No other bound.** `--research-from` is refused unless the profile is `heavy`, and no flag sets another bound.
+- **How the limits reach the model.** The runner states the contract's model-call and tool allowances in the system prompt (`systemPrompt` in runner.ts). Each request carries the remaining calls and time (`budgetMessage`). The remaining time is the contract's `maxElapsedMs` less the session's elapsed time, capped by the session's deadline (`remainingActiveMs`).
+- **No dry run.** The driver's flag list holds no `--dry-run`.
+- **A row cannot tell the arms apart.** It records `profile`, `thinking` and `maxOutputTokens`, which are the same in both arms. freeze.json's `limits` holds the write phase's `modelCalls`, `toolCalls` and `elapsedMs` beside the session's `requests`, but no row reads them.
+
+Decisions:
+- **(1) The option is `--write-bound <name>`, with one name: `twelve-call`.**
+  - **The figures.** 12 model calls, 12 tool calls and 1,200,000 ms for the write phase. They are the review's "12-call writer bound" in the form E2's card takes from the research-coverage v4 trial (BL-20261105-0417-research-coverage-v4-design-reviewed).
+  - **Where they live.** A frozen table in the driver, `LOCAL_SCREEN_WRITE_BOUNDS`. A name outside it is refused, so no number is ever typed on a command line.
+  - **Admitted only on a seeded writer:** with `--research-from`, which already requires `--profile heavy` and `--claims-ledger true`, and never with `--repair-from`.
+  - **The loop refuses it,** and so do the driver's own argument checks for any other run. Its stages take no bound.
+- **(2) What the bound changes, and what it keeps.**
+  - **Changed:** the write phase's contract only. `maxModelCalls` is 12, `maxToolCalls` 12 and `maxElapsedMs` 1,200,000. So the system prompt's two allowances and each request's budget line differ between the arms, as the card says.
+  - **Kept, under item 2:** the session's request pool (`budget.maxRequests`, 200) and its elapsed limit (`budget.maxElapsedMs`, 5,400,000 ms). The claims judge's pass after a submitted run draws on that same pool and clock, as it does today.
+  - **Unchanged files and functions.** No file under src/main/private-agent/ changes. So these are untouched:
+    - `researchProtocolSha256()`;
+    - `COORDINATOR_PROFILES.heavy` and `GENERAL_TASK_BUDGETS`;
+    - `buildLocalScreenModelConfig`, and how the model layer builds the owned request body.
+  - **Writer-1's write phase.** A seeded Heavy run without the option builds its phase exactly as today.
+- **(3) freeze.json records the bound in `limits`.**
+  - **With the bound.** `modelCalls`, `toolCalls` and `elapsedMs` are the write phase's, as these three always were: 12, 12 and 1,200,000. `limits` gains:
+    - `writeBound: "twelve-call"`;
+    - `sessionElapsedMs: 5400000`, the session's limit, which `elapsedMs` no longer equals.
+  - **`requests`** stays the session's pool, 200.
+  - **Without the bound,** on writer-1 and every other run, `limits` is unchanged, and so is the rest of the freeze.
+- **(4) `--dry-run true` checks and prints, and creates and sends nothing.**
+  - **What it checks.** Everything a run checks before it creates its directory:
+    - the arguments;
+    - the source freeze against `--runtime-sha256`;
+    - the task's job and brief hashes;
+    - the seed, against its own ledger, the current protocol and the role policy;
+    - a repair directory;
+    - the configuration: provider mode, cost policy and the serving card;
+    - the diagnostics directory rule.
+
+    It also checks that the output directory does not exist yet and that its parent does: a run's `mkdir` needs both.
+  - **What it prints.** One canonical JSON line: `state: "dry_run"`, then every field freeze.json would record that is fixed before the run starts. Four are left out: `jobId`, `startedAt`, `artifactAccepted`, and the per-file `sourceFreeze` list, whose `sourceFreezeSha256` is printed. The line includes:
+    - `limits`;
+    - `researchFrom`, the seed with its snapshot sha256;
+    - `initialEvidenceIdentity`, the presentation's identity;
+    - the `pipeline` block with its protocol hash;
+    - `privatePhaseSha256`, `modelConfig`, `git` and `servingCard`;
+    - `endpointIdentitySha256`, a hash, never the endpoint.
+  - **One construction.** The run and the dry run build these fields with one function: the freeze literal moves into it with every value's expression unchanged. So the line is what the run's freeze.json will hold. `canonical()` sorts keys, so a run's freeze bytes do not change.
+  - **What it never does.** It never:
+    - creates a directory, a file or a database;
+    - starts a receiver;
+    - reads a cloud key;
+    - contacts Docker or the endpoint.
+
+    It exits 0. A run's command line is its dry run's with the flag removed (E2's card, "The dry run").
+  - **Scope:** the local arm without public retrieval. A cloud arm's key and a public receiver are built only after the directory exists. E2's, E3's and E6's local runs are closed-corpus. The loop refuses `--dry-run`.
+- **(5) The registry row reads the bound from the freeze's `limits`.**
+  - **The field.** scripts/registry-row.py gains one field, `writeLimits`: `{bound, modelCalls, toolCalls, elapsedMs}`.
+    - `bound` is `limits.writeBound`, or null for the profile's own limits.
+    - The three numbers are the write phase's, as `limits` records them.
+  - **When it is null.** The field is null when the freeze records no `limits`, and a number the freeze lacks reads null. A present value of another shape refuses the row, naming the field, never its value.
+  - **Where it is set.** Both row builders set it (`run_counts` and `freeze_fields`), so a loop row takes it from the run it takes its other run fields from. A stopped loop with no stage freeze records null.
+  - **Not recorded:** the session's two limits. E2's arms keep them equal, and the freeze holds them.
+  - **The README** gains one table row.
+- **(6) Tests.**
+  - **Writer-1's write phase is pinned byte for byte.**
+    - The test uses a fixed synthetic task and a seed source (tests/helpers/research-seed-source.ts).
+    - The dry run's `privatePhaseSha256` for a seeded Heavy writer without the option must be `047f181ce77830e47681b94ed33c7ec454f13e0740d5201c98ce967b69a1e05f`. The base commit computes that value for the same phase. It was read on 2026-11-17 by stopping the unmodified driver (main 60aebc9, whose driver equals c02366a's) right after it builds `privatePhase`, in two runs on fresh fixtures.
+    - Its protocol hash must equal the pin, `7100b7a2…` (tests/helpers/research-protocol-pin.ts).
+  - **Writer-2's phase is today's construction** with the contract's three numbers set to the bound, and nothing else differs.
+  - **The model configuration** both dry runs print is Heavy's, and `COORDINATOR_PROFILES.heavy` keeps its literal values.
+  - **The dry run** leaves no output directory and changes no file in the task, the seed or the working directory. A loopback counter on the configured endpoint receives zero requests.
+  - **Refusals:** each argument the option or the dry run refuses.
+  - **The row:**
+    - `writeLimits` for both arms, for older freezes and for malformed values;
+    - a loop row and a stopped loop;
+    - the offline proof the card asks for. `--run-dir` rows a seeded single run whose freeze.json is the dry run's line, plus a job id, a start and the frozen files' list, beside the ledger and result of a submitted write phase.
+- **(7) The source-freeze digest moves.** The driver and scripts/phase4-loop.ts are frozen files. The Implemented entry states the new digest at its commit, and `--runtime-sha256` is recomputed after the merge. Another pull request that lands first and changes a frozen file moves it again.
+
+Changes: None yet. This entry precedes the code. Planned:
+- scripts/private-agent-local-screen.ts, scripts/phase4-loop.ts and scripts/registry-row.py;
+- docs/experiments/README.md;
+- tests under tests/unit/.
+
+Evidence: Read at c02366a:
+- the driver's `runLocalArtifactScreen` and `parseLocalArtifactScreenArguments`;
+- `LOCAL_SCREEN_BUDGETS`, and the profiles in src/main/private-agent/profiles.ts;
+- the runner's `systemPrompt`, `budgetMessage` and `remainingActiveMs`;
+- the session's limits check and deadline (session.ts);
+- the loop's `parseLoopArguments` and `DRIVER_INPUT_SPEND`;
+- the row writer's `run_counts`, `freeze_fields` and stopped-loop fields.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- The bound is not shown to be safe, sufficient or better than Heavy's. That is E2's question.
+- The dry run checks no Docker image and no endpoint. The doctor (`pnpm setup:general`) checks the endpoint.
+- No loop stage takes the bound. If E2 ends with writer-2 earning the change, E3's loops need a later pull request: sample a's write phase follows its own research stage and is not seeded.
+- Rows written before this change lack `writeLimits`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, one light review with privacy checked, the `Implemented` entry with the new source-freeze digest, then the pull request and the coordinator's merge.
+
+References: BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0944-e2-card-approved; BL-20261105-0417-research-coverage-v4-design-reviewed; BL-20261116-1358-run-row-card-and-doctor-sources-design; docs/experiments/e2-card-2026-11-17.md (items 1, 2 and 16).
+
+### BL-20261117-1051-e2-write-bound-and-dry-run-implemented -- 2026-11-17 -- E2's writer bound, the driver's dry run and the bound in the registry row: implemented as designed, with the light review's fixes; the source-freeze digest moves to `49ecaaf8…`
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261117-1049-e2-write-bound-and-dry-run-design. It covers E2's card items 1, 2 and 16 (BL-20261117-0944-e2-card-approved), accepted under BL-20261117-0940-owner-direction-decisions-delegated. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) The bound, as designed.**
+  - **The option.** `--write-bound twelve-call` names the one entry of `LOCAL_SCREEN_WRITE_BOUNDS`, a frozen table in scripts/private-agent-local-screen.ts: 12 model calls, 12 tool calls and 1,200,000 ms.
+  - **Admitted only on a seeded writer.** The driver's command line and its own argument check admit it only beside `--research-from`, never with `--repair-from`, and only by a name in the table. The loop refuses it.
+  - **What it changes.** It replaces the write phase's three contract limits (`phaseLimits`). The session keeps the profile's request pool and elapsed limit (`budget.maxRequests`, `budget.maxElapsedMs`).
+  - **Untouched.** No file under src/main/private-agent/ changes. So `researchProtocolSha256()`, `COORDINATOR_PROFILES.heavy`, `GENERAL_TASK_BUDGETS`, `buildLocalScreenModelConfig` and the model layer's request body are untouched.
+- **(2) freeze.json, as designed.**
+  - **Under the bound.** `limits` records `modelCalls` 12, `toolCalls` 12 and `elapsedMs` 1,200,000, plus `writeBound: "twelve-call"` and `sessionElapsedMs: 5400000`.
+  - **Without it,** `limits` is unchanged.
+  - **The fixed fields.** The freeze's fields fixed before a run are built by one function, `fixedFreeze`, which the run spreads and the dry run prints. The run's freeze literal moved into it with each value's expression unchanged, and `canonical()` sorts keys. The owned endpoint is one string, `localEndpoint`, for the destination and the freeze.
+- **(3) The dry run, as designed.** `--dry-run true` runs every check a run makes before its directory exists, plus two more: the output path must be absent (not even a dangling link) and its parent a directory.
+  - **What it prints.** One canonical line: `state: "dry_run"` and the fixed fields, less `sourceFreeze`'s file list. It returns `{status: "dry_run"}`, and the CLI exits 0.
+  - **Scope.** It is the local arm's only, without public retrieval. The loop refuses it.
+  - **Typing.** The driver's input type is now the named `LocalScreenInput`. `runLocalArtifactScreen` gained overloads, so a call without `dryRun: true` keeps the session result type.
+- **(4) The row, as designed.** scripts/registry-row.py's `limit_fields` gives `writeLimits` `{bound, modelCalls, toolCalls, elapsedMs}` in both row builders. A stopped loop without a stage freeze records null.
+  - **Two refinements of the design.** The field is null when `limits` records none of the three numbers and no bound, as older freezes and fixtures do. A bound without all three numbers is refused.
+  - **The README** gains one table row.
+- **(5) The light review's fixes** (ceecd61). The review approved, with two minor findings and four nits.
+  - **Finding 1, minor: the launcher.** scripts/experiment-launcher.ts read a queued single run through the driver's parser, which admits `--dry-run true`. Its exit 0 would have been logged as a submitted run.
+    - The launcher now refuses a queued dry run (`launcher_queue_invalid`). A queued loop's dry run was already refused by the loop's parser.
+    - The launcher is not a frozen file.
+  - **Finding 2, minor: a third difference in the requests.** Decision (2) of the design entry, following the card, names two differences in the arms' requests: the system prompt's two allowances and each request's budget line.
+    - **The reminder.** The bound also moves the missing-artifacts reminder (src/main/private-agent/progress.ts, `consumedModelCalls >= ceil(maxModelCalls / 3)`).
+    - **When it starts.** While a required artifact is missing, writer-2's requests carry it from the 5th, and writer-1's from the 28th.
+    - The model sees it, so E2's result entry should state it beside the other two.
+  - **Finding 3: a loop input built in code.** `checkLoopInput` now refuses a bound or a dry run in the loop's base, not only on its command line.
+  - **Finding 4: an empty seed.**
+    - **The gap.** The driver's own check required `researchFrom` to be defined, but the seed loads only from a non-empty value. An empty value with a bound would have run an unseeded Heavy writer under the bound.
+    - **The fix.** It now requires a non-empty value. The command line already refused an empty one.
+  - **Finding 5: the types.** `DriverInput` and the parser's return type name `LocalScreenInput`, instead of relying on the overloads' order.
+  - **Finding 6: the command line.**
+    - **The exit code** comes from `localScreenExitCode`: 0 for a submitted run or a dry run, 2 otherwise.
+    - **A refused dry run's line** also names the refusal's code, when the error's message is a host code, so the operator sees which check refused.
+    - **A run's failure line** keeps its bytes.
+- **(6) The tests.**
+  - **tests/unit/local-screen-write-bound.test.ts:**
+    - **Writer-1 is pinned.** On a fixed synthetic task and seed, writer-1's dry run prints `privatePhaseSha256` `047f181c…`, the value the unmodified driver computed for the same phase. Its protocol hash is the pin, `7100b7a2…`. Its `limits` are Heavy's literal values, with no bound key.
+    - **What the line holds:** the seed, with its snapshot sha256; the presentation identity; Heavy's model configuration; and the endpoint only as its hash.
+    - **Writer-2's line** differs from writer-1's only in `limits` and `privatePhaseSha256`. Both phases rebuild by today's construction, the bound's three numbers the one difference. The table, `COORDINATOR_PROFILES.heavy` and `GENERAL_TASK_BUDGETS.heavy` are pinned to literal values.
+    - **Nothing created or sent.** Three dry runs (writer-1, writer-2, and a packet run) leave every file under the fixture unchanged, create no output directory, and send no request to a counting loopback endpoint.
+    - **Refusals:** at the command line and at the driver's argument check, an empty `--research-from` among them. The loop refuses both flags, on its command line and in an input built in code, before its directory exists. The dry run refuses an existing directory, a dangling link and a missing parent.
+    - **The command line's exit codes,** a refused dry run's line, and a run's unchanged line.
+    - **The session's wiring** keeps the profile's pool and clock, pinned in the source text, since CI never runs the driver's session.
+    - **The offline proof** the card asks for. `--run-dir` rows a seeded single run of each arm, whose freeze.json is the dry run's line plus a job id, the frozen files' list, a start and the acceptance. The rows carry `pipeline` research/local, the protocol pin, `servingCard` null, K 1, and `writeLimits` `{null, 80, 120, 5400000}` against `{"twelve-call", 12, 12, 1200000}`.
+  - **tests/unit/registry-row-columns.test.ts:** both arms' `writeLimits` from `limits`, and the older freezes. It also covers:
+    - the refusals of 30 malformed values, none printing the value;
+    - the writer's name pattern, which admits every name in the driver's table.
+  - **The loop and stopped-loop rows** (registry-row-loop and registry-row-resume) take the field from the selected run or the stopped stage, or null.
+  - **tests/unit/registry-row-git.test.ts:** the source-shape check now finds `git` in `fixedFreeze`, which the run's freeze spreads.
+  - **tests/unit/phase4-loop.test.ts:** the loop refuses `--write-bound` and `--dry-run`.
+  - **tests/unit/experiment-launcher.test.ts:** a queued dry run, a run's or a loop's, is refused.
+
+Changes:
+- scripts/private-agent-local-screen.ts, scripts/phase4-loop.ts (the refusals and `DRIVER_INPUT_SPEND`), scripts/registry-row.py and scripts/experiment-launcher.ts;
+- docs/experiments/README.md;
+- tests/unit/local-screen-write-bound.test.ts (new), and the registry-row-columns, registry-row-loop, registry-row-resume, registry-row-git, phase4-loop and experiment-launcher tests;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (743 entries). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On Node 22.22.2 and pnpm 10.12.4: 
+  - **On the merged tree.** `main` was merged twice: b359613, after #105, at f16369a; and 9673bb9, after #136, at 219c4cf. These suites pass 452 of 452 in 23 files, with 1 skipped: write-bound, registry-row, loop, driver, repair, snapshot, cloud-arm, seed and launcher, plus research-assist (#105's) and role-schema-export, planner-fixture and serving-probe-helpers (#136's).
+  - **At d5dd09e, the first code commit.** A full `pnpm exec vitest run` passed 3,873 tests, skipped 86 and failed 1. The failure was tests/unit/with-claude-key.test.ts, which timed out under the full suite's load. That file is unchanged here, and it passes alone (3 of 3).
+- **Mutants.** 48 single-edit mutants of the code, each run against the tests that cover it, all fail them.
+  - **At d5dd09e, 43 mutants.** They cover:
+    - the bound's table, the phase's limits, and the freeze's `limits` with its two new keys;
+    - the session's clock, and every argument check at the command line and in the driver;
+    - the dry run's checks: absent, not a link, the parent, nothing created, no file list, the salt;
+    - the loop's refusals, and the freeze's `git`;
+    - each of the row writer's checks and its three call sites.
+  - **After the review, 5 more:** the launcher's refusal, the loop input's refusal, the empty seed, the refused dry run's code, and the exit code.
+- **The source freeze.** `localScreenSourceFreeze()` over 61 files is `49ecaaf8c5afcc75e7fad1b28e5bbaa15001faab7d5a48bdd2b9365693b85e03` at this entry's commit, on the tree merged with `main` 9673bb9. Main's digest there is `19beba427465d4537ca62350f6f0e52fbd43ebcf7f2da86fd91cb7d8f474aa48`, after #105 (#136 changed no frozen file), and was `e4c29bf0c08d95df95f80a52b470e96596e0158ee2526fbc5e602137627a4dca` at c02366a. So `--runtime-sha256` is recomputed after the merge.
+- **The light review.** One reviewer, with privacy checked. Its verdict: approve, with two minor findings and four nits, and no blocker or major. Privacy was clean. All six are addressed in ceecd61 (decision (5)).
+  - **Its own checks.** It computed writer-1's pin from the base code (`047f181c…`). It checked the freeze refactor by diffing the base literal against `fixedFreeze`: the same keys and values for every kind of run.
+  - **What it could not check.** No test runs a session, so the run path's new freeze was checked by reading only
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Not `Verified`.** Implemented and tested on synthetic fixtures and loopback fakes. No real run has used the bound or the dry run, and no seeded run's real freeze has been rowed.
+- **What the bound does not show.** It is not shown safe, sufficient or better than Heavy's; that is E2's question.
+- **What the dry run does not check:** the Docker image or the endpoint (the doctor checks the endpoint), or a cloud arm's key.
+- **Loops.** No loop stage takes the bound. If E2 ends with writer-2 earning the change, E3's loops need a later pull request.
+- **Old rows.** Rows written before this change lack `writeLimits`.
+- **The digest moves again** if another pull request that changes a frozen file lands first. #105 is expected to.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the pull request, then the coordinator's merge under the standing go-ahead.
+
+References: BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261117-0944-e2-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; docs/experiments/e2-card-2026-11-17.md (items 1, 2 and 16).
+
+### BL-20261117-1052-correction-e2-write-bound-design-restamp -- 2026-11-17 -- Correction: E2's write-bound design entry is re-stamped after `main`'s tail; its original ID and authoring time
+
+Status: `Implemented`
+
+Scope or hypothesis: #136 reached `main` (9673bb9) before this branch, with BL-20261117-1000-p10-plan-cap-export-design and BL-20261117-1010-p10-plan-cap-export-implemented.
+- **The merge.** This branch merged `main` at 219c4cf, with no force-push.
+- **The collision.** Its design entry was authored at 10:05 UTC on 2026-11-17 as BL-20261117-1005. Kept as it was, it would sit after 1010 in the ledger.
+- **The re-stamp.** It moves after that tail under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). It is now BL-20261117-1011.
+
+Decisions:
+- **(1) The re-stamp.**
+  - **What changes.** Only the design entry's heading ID changes, with the references to it. There are 18, in comments, test titles and the experiments README, across 12 files: the driver, scripts/phase4-loop.ts, scripts/registry-row.py, scripts/experiment-launcher.ts, docs/experiments/README.md and seven test files.
+  - **The log.** No entry on `main` cites the original ID. `main`'s log is kept whole, as a byte prefix of this branch's.
+- **(2) The merges.** This branch merged `main` twice, each time with rerere off: b359613 (after #105) at f16369a, and 9673bb9 (after #136) at 219c4cf.
+  - **The conflict.** Only docs/BUILD_LOG.md conflicted. Each time it was resolved by appending: `main`'s log whole, then this branch's entries.
+  - **The README.** docs/experiments/README.md merged without conflict; #136 changed other lines of it.
+  - **The merged tree** differs from `main` only in this branch's 13 files. Compared line by line, each carries exactly this branch's edits.
+
+Changes:
+- docs/BUILD_LOG.md: the heading, and this entry.
+- The files that cite the entry, as listed in decision (1).
+
+No behaviour changes. The comments are in frozen files, so the source-freeze digest the `Implemented` entry states is the re-stamped tree's.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (743 entries, append-only against `main` at 9673bb9).
+- **The re-stamp.** With the new ID mapped back, every changed file is byte-identical to the merge commit's. `git grep` finds the original ID only in this entry, in short form.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- If another branch's entries reach `main` first, this branch merges `main` again and re-stamps under the same rule.
+- Commit messages keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the pull request, then the coordinator's merge under the standing go-ahead.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261117-1049-e2-write-bound-and-dry-run-design; pull requests #105 and #136.
+
+### BL-20261117-1053-correction-e2-write-bound-design-second-restamp -- 2026-11-17 -- Correction: E2's write-bound design entry is re-stamped a second time, after #138's tail; its IDs and authoring times, and the source-freeze digest at the new head
+
+Status: `Implemented`
+
+Scope or hypothesis: #138 reached `main` (e8ad1d5) before #140, with BL-20261117-1030-general-task-progress-e2e-runnable and BL-20261117-1048-correction-general-task-progress-e2e-review.
+- **The merge.** This branch merged `main` at c7ec68a, with no force-push and rerere off.
+  - Only docs/BUILD_LOG.md conflicted, and it was resolved by appending.
+  - The merged tree differs from `main` only in this branch's 13 files. Each carries exactly this branch's edits.
+- **The collision.** The design entry, at 1011, would sit before 1030 and 1048.
+- **The re-stamp.** It moves after them under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). On the coordinator's word, it goes to a minute between that tail and BL-20261117-1051-e2-write-bound-and-dry-run-implemented. Entry 1051 stays where it is, and so does BL-20261117-1052-correction-e2-write-bound-design-restamp.
+
+The design entry's IDs, all on 2026-11-17 UTC:
+- **Authored** at 10:05 as BL-20261117-1005.
+- **First re-stamp,** at about 10:50, to BL-20261117-1011, after #136 (Correction 1052).
+- **Now** BL-20261117-1049-e2-write-bound-and-dry-run-design.
+
+This entry was authored at 10:59 and stamped 1053, so that every ID of #140 sits before the coordinator's next entry, 1054.
+
+Decisions:
+- **(1) The re-stamp.** Only the design entry's heading ID changes, with the references to it:
+  - 18 in comments, test titles and the experiments README, across the same 12 files as Correction 1052 names;
+  - two in the `Implemented` entry 1051, in its scope and its references;
+  - one in Correction 1052's references.
+
+  No entry on `main` cites 1011. `main`'s log is kept whole, as a byte prefix of this branch's.
+- **(2) One sentence kept as written.** Correction 1052's sentence "It is now BL-20261117-1011." states where the first re-stamp put the entry, and it keeps that minute. Only its full ID is shortened, since that ID no longer exists.
+- **(3) The source freeze moves again.** The references sit in comments of frozen files.
+  - **The new digest.** `localScreenSourceFreeze()` over 61 files is now `c73c4697f1a1a8fb336f6dba38005c90dfec305d304fef50c414fb9d158b4ce7`. It supersedes the `49ecaaf8…` that entry 1051 states for its own commit.
+  - **Main's digest.** `main` e8ad1d5 is still `19beba42…`, since #138 changed no frozen file.
+  - So `--runtime-sha256` is recomputed after the merge.
+
+Changes:
+- docs/BUILD_LOG.md: the design entry's heading, the references in entries 1051 and 1052, the shortened ID in 1052, and this entry.
+- The 12 files that cite the entry.
+
+No behaviour changes.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (746 entries, append-only against `main` at e8ad1d5). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On the merged tree, the suites the `Implemented` entry names pass 452 of 452 in 23 files, with 1 skipped.
+- **The re-stamp.** With the new ID mapped back and the kept sentence's full ID restored, every changed file is byte-identical to the merge commit's. `git grep` finds 1011 only in Correction 1052's kept sentence and in this entry, in short form.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- Entry 1051 keeps the digest and the merge history it stated at its own commit. This entry states the later ones.
+- Commit messages keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #140, then the coordinator's merge.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261117-1051-e2-write-bound-and-dry-run-implemented; BL-20261117-1052-correction-e2-write-bound-design-restamp; pull requests #136, #138 and #140.
+
+### BL-20261117-1055-loop-single-sample-design -- 2026-11-17 -- The select-and-repair loop's single-sample mode: `--samples 1` runs one sample, one critique and one repair, loop.json records the sample count the loop planned, a loop resumes only under the count it started with, and the registry row records it
+
+Status: `Proposed`
+
+Scope or hypothesis: Decision 4 of BL-20261117-0941-group-a-decided-under-delegation makes one sample for each E3 loop the standing default. The owner's direction accepted it (BL-20261117-0940-owner-direction-decisions-delegated).
+- **Where the option was first proposed.** Option (b) of BL-20261109-0331-loop-selection-protocol-2-design: "one sample, as v5's S8 (one write) and S11 (one round) specify, through a small `--samples 1` mode added in its own pull request only on the owner's yes". The same option keeps E6's review-2 arm at two samples.
+- **The loop today.** scripts/phase4-loop.ts always runs two samples, `a` and `b`. The host-checked selection picks one, which is critiqued once and repaired once from the identical draft, and a final host-checked selection follows.
+
+This entry comes before the code because it changes what a loop runs and what its record and its registry row hold.
+
+Decisions:
+- **(1) The option is `--samples <1|2>` on the loop's command line.**
+  - **The default is 2,** so every existing command line runs as today.
+  - **Where it is read.** The loop reads the option and removes it from the driver's flags before they reach the driver's parser, so no single run takes it.
+  - **Refused:** any other value, the flag twice, and a flag in a value's place (`loop_cli_invalid`).
+  - **The launcher** reads a queued loop through `parseLoopArguments`, so it takes the option unchanged.
+- **(2) What `--samples 1` runs: sample `a`, then the critique of `a`, then the repair of `a`, and never `b`.**
+  - **Research tasks.** As today, `a` runs the one reading stage, and the repair writes from `a`'s packet (`--research-from`).
+  - **When a's stage leaves no packet,** the loop ends at `stage_failed`, as today.
+  - **A draft with no artifacts** ends at `no_draft`, as today.
+  - **The stage-1 selection** is `{candidate: "a", step: "single_sample", entailmentRates: [a's rate, null]}`. No comparison runs, and the new step value says so. `a`'s rate is `entailmentRate` (selection.ts), the value a comparison would have recorded for it, and it decides nothing.
+  - **The critique and the repair are unchanged,** and so is the final selection between `a` and its repair under selection protocol 2: a tie keeps the draft. `SELECTION_PROTOCOL_VERSION` stays 2, and selection.ts does not change.
+  - **The rest of the record.** `candidates.b` stays null; `seeded.b` is false; `writeIdentityEqual` is null, since there is no second write to compare.
+- **(3) loop.json records the plan: `samplesPlanned`, 1 or 2.**
+  - **Every new record writes it,** and two-sample loops write 2.
+  - **A record saved before this change lacks it,** and reads as 2.
+  - **A resume refuses** with `loop_record_mismatch` when the invocation's count differs from the record's. A loop is never resumed under another sample count, as it is never resumed under another version, selection protocol, runtime, task, arm or pipeline.
+  - **`LOOP_VERSION` stays 2.** The field is additive, and the registry writer reads both versions.
+  - **A stray directory.** A `b` directory in a single-sample loop is unexplained, so reconciliation refuses it (`loop_resume_mismatch`), as it refuses any other directory the record does not name.
+  - **`--close`** keeps the field, since it rewrites the record it read.
+- **(4) The registry row records the plan.**
+  - **The new field.** `registry-row.py --loop-dir` adds `loop.samplesPlanned` from the record: 2 when the field is absent (both versions), and a refusal for any value but 1 or 2.
+  - **The existing `loop.samples`** keeps its meaning: the samples that are candidates. So a two-sample loop whose sample `a` ended the loop shows `samples` 1 and `samplesPlanned` 2, and a single-sample loop shows 1 and 1.
+  - **A malformed record is refused.** That covers a single-sample record holding a second sample, and a stage-1 step `single_sample` on a two-sample record.
+  - **The README's loop row** gains the field and the step.
+- **(5) Tests.**
+  - **Runs:**
+    - a single-sample loop on a plain task and on a research task;
+    - a draft with no artifacts;
+    - a stage-1 entailment rate;
+    - the default's recorded count.
+  - **Resumes:**
+    - a count that differs in either direction;
+    - a record without the field;
+    - a stray `b` directory.
+  - **Parsing:** the values and the refusals.
+  - **Rows:**
+    - a single-sample loop's row;
+    - an older record;
+    - each malformed value and contradiction.
+- **(6) The source-freeze digest moves,** since scripts/phase4-loop.ts is a frozen file. The `Implemented` entry states the new value. Another pull request that lands first and changes a frozen file moves it again.
+
+Changes: None yet. This entry precedes the code. Planned:
+- scripts/phase4-loop.ts and scripts/registry-row.py;
+- docs/experiments/README.md;
+- tests under tests/unit/.
+
+Evidence: Read at c02366a:
+- scripts/phase4-loop.ts: `parseLoopArguments`, `runLocked`'s stage 1, the critique and the repair, `priorFields`, `reconcile` and `closeLoop`;
+- `compareCandidates` and `entailmentRate` (src/main/private-agent/selection.ts);
+- the row writer's loop fields, `loop.samples` among them, which counts the samples present among the candidates.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only. Nothing is implemented, verified or released by this entry.
+- **Not shown:** that one sample is as good as two. E6 compares one sample against two; E3 runs one by its standing default.
+- **E3's runs** use `--samples 1` once its card names the loop's command line. E6's review-2 arm runs with the default.
+- **Records and rows written before this change** lack `samplesPlanned`, and read as 2.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: the implementation with its tests, one light review with privacy checked, the `Implemented` entry with the new source-freeze digest, then the pull request and the coordinator's merge.
+
+References: BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation (decision 4); BL-20261109-0331-loop-selection-protocol-2-design (open question (b)); BL-20261113-0836-infra-resume-design; docs/experiments/e6-card-2026-11-17.md (item 7).
+
+### BL-20261117-1104-loop-single-sample-implemented -- 2026-11-17 -- The select-and-repair loop's single-sample mode: implemented as designed, with the light review's fixes; the source-freeze digest moves to `285f2703…`
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261117-1055-loop-single-sample-design, the single-sample mode that decision 4 of BL-20261117-0941-group-a-decided-under-delegation makes E3's standing default. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) The flag, as designed.**
+  - **Parsing.** `parseLoopArguments` takes `--samples 1` or `--samples 2` out of the loop's command line before the driver's parser sees the rest, so no single run takes it.
+  - **Refused:** another value, the flag twice, or the flag in a value's place, with `loop_cli_invalid`. The driver's own parser refuses it too.
+  - **The launcher** reads queued loops through the same parser.
+- **(2) The run, as designed.** Under `--samples 1` the loop runs sample `a`, the critique of `a` and the repair of `a`, and never `b`.
+  - **Stage 1** is `{candidate: "a", step: "single_sample", entailmentRates: [entailmentRate(a's pass), null]}`. The final selection is protocol 2's comparison of `a` with its repair, unchanged.
+  - **Research loops.** The repair writes from `a`'s packet; with no packet the loop ends at `stage_failed`. A draft with nothing to repair ends at `no_draft`.
+  - **The record.** `candidates.b` is null, `seeded.b` false and `writeIdentityEqual` null. selection.ts and `SELECTION_PROTOCOL_VERSION` are unchanged.
+- **(3) The record, as designed.**
+  - **The field.** loop.json writes `samplesPlanned`, 1 or 2. A record without it reads as 2.
+  - **Resumes.** A resume under another count is refused with `loop_record_mismatch`. A `b` directory in a single-sample loop is refused by reconciliation (`loop_resume_mismatch`).
+  - **What stays.** `LOOP_VERSION` stays 2, and `--close` keeps the field.
+- **(4) The row, as designed.** `registry-row.py --loop-dir` adds `loop.samplesPlanned`: 2 when the record has none, and refused unless 1 or 2. Two contradictions are refused as well: a single-sample record with a second sample, and a stage-1 step that does not match the count. The README's loop row documents the field.
+- **(5) The light review's fixes** (ed3dcd2). The review approved, with one minor process item and four nits.
+  - **Process: merge `main` first.** Done at efe1842 (e8ad1d5, after #105, #136 and #138). The source-freeze digest below is the merged tree's.
+  - **A tighter row** (nit 2). A single-sample record is refused for any trace of a second sample:
+    - a candidate `b`, or stage 1 choosing `b`;
+    - `seeded.b` true, or a non-null `writeIdentityEqual`;
+    - a second stage-1 rate, or `b` among the begun stages.
+
+    Only a hand-edited record could hold one; the loop never writes it.
+  - **One reading of the recorded count** (nit 3). The loop read a recorded `samplesPlanned: null` as 2, where the row refuses it. Now only a record without the field planned two. A present value must equal the invocation's count, so `null`, `"1"` or 3 refuse the resume.
+  - **Tests** (nit 4):
+    - **The flag's position check is isolated.** Without it, `--task-directory --samples 2 t ...` would parse as two samples.
+    - **A resume with a malformed recorded count** is refused.
+    - **`--close` after stage 1 of a single-sample loop** ends it with `a` at `repair_failed`, and keeps the count.
+  - **Docs** (nit 5).
+    - The loop's header and its resume comment name the sample count among a resume's bindings.
+    - docs/experiments/LAUNCHER.md's E3 example loop draws one sample (`--samples 1`), and its argument rules name the flag.
+- **(6) The tests.**
+  - **tests/unit/phase4-loop.test.ts, the runs.**
+    - **Plain task:** the single-sample run of `a`, the critique of `a` and the repair. It checks the calls, the stage-1 record with `a`'s rate (8/11), the totals, the record and the log.
+    - **Research task:** `a` reads and the repair is seeded from `a`'s packet; without a packet the loop ends at `stage_failed`.
+    - **No draft:** a draft with nothing to repair ends at `no_draft`.
+    - **The default** records 2.
+  - **tests/unit/phase4-loop.test.ts, resumes and parsing.**
+    - **Resumes:** a count that differs in either direction, a record without the field, and a stray `b` directory are refused.
+    - **Parsing:** `--samples 1` and `2` in any position; eight malformed forms refused, the flag in a value's place among them; the driver's parser refusing the flag.
+    - **Close and malformed counts:** `--close` after a single-sample loop's stage 1; resumes with a recorded count of `null`, `"1"`, `"2"`, 3 or 0, under either count.
+  - **tests/unit/registry-row-resume.test.ts:**
+    - **The rows:** a single-sample loop's row; an older record's 2; and a stopped single-sample loop's row.
+    - **Refused:** six malformed counts, and each trace of a second sample in a single-sample record: candidate `b`, stage 1 `b`, `seeded.b`, compared writes, a second rate, and `b` begun. Also refused: a stage-1 step that does not match the count.
+
+Changes:
+- scripts/phase4-loop.ts and scripts/registry-row.py;
+- docs/experiments/README.md and docs/experiments/LAUNCHER.md;
+- tests/unit/phase4-loop.test.ts and tests/unit/registry-row-resume.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (745 entries). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On Node 22.22.2 and pnpm 10.12.4: 
+  - **On the merged tree** (`main` e8ad1d5, merged at efe1842), these suites pass 341 of 341 in 18 files: loop, registry-row, launcher, driver, research-assist, role-schema-export, planner-fixture and serving-probe-helpers.
+  - **The full suite** (a full `pnpm exec vitest run` on this tree passed 3,877 tests, skipped 86 and failed 1. The failure was tests/unit/with-claude-key.test.ts, which timed out under the full suite's load. That file is unchanged, and it passes alone (3 of 3).).
+- **Mutants.** 24 single-edit mutants of the code all fail the tests that cover them.
+  - **At e01da30, 17 mutants.** They cover:
+    - the mode itself, the default, the resume check and the older record's reading;
+    - the recorded count, the stage-1 step and its rates, `seeded.b`, and the log line;
+    - the parser's value check, and its returned count;
+    - the row writer's default, value, type, second-sample, step and field.
+  - **After the review, 7 more:** the strict recorded count, the position check, and the five new traces of a second sample.
+- **The source freeze.** `localScreenSourceFreeze()` over 61 files is `285f2703de26b5dc1ed06bbada4c254571b26f257fade9db1966dd7239c125f8` at this entry's commit, on the tree merged with `main` e8ad1d5. Main's digest there is `19beba427465d4537ca62350f6f0e52fbd43ebcf7f2da86fd91cb7d8f474aa48`, and it was `e4c29bf0…` at c02366a. #140, which merges first, moves both scripts/private-agent-local-screen.ts and scripts/phase4-loop.ts, so this branch merges `main` again then, and the digest after both is computed then.
+- **The light review.** One reviewer, with privacy checked. Its verdict: approve, with one minor process item and four nits, and no blocker or major. Privacy was clean. All five are addressed in decision (5).
+  - **Its probes,** under `--samples 1`, all behaved as specified:
+    - `a`'s infrastructure resume;
+    - a cloud research `a` resumed as a seeded writer;
+    - the critique's and the repair's infrastructure resumes;
+    - `--close` after stage 1;
+    - a default-count resume, which is refused and leaves loop.json byte-identical.
+  - **Its other checks.** Keeping `LOOP_VERSION` at 2 is safe, since an older loop script cannot pass the runtime freeze. Nothing else reads the row's `loop.samples`, and nothing assumes a `b` after stage 1.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Not `Verified`.** Implemented and tested with the loop's fakes. No real loop has run with one sample.
+- **Not shown:** that one sample is as good as two. That is what E6 compares.
+- **Old records and rows.** Records and rows written before this change lack `samplesPlanned`, and read as 2.
+- **The digest moves again** if another pull request that changes a frozen file lands first.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the pull request, then the coordinator's merge under the standing go-ahead.
+
+References: BL-20261117-1055-loop-single-sample-design; BL-20261117-0941-group-a-decided-under-delegation (decision 4); BL-20261109-0331-loop-selection-protocol-2-design.
+
+### BL-20261117-1105-correction-loop-single-sample-design-restamp -- 2026-11-17 -- Correction: the single-sample loop's design entry is re-stamped after the entries that merge before it; its original ID and authoring time
+
+Status: `Implemented`
+
+Scope or hypothesis: The design entry was authored at 10:27 UTC on 2026-11-17 as BL-20261117-1027. Two sets of entries now come before it:
+- **On `main`:** #105, #136 and #138 reached `main` after it was authored, ending at BL-20261117-1048-correction-general-task-progress-e2e-review.
+- **Merging first:** #140's entries (1049 to 1053) and the coordinator's E0 amendment (#141, 1054) are to merge before this pull request.
+
+The entry would sit before all of them, so it moves after them under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). It is now BL-20261117-1055-loop-single-sample-design. This branch merged `main` (e8ad1d5) at efe1842, with no force-push and rerere off.
+
+Decisions:
+- **(1) The re-stamp.**
+  - **What changes.** Only the design entry's heading ID changes, with the references to it. There are 15, in comments, test titles and the docs, across 6 files: scripts/phase4-loop.ts, scripts/registry-row.py, docs/experiments/README.md, docs/experiments/LAUNCHER.md and two test files.
+  - **The log.** No entry on `main` cites the original ID. `main`'s log is kept whole, as a byte prefix of this branch's.
+- **(2) The minute.** 1055 sits after #141's 1054, which is not on `main` yet. The coordinator's order is #140, then #141, then this pull request. If that order changes, or other entries land first, this branch merges `main` again and re-stamps under the same rule.
+- **(3) The merge.**
+  - **The conflict.** Only docs/BUILD_LOG.md conflicted. It was resolved by appending: `main`'s log whole, then this branch's entries.
+  - **The README.** docs/experiments/README.md merged without conflict.
+  - **The merged tree** differs from `main` only in this branch's 7 files. Compared line by line, each carries exactly this branch's edits.
+
+Changes:
+- docs/BUILD_LOG.md: the heading, and this entry.
+- The 6 files that cite the entry.
+
+No behaviour changes. The references sit in comments of a frozen file (scripts/phase4-loop.ts), so the source-freeze digest the `Implemented` entry states is the re-stamped tree's.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (745 entries, append-only against `main` at e8ad1d5).
+- **The re-stamp.** With the new ID mapped back, every changed file is byte-identical to the merge commit's. `git grep` finds the original ID only in this entry, in short form.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- Commit messages keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the pull request, then the coordinator's merge in its order.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1055-loop-single-sample-design; BL-20261117-1104-loop-single-sample-implemented; pull requests #105, #136, #138, #140 and #141.
+
+### BL-20261117-1106-e6-planted-defect-scorer-design -- 2026-11-17 -- E6's planted-defect scorer designed (card item 12): the gold's format version 1, the rules that count a planted defect addressed or a control changed, and a counts-only output
+
+Status: `Proposed`
+
+Scope or hypothesis: The E6 card (BL-20261117-0945-e6-card-approved) needs a tracked scorer for its planted defects. "What the card needs that does not exist yet", item 3, gives the specification, which the owner accepted under item 12 (BL-20261117-0940-owner-direction-decisions-delegated).
+- **Who builds it.** The card gives the scorer to lane S-desk as a lane pull request, plan ID E6.12. The coordinating session assigned it on 2026-11-17.
+- **Nothing is reused.** No tracked scorer exists. Phase 2's untracked `score.py` under the ignored `.soar/` was not opened, here or in drafting the card.
+- **The format goes first.** The pull request fixes the gold's format, and the authoring session, lane S-e1, writes E6's gold to it. So this entry and docs/experiments/e6-gold-format.md go out before the scorer's code.
+- **What the lane never reads:** E6's gold, its task files and Phase 2's gold.
+
+Decisions:
+
+(1) **What the scorer reads.** It takes a run directory as the driver writes it (scripts/private-agent-local-screen.ts) and reads its `candidate/`, the run's final snapshot, as scripts/phase2-blind.py does.
+- **The files.** `review/edits.json` and `output/clean.docx`, which the card's specification names; `output/review-flags.json`, for `counts.inversionEdits`; and the source, `input/*.docx`.
+- **The source is an addition to the card's list.** An edit's anchor is a verbatim quote, not a position, so whether it overlaps a span can only be decided in the source's text.
+  - The scorer refuses the whole invocation when a run's source differs by sha256 from the gold's.
+  - The coordinating session decided this on 2026-11-17, under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated. Its own entry records the decision. The alternative was a gold file that carries each paragraph's text. That was not chosen, because the gold then holds no copy of the source and the hash ties the two together.
+- **One gold file an invocation.** Each run is named by a label the caller gives.
+
+(2) **The text model is the applier's.**
+- **Paragraphs.** The body paragraphs in document order, table cells included and text boxes excluded. They are numbered as `review/soar_redline.py --list` and the issues list number them.
+- **A paragraph's text.** The applier's plain view (`view_text(..., "plain")`), ported to the standard library, since CI has no lxml.
+- **What is refused.** A source with a Word field or a tracked change. The applier's anchor search skips text inside a field and the port does not. The applier refuses tracked changes anyway.
+- **So cross-references are plain text.** E6's documents write them that way, and S-e1 is told.
+
+(3) **Placing an edit.**
+- **Placed.** An anchor that occurs exactly once in the source's paragraph texts, the applier's own rule, is placed there. Overlapping occurrences count, as in the applier's `find_all`.
+- **Unplaced.** An anchor that occurs zero times or more than once addresses and changes nothing. The number of unplaced edits is reported.
+- **Overlap.** A placed anchor overlaps a span when both are in one paragraph and their character ranges share at least one character.
+
+(4) **The card's three rules, in the format's terms.**
+- **A defect with spans** is addressed when an edit of any action overlaps one of its spans and its `clean` condition holds on the clean copy. A defect the gold marks `commentOnly` needs the overlapping edit only.
+- **A missing section** is addressed when an edit placed in its paragraph region meets its `edit` condition. The edit's text is its `newText` and its rationale, which the applier writes as that edit's comment.
+- **A control is changed** when a `replace`, `delete` or `insert_after` edit overlaps one of its spans and its `clean` condition no longer holds on the clean copy.
+- **No meaning is judged.** Every condition is a literal test.
+
+(5) **Conditions.**
+- **The tests.** `contains` and `lacks`, over a range of the clean copy's paragraphs or over an edit's text, combined with `all` and `any`.
+- **Normalization.** Both sides fold the applier's lookalikes, turn each whitespace run into one space and are casefolded.
+- **`word`, required.** It asks for a match with no letter or digit touching it on either side.
+- **Why literals, not patterns.** The authoring session can state each test plainly, and a reviewer can check it by eye.
+
+(6) **The gold's format, version 1** (docs/experiments/e6-gold-format.md).
+- Exact key sets, so a misspelt key refuses the file.
+- `source.sha256` and `source.paragraphs`.
+- 1 to 32 defects in the card's five classes, and 0 to 16 controls.
+- Spans as quotes that occur once in their numbered paragraph.
+- The card's composition, eight defects and two controls a file, is printed by the check, not enforced.
+
+(7) **Checks for the authoring session.**
+- **`--check-gold GOLD SOURCE`.**
+  - It checks the shape, and the source's sha256 and paragraph count. It checks that the source has no field or tracked change, and that each quote occurs exactly once.
+  - It also checks that no defect's `clean` already holds on the source, that every control's `clean` holds there, and that no control's span overlaps a defect's.
+  - It prints counts and the gold file's sha256 for the manifest, and never text.
+- **`--list SOURCE`** prints the numbered paragraphs as the scorer reads them.
+
+(8) **Output: counts only.**
+- **What it holds.** One JSON object, by label in the order given:
+  - each run's status, defects addressed by class and in total, controls changed, edits and unplaced edits, and `inversionEdits`;
+  - the gold's planted counts and sha256;
+  - the scorer's name, version and file sha256.
+- **Statuses without counts.** Besides `scored`, five statuses carry no counts, so that absent never reads as zero: `candidate_missing`, `plan_missing`, `plan_invalid`, `clean_missing` and `clean_invalid`.
+- **`inversionEdits` can be `null`.** It is `null` when the flags file is missing, unreadable or records an `error`, whose zeros are the applier's fallback. This is 7d.B's rule that absent and zero never look the same (BL-20261110-1509-host-flags-event-design).
+- **No text.** No word of any file is printed. Refusals carry codes and item ids.
+
+(9) **Determinism and version.**
+- **Same inputs, same bytes.** No clock, no randomness, no environment, and sorted keys.
+- **Version 1.** It is stated by `--version` and in every output. Any change to a rule or to the output raises it.
+- **The manifest pins it.** The version and the script's sha256 go in the manifest before the first run (the card's item 3).
+- **The runtime.** Standard-library Python, run as `python3 -I`, compatible with 3.9.
+
+(10) **What it does not do.**
+- **Who runs it.** The session that holds the gold runs it once, after the grades are filed (the card). Nothing in the app, the driver or the loop calls it.
+- **No acceptance.** It decides no acceptance; its count goes to `criticalChecks` (the card's "Decision rule").
+
+Changes: One pull request on `feat/e6-planted-defect-scorer`, from `main` at c02366a.
+- docs/experiments/e6-gold-format.md, the format: in this entry's commit.
+- The rest is planned:
+  - scripts/e6-score.py: the scorer, with `--version`, `--list`, `--check-gold` and `--gold`.
+  - tests/unit/e6-score.test.ts: synthetic fixtures for every rule, status and refusal. It also covers determinism and the absence of file text from the output. The ported constants are pinned equal to the applier's.
+  - tests/integration/e6-score.test.ts: Docker-gated, in the qualified image.
+    - The scorer's listing must equal the applier's on the suite's fixture documents.
+    - Its counts are checked on a plan that the real applier applied.
+    - It is a separate file, so #81's suite, recorded `Verified` in BL-20261117-0942-document-review-and-runtime-suites-docker-verified, does not change.
+
+Consequences:
+- **No file under src/ changes.** So `researchProtocolSha256()` and `localScreenSourceFreeze()` keep their values: the freeze names its scripts, and this one is not among them. The desktop's code does not change.
+- **Before E6's first run:** the gold must be in format version 1, and the manifest must pin the scorer.
+
+Evidence: None yet. This entry decides.
+
+Failures or blockers: None. The one choice beyond the card's text, reading the source, was decided by the coordinating session as stated in (1).
+
+Limitations and non-claims:
+- **Status.** `Proposed` only. Nothing is implemented or verified by this entry.
+- **What a count shows.** That an edit sits on a plant and that the clean copy meets a literal test.
+- **What a count does not show.** Whether a comment says the right thing, whether the other edits are right, precision, over-editing, or whether a reviewer would accept the review (the card, "What this size can and cannot show").
+- **The port's equality with the applier.** It rests on the port, the unit tests and the Docker-gated test. Lane S-desk does not run that test, and CI has no lxml.
+- **A run that did not submit.** Its clean copy may not match its final plan, because only the fidelity check ties the two. The scorer reads what is there and does not check that they match.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. S-e1 writes E6's gold to format version 1.
+2. The scorer, its tests and its `Implemented` entry.
+3. One light review, then CI.
+4. The coordinator merges, and the manifest pins version 1 before E6's first run.
+
+References: BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-1509-host-flags-event-design; BL-20261027-0145-phase4-tasks-design; docs/experiments/e6-card-2026-11-17.md; docs/experiments/e6-gold-format.md.
+
+### BL-20261117-1107-e6-planted-defect-scorer-implemented -- 2026-11-17 -- E6's planted-defect scorer implemented (card item 12): scripts/e6-score.py, version 1, reads gold format version 1, with a check for the authoring session and tests on synthetic documents only
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261117-1106-e6-planted-defect-scorer-design (plan E6.12, lane S-desk, #135).
+- **The format went out first, at 85bfb32.** The scorer, with `--check-gold` and `--list`, followed at 2334220. Lane S-e1, which writes E6's gold, has both.
+- **S-e1 confirmed the sources.** Its three documents are built from plain python-docx paragraphs and tables, with no field and no tracked change.
+- **The source read** was decided by the coordinating session under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated: the run's own `input/*.docx` is read, and it is refused when its sha256 differs from the gold's. The coordinating session's own entry for the decision had not merged when this entry was written, so it is not cited here.
+
+Decisions:
+
+(1) **The design's ten decisions hold.** Implementing them settled four points:
+- **A literal never matches across an edit's two texts.** It matches within the new text or within the rationale. The format document's first wording joined the two with a newline, and whitespace folding would have turned that into a space. S-e1 was told. The format stays version 1.
+- **Unplaced edits are counted as `editsUnplaced`.** A `plan_invalid` or `clean_invalid` status carries a `reason` code. For a plan, that code is the applier's own.
+- **Every scoring invocation binds the gold to the source**, not only `--check-gold`. A gold file that fails any check is refused before any run is scored.
+- **The plan's shape rules are the applier's `load_plan`, copied.** A plan the applier refuses for its shape is `plan_invalid`.
+
+(2) **The refusals, exit 2, with codes and no text.**
+- Usage and labels: `usage_invalid`, `run_argument_invalid` and `label_duplicate`.
+- The gold's own shape: codes beginning `gold_`.
+- The gold against its source: `gold_quote_not_found`, `gold_quote_not_unique`, `gold_defect_condition_holds_on_source`, `gold_control_condition_fails_on_source` and `gold_control_overlaps_defect`.
+- The source: `source_unreadable`, `source_has_fields`, `source_has_tracked_changes`, `source_sha256_differs` and `source_paragraphs_differ`.
+- A run's source: `source_missing`, `source_ambiguous` and `source_mismatch`.
+
+Changes:
+- **scripts/e6-score.py:** the scorer.
+- **docs/experiments/e6-gold-format.md:** the corrected wording on the two texts.
+- **tests/unit/e6-score.test.ts:** 12 tests.
+- **tests/helpers/e6-score-fixtures.ts:** a synthetic agreement of 18 paragraphs with a table, a gold file for it with one plant of each class and two controls, and two plans. Both test files use them.
+- **tests/integration/e6-score.test.ts:** Docker-gated (`SOAR_RUN_PRIVATE_AGENT_RUNTIME=true`). It leaves #81's suite unchanged.
+  - The scorer's listing must equal the applier's on the nine kinds of fixture document in tests/helpers/document-review-fixtures.ts, and on the agreement written with python-docx.
+  - The scorer must score the files that the real applier wrote for the two plans.
+
+Evidence:
+- **The unit tests.** `pnpm exec vitest run tests/unit/e6-score.test.ts`: 12 of 12 pass. They cover:
+  - the version;
+  - the three rules on two plans. One addresses 5 of 5 and changes no control. The other addresses 1 of 5, changes one control and has two unplaced edits;
+  - a fix in the table instead of the prose;
+  - `word` keeping 13,500 from matching inside 113,500;
+  - folding of curly quotes, a no-break space, case and whitespace;
+  - `word: false`;
+  - an edit outside the missing section's region;
+  - an anchor that touches a span without overlapping it;
+  - no match across the new text and the rationale;
+  - a comment never changing a control;
+  - the five statuses without counts, and C1's four readings: recorded, missing, error and invalid;
+  - the whole invocation refused for a mismatched, missing or ambiguous source;
+  - `--check-gold`'s success and 21 refusals;
+  - a source with a field or a tracked change refused;
+  - the listing of tables, a nested table, text boxes, tabs, breaks, objects, both hyphens, an insertion, a deletion, a hyperlink and a field code.
+- **The pin.** 11 constants copied from the applier equal the applier's own values. The applier's own `view_text`, taken from its source with the ast module and run without lxml, returns the same text as the port on all 26 paragraphs of a test document.
+- **Mutants.** Eight single-edit mutants of the rules were each killed:
+  - touching ranges counted as overlapping;
+  - `commentOnly` ignored;
+  - the first of several anchor occurrences placed;
+  - the region's first paragraph excluded;
+  - a flags error read as zero;
+  - the new text and the rationale joined;
+  - comments allowed to change controls;
+  - no casefold.
+- **Determinism and privacy of the output.** The same invocation twice prints the same bytes. No word of the agreement or of the plans appears in the output.
+- **Checks.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm typecheck` and `pnpm validate:readiness` pass. The full suite, `pnpm exec vitest run`: 208 files, 194 passed and 14 skipped; 3,968 tests, 3,880 passed and 88 skipped, none failed. That run was on this branch's tree with the shared fixtures and the Docker-gated file in place, before this entry.
+- **Not run by lane S-desk:** the Docker-gated test. It needs the qualified image, and this lane runs nothing Docker-dependent. It is skipped in CI and here.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **`Implemented`, not `Verified`.** The scorer has read no E6 file, and lane S-desk never will. Its first real use is the gold-holding session's single run after the grades are filed.
+- **The port's equality with the applier on python-docx documents is shown only once the Docker-gated test runs.** Until then it rests on the pin and on the port of `body_paragraphs`. The pin cannot run `body_paragraphs`, because that function needs lxml's `iterancestors`.
+- **What a count shows** is stated in the design entry and the card. It is not meaning, not precision and not acceptance.
+- **The scorer's sha256 changes with any later commit to the file.** The manifest pins the merged version's sha256.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- One light review, then CI.
+- The coordinator merges.
+- Before E6's first run, the manifest pins version 1 and the merged sha256.
+- The orchestrating session may run tests/integration/e6-score.test.ts under `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true`. A pass would be its `Verified` entry for the scorer's reading.
+
+References: BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-0945-e6-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261109-0354-document-review-flags-design; docs/experiments/e6-gold-format.md.
+
+### BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp -- 2026-11-17 -- Correction: plan E6.12's two entries are re-stamped after main's new tail; the light review's findings are fixed, gold ids become opaque before any gold file was frozen, and rule C1's coded edits on planted spans are reported beside the total
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1106-e6-planted-defect-scorer-design and BL-20261117-1107-e6-planted-defect-scorer-implemented (plan E6.12, lane S-desk, #135).
+- **Why a re-stamp.** By the coordinating session's order, #136, #138 and #140 merged first. #135 now chains on lane S-harn's #143, whose head 5a8f5bf holds `main` at e8b3aa7 and ends at BL-20261117-1105-correction-loop-single-sample-design-restamp.
+- **The original IDs.**
+  - The design entry was BL-20261117-1005, written at 10:05 UTC on 2026-11-17 and committed in 85bfb32.
+  - The implemented entry was BL-20261117-1024, written at 10:24 UTC and committed in 692a0cc.
+- **The light review** of #135 at 692a0cc found no blocker, one major finding, four minor ones and four nits. CI was green there.
+
+Decisions:
+
+(1) **The re-stamp** (BL-20261113-0937-owner-decision-restamp-unmerged-entries, BL-20261113-0938-correction-restamp-rule-dates).
+- The design entry becomes BL-20261117-1106 and the implemented entry BL-20261117-1107, the first free minutes after the tail.
+- Only the IDs and the references to them change; the bodies are otherwise byte-identical.
+- The design ID also moves in five files: the format document, the scorer's docstring and three test files.
+
+(2) **Major finding 1: a failed rule C1 no longer reads as a measured zero.**
+- **The cause.** The applier's `flag_rule` records a single rule's failure under that rule's own key, here `edits.error`, and leaves `counts.inversionEdits` at 0. The scorer checked only a top-level `error`.
+- **The effect.** Such a file gave `inversionEdits: 0` with `flags: "recorded"`, against the design's decision (8).
+- **The fix.** It now gives `null` with `flags: "error"`.
+
+(3) **Minor finding 2: a run's own source problem is now that run's status.**
+- **The cause.** The coordinating session decided to refuse a run's own input when it is not the gold's. The code refused the whole invocation instead, so one run that left a second `.docx` under `input/` blocked every count for its file.
+- **The fix.** A run whose source is missing, ambiguous or another document now gets `source_missing`, `source_ambiguous` or `source_mismatch`, with no counts, and the other runs are still scored.
+- **Binding.** The gold binds to the first run whose source is the gold's. A gold that does not fit that source still refuses the invocation, as `--check-gold` would.
+
+(4) **Minor finding 3: gold ids are now opaque.**
+- **Why.** Refusals name items by id, and an id could carry a word of the gold.
+- **The fix.** Ids are now `D1` to `D99` for defects and `K1` to `K99` for controls.
+- **Why version 1 stays.** This changes the format before its first merge, and no version 1 had been merged or pinned. Lane S-e1 confirmed that no gold file was frozen and no manifest pinned, and that its files already used these ids.
+
+(5) **Minor finding 4: gaps in the tests.**
+- **The new cases:**
+  - the lookalike fold (a curly apostrophe);
+  - composition (a decomposed accent);
+  - `delete` and `insert_after` each changing a control;
+  - an `all` with one member failing;
+  - the right-hand word boundary;
+  - a one-character overlap at each end of a span;
+  - a quote that repeats only by overlapping;
+  - a negative C1 count.
+- **A claim it corrects.** The implemented entry's Evidence counted the folding of curly quotes as tested. That case passed without the fold, which is why the new fold case was added.
+
+(6) **Minor finding 5: the pin is wider.**
+- **The listing.** `<w:cr/>` and `<w:ptab/>` join it.
+- **The applier's own functions.** Its `load_plan` and `find_all` are taken from its source the way `view_text` is, and run against the scorer's on 24 plans and 6 searches. The scorer gains a `find_all` of the applier's shape for this.
+- **What stays outside.** `body_paragraphs`, because it needs lxml.
+
+(7) **Nits.**
+- **Composition first.** Matching now composes both sides (Unicode NFC) before anything else.
+- **The format document** now says:
+  - that `--list` prints any source, while `--check-gold` and `--gold` refuse a field or a tracked change;
+  - that punctuation is a word boundary, so "13,500" matches inside "13,500,000".
+- **The coordinator's decision entry.** The coordinating session's own entry for its decision on the source read is on neither `main` nor #143's head as this entry is written, so it is not cited here. The design's decision (1) and this Correction's decision (3) describe it.
+
+(8) **Rule C1's coded edits on planted spans are reported beside the total.**
+- **The finding.** Lane S-e1 found it, running the flags code on synthetic reviews. A correct fix of a planted clause contradiction flips a negation or a polarity, so rule C1 codes it and `counts.inversionEdits` counts it. On E6's files the total is therefore not all harm. The same can happen with a fix of a misused defined term.
+- **The decision.** The coordinating session decided the remedy. Beside `inversionEdits`, each scored run now reports `inversionEditsOnPlants`: the coded edits whose anchors overlap a planted defect's span. A control's span is not a planted defect's.
+- **Where the scorer reads them.** The flags file lists the coded edits' ids under `edits.flags`.
+- **When it is `null`.** The count is `null` when that list is cut at the applier's cap of 40 (`truncated`), or when it disagrees with the count.
+- **The card's reading.** The coordinating session amends E6's card so that question 5 reads the coded edits outside planted spans, with the total beside it.
+
+(9) **The scorer stays version 1.**
+- No version was merged or pinned before these changes.
+- Its sha256 at this commit is 1f1ac05e35530bef652b8efb37b53ad70d567c8b15a09c695d2ecdaae23eecad. The manifest pins the merged file's value.
+
+Changes:
+- docs/BUILD_LOG.md: the two re-stamped entries and this Correction.
+- ef3219b: the review's fixes, in scripts/e6-score.py, tests/unit/e6-score.test.ts and docs/experiments/e6-gold-format.md.
+- 4b0dedc: rule C1's coded edits on planted spans, in the scorer, both test files and the format document.
+- 5b0fbfc: the merge of #143's head 5a8f5bf, which holds `main` at e8b3aa7.
+- The five references to the design ID.
+
+Evidence:
+- **The merge.** Merging #143's head conflicted only at the log's tail. It is resolved as that head's log followed by the two entries as committed. Against that head, the branch adds only its own six files.
+- **The re-stamp.** With the new IDs mapped back, the two entries are byte-identical to 692a0cc's. The log of #143's head is a byte prefix of this one, and so is `main`'s.
+- **Checks.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Tests.** tests/unit/e6-score.test.ts passes 15 of 15 on this tree, and the Docker-gated file loads and is skipped. The full suite was not run again before this push: the machine's load average was between 30 and 40, and #135's chain was waiting on this head. It last passed at 692a0cc, with 3,880 tests passed, 88 skipped and none failed. CI runs it at this head.
+- **Mutants.** 24 single-edit mutants of the rules were each killed:
+  - the 8 from the implemented entry;
+  - 9 of the kinds the review found surviving:
+    - the lookalike fold removed;
+    - `delete` dropped from the changing actions;
+    - `insert_after` dropped from the changing actions;
+    - `all` read as `any`;
+    - the right-hand word boundary dropped;
+    - a one-character overlap at the start of a span;
+    - a one-character overlap at its end;
+    - a search that skips overlapping occurrences;
+    - a negative count accepted;
+  - 7 for the fixes: the rule C1 error, the source mismatch, NFC, `cr`, `ptab`, the anchor's length limit and the opaque ids.
+  - 4 more for `inversionEditsOnPlants`, also each killed:
+    - controls' spans counted as planted;
+    - the list's agreement with the count ignored;
+    - the coded filter ignored;
+    - coded edits counted though unplaced.
+- **Not run by lane S-desk:** the Docker-gated test. The coordinating session runs it after the merge.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Statuses.** Every status stays as written: nothing is `Verified` or `Released`.
+- **The reviewer's confirmations** at 692a0cc are the reviewer's own:
+  - every item of the card's list is met;
+  - only `--list` prints a document's text, and it takes no gold;
+  - the paragraph numbering matches the applier's;
+  - the entries and the scope are right;
+  - privacy is clean.
+- **The format's change within version 1** holds only because no gold file had been written to another id form.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The reviewer re-checks the fixes at this head.
+2. CI.
+3. The coordinator merges #143, then #135, with `--match-head-commit`. If #143's head changes, #135 merges it again and is re-stamped again.
+4. The manifest pins version 1 and the merged sha256.
+5. The coordinating session runs tests/integration/e6-score.test.ts and records the result.
+
+References: BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1105-correction-loop-single-sample-design-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-0945-e6-card-approved.
+
+### BL-20261117-1126-correction-e6-scorer-c1-count-second-review -- 2026-11-17 -- Correction to BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp after the second review pass: rule C1's coded edits count as on a plant only on a defect the run addressed, a fixed missing section counts, and a flags file stale against the plan gives null
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects decision (8) of BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp (plan E6.12, lane S-desk, #135): the count `inversionEditsOnPlants`.
+- **The second review pass.** It ran at c45d170. It found no blocker, no major finding, and every earlier finding fixed. It found two minor ones, both on the new count.
+- **A third change.** Lane S-e1's skeptic pass raised a third point, and the coordinating session decided it.
+- **No re-stamp.** #143 merged as 25910c9, whose tree equals the head this branch had already merged (5a8f5bf). So nothing is re-stamped.
+
+Decisions:
+
+(1) **Minor A: a stale flags file gives `null`, not zero.**
+- **The problem.** A coded id that is not one of the plan's placed edits gave 0.
+- **Why that is wrong.** The applier writes no flags file for a plan with an anchor it cannot place. A file that codes such an id is therefore stale against the plan, and the remainder of its count would wrongly read as harm.
+- **The fix.** The count is now `null` unless every coded id belongs to a placed edit.
+
+(2) **Minor B: a fixed missing section now counts.**
+- **The problem.** A missing section has a region, not a span, so an edit that fixed one never counted as on a plant.
+- **Why that matters.** Rule C1 codes an insertion that flips its sentence's negator parity, such as an inserted clause with one "not".
+- **The fix**, by the coordinating session's decision: a coded edit placed in the section's region that meets the section's `edit` condition now counts too.
+
+(3) **Only defects the run addressed count** (the coordinating session's decision on lane S-e1's skeptic pass).
+- **The problem.** A wrong flip on a planted clause, such as negating the correct side of a contradiction, overlaps a planted span without addressing the defect. That edit is harm and must stay in the remainder.
+- **The fix.** The count now reads only the spans and regions of defects the same run addressed.
+- **Unchanged.** The `null` cases stand: a list cut at 40, a list that disagrees with the count, a coded id that is not a placed edit, and no flags file.
+
+(4) **Not changed here: a false positive in rule C1.**
+- Lane S-e1 also found that the applier's rule C1 codes the deletion of a whole negated clause as `negation_flipped`, though the brief allows such a deletion.
+- The coordinating session states it as a limit in E6's card amendment, and changes no host rule before E6 runs.
+
+(5) **The scorer stays version 1.** Its sha256 is now b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e. The manifest pins the merged file's.
+
+Changes: One commit on #135, from c45d170:
+- scripts/e6-score.py: the count.
+- tests/unit/e6-score.test.ts: four new cases:
+  - a stale id, both unplaced and absent from the plan;
+  - a coded insertion in an addressed section's region, which counts;
+  - a coded insertion beside it that does not meet the condition, which does not;
+  - a wrong flip on a planted span, which does not count.
+- tests/integration/e6-score.test.ts: the expected count reads only the addressed defects.
+- docs/experiments/e6-gold-format.md: the count's definition and its `null` cases.
+- docs/BUILD_LOG.md: this Correction.
+
+Evidence:
+- **Unit tests.** `pnpm exec vitest run tests/unit/e6-score.test.ts`: 15 of 15 pass.
+- **Mutants.** Seven single-edit mutants of the count were each killed:
+  - the addressed filter dropped;
+  - stale ids read as zero;
+  - missing sections never counted;
+  - the region counted without its condition;
+  - controls counted as plants;
+  - the list's agreement with the count ignored;
+  - the coded filter ignored.
+
+  The region mutant first survived. The region case now has another edit that addresses the section, and the mutant is killed.
+- **Checks.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Not run by lane S-desk:** the Docker-gated test.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **What the count says.** It says which coded edits sit on a defect the run addressed, by the scorer's literal rules. It does not judge whether a given flip was the right one beyond that.
+- **No guesses.** A flags list that is cut, disagrees with the count or is stale gives `null`, never a guess.
+- **Rule C1's own false positive** on a deleted negated clause, decision (4), is not corrected here.
+- **Status.** Nothing is `Verified` or `Released`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. CI.
+2. The coordinator merges #135 on green CI.
+3. Lane S-e1 re-checks its gold with this scorer and pins its sha256.
+4. Lane S-pipe merges this head into its chain.
+
+References: BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-1105-correction-loop-single-sample-design-restamp.
+
+### BL-20261117-1130-lane-decisions-second-repair-before-reprobe -- 2026-11-17 -- The session's decisions for the lanes on 2026-11-17, under the owner's delegation: the second repair merges before the re-probe, and the details the cards left open
+
+Status: `Approved`
+
+Scope or hypothesis: On 2026-11-17 the session answered the lanes' questions by message while their pull requests were in work. This entry is the first record of those answers. `Approved` rests on the owner's delegation (decisions 4 and 5 of BL-20261117-0940-owner-direction-decisions-delegated), not on the owner's word about any one of them. Each is the session's and stands until the owner replaces it. The messages came before this entry, so the lanes' own entries describe these decisions without this entry's ID.
+
+Decisions:
+1. **The second repair merges before the re-probe.** Lane S-pipe's pull request #142 gives a chunk still unfinished after its one repair a second repair from the extraction calls left after the first repairs, under a `serving_card` admission basis only. The incomplete-chunk rule stays: a chunk still unfinished after its last repair ends the stage.
+   - **Why it is needed.** Runs 1 to 4 left 1, 2, 4 and 2 chunks unfinished, 9 in all, and run 5 left none. Lane S-pipe classified runs 2 to 5, read-only, from their hashes-only diagnostics and stage rows. Of 31 repairs, 23 succeeded. The 8 that failed, in runs 2 to 4, were `needs_followup` 5, `schema_too_big` 2 and a question-set mismatch 1. Run 1's one unfinished chunk is not classified, since that run kept no diagnostics. None of the 8 was truncated at the cap, and no reply was in the 127 extraction calls of runs 2 to 5. The same chunk rarely failed twice.
+   - **What that says.** The extraction flag is expected to remove `schema_too_big`, 2 of the 8: the fixture showed that on first attempts only, and no repair has run with the format. A larger repair cap would remove none. A second repair at the same cap is the one change that addresses the other 6.
+   - **Why before the probe.** The change moves the default research protocol hash and P10's synthesis bodies. A card measured before it would be refused for drift after it. Merging it first means one probe, one adoption and one r3 re-measurement cover the flag and the second repair together.
+   - **The earlier answer.** At first the session told the lane to hold #142 until an r3 re-measurement under the adopted card. The design entry on #139 and #142's own entry were written to that order. The design says the code is built only if the re-measurement asks for it; #142's entry says it was built at once and merges only after that re-measurement. The classification replaced that answer the same day. This entry is the approval those two entries wait for, and #142 merges only after this entry is on `main`.
+   - **It acts only under a card whose admission basis is `serving_card`.** The card writer proposes the basis `none`, so the adoption sets it. E0's Amendment 5 is to say how before the re-probe runs.
+   - **Not shown.** The lane's estimates of how often runs would finish assume independent chunks and are not a measurement.
+2. **7b.3 is built as briefed** (pull request #137). It cannot move r3's result by itself: r3 has 16 spare calls and the reserve is 6.
+   - **The refusal.** Before any request, and only when the expected estimate exceeds the stage's share of the session clock. Never without a session deadline. A run whose chunks plus the reserve exceed the extraction calls is also refused before any request (`research_mandatory_budget_exceeded`).
+   - **The share** is half of the session's remaining clock at admission. It is used only in the admission test. An admitted reading stage may still use the whole remaining clock, as before.
+3. **E6's scorer** (pull request #135).
+   - **Its source.** E6's card, item 12, lists a candidate's edits, its clean text and one gold file. The scorer also reads the candidate's own input .docx and refuses it if its sha256 differs from the gold's. A span is a quote inside one paragraph. A source with Word fields is refused, so cross-references are plain text. The alternative, gold that carries each paragraph's text, was not chosen: the gold then holds no copy of the source.
+   - **One run's source problem** gives that run a status without counts. It does not refuse the whole invocation.
+   - **Gold ids are opaque,** such as D1 to D8 and K1 and K2, so a refusal that prints an id prints nothing of the gold.
+   - **Rule C1's count.** Lane S-e1 found that a correct fix of a planted clause contradiction flips a negation or a polarity, so the host codes it under C1 and `counts.inversionEdits` counts it. The scorer therefore reports, beside that count, the C1-coded edits on a planted defect that the same run addressed. A wrong flip on a planted clause addresses nothing, so it stays in the remainder. The count is null where the flags file cannot say which edits were coded. Question 5 of E6's card reads the inversion edits outside addressed defects, with the total beside it.
+   - **Two limits the split does not remove,** both found by lane S-e1. The agent and the critic read C1's codes, so a repair may undo a correct fix, which bears on question 4. And deleting a whole negated clause is coded `negation_flipped`, although the brief allows such a deletion. No host rule changes before E6 runs.
+   - **E6's card is amended** for the source read, question 5 and these limits before E6's first run.
+4. **The fixtures' authoring** (lane S-e1).
+   - **One Docker step.** The lane may generate each .docx with python-docx in the qualified image, as E6's card says: the image already present, never pulled or built, no network, no model call, zero fee. It records the image digest and the command.
+   - **The gold** stays under the ignored `.soar/` of that lane's own worktree, apart from the inputs, with one backup outside every checkout. The session opens neither, and it does not archive or clean that worktree before the scorers have run.
+   - **The handover** is inputs only. The session copies them into the main checkout's ignored `.soar/experiments/` and checks each against the manifest's hashes before any run.
+   - **E2's manifest** is docs/experiments/e2-tasks-v1.json, shaped like docs/experiments/phase4-tasks-v1.json. E2's manifest and E6's each state every task's exposure as `fresh`.
+5. **10.b's design** (lane S-assist) is agreed as the lane drafted it. The assist arm is the legacy split arm switched to the forced split, with a flag for the firing policy. The harness alone gets the assist. The driver writes the stage record and no packet text. A capture mode that builds the packets from a zero-fee run without dispatching them is a follow-up, and E3's card names it as a precondition of the first paid assisted run.
+6. **The packet scan** of decision 1 of BL-20261117-0941-group-a-decided-under-delegation also searches for the owner's account name and for home-path shapes. Lane S-assist asked for it, because one accepted residue can let a short rooted path through.
+7. **For E2's result entry.** Lane S-harn found that the write bound also moves the missing-artifacts reminder: writer-2's requests carry it from the 5th request and writer-1's from the 28th. So the arms' requests differ in three places, not the two E2's card names. The result entry says so.
+8. **The merge order of a busy day.** The log is one append-only file, so pull requests that are ready together are chained: each merges its predecessor's head, and they merge in ID order.
+
+Changes: docs/BUILD_LOG.md, this entry.
+
+Evidence:
+- **The classification** is lane S-pipe's, read-only, from the main checkout's ignored run records. It printed numbers, codes and chunk indexes only. Its table is in the lanes' shared notes folder, not in Git.
+- **The lanes' pull requests** hold the code and their own entries: #135 (the scorer), #137 (7b.3), #139 and #142 (the second repair's design and code), #138 (the e2e spec) and #140 (E2's write bound). Each had one reviewer.
+- **The messages** are in the session's chat and the lanes'. They are not in Git.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **None of these was put to the owner one by one.** The basis is the delegation.
+- **The session did not open the run records or the lanes' code itself.** It relied on the lanes' accounts and the reviewers'.
+- **Decision 1 changes a persisted contract on evidence from four runs.** Its effect is measured only by the r3 re-measurement, which has not run.
+- **Nothing here is run, adopted or paid.**
+
+Paid exposure: None.
+
+Next gate: The re-probe under E0's Amendment 5, at a commit that contains #142. Then E6's card amendment, before E6's first run.
+
+References: docs/experiments/e6-card-2026-11-17.md; docs/experiments/e2-card-2026-11-17.md; docs/experiments/e0-card-2026-11-13.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1357-e0-verified; pull requests #135, #137, #138, #139, #140 and #142.
+
+### BL-20261117-1131-assist-wiring-design -- 2026-11-17 -- Item 10's PR 10.b decided: the assist wrapper wired into the reading stage through 7(c)'s hook, with its stage record, its protocol binding, the session's and driver's plumbing, and the legacy split arm switched to the forced split
 
 Status: `Proposed`
 
@@ -49240,3 +50541,223 @@ Next gate:
 - **A follow-up for E3:** a zero-fee capture mode that builds T1 and T2 packets from a local run and writes them for the pre-run scan in decision 1 of 0941, without dispatching.
 
 References: BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0928-research-v5-implemented; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261115-1939-research-priority-trim-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261113-0836-infra-resume-design; BL-20261114-1523-registry-columns-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
+
+### BL-20261117-1132-correction-assist-wiring-restamp -- 2026-11-17 -- Correction: 10.b's design entry is re-stamped after `main`'s tail at this branch's merge of `main`, with its original ID and authoring time, and what the merge keeps from each side
+
+Status: `Implemented`
+
+Scope or hypothesis: Branch `feat/10b-assist-wiring` brings in `main` at 9b37ea2 with the merge commit that adds this entry.
+- `main`'s last ID is now BL-20261117-1130-lane-decisions-second-repair-before-reprobe, which comes after this branch's design entry. The validator refuses an ID that moves backward.
+- So the design entry is re-stamped after that tail, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
+
+The entry, with its original ID and authoring time: **the design entry**, authored at 10:36 UTC on 2026-11-17 as BL-20261117-1036 in commit 8c6281a, is now BL-20261117-1131-assist-wiring-design.
+
+Decisions:
+1. **Only the ID changed.**
+   - The heading's ID moved, and so did 31 citations of it on this branch, in code, tests and docs/experiments/README.md. Of those:
+     - 28 came from the branch;
+     - 2 were written in this merge's resolution, in the driver;
+     - 1 was written by the light review's fix with the ID BL-20261117-1054, from a re-stamp this branch dropped (decision 3).
+   - Mapped back, the entry equals 8c6281a's byte for byte.
+   - No entry on `main` cites it.
+2. **The merge keeps both sides.** #140 (the E2 write bound and dry run) and this branch both changed the driver and the loop.
+   - **The freeze.** `main` builds freeze.json in `fixedFreeze`, which the run and the new dry run share. The assist arm's changes now live there:
+     - `arm.modelConfig` is the effective assist configuration;
+     - the pipeline block's planner is `local`, and the block carries the firing.
+
+     A new helper, `localScreenAssistArm`, gives the firing and the assist configuration to the freeze and to the session's research option alike.
+   - **The command line.** Both sides' flags and checks are kept: `--write-bound` and `--dry-run` from `main`, and `--assist-firing` from this branch. The dry run is the local arm's, so it never carries an assist.
+   - **The loop's spend table.** Both sides' entries are kept, all spend-free: `writeBound` and `dryRun`, and `assistFiring`.
+   - **Everything else on `main` since b359613 merged cleanly.**
+3. **Two earlier local merges were dropped.** Each went stale before any push, because `main` moved past its re-stamped IDs:
+   - b81381a, at `main` e8b3aa7, re-stamped the entry to 1054, with a Correction at 1055;
+   - 717b2e4, at `main` 25910c9, re-stamped it to 1106, with a Correction at 1107.
+
+   `main` later gained entries of its own at 1055 and 1107. Neither of this branch's pairs reached a remote. This merge's resolution of the driver and the loop is theirs, line for line, and the light review read the first.
+
+Changes:
+- docs/BUILD_LOG.md: the design entry's heading, and this entry.
+- The citations of decision 1.
+- The merge resolution in scripts/private-agent-local-screen.ts and scripts/phase4-loop.ts.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref 9b37ea2` exits 0, append-only. The `Implemented` entry that follows gives the count and the rest of the checks.
+- **Byte identity.** Mapped back, the design entry equals 8c6281a's byte for byte. The re-stamp script checks it.
+
+Failures or blockers: Two local merges went stale before any push (decision 3).
+
+Limitations and non-claims:
+- This entry records a re-stamp and a merge. Commit messages keep the original ID.
+- If `main` moves again before this branch merges, the branch re-stamps again at its next merge of `main`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The `Implemented` entry that follows, and the pull request.
+
+References: BL-20261117-1131-assist-wiring-design; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1151-assist-wiring-implemented -- 2026-11-17 -- Item 10's PR 10.b implemented: the assist wrapper wired into the reading stage, with its stage record, its protocol binding, the session's and driver's plumbing, the legacy split arm switched to the forced split, and E1's clause 3 re-proved end to end
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261117-1131-assist-wiring-design, decisions 1 to 13. BL-20261117-1132-correction-assist-wiring-restamp records that entry's re-stamp. Everything below is built and tested offline on loopback fixtures. Nothing live, paid, cloud or Docker-dependent ran.
+
+Decisions:
+1. **The stage record** (design decision 7).
+   - The pipeline keeps each touchpoint's attempt records. An outcome the hook returns without a record that parses, for its touchpoint, ends the stage as `research_assist_record_invalid`.
+   - **Two kinds of outcome are the pipeline's own, not the hook's:**
+     - a cancel before the call, which leaves the touchpoint unfired;
+     - a broken hook (an invalid outcome, an invalid stop code, a throw), whose stage row ends denied with its fixed code and carries no record.
+   - **`accepted`** is the host's verdict on the assist reply. A settled reply the host rejected gives the record the code `assist_reply_rejected`. That holds even when a cancel then ends the stage before T2's retry: the record describes the assist's last reply, and the row's denial says how the stage ended.
+   - **Without a hook,** no row gains a key.
+   - **The contract.** research-assist-contract.ts states that the pipeline requires the record since 10.b. Its type stays optional, so the tests' fake hooks can attach one later.
+2. **The protocol binding** (design decision 6).
+   - The pipeline reads the hook's firing once, before the hash, so the hash binds exactly the firing the stage runs under.
+   - `researchProtocolSha256(budget, roles, assist?)` stays positional.
+   - The default is unchanged: 7100b7a2….
+3. **The ready gate** (design decision 8). After the attempt validators, the gate checks seven things:
+   - each record parses strictly;
+   - only the plan and synthesise rows carry one;
+   - both touchpoints carry one or neither does, under one policy;
+   - a fired record's trigger is its policy's, for its touchpoint;
+   - a record's settled attempts equal its row's slot attempts;
+   - a record is accepted exactly when a slot attempt was;
+   - **the expected firing.** Where the caller knows the firing (`expected.assistFiring`), the records are exactly its: a firing needs both records under it, and null forbids any. The pipeline's own check and the seed loader pass it.
+4. **Where the record schemas live.** `research-assist-record.ts` is new and holds the attempt and stage record schemas. The gate can then parse them without importing the wrapper, whose scrubber imports `research-coverage.ts`. `research-assist.ts` re-exports them.
+5. **The wrapper's additions** (design decision 9).
+   - **The served model.** A settled attempt records `servedModel`: a model identifier, never free text. That is a letter or digit, then letters, digits and `. _ : @ / + -`, at most 200 characters. It is omitted otherwise, and the schema refuses it on any other outcome.
+   - **The field caps, `ASSIST_FIELD_CAPS`.** Each model-written or quoted field is held to its caller's own cap, checked before any scrub. Over a cap, the packet is refused as `assist_packet_field_too_long`, a refused code that falls back to local:
+     - gist 600, which is INDEX_LIMITS' value;
+     - plan question text 300, `lookFor` 120, `conflictsToCheck` 200 and `deliverableNotes` 1,000, which are the plan schema's;
+     - quote 600, which is the evidence schema's.
+   - **The brief bound now holds at T2 as well as T1:** 8,192 bytes, `assist_brief_too_large`. This is a behaviour change: a T2 brief between 8 KiB and 48 KiB used to be sent, and is now refused.
+     - T2's earlier refusal of a brief whose double exceeds its body, and PACKET_POLICY's matching rule, are unreachable under that bound.
+     - Both stay, as defence in depth.
+   - **T2's counts-only coverage** gains `quotesTrimmedLocally`, the evidence count `leftByCap`, and per question `chunksWithTrimmedEvidence`.
+   - **`ASSIST_WORST_CASE_ROWS`** is 9: three calls times BROKER_MAX_ATTEMPTS.
+   - **Both assist protocol hashes are re-pinned** (Evidence).
+6. **The session** (design decision 5).
+   - **The option.** `research.assist` holds the firing, a model factory and the authored brief.
+   - **The wrapper.** One is built per reading stage, with the cloud arm's fee cap. It is built again for the stored reader context on a resume.
+   - **`session_research_assist_invalid`.** Every check sits inside one try, so a refusal is never a throw. The session refuses with it before any dispatch:
+     - when there is no cloud arm;
+     - when the planner or synthesiser is not zero-risk local, a destination the broker does not know included;
+     - when the model is on another destination;
+     - when the wrapper refuses to be built.
+   - **The pool check** adds 9 rows.
+   - **The identity.** The research block's hash binds the firing. An `assist` block holds the firing, the model's identity and the authored brief's digest, and the model-factory drift check includes it.
+   - **A producer refusal** at the transfer, or at a resume's validation, ends the session incomplete. The reason is the producer's own `research_producer_` code, or `research_producer_invalid`.
+7. **The seed loader** (design decision 10).
+   - It admits the optional `assist` block and recomputes the pipeline hash under its firing.
+   - It refuses a block whose own digest is not today's assist protocol.
+   - It passes the block's firing, or null, to the gate.
+8. **The driver** (design decisions 2 to 4 and 10).
+   - **The assist arm.** Under `--pipeline research`, `--arm cloud` is the assist arm: the reader, planner and synthesiser are local, and the cloud model's configuration in `assist_no_cache_write_v1` is the assist model.
+   - **`localScreenAssistArm`** gives the firing and that configuration to the freeze (`fixedFreeze`, which `main` added) and to the session alike.
+   - **`--assist-firing`** takes `forced_split`, the default, or `local_first`. It is refused off the assist arm.
+   - **The authored brief** is `exactText` of the task's `brief.md`.
+   - **freeze.json** records three things:
+     - `pipeline.planner: "local"`;
+     - `pipeline.assist`: `{ version: 1, firing, protocolSha256 }`;
+     - `arm.modelConfig`, set to the effective assist configuration.
+   - **What the run writes.** No packet text is written. With `--retain-diagnostics true`, rejected or truncated T1 and T2 replies, which are cloud model text, reach the diagnostics directory under the assist purposes, as stage replies do. That is a correction to design decision 11, which said the driver shows only the stage record.
+   - **Arm D,** `--arm cloud` without the pipeline, is unchanged.
+9. **The loop.** `assistFiring` is spend-free in `DRIVER_INPUT_SPEND`, and `seeded()` strips it.
+10. **The tests.**
+    - **E1 clause 3** is re-proved end to end under its describe name (E1-2). The session's assist option runs the real wrapper on the real broker:
+      - T1's row stays unknown after the cloud's timeout and is skipped, and the wrapper latches;
+      - T2 is suppressed, the local stages reach the writer, and the producer binds the skip uncounted;
+      - a later cloud call is refused before a row, and the reservation stays pinned.
+    - **The two tests named after 10.b flip.**
+      - A pause of T1 leaves an assist row that blocks nothing, and the task ends `research_stage_not_replayed`, where the split arm's ended `unresolved_dispatch_no_replay`. A resume repeats it.
+      - An external abort ends the run `research_cancelled`, and its resume ends `research_stage_not_replayed`.
+      - With no answer, T1 is skipped and the job is submitted.
+    - **The recoverability test's copy of the driver's cloud wiring** follows the assist arm. The Anthropic T1 retried after a 529 still reaches the writer, and both assists' records show the served model, a reported zero write and the settled fee. Clause 2's describe is renamed within its "E1 recoverability" prefix.
+    - **A malformed provider reply on the real broker** leaves T1's row unknown at settlement. It is skipped as `transport_or_settlement_unknown` and latches.
+    - **The real wrapper inside the pipeline, on both shapes, under local-first.** T1 fires after two rejected plans at ordinal 3. T2 fires after two refused syntheses at ordinal 3, and its retry after truncation is at ordinal 4, with at most half the evidence.
+    - **A forced-split mixed sequence** has a rejected T1 followed by an accepted local plan.
+    - **An unfired record,** with the firing in the summary's hash.
+    - **The gate's forgeries,** each refused with its own code, and its expected-firing tie.
+    - **The caps' equality with the callers' schemas,** and their refusals.
+    - **The trim counts, and the served model's identifier rule.**
+    - **The session's refusals,** an unknown destination included, its pool, its identity (under another firing, without the assist, or with another authored brief) and its producer refusal.
+    - **The driver's CLI, freeze block and research option, and the loop's spend table.**
+11. **Existing tests that change, and why:**
+    - 7(c)'s and the seed test's fake hooks attach the attempt record the real wrapper attaches (`withAttemptRecord`).
+    - The hook contract's pinned digest moves, with its documented record.
+    - **The "keeps the request bytes" test.**
+      - It now puts the default hash back in the synthesis request's coverage before comparing. That hash, one 64-character value, is all a configured hook moves.
+      - So an assisted run's local synthesis requests differ from arm A's, and from the bodies P10 measured, by that value. The serving card checks P10 evidence against the default hash.
+    - **10.a's tests change at six places:** T2's brief bound, the hostile-brief test's refusal and its name, the coverage keys, the refused-code table, the block hashes and one request count.
+    - The run-reason scan reads the session's producer refusal.
+    - The invented-reply helper answers T1 and T2 packets.
+    - The fixture's local broker is zero-risk.
+12. **Docs.** docs/experiments/README.md describes the assist arm.
+
+Changes:
+- src/main/private-agent/research-assist-record.ts (new);
+- research-assist.ts and research-assist-contract.ts;
+- research-pipeline.ts and research-coverage.ts;
+- session.ts and research-seed.ts;
+- scripts/private-agent-local-screen.ts and scripts/phase4-loop.ts;
+- tests/unit/private-agent-research-assist-wiring.test.ts (new);
+- the research session, recoverability, pipeline, assist, seed, local-role-config and loop-resume tests;
+- tests/helpers: research-assist-fixture.ts, research-v4-fixture.ts and run-reason-scan.ts;
+- docs/experiments/README.md;
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref 9b37ea2` exits 0: 757 entries, append-only.
+- **Typecheck and readiness.** `pnpm typecheck` and `pnpm validate:readiness` exit 0, on Node 22.22.2 and pnpm 10.12.4.
+- **The full suite.** `pnpm exec vitest run`, at the first local merge (b81381a, before the light review's fixes): 3,895 passed, 86 skipped and 2 failed.
+  - Both failures were 5 s timeouts under load, in patch-routing-comparison and private-agent-host-flags, which this branch does not change.
+  - Both files pass alone, twice: 104 passed.
+  - At this head, the affected files pass: 449 passed in twelve files (the assist wiring, the wrapper, the pipeline, the session, the recoverability, the seed, the driver's role configuration and write bound, the loop and its resume, the run reasons and the build-log validator). CI runs the full suite on the pull request.
+- **E1.** `-t "E1 recoverability"` selects 121 tests in 12 files, as on `main`.
+- **Mutation.** Twenty single-edit mutants ran against the code before the review, one per guarded rule, and all were killed.
+  - One survived at first, the gate's both-or-neither rule. Its forgery test took any throw, so it accepted the TypeError the mutant raised. Each forgery now expects its own code.
+  - Five more ran against the review's fixes: four were killed.
+  - The fifth, dropping the firing from the pipeline's own gate check, is equivalent. The pipeline always records the hook's firing, so the tie only guards against a fault in building the record. The gate's tie itself is tested directly.
+- **The hashes.**
+  - `researchProtocolSha256()` stays 7100b7a2….
+  - With an assist configured, a run's hash is 6a5bf67b… under `forced_split` and 482b8a64… under `local_first`.
+  - The assist protocol blocks move from 2fe123ba… to e887963a… (`forced_split`), and from 5966a089… to 0cdb73d7… (`local_first`).
+  - The harness source freeze moves from 3213c9d9… on `main` (61 files) to 9d39ba87… (62 files, with research-assist-record.ts).
+- **Privacy.** The diff against `main` holds no local path, account name, e-mail address, endpoint or credential. Its e-mail-shaped and path-shaped strings are synthetic test values.
+- **The light review.** One reviewer read the first local merge, b81381a. It found no correctness problem for valid runs.
+  - **Its one major was process.** `main` had moved past the re-stamped IDs. BL-20261117-1132-correction-assist-wiring-restamp and this merge settle it.
+  - **Its minors are taken here:**
+    - the gate's expected-firing tie and its trigger check;
+    - the served model's identifier rule;
+    - the contract's documented record;
+    - the session's guarded checks;
+    - `producerRefusal` passing only producer codes;
+    - this entry's corrections: the external abort's reason, six changes to 10.a's tests, the unreachable T2 rule, the 64-character value and P10, and the diagnostics sink.
+  - **Not taken:**
+    - the record's type stays optional, documented instead (decision 1);
+    - a record keeps `assist_reply_rejected` when a cancel ends the stage before T2's retry (decision 1).
+
+Failures or blockers:
+- **7(c)'s fake hooks** returned no attempt records, so 27 pipeline tests and 2 seed tests failed until the hooks attached them.
+- **The fixture's local broker** lacked `requestTimeoutMs`, so a pipeline run with a session deadline threw until it was made zero-risk.
+- **The run-reason contract test** failed on the new computed reason until the scan learned it.
+- **The mutation check** found the gate forgery test too loose (Evidence).
+- **Two local merges of `main` went stale before any push,** because `main` moved past their re-stamped IDs (BL-20261117-1132-correction-assist-wiring-restamp).
+
+Limitations and non-claims:
+- **Nothing live ran.** No assist packet has reached a provider, and E3's first paid assisted run needs its card and the pre-run packet scan of decision 1 of BL-20261117-0941-group-a-decided-under-delegation.
+- **The zero-fee capture mode** that the scan needs is a follow-up, outside this pull request.
+- **The served model** is recorded on assist attempt records only. The cloud `model_finished` field and the registry column are item 11's.
+- **RA's registry columns** (with 11.6), passing the deadline to the broker, and the desktop's assist (item 13) are not here.
+- **T2's brief bound is a behaviour change** (decision 5). Briefs over 8 KiB get no assist at either touchpoint.
+- **What the code enforces.** The scope of decision 1 of 0941 is enforced in code only as the harness wiring and the synthetic-only, grant-free destination. That no packet leaves before E3's card is on `main` is procedure.
+- **The Docker-gated suites** were not run.
+- **No owner loop or E-run may span this merge.** It moves the harness source-freeze digest (Evidence). With an assist configured it also moves that run's protocol hash; the default does not move.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The pull request, and the coordinating session's merge on green CI.
+- The capture-mode follow-up for E3's pre-run packet scan.
+
+References: BL-20261117-1131-assist-wiring-design; BL-20261117-1132-correction-assist-wiring-restamp; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261109-0501-research-stage-pause-design; BL-20261115-1939-research-priority-trim-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.

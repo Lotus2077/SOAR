@@ -64,7 +64,7 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "structuredOutputCalls",
   // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
   "questionsTrimmed", "quotesLeftByPresentation",
-  // 10.b (BL-20261117-1036-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes, enums and the
+  // 10.b (BL-20261117-1131-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes, enums and the
   // provider's model identifier (no white space, at most 200 characters), never free text.
   "assist"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
@@ -846,7 +846,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     v4.coverage.version = 1; delete v4.coverage.fallbacks; v4.coverage.protocolSha256 = "05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8";
     expect(digest(canonical(v4))).toBe("03bdfb5e0fc7a0b178c5b743a5b9035fb0fdd8838f53dc701989eb35a38fce6e");
     // A local-first hook is never asked while the stages accept, and every request is the one a run without a hook sends.
-    // 10.b (BL-20261117-1036-assist-wiring-design, decision 6): a configured hook binds its firing into the protocol hash, which the
+    // 10.b (BL-20261117-1131-assist-wiring-design, decision 6): a configured hook binds its firing into the protocol hash, which the
     // synthesis request's coverage carries. That one value is the assist-bound hash; put the default back, and every request is byte for byte the one without a hook.
     const unbound = (calls: typeof clean.calls, firing: ResearchAssistFiring) => calls.map(c => {
       if (c.stage !== "synthesise") return c.body;
@@ -987,7 +987,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
   // Since #79 (10.a) merged before 7c, the contract is one file, 10.a's; this pin now guards its bytes, so a change to the hook's interface is a
   // deliberate re-pin (BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge).
   it("pins the hook contract's bytes (research-assist-contract.ts, 10.a's file): a change to the interface is a deliberate re-pin", () => {
-    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("f8cce3ea9defcb70f37fc7824f3837482c63310609567a6c557aef8f622d3a2f");
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("2d6f419d7690c025a9a63f3f77cc20446ac8579a644cc1f3af65c195221815ad");
   });
 
   it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {

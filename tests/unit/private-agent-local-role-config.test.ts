@@ -237,7 +237,7 @@ describe("shared harness local role configuration", () => {
   });
 });
 
-describe("10.b: the driver's assist arm (BL-20261117-1036-assist-wiring-design, decisions 2, 4 and 10)", () => {
+describe("10.b: the driver's assist arm (BL-20261117-1131-assist-wiring-design, decisions 2, 4 and 10)", () => {
   const base = ["--execute-synthetic-local", "--task-directory", "synthetic-task", "--job-sha256", "a".repeat(64), "--brief-sha256", "b".repeat(64),
     "--authority-sha256", "c".repeat(64), "--image-id", `sha256:${"d".repeat(64)}`, "--output-directory", "synthetic-output", "--runtime-sha256", "e".repeat(64)];
   const research = ["--pipeline", "research", "--profile", "heavy", "--claims-ledger", "true"];

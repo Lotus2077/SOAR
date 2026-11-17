@@ -22,7 +22,7 @@ import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { writeResearchSeedSource } from "../helpers/research-seed-source";
 
 /**
- * E2 (BL-20261117-1005-e2-write-bound-and-dry-run-design): the driver's named write bound, its dry run, and the offline proof that
+ * E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design): the driver's named write bound, its dry run, and the offline proof that
  * `registry-row.py --run-dir` rows a seeded single run. Nothing here starts a session, sends a request or needs Docker.
  */
 const cleanups: (() => void)[] = [];
@@ -95,7 +95,7 @@ async function dryRun(input: LocalScreenInput, baseUrl: string, cwd: string): Pr
   return line;
 }
 
-describe("E2's write bound and the driver's dry run (BL-20261117-1005-e2-write-bound-and-dry-run-design)", () => {
+describe("E2's write bound and the driver's dry run (BL-20261117-1011-e2-write-bound-and-dry-run-design)", () => {
   it("pins writer-1's seeded Heavy write phase byte for byte with the protocol hash, and prints the freeze's fixed fields with Heavy's limits", async () => {
     const root = workspace(), { seeded, loaded, source, cwd } = await seededTask(root), endpoint = await counter();
     const line = await dryRun(seeded, endpoint.baseUrl, cwd);

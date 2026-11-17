@@ -522,7 +522,7 @@ describe("H4 select-and-repair loop", () => {
     const parsed = parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, "--pipeline", "research"]);
     expect(parsed.loopDirectory).toBe("L"); expect(parsed.base).toMatchObject({ taskDirectory: "t", profile: "heavy", claimsLedger: true, pipeline: "research" }); expect(parsed.base).not.toHaveProperty("outputDirectory");
     expect(() => parseLoopArguments(["--select-and-repair", ...driver])).toThrow("loop_cli_invalid");
-    // E2 (BL-20261117-1005-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run.
+    // E2 (BL-20261117-1011-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run.
     for (const extra of [["--output-directory", "o"], ["--repair-from", "r"], ["--research-from", "a"], ["--pause-after-tools", "3"], ["--write-bound", "twelve-call"], ["--dry-run", "true"]])
       expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...extra])).toThrow("loop_cli_invalid");
     expect(() => parseLoopArguments(["--execute-synthetic-local", "--loop-directory", "L", ...driver])).toThrow("loop_cli_invalid");

@@ -91,7 +91,7 @@ describe("registry columns (plan 11.4)", () => {
     });
   }, 60_000);
 
-  it("records the write phase's bound from the freeze's limits, so E2's two writer arms differ in the row, and refuses a limits record of another shape (BL-20261117-1005-e2-write-bound-and-dry-run-design)", () => {
+  it("records the write phase's bound from the freeze's limits, so E2's two writer arms differ in the row, and refuses a limits record of another shape (BL-20261117-1011-e2-write-bound-and-dry-run-design)", () => {
     const root = scratch(), heavy = { requests: 200, modelCalls: 80, toolCalls: 120, outputTokens: 16384, inputBytes: 655360, requestTimeoutMs: 900_000, elapsedMs: 5_400_000, feeMicrousd: 0 };
     const bounded = { ...heavy, modelCalls: 12, toolCalls: 12, elapsedMs: 1_200_000, writeBound: "twelve-call", sessionElapsedMs: 5_400_000 };
     const writer1 = row(["--run-dir", runDirectory(root, "writer-1", { freeze: { limits: heavy } })], "accepted");

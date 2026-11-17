@@ -130,7 +130,7 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
       servingCard: { sha256: h("c"), version: 1, date: "2026-11-10", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 3 } })}\n`;
     const carded = row(["--loop-dir", stoppedLoop(loop => runDirectory(loop, "a", { result: false, calls: 2, freeze: cardFreeze }), { stage: "a", failure: "loop_stage_incomplete" })], "infra_invalid");
     expect([carded.researchProtocolSha256, carded.servingCard, carded.localStreams]).toEqual([h("d"), { sha256: h("c"), entry: "BL-20261116-1203-research-role-policy-design" }, 3]);
-    // BL-20261117-1005-e2-write-bound-and-dry-run-design: and the write phase's bound.
+    // BL-20261117-1011-e2-write-bound-and-dry-run-design: and the write phase's bound.
     expect(carded.writeLimits).toEqual({ bound: null, modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000 });
     // A sample cut by the loop's interrupt that ended cancelled, its resume used: the operator's stop.
     const cut = stoppedLoop(loop => { runDirectory(loop, "a"); runDirectory(loop, "b", { status: "incomplete", reason: "cancelled_or_deadline" }); },

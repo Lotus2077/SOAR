@@ -4,7 +4,7 @@ import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-age
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_POLICY_APPLICATION, RESEARCH_ROLE_SCHEMAS, RESEARCH_STRUCTURED_OUTPUT_APPLICATION, SYNTHESIS_SYSTEM, normalizeQuoteText, researchRolePolicyBinding, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
-import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
+import { RESEARCH_ADMISSION_POLICY, planResearchIndexBatches, researchCardAdmission, researchIndexPreviewEnd, researchRepairReserve, researchWordCount, type ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
 import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
@@ -1735,5 +1735,82 @@ describe("backlog item 8.2b: the index and extraction loops run K calls at a tim
     expect(extracted.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
     expect(extract.calls.filter(c => c.stage === "extract" && c.n >= 7).map(c => [c.n, c.signal.aborted])).toEqual([[7, false], [8, true]]);
     expect(extracted.events.at(-1)).toMatchObject({ stage: "extract", calls: 7, repairCalls: 0, denied: "budget_denied" });
+  });
+});
+
+// 7b.3 (BL-20261117-1022-research-card-admission-design): card-derived admission under a `serving_card` basis.
+describe("7b.3: card-derived admission", () => {
+  const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+    fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+  const hour = () => performance.now() + 3_600_000;
+  const chunkCount = () => inventoryResearchSources(researchV4Sources()).chunks.length;
+  const bodies = (m: ReturnType<typeof models>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => c.body);
+  // The fixture broker has no clock accessors, so a run with a session deadline stubs every role's per-call guard (as finding A8's test does).
+  const clocked = (m: ReturnType<typeof models>) => { for (const model of Object.values(m.models)) vi.spyOn(model, "deadlineRefuses").mockReturnValue(false); return m; };
+
+  it("records no admission and keeps the pinned protocol without a card's rates", async () => {
+    const outcome = await run(models()), summary = parsed(outcome, RESEARCH_FILES.summary);
+    expect(summary).not.toHaveProperty("admission"); expect(Object.keys(summary).sort()).toEqual(["budget", "protocolSha256", "stages", "version"]);
+    expect(summary.protocolSha256).toBe(RESEARCH_PROTOCOL_SHA256);
+  });
+
+  it("admits under a card's rates with time to spare, records the admission, and sends the same index, plan and extraction requests", async () => {
+    const plain = models(), carded = clocked(models());
+    const without = await run(plain), withRates = await run(carded, { admission: rates, deadlineMs: hour() });
+    expect(withRates.status).toBe(without.status); expect(withRates.reason).toBe(without.reason);
+    // Admission decides only whether the stage runs: no index, plan or extraction body changes (synthesis carries the protocol hash in its coverage).
+    for (const stage of ["index", "plan", "extract"] as const) { expect(bodies(carded, stage)).toEqual(bodies(plain, stage)); expect(bodies(carded, stage).length).toBeGreaterThan(0); }
+    const summary = parsed(withRates, RESEARCH_FILES.summary), sources = researchV4Sources(), inventory = inventoryResearchSources(sources);
+    const ordered = inventory.sources.map(s => sources.find(item => item.id === s.id)!), batches = planResearchIndexBatches(ordered);
+    const work = { batchPreviewBytes: batches.map(batch => batch.reduce((bytes, source) => bytes + researchIndexPreviewEnd(source.bytes), 0)), chunkBytes: inventory.chunks.map(c => c.endByte - c.startByte) };
+    const expected = researchCardAdmission(work, RESEARCH_PIPELINE_BUDGET, { index: 1536, plan: 8192, extract: 2048, synthesis: 8192 }, rates, undefined);
+    expect(summary.admission).toMatchObject({ basis: "serving_card", policy: RESEARCH_ADMISSION_POLICY, rates, decision: "admitted",
+      work: { batches: batches.length, chunks: chunkCount(), reservedRepairs: researchRepairReserve(chunkCount()), indexCalls: 24, extractionCalls: 40 },
+      estimate: { expectedSeconds: expected.estimate.expectedSeconds, capBoundSeconds: expected.estimate.capBoundSeconds } });
+    // The share is half the remaining hour, less the moments the test took.
+    expect(summary.admission.estimate.shareSeconds).toBeGreaterThan(1790); expect(summary.admission.estimate.shareSeconds).toBeLessThanOrEqual(1800);
+    expect(summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true));
+    // Without a session deadline there is no share, and never a refusal on the clock.
+    const unbounded = parsed(await run(models(), { admission: rates }), RESEARCH_FILES.summary).admission;
+    expect(unbounded).toMatchObject({ decision: "admitted", estimate: { shareSeconds: null } });
+  });
+
+  it("refuses before any request when the expected estimate exceeds half the remaining clock (research_infeasible_in_clock)", async () => {
+    const m = models(), outcome = await run(m, { admission: rates, deadlineMs: performance.now() + 1_000 });
+    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_infeasible_in_clock" }); expect(m.request).not.toHaveBeenCalled();
+    const summary = parsed(outcome, RESEARCH_FILES.summary);
+    expect(summary.admission).toMatchObject({ decision: "refused_clock", estimate: { shareSeconds: 0.5 } }); expect(summary.admission.estimate.expectedSeconds).toBeGreaterThan(30);
+    expect(summary.stages).toEqual([]); expect(parsed(outcome, RESEARCH_FILES.coverage).unresolved).toContain("research_infeasible_in_clock");
+  });
+
+  it("keeps room for repairs: the budget must hold the chunks plus the reserve, or the run ends research_mandatory_budget_exceeded before any request", async () => {
+    const chunks = chunkCount(), reserve = researchRepairReserve(chunks), tight = { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks };
+    // Without a card the chunks alone must fit, as before.
+    expect((await run(models(), { budget: tight })).reason).not.toBe("research_mandatory_budget_exceeded");
+    const m = clocked(models()), refused = await run(m, { budget: tight, admission: rates, deadlineMs: hour() });
+    expect(refused).toMatchObject({ status: "incomplete", reason: "research_mandatory_budget_exceeded" }); expect(m.request).not.toHaveBeenCalled();
+    expect(parsed(refused, RESEARCH_FILES.summary).admission).toMatchObject({ decision: "refused_budget", work: { chunks, reservedRepairs: reserve, extractionCalls: chunks } });
+    const room = { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks + reserve };
+    expect(parsed(await run(clocked(models()), { budget: room, admission: rates, deadlineMs: hour() }), RESEARCH_FILES.summary).admission.decision).toBe("admitted");
+  });
+
+  it("lets a ready packet's summary carry only an admitted record: the gate refuses a refused or malformed one", async () => {
+    const outcome = await run(models(), { admission: rates }), files = outcome.files;
+    expect(() => validateReadyResearchPacket(files, { protocolSha256: outcome.summary.protocolSha256 })).not.toThrow();
+    const withSummary = (edit: (summary: any) => void) => files.map(f => { if (f.path !== RESEARCH_FILES.summary) return f; const summary = JSON.parse(f.bytes.toString()); edit(summary);
+      return { path: f.path, bytes: Buffer.from(`${canonical(summary)}\n`) }; });
+    for (const edit of [(s: any) => { s.admission.decision = "refused_clock"; }, (s: any) => { s.admission.decision = "refused_budget"; }, (s: any) => { s.admission.policy.bytesPerToken = 3; },
+      (s: any) => { s.admission.rates.extra = 1; }, (s: any) => { s.admission.estimate.shareSeconds = -1; }])
+      expect(() => validateReadyResearchPacket(withSummary(edit), { protocolSha256: outcome.summary.protocolSha256 })).toThrow();
+  });
+
+  it("refuses rates it cannot read before any request, and binds the admission policy into the protocol only with a card's rates", async () => {
+    const m = models(), outcome = await run(m, { admission: { ...rates, decodeTokensPerSecond: { fastest: 0, slowest: 0 } } as ResearchAdmissionRates, deadlineMs: hour() });
+    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_admission_invalid" }); expect(m.request).not.toHaveBeenCalled();
+    expect(parsed(outcome, RESEARCH_FILES.summary)).not.toHaveProperty("admission");
+    const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy; roles.extract.maxOutputTokens = [1024, 2048];
+    const hashes = [researchProtocolSha256(), researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, false), researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true),
+      researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, false), researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, true)];
+    expect(hashes[0]).toBe(RESEARCH_PROTOCOL_SHA256); expect(hashes[1]).toBe(RESEARCH_PROTOCOL_SHA256); expect(new Set(hashes.slice(1)).size).toBe(4);
   });
 });

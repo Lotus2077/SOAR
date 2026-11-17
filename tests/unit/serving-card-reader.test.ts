@@ -145,7 +145,16 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_p10_settings_drift", "another context under the same Flash contract", loadFrom(edited(card => { flag("extract", true, false)(card);
       card.evidence.p10.requestSettings = { ...SYNTHETIC_P10_REQUEST_SETTINGS, localReplyContract: "flash_next_v1", localContextTokens: 262_144 }; }),
     { ...EXPECT, requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS, localReplyContract: "flash_next_v1", localContextTokens: 131_072 } }), "roles.extract.structuredOutput.thinkingOff"],
-    ["serving_card_parameter_unconsumed", "admission", loadFrom(edited(card => { card.admission.basis = "serving_card"; })), "admission.basis"],
+    // 7b.3 (BL-20261117-1022-research-card-admission-design): a `serving_card` basis resolves only with the rates its card's evidence holds.
+    ["serving_card_admission_unmeasured", "a serving_card basis without P11", loadFrom(edited(card => { card.admission.basis = "serving_card"; card.evidence.p11 = null; card.evidence.bounds = null; })),
+      "admission.basis"],
+    ["serving_card_admission_unmeasured", "no P11 size that ran", loadFrom(edited(card => { card.admission.basis = "serving_card";
+      for (const size of Object.values(card.evidence.p11.sizes) as { ok: boolean }[]) size.ok = false; }))],
+    ["serving_card_admission_unmeasured", "no P10 evidence", loadFrom(edited(card => { card.admission.basis = "serving_card"; card.evidence.p10 = null; }))],
+    ["serving_card_admission_unmeasured", "no P10 mean for extract's first attempt, thinking off", loadFrom(edited(card => { card.admission.basis = "serving_card";
+      card.evidence.p10.cells["extract/off"].meanCompletionTokens = null; }))],
+    ["serving_card_admission_unmeasured", "K 4's burst without an aggregate rate", loadFrom(edited(card => { card.admission.basis = "serving_card"; card.concurrency.localStreams = 4;
+      card.evidence.p11.kStreams["4"].aggregateTokS = null; }))],
   ];
 
   it.each(CASES)("R2: %s for %s", (code, _label, run, parameter) => {
@@ -170,6 +179,20 @@ describe("serving-card reader (SC)", () => {
     const both = loadFrom(edited(card => { flag("extract", true, true)(card); card.concurrency.localStreams = 4; }))(workspace());
     expect(both.policy.roles.extract.structuredOutput).toEqual({ variant: "strict", thinkingOff: true, thinkingOn: true });
     expect(both.policy.localStreams).toBe(4);
+  });
+  it("R2 since 7b.3 (BL-20261117-1022-research-card-admission-design): a serving_card basis resolves with its evidence's rates; at K above 1 the loops decode at the burst's aggregate", () => {
+    const card = edited(c => { c.admission.basis = "serving_card"; c.concurrency.localStreams = 4; c.roles.extract.thinking = ["model", "disabled"];
+      c.evidence.p10.cells["extract/on"].meanCompletionTokens = 900; });
+    const p11 = card.evidence.p11!, sizes = Object.values(p11.sizes).filter(size => size.ok), cells = card.evidence.p10!.cells, aggregate = p11.kStreams["4"]!.aggregateTokS!;
+    const span = (values: number[]) => ({ fastest: Math.max(...values), slowest: Math.min(...values) });
+    const policy = loadFrom(card)(workspace()).policy;
+    // Extract's first attempt thinks here, so its expected output is the thinking-on cell's mean.
+    expect(policy.admission).toEqual({ basis: "serving_card", rates: { prefillTokensPerSecond: span(sizes.map(size => size.prefillTokS!)), decodeTokensPerSecond: span(sizes.map(size => size.decodeTokS!)),
+      fanOutDecodeTokensPerSecond: { fastest: aggregate, slowest: aggregate },
+      expectedOutputTokens: { plan: cells["plan/on"]!.meanCompletionTokens!, extract: cells["extract/on"]!.meanCompletionTokens!, synthesis: cells["synthesis/on"]!.meanCompletionTokens! } } });
+    expect(cells["extract/on"]!.meanCompletionTokens).not.toBe(cells["extract/off"]!.meanCompletionTokens); expect(aggregate).not.toBe(span(sizes.map(size => size.decodeTokS!)).fastest);
+    // The default basis carries no rates.
+    expect(loadFrom(allDefault())(workspace()).policy.admission).toEqual({ basis: "none" });
   });
   it("R2 since item 9's review: an attempt that sends the format must use the cap its P10 cell measured; another attempt may change its cap", () => {
     // Plan sends the format with thinking on only; its first attempt has thinking off, so its cap may differ from the plan/on cell's 8,192.
@@ -206,8 +229,9 @@ describe("serving-card reader (SC)", () => {
       .toBe("serving_card_invalid");
   });
   it("R2: the table covers every refusal code, and a key path outside the allowlist never reaches an error", () => {
-    expect(new Set(CASES.map(([code]) => code))).toEqual(new Set(SERVING_CARD_CODES));
-    expect(SERVING_CARD_CODES).toHaveLength(16);
+    // Every flag is true since 7b.3, so no card here reaches serving_card_parameter_unconsumed; serving-card-reader-partial.test.ts holds it, with the flags mocked.
+    expect(new Set([...CASES.map(([code]) => code), "serving_card_parameter_unconsumed"])).toEqual(new Set(SERVING_CARD_CODES));
+    expect(SERVING_CARD_CODES).toHaveLength(17);
     for (const code of SERVING_CARD_CODES) expect(code).toMatch(/^[a-z0-9_]{1,79}$/u);
     expect(new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json").parameter).toBeUndefined();
     expect(new ServingCardError("serving_card_not_adopted", "decision").parameter).toBe("decision");
@@ -238,7 +262,7 @@ describe("serving-card reader (SC)", () => {
     expect(() => pinned(relative(process.cwd(), written.path), written.sha256)).toThrow(LocalTokenAdmissionError);
   });
 
-  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, only 7a.2's, item 9's and 8.2b's flags are true and the rule matches the writer", () => {
+  it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, every flag is true since 7b.3, and the rule matches the writer", () => {
     for (const role of RESEARCH_ROLES) {
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].maxOutputTokens).toEqual([OUTPUT_TOKENS[role], OUTPUT_TOKENS[role]]);
       expect(DEFAULT_RESEARCH_ROLE_POLICY[role].thinking).toEqual([THINKING[role], THINKING[role]]);
@@ -248,8 +272,8 @@ describe("serving-card reader (SC)", () => {
     expect(Object.isFrozen(DEFAULT_RESEARCH_ROLE_POLICY.plan.maxOutputTokens) && Object.isFrozen(DEFAULT_SERVING_POLICY.admission)).toBe(true);
     expect(DEFAULT_SERVING_POLICY).toEqual({ roles: DEFAULT_RESEARCH_ROLE_POLICY, localStreams: 1, admission: { basis: "none" } });
     // Each flip is a reviewed edit of this pin, in the consumer PR that applies the value: 7(a), 9, 8 and 7(b). 7a.2 flipped the caps and thinking,
-    // item 9 structured output, and 8.2b consumes K.
-    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: true, localStreams: true, admission: false });
+    // item 9 structured output, 8.2b consumes K, and 7b.3 (BL-20261117-1022-research-card-admission-design) admission.
+    expect(SERVING_CARD_CONSUMED).toEqual({ maxOutputTokens: true, thinking: true, structuredOutput: true, localStreams: true, admission: true });
     const writer = JSON.parse(execFileSync("python3", ["-I", "-c", ["import importlib.util, json, sys",
       "spec = importlib.util.spec_from_file_location('serving_card', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
       "print(json.dumps({'minCalls': module.P10_MIN_CALLS, 'minValidPercent': module.P10_RULE_PERCENT}))"].join("\n"), SERVING_CARD_WRITER],

@@ -15,6 +15,7 @@ import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinishe
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -254,6 +255,21 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(bare).run()).toMatchObject({ status: "submitted" });
     const defaulted = options(f, "job-default", runs); defaulted.research = { ...defaulted.research!, roles: structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy };
     expect(await new GeneralAgentSession(defaulted).run()).toMatchObject({ status: "submitted" });
+  });
+  it("7b.3: the identity binds a card's admission rates, so a resume under other rates, or without them, drifts (BL-20261117-1022-research-card-admission-design)", async () => {
+    const rates = (plan: number): ResearchAdmissionRates => ({ prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+      fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan, extract: 100, synthesis: 2000 } });
+    const f = await fixture(), runs: Run[] = [], first = options(f, "job-admission", runs); first.research = { ...first.research!, admission: rates(1000) };
+    expect(await new GeneralAgentSession(first).run()).toMatchObject({ status: "submitted" });
+    // The session hands the stage the rates and its deadline: the transfer's summary records an admission against a share of the session clock.
+    const transfer = f.store.events("job-admission").find(event => event.type === "research_transfer")!.binding as { snapshot: WorkspaceSnapshot };
+    const summary = JSON.parse(new PrivateCheckpointStore(f.root, "job-admission").load(transfer.snapshot).find(file => file.path === RESEARCH_FILES.summary)!.bytes.toString());
+    expect(summary.admission).toMatchObject({ basis: "serving_card", rates: rates(1000), decision: "admitted" }); expect(summary.admission.estimate.shareSeconds).toBeGreaterThan(0);
+    const other = options(f, "job-admission", runs); other.research = { ...other.research!, admission: rates(1001) };
+    expect(await new GeneralAgentSession(other).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    expect(await new GeneralAgentSession(options(f, "job-admission", runs)).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    const same = options(f, "job-admission", runs); same.research = { ...same.research!, admission: rates(1000) };
+    expect(await new GeneralAgentSession(same).run()).toMatchObject({ status: "submitted" });
   });
   it("item 9: a card's structured-output flag reaches the request bodies through the session (BL-20261116-1208-research-structured-output-design)", async () => {
     // Every cap fits the fixture's 4,096-token role models, whose own thinking is disabled: each call's effective mode is off, so the

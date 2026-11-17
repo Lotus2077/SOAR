@@ -16,6 +16,7 @@ import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { writeResearchSeedSource } from "../helpers/research-seed-source";
 import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { PipelineFreezeSchema } from "../../src/main/private-agent/research-seed";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
@@ -219,6 +220,24 @@ describe("shared harness local role configuration", () => {
       sources: task.phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })), roles: nonDefault() });
     await expect(runLocalArtifactScreen({ ...options, researchFrom: source }, { environment: plainEnvironment, cwd })).rejects.toThrow("research_seed_protocol_mismatch");
     expect(existsSync(options.outputDirectory)).toBe(false);
+  });
+
+  it("7b.3: a card whose admission basis is serving_card loads through the pair with its evidence's rates, and the research option and freeze.json carry them (BL-20261117-1022-research-card-admission-design)", () => {
+    const root = workspace(), card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
+    (card as { admission: { basis: string } }).admission.basis = "serving_card";
+    const written = writeCard(root, card), paired = config(true); paired.vllm.servingCard = { path: written.path, sha256: written.sha256 };
+    const loaded = buildLocalScreenServingCard(paired)!, sizes = Object.values(card.evidence.p11!.sizes).filter(size => size.ok), cells = card.evidence.p10!.cells;
+    const span = (values: number[]) => ({ fastest: Math.max(...values), slowest: Math.min(...values) }), decode = span(sizes.map(size => size.decodeTokS!));
+    // P11's sizes, the single-stream decode at K 1, and P10's means in each role's first-attempt mode: plan and synthesis think, extract does not.
+    const rates: ResearchAdmissionRates = { prefillTokensPerSecond: span(sizes.map(size => size.prefillTokS!)), decodeTokensPerSecond: decode, fanOutDecodeTokensPerSecond: decode,
+      expectedOutputTokens: { plan: cells["plan/on"]!.meanCompletionTokens!, extract: cells["extract/off"]!.meanCompletionTokens!, synthesis: cells["synthesis/on"]!.meanCompletionTokens! } };
+    expect(loaded.policy).toEqual({ ...DEFAULT_SERVING_POLICY, admission: { basis: "serving_card", rates } });
+    const block = researchPipelineFreeze("local", undefined, rates);
+    expect(block).toEqual({ ...researchPipelineFreeze("local"), protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true), admission: { basis: "serving_card", rates } });
+    expect(PipelineFreezeSchema.parse(block)).toEqual(block); expect(canonical(researchPipelineFreeze("local", undefined, undefined))).toBe(canonical(researchPipelineFreeze("local")));
+    const broker = {} as PrivateAgentBroker, local = buildLocalScreenModelConfig(config(true), COORDINATOR_PROFILES.heavy);
+    expect(localScreenResearchOption(broker, "job", local, undefined, { admission: rates }).admission).toEqual(rates);
+    expect(localScreenResearchOption(broker, "job", local, undefined)).not.toHaveProperty("admission");
   });
 
   it("7a.2 review: the research option hands the session the card's role policy, the local reader, and the split arm's planner and synthesiser", () => {

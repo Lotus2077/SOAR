@@ -15,6 +15,7 @@ import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, re
 import { validateReadyResearchPacket } from "./research-coverage";
 import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { createResearchInput, createResearchProducer, validateResearchProducer } from "./research-producer";
+import type { ResearchAdmissionRates } from "./research-admission";
 import type { ResearchRolePolicy } from "./research-roles";
 
 export interface SessionFile { path: string; bytes: Buffer }
@@ -70,6 +71,12 @@ export interface GeneralSessionOptions {
   research?: { models: (contextId: string) => ResearchModels; budget?: ResearchBudget;
     /** 7a.2: the role policy an adopted serving card resolved; absent is the default, and the identity and every request are as without it. */
     roles?: ResearchRolePolicy;
+    /**
+     * 7b.3 (BL-20261117-1022-research-card-admission-design): the admission rates of an adopted card whose admission basis is `serving_card`.
+     * Bound into the identity (so a resume under another card's rates ends `session_contract_drift`) and the protocol hash; absent, both
+     * and every request are as without it.
+     */
+    admission?: ResearchAdmissionRates;
     /**
      * Backlog item 4: a sink for the stage's rejected or truncated replies, and since 7a.1 its kept extraction replies with drops. Forwarded to the pipeline only while the reader
      * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
@@ -322,8 +329,10 @@ export class GeneralAgentSession {
         ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: modelIdentity(judgeModel.config) } : {}),
         // H2b: the frozen pipeline protocol and the stage's model identities, spread only when configured.
         // 7a.2: a non-default role policy is bound through the protocol hash; the default leaves it unchanged.
-        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles),
-          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels) } } : {}) }));
+        // 7b.3: a card's admission rates are bound (and the admission policy through the hash) only when set.
+        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION,
+          protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles, options.research.admission !== undefined),
+          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels), ...(options.research.admission ? { admission: options.research.admission } : {}) } } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,
@@ -421,7 +430,7 @@ export class GeneralAgentSession {
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
               deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
-              ...(options.research.roles ? { roles: options.research.roles } : {}),
+              ...(options.research.roles ? { roles: options.research.roles } : {}), ...(options.research.admission ? { admission: options.research.admission } : {}),
               ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());

@@ -11,6 +11,7 @@ import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, re
 import { createResearchInput, createResearchProducer, validateResearchProducer, type ResearchProducer } from "../../src/main/private-agent/research-producer";
 import { assertSeedRolePolicy, loadResearchSeed, researchTransferPresent, researchTransferSnapshot, researchTransferStatus, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_TRANSFER_CHECK_ID, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionFile, type SessionPhase } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
@@ -354,6 +355,30 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const plain = loadResearchSeed(sourceRun(), task);
     expect(() => assertSeedRolePolicy(plain.pipeline, undefined)).not.toThrow(); expect(() => assertSeedRolePolicy(plain.pipeline, structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy)).not.toThrow();
     expect(() => assertSeedRolePolicy(plain.pipeline, roles)).toThrow("research_seed_protocol_mismatch");
+  });
+  it("7b.3: a source read under a card's admission rates seeds under its recorded protocol, and the loader refuses an admission its protocol does not account for (BL-20261117-1022-research-card-admission-design)", async () => {
+    const rows: Record<string, unknown>[] = [], plan = 1000, rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+      fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan, extract: 100, synthesis: 2000 } };
+    const request = async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body) as { messages: { content: string }[] }, content = researchV4Reply(body.messages[0]!.content, body.messages[1]!.content);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      rows.push({ id: `receipt-${rows.length}`, jobId, contextId, contextSha256: h("3"), packetSha256: digest(input.body), destinationId: "fixture", destinationSha256: h("4"), purpose: input.purpose,
+        policyRevision: 0, committedAt: rows.length + 1, reservedFeeMicrousd: 0, status: "settled", feeMicrousd: settle(bytes), responseSha256: digest(bytes), scan: { status: "not_required_for_synthetic_local_test" } });
+      return { bytes, receipt: rows.at(-1) };
+    };
+    const config = { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium" as const, inputUsdPerMillion: 0, outputUsdPerMillion: 0 };
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, jobId, contextId);
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal, record() {}, admission: rates });
+    const carded = researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true);
+    expect(outcome.status).toBe("completed"); expect(outcome.summary.protocolSha256).toBe(carded); expect(outcome.summary.admission?.decision).toBe("admitted");
+    const admission = { basis: "serving_card" as const, rates }, base = { files: outcome.files, receipts: rows };
+    const seed = loadResearchSeed(sourceRun({ base, freeze: { pipeline: { ...pipeline(), protocolSha256: carded, admission } } }), task);
+    expect(seed.pipeline.admission).toEqual(admission);
+    // Admission decides only whether a stage runs, never a packet, so a seeding run compares its role policy alone.
+    expect(() => assertSeedRolePolicy(seed.pipeline, undefined)).not.toThrow();
+    // A recorded admission the protocol does not bind, and a protocol that binds one the block does not record, are refused.
+    expect(() => loadResearchSeed(sourceRun({ base, freeze: { pipeline: { ...pipeline(), admission } } }), task)).toThrow("research_seed_protocol_mismatch");
+    expect(() => loadResearchSeed(sourceRun({ base, freeze: { pipeline: { ...pipeline(), protocolSha256: carded } } }), task)).toThrow("research_seed_protocol_mismatch");
   });
   it("7b.2: seeds a packet the priority trim cut, its omissions disclosed and bound (BL-20261115-1939-research-priority-trim-design)", async () => {
     // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.

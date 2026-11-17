@@ -13,6 +13,7 @@ import type { SoarConfig } from "../config";
 import { canonical, digest, sha256Schema } from "./contracts";
 import { pinned } from "./flash-next-admission";
 import { COORDINATOR_PROFILES } from "./profiles";
+import { ResearchAdmissionRatesSchema, type ResearchAdmissionRates } from "./research-admission";
 import { RESEARCH_ROLE_SCHEMAS, researchProtocolSha256 } from "./research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, MIN_ROLE_OUTPUT_TOKENS, RESEARCH_ROLES, ResearchRolePolicySchema, STRUCTURED_OUTPUT_ROLES, StructuredOutputVariantSchema,
   nonDefaultRoleParameters, type ResearchRolePolicy, type StructuredOutputRole, type StructuredOutputVariant } from "./research-roles";
@@ -104,7 +105,7 @@ export const SERVING_CARD_CODES = ["serving_card_pin_drift", "serving_card_versi
   "serving_card_model_mismatch", "serving_card_context_mismatch", "serving_card_cap_out_of_range", "serving_card_structured_output_unassessed",
   "serving_card_p10_protocol_drift", "serving_card_p10_settings_drift", "serving_card_schema_drift", "serving_card_structured_output_variant_mismatch",
   "serving_card_structured_output_below_rule", "serving_card_structured_output_cap_unmeasured", "serving_card_streams_unproven",
-  "serving_card_parameter_unconsumed"] as const;
+  "serving_card_parameter_unconsumed", "serving_card_admission_unmeasured"] as const;
 export type ServingCardCode = (typeof SERVING_CARD_CODES)[number];
 
 /**
@@ -139,8 +140,13 @@ export function servingCardRefusal(error: unknown): { code: ServingCardCode; par
   return { code: error.code, ...(isServingCardParameterPath(error.parameter) ? { parameter: error.parameter } : {}) };
 }
 
-/** What a consumer reads: never the raw card. */
-export interface ServingPolicy { roles: ResearchRolePolicy; localStreams: number; admission: { basis: "none" | "serving_card" } }
+/**
+ * What a consumer reads: never the raw card. 7b.3: a `serving_card` admission basis carries the rates the reader derived from the card's
+ * evidence (servingCardAdmissionRates), so the research stage reads them from the policy alone.
+ */
+export interface ServingPolicy { roles: ResearchRolePolicy; localStreams: number; admission: { basis: "none" } | { basis: "serving_card"; rates: ResearchAdmissionRates } }
+/** The policy's parameters as the fail-closed step compares them with today's defaults: the admission basis, without its rates. */
+type ServingPolicyParameters = Pick<ServingPolicy, "roles" | "localStreams"> & { admission: { basis: ServingPolicy["admission"]["basis"] } };
 
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === "object") { Object.freeze(value); for (const item of Object.values(value)) deepFreeze(item); }
@@ -234,7 +240,7 @@ export function parseServingCard(bytes: Uint8Array): ServingCardV1 {
 }
 
 /** Role values from nonDefaultRoleParameters, then K other than 1, then admission other than none. */
-export function nonDefaultParameters(policy: ServingPolicy): { parameter: ServingCardParameter; at: string }[] {
+export function nonDefaultParameters(policy: ServingPolicyParameters): { parameter: ServingCardParameter; at: string }[] {
   return [...nonDefaultRoleParameters(policy.roles),
     ...(policy.localStreams !== DEFAULT_SERVING_POLICY.localStreams ? [{ parameter: "localStreams" as const, at: "concurrency.localStreams" }] : []),
     ...(policy.admission.basis !== DEFAULT_SERVING_POLICY.admission.basis ? [{ parameter: "admission" as const, at: "admission.basis" }] : [])];
@@ -289,10 +295,38 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
     const bursts = card.evidence.p11?.kStreams, burst = bursts && Object.hasOwn(bursts, String(streams)) ? bursts[String(streams)] : undefined;
     if (burst === undefined || burst.streams !== streams || burst.errors !== 0) refuse("serving_card_streams_unproven", "concurrency.localStreams");
   }
-  const policy: ServingPolicy = { roles: structuredClone(card.roles), localStreams: streams, admission: { basis: card.admission.basis } };
-  const unconsumed = nonDefaultParameters(policy).find(item => !SERVING_CARD_CONSUMED[item.parameter]);
+  const parameters: ServingPolicyParameters = { roles: structuredClone(card.roles), localStreams: streams, admission: { basis: card.admission.basis } };
+  const unconsumed = nonDefaultParameters(parameters).find(item => !SERVING_CARD_CONSUMED[item.parameter]);
   if (unconsumed) refuse("serving_card_parameter_unconsumed", unconsumed.at);
-  return policy;
+  // 7b.3: a consumed `serving_card` basis resolves only with the rates its card's evidence holds.
+  return { ...parameters, admission: card.admission.basis === "serving_card" ? { basis: "serving_card", rates: servingCardAdmissionRates(card) } : { basis: "none" } };
+}
+
+/**
+ * 7b.3 (BL-20261117-1022-research-card-admission-design): the measured rates a `serving_card` admission basis reads, from the card's own
+ * evidence, or `serving_card_admission_unmeasured` at `admission.basis` when the card lacks one:
+ * - prefill and decode: the fastest and the slowest of P11's sizes that ran (thinking off);
+ * - fan-out decode: the single-stream rates at K 1, and at K above 1 the aggregate of P11's burst at that K;
+ * - expected output: P10's mean completion tokens for plan, extract and synthesis, in the thinking mode of each role's first attempt.
+ */
+export function servingCardAdmissionRates(card: ServingCardV1): ResearchAdmissionRates {
+  const at = "admission.basis", p11 = card.evidence.p11, p10 = card.evidence.p10;
+  const sizes = p11 === null ? [] : Object.values(p11.sizes).filter(size => size.ok && (size.prefillTokS ?? 0) > 0 && (size.decodeTokS ?? 0) > 0);
+  if (p11 === null || p10 === null || sizes.length === 0) refuse("serving_card_admission_unmeasured", at);
+  const span = (values: number[]) => ({ fastest: Math.max(...values), slowest: Math.min(...values) });
+  const decode = span(sizes.map(size => size.decodeTokS as number)), streams = card.concurrency.localStreams;
+  const aggregate = streams > 1 && Object.hasOwn(p11.kStreams, String(streams)) ? p11.kStreams[String(streams)]!.aggregateTokS : null;
+  if (streams > 1 && !(aggregate !== null && aggregate > 0)) refuse("serving_card_admission_unmeasured", at);
+  const expected = (role: StructuredOutputRole): number => {
+    const mode: "off" | "on" = card.roles[role].thinking[0] === "disabled" ? "off" : "on", mean = p10.cells[`${role}/${mode}`]?.meanCompletionTokens ?? null;
+    if (mean === null || !(mean > 0)) refuse("serving_card_admission_unmeasured", at);
+    return mean;
+  };
+  const rates = ResearchAdmissionRatesSchema.safeParse({ prefillTokensPerSecond: span(sizes.map(size => size.prefillTokS as number)), decodeTokensPerSecond: decode,
+    fanOutDecodeTokensPerSecond: streams > 1 ? { fastest: aggregate, slowest: aggregate } : decode,
+    expectedOutputTokens: { plan: expected("plan"), extract: expected("extract"), synthesis: expected("synthesis") } });
+  if (!rates.success) refuse("serving_card_admission_unmeasured", at);
+  return rates.data;
 }
 
 export interface LoadedServingCard {

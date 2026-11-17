@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ResearchAdmissionRecordSchema } from "./research-admission";
 import { canonical, digest, sha256Schema } from "./contracts";
 import { ResearchPlanSchema, validatePlanCoverage, validateResearchPlanAttempts, type ResearchPlan } from "./research-plan";
 export { ResearchPlanSchema, validatePlanCoverage, type ResearchPlan } from "./research-plan";
@@ -152,7 +153,9 @@ export function renderResearchEvidence(evidence: ResearchEvidence, plan: Researc
 }
 const budgetSchema = z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict();
 const summarySchema = z.object({ version: z.literal(RESEARCH_PIPELINE_VERSION), protocolSha256: sha256Schema, budget: budgetSchema,
-  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional() }).passthrough()).length(4) }).strict();
+  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional() }).passthrough()).length(4),
+  // 7b.3 (BL-20261117-1022-research-card-admission-design): a run under a card's admission rates records them; a ready packet's was admitted.
+  admission: ResearchAdmissionRecordSchema.refine(record => record.decision === "admitted").optional() }).strict();
 export function validateReadyResearchPacket(files: readonly ResearchPacketFile[], expected: ResearchPacketExpectation = {}) {
   const names = Object.values(RESEARCH_FILES).sort();
   if (canonical(files.map(f => f.path).sort()) !== canonical(names)) fail("files");

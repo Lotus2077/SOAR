@@ -10,7 +10,7 @@ import { RESEARCH_SYNTHESIS_LENGTH_POLICY } from "../../src/main/private-agent/r
 import { jsonSchemaResponseFormat } from "../../src/main/private-agent/model";
 import { RESEARCH_EXTRACTION_LAYOUT, RESEARCH_ROLE_SCHEMAS, researchExtractionUserContent } from "../../src/main/private-agent/research-pipeline";
 import { currentSyntheticProbe, runCardWriter } from "../helpers/serving-card-fixture";
-import { P10_ROLES, P10_THINKING_MODES, buildRoleSchemaExport } from "../../scripts/export-role-schemas";
+import { P10_ROLES, P10_THINKING_MODES, buildRoleSchemaExport, type RoleSchemaExportOptions } from "../../scripts/export-role-schemas";
 import { P10_CLASSES, assessProbeFile } from "../../scripts/assess-probe-replies";
 
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-probe.py");
@@ -249,7 +249,8 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
 });
 
 describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-align-design)", () => {
-  const exported = (streamingEnabled: boolean) => buildRoleSchemaExport("2026-11-13T00:00:00.000Z", { vllm: { model: "Synthetic" }, streamingEnabled });
+  const exported = (streamingEnabled: boolean, options: RoleSchemaExportOptions = {}) =>
+    buildRoleSchemaExport("2026-11-13T00:00:00.000Z", { vllm: { model: "Synthetic" }, streamingEnabled }, options);
   /** Dead-port proxies in every form urllib reads (BL-20261116-1217-serving-probe-direct-transport-design (6)): a request that took one would be refused. */
   let proxies: Record<string, string> = {};
   beforeAll(async () => { const url = `http://127.0.0.1:${await deadPort()}`; proxies = { http_proxy: url, https_proxy: url, HTTP_PROXY: url, HTTPS_PROXY: url }; });
@@ -394,8 +395,9 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
   });
 
   it("sends each cell the exported body plus response_format on a loopback server, streamed or not, and retains replies the assessor reads", async () => {
-    for (const streamingEnabled of [true, false]) {
-      const data = exported(streamingEnabled), dir = mkdtempSync(join(root, "p10-run-")), schemasPath = join(dir, "role-schemas.json");
+    // Topic 6 (BL-20261117-1000-p10-plan-cap-export-design): an export built with a plan cap sends both plan cells at it, and P10 records it.
+    for (const [streamingEnabled, options] of [[true, {}], [false, {}], [true, { planCap: 16384 }]] as const) {
+      const data = exported(streamingEnabled, options), dir = mkdtempSync(join(root, "p10-run-")), schemasPath = join(dir, "role-schemas.json");
       writeFileSync(schemasPath, JSON.stringify(data));
       const received: Record<string, unknown>[] = [], content = "{\"version\":2}";
       const server = http.createServer((request, response) => {
@@ -442,6 +444,9 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
           }
         }
         expect(p10).toMatchObject({ export_version: 2, request_settings: data.requestSettings });
+        // The plan cells' cap is the export's: 16,384 when it was given one, the pipeline's 8,192 otherwise; the other roles keep theirs.
+        expect(P10_THINKING_MODES.map(mode => p10.cells[`plan/${mode}`].max_tokens)).toEqual(Array(2).fill("planCap" in options ? 16384 : 8192));
+        expect(P10_THINKING_MODES.map(mode => p10.cells[`extract/${mode}`].max_tokens)).toEqual([2048, 2048]);
         // The retained replies are plain chat completions with the joined content, which the assessor reads with no change.
         const first = JSON.parse(readFileSync(join(dir, "p10", p10.cells["plan/on"].calls[0].reply_file), "utf8"));
         expect(first.choices[0]).toMatchObject({ message: { content }, finish_reason: "stop" });

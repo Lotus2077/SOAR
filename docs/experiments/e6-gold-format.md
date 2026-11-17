@@ -97,8 +97,8 @@ Classes `numeric`, `clause_contradiction`, `table_arithmetic` and `reference_def
 
 - **`region`.** The paragraphs where the section belongs, `first` to `last`, inclusive.
 - **`edit`.** A condition on an edit's own text:
-  - the text is the edit's `newText` when it has one, then a newline, then its
-    `rationale`;
+  - the text is the edit's `newText`, when it has one, and its `rationale`;
+  - a literal matches within one of the two, never across them;
   - the rationale is the comment the applier writes for every edit.
 - **When it is addressed.** Some edit addresses it when its anchor lies in a paragraph of
   the region and its text meets `edit`. The edit may be of any action: `insert_after`,

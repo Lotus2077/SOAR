@@ -165,21 +165,28 @@ function localReply(system: string, user: string): string {
   return JSON.stringify({ version: 1, argument: `Synthetic finding [${quotes[0]!.id}].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.`,
     questions: input.plan.questions.map((q: any) => ({ questionId: q.id, disposition: "findings", evidenceIds: quotes.filter(e => e.questionIds.includes(q.id)).map(e => e.id) })) });
 }
-/** A zero-fee local model on a fake broker answering with `localReply`. */
-function localModels() {
+/**
+ * A zero-fee local model on a fake broker answering with `localReply`. 10.b: `reject` makes the local planner or synthesiser reply with
+ * text the host rejects, so a local-first assist fires after two of them.
+ */
+export function assistLocalModels(reject: ReadonlySet<"plan" | "synthesis"> = new Set()) {
   const request = vi.fn(async (input: { body: string }, settle: (bytes: Buffer) => number) => {
-    const body = JSON.parse(input.body), content = localReply(body.messages[0].content as string, body.messages[1].content as string);
+    const body = JSON.parse(input.body), system = body.messages[0].content as string;
+    const content = reject.has("plan") && system.startsWith("You plan") ? "not a plan" : reject.has("synthesis") && system.startsWith("You write") ? "not a synthesis"
+      : localReply(system, body.messages[1].content as string);
     const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
     return { bytes, receipt: { feeMicrousd: settle(bytes) } };
   });
   const config: PrivateModelConfig = { destinationId: "owned_local_model", model: "Synthetic", maxOutputTokens: 16_384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" };
-  const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, "job", "reader");
+  // A zero-risk local destination, as the owned server is: a session deadline never refuses its calls (model.ts, deadlineRefuses).
+  const broker = { request, requestTimeoutMs: () => 60_000, zeroRiskDispatch: () => true } as unknown as PrivateAgentBroker;
+  const make = () => new PrivateAgentModel(broker, config, "job", "reader");
   return { reader: make(), planner: make(), synthesiser: make() };
 }
 /** Runs the unchanged v4 pipeline over the planted corpus and builds the T1 and T2 hook requests from its packet. */
 export async function assistRequests(options: { authored?: string; composed?: string } = {}) {
   const brief = options.composed ?? assistComposedGoal(options.authored), sources = assistSources();
-  const outcome = await runResearchPipeline({ brief, sources, models: localModels(), signal: new AbortController().signal, record: () => {} });
+  const outcome = await runResearchPipeline({ brief, sources, models: assistLocalModels(), signal: new AbortController().signal, record: () => {} });
   if (outcome.status !== "completed") throw new Error(`assist_fixture_pipeline_${outcome.reason}`);
   const read = (path: string) => JSON.parse(outcome.files.find(file => file.path === path)!.bytes.toString("utf8"));
   const coverage = read(RESEARCH_FILES.coverage), index = read(RESEARCH_FILES.index), plan = read(RESEARCH_FILES.plan), evidence = read(RESEARCH_FILES.evidence);

@@ -33,7 +33,7 @@ afterEach(async () => { for (const done of cleanups.splice(0).reverse()) await d
 const imageId = `sha256:${"a".repeat(64)}`;
 const SOURCE = { path: "input/corpus/a.md", bytes: Buffer.from("# Storage\nCapacity nearly doubled in 2024, from 15 GW to 29 GW.\n") };
 type Run = { files: string[] };
-type Hooks = { local?: (system: string) => "malformed" | undefined; cloud?: (system: string, index: number) => "overloaded" | undefined };
+type Hooks = { local?: (system: string) => "malformed" | undefined; cloud?: (system: string, index: number) => "overloaded" | "malformed" | undefined };
 
 /** `hooks.local` may cut a local reply's body inside its JSON; `hooks.cloud` may answer a cloud request with Anthropic's 529 overloaded_error. */
 async function fixture() {
@@ -44,7 +44,10 @@ async function fixture() {
       if (request.url === "/anthropic/v1/messages") {
         const system = body.system[0].text as string, user = body.messages[0].content[0].text as string, index = sent.filter(item => item.arm === "cloud").length;
         sent.push({ arm: "cloud", system });
-        if (hooks.cloud?.(system, index) === "overloaded") {
+        const decision = hooks.cloud?.(system, index);
+        // 10.b: a malformed body: complete HTTP and a 200, but the JSON is cut off, so the model's decoder refuses it at settlement.
+        if (decision === "malformed") { response.writeHead(200, { "content-type": "application/json", "request-id": `req_011malformed${index}` }); response.end("{\"type\":\"message\",\"content\":["); return; }
+        if (decision === "overloaded") {
           response.writeHead(529, { "content-type": "application/json", "request-id": `req_011overloaded${index}` });
           response.end(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } })); return;
         }
@@ -155,6 +158,25 @@ describe("E1 recoverability: the assist arm's Anthropic T1 retried after a 529 s
     const sent = f.sent.length;
     expect(await new GeneralAgentSession(options(f, jobId, runs, { split: true })).run()).toMatchObject({ status: "submitted" });
     expect(f.sent).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
+  }, 20_000);
+});
+
+describe("10.b: a malformed provider reply to an assist, on the real broker (BL-20261113-0921-assist-core-implemented; BL-20261117-1036-assist-wiring-design, decision 12)", () => {
+  it("leaves T1's row unknown at settlement, so the wrapper skips it as transport_or_settlement_unknown and latches: T2 is suppressed, and the local stages reach the writer", async () => {
+    // On the fixture's fake broker the same bytes stop the stage (assist_failure_unclassified or private_model_response_invalid); the real
+    // broker decodes the reply in its fee callback, and a settlement it cannot complete on a priced cloud packet leaves the row unknown.
+    const f = await fixture(), runs: Run[] = [], jobId = "job-assist-malformed", cloud = f.arm.destination.id;
+    f.hooks.cloud = system => system.startsWith("You plan") ? "malformed" : undefined;
+    expect(await new GeneralAgentSession(options(f, jobId, runs, { split: true })).run()).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    const rows = f.store.dispatches(jobId);
+    expect(rows.filter(row => row.destinationId === cloud).map(row => [row.purpose, row.status])).toEqual([[PLAN_ASSIST_PURPOSE, "unknown"]]);
+    expect(f.sent.filter(item => item.arm === "cloud")).toHaveLength(1);
+    const stages = stageRows(f, jobId) as Record<string, any>[];
+    expect(stages.find(event => event.stage === "plan")!.assist).toMatchObject({ fired: true, outcome: "skipped", code: "transport_or_settlement_unknown",
+      attempts: [expect.objectContaining({ outcome: "skipped", code: "transport_or_settlement_unknown", dispatched: true })] });
+    expect(stages.find(event => event.stage === "synthesise")!.assist).toMatchObject({ fired: true, outcome: "refused", code: "assist_suppressed_after_unknown" });
+    expect(stages.map(event => [event.stage, event.calls, event.denied])).toEqual(["index", "plan", "extract", "synthesise"].map(stage => [stage, 1, undefined]));
   }, 20_000);
 });
 

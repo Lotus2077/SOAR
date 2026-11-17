@@ -323,6 +323,9 @@ describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
     expect(rerunCannotSpend({ ...base(), outputDirectory: "a", pipeline: "research", publicRetrieval: true, researchFrom: "a.infra-1", repairFrom: "critique" })).toBe(true);
     expect(rerunCannotSpend({ ...base(), outputDirectory: "a", cloudArm })).toBe(false);
     expect(rerunCannotSpend({ ...base(), outputDirectory: "a", cloudArm: undefined })).toBe(true);
+    // 10.b: the assist arm's firing spends nothing of its own; the cloud arm it needs is what spends.
+    expect(rerunCannotSpend({ ...base(), outputDirectory: "a", pipeline: "research", assistFiring: "local_first" })).toBe(true);
+    expect(rerunCannotSpend({ ...base(), outputDirectory: "a", pipeline: "research", assistFiring: "forced_split", cloudArm })).toBe(false);
     expect(rerunCannotSpend({ ...base(), outputDirectory: "a", assistPolicy: { purposes: ["research plan assist"] } } as unknown as DriverInput)).toBe(false);
   });
   it("ends the loop with its draft when the critique or the repair stops for good after stage 1", async () => {

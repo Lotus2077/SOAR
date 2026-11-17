@@ -17,6 +17,10 @@ import { writeResearchSeedSource } from "../helpers/research-seed-source";
 import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { PipelineFreezeSchema } from "../../src/main/private-agent/research-seed";
+import { parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
+import { ANTHROPIC_MESSAGES_ENDPOINT } from "../../src/main/private-agent/anthropic";
+import { researchAssistProtocolSha256 } from "../../src/main/private-agent/research-assist";
+import { assistModelConfig } from "../helpers/research-assist-fixture";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -230,5 +234,40 @@ describe("shared harness local role configuration", () => {
     expect([models.reader.config, models.planner.config, models.synthesiser.config]).toEqual([local, cloud, cloud]);
     const plain = localScreenResearchOption(broker, "job", local, undefined);
     expect(plain).not.toHaveProperty("roles"); expect(Object.values(plain.models("reader-context")).map(model => model.config)).toEqual([local, local, local]);
+  });
+});
+
+describe("10.b: the driver's assist arm (BL-20261117-1036-assist-wiring-design, decisions 2, 4 and 10)", () => {
+  const base = ["--execute-synthetic-local", "--task-directory", "synthetic-task", "--job-sha256", "a".repeat(64), "--brief-sha256", "b".repeat(64),
+    "--authority-sha256", "c".repeat(64), "--image-id", `sha256:${"d".repeat(64)}`, "--output-directory", "synthetic-output", "--runtime-sha256", "e".repeat(64)];
+  const research = ["--pipeline", "research", "--profile", "heavy", "--claims-ledger", "true"];
+  const claude = ["--arm", "cloud", "--cloud-model", "claude-sonnet-5-5", "--cloud-endpoint", ANTHROPIC_MESSAGES_ENDPOINT, "--cloud-prices", "2,10,0.1,2.5", "--max-fee-usd", "0.6"];
+  it("parses --assist-firing only on the assist arm, and leaves it absent, the forced split, by default; the all-cloud arm D takes none", () => {
+    expect(parseLocalArtifactScreenArguments([...base, ...research, ...claude, "--assist-firing", "local_first"])).toMatchObject({ pipeline: "research", assistFiring: "local_first",
+      cloudArm: expect.objectContaining({ model: "claude-sonnet-5-5" }) });
+    expect(parseLocalArtifactScreenArguments([...base, ...research, ...claude])).not.toHaveProperty("assistFiring");
+    for (const bad of [[...base, ...research, ...claude, "--assist-firing", "always"], [...base, ...research, "--arm", "local", "--assist-firing", "forced_split"],
+      [...base, "--profile", "heavy", "--claims-ledger", "true", ...claude, "--assist-firing", "forced_split"]]) expect(() => parseLocalArtifactScreenArguments(bad)).toThrow("local_screen_cli_invalid");
+  });
+  it("records the assist arm's firing in the pipeline block with the assist block's digest, binds it into the block's protocol hash, and the seed schema admits it", () => {
+    for (const firing of ["local_first", "forced_split"] as const) {
+      const block = researchPipelineFreeze("local", undefined, firing);
+      expect(block).toMatchObject({ planner: "local", protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, firing),
+        assist: { version: 1, firing, protocolSha256: researchAssistProtocolSha256(firing) } });
+      expect(PipelineFreezeSchema.parse(block)).toEqual(block);
+    }
+    expect(researchPipelineFreeze("local")).not.toHaveProperty("assist");
+    expect(researchPipelineFreeze("local").protocolSha256).toBe(researchProtocolSha256());
+    expect(() => PipelineFreezeSchema.parse({ ...researchPipelineFreeze("local", undefined, "forced_split"), assist: { version: 1, firing: "always", protocolSha256: "a".repeat(64) } })).toThrow();
+  });
+  it("gives the session the assist on its own configuration and keeps the reader, planner and synthesiser local", () => {
+    const broker = {} as PrivateAgentBroker, assist = assistModelConfig("anthropic_messages");
+    const local = { destinationId: "owned_local_model", model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" as const };
+    const option = localScreenResearchOption(broker, "job", local, undefined, { assist: { firing: "local_first", modelConfig: assist, authoredBrief: "Brief." } });
+    const models = option.models("reader-context");
+    expect([models.reader, models.planner, models.synthesiser].map(model => model.config)).toEqual([0, 1, 2].map(() => expect.objectContaining(local)));
+    expect(option.assist).toMatchObject({ firing: "local_first", authoredBrief: "Brief." });
+    expect(option.assist!.model("reader-context").config).toMatchObject(assist);
+    expect(localScreenResearchOption(broker, "job", local, undefined)).not.toHaveProperty("assist");
   });
 });

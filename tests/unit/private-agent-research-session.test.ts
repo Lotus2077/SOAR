@@ -12,7 +12,8 @@ import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../../src/main/p
 import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
 import { diagnosticRetention, digest, restrictedContext } from "../../src/main/private-agent/contracts";
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
-import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
+import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, researchBudgetTotal, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
+import { ASSIST_WORST_CASE_ROWS } from "../../src/main/private-agent/research-assist";
 import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
@@ -894,4 +895,54 @@ describe("backlog item 8.2b: the session's K reaches the reader's loops and the 
     expect(stages("job-card-k3")).toEqual(stages("job-card-serial"));
     expect(stages("job-card-k3").map(stage => [stage.stage, stage.structuredOutputCalls])).toEqual([["index", undefined], ["plan", undefined], ["extract", 4], ["synthesise", undefined]]);
   }, 20_000);
+});
+
+describe("10.b: the session's assist option (BL-20261117-1036-assist-wiring-design, decision 5)", () => {
+  const assistModel = (f: Awaited<ReturnType<typeof fixture>>, jobId: string, destinationId: string, mode?: Parameters<typeof assistModelConfig>[1]) =>
+    (contextId: string) => new PrivateAgentModel(f.broker, { ...assistModelConfig("openai_responses", mode), destinationId }, jobId, contextId);
+  it("refuses, before any dispatch, an assist without a cloud arm, beside a priced planner, on another destination, or one the wrapper refuses to build", async () => {
+    const f = await fixture(), runs: Run[] = [];
+    const cases: [string, (config: GeneralSessionOptions) => GeneralSessionOptions][] = [
+      ["no cloud arm", config => { const { cloudArm: _arm, ...rest } = withAssist(f, config); return rest; }],
+      ["a priced planner", config => { const c = withAssist(f, config), local = c.research!.models;
+        return { ...c, research: { ...c.research!, models: contextId => ({ ...local(contextId), planner: assistModel(f, c.jobId, "cloud")(contextId) }) } }; }],
+      ["another destination", config => { const c = withAssist(f, config); return { ...c, research: { ...c.research!, assist: { ...c.research!.assist!, model: assistModel(f, c.jobId, "priced-planner") } } }; }],
+      ["the wrong cache mode", config => { const c = withAssist(f, config); return { ...c, research: { ...c.research!, assist: { ...c.research!.assist!, model: assistModel(f, c.jobId, "cloud", "responses_explicit_v1") } } }; }],
+      ["an empty authored brief", config => { const c = withAssist(f, config); return { ...c, research: { ...c.research!, assist: { ...c.research!.assist!, authoredBrief: "" } } }; }],
+    ];
+    for (const [name, make] of cases) {
+      const jobId = `job-assist-invalid-${name.replaceAll(" ", "-")}`;
+      expect(await new GeneralAgentSession(make(options(f, jobId, runs))).run(), name).toMatchObject({ status: "incomplete", reason: "session_research_assist_invalid" });
+      expect(f.store.dispatches(jobId), name).toHaveLength(0);
+    }
+    expect(f.bodies).toHaveLength(0); expect(runs).toHaveLength(0);
+  });
+
+  it("adds the assists' worst case of nine rows to the request pool check, and nothing without an assist", async () => {
+    const f = await fixture(), runs: Run[] = [], pool = researchBudgetTotal() + phase().contract.maxModelCalls;
+    expect(ASSIST_WORST_CASE_ROWS).toBe(9);
+    const sized = (config: GeneralSessionOptions, maxRequests: number): GeneralSessionOptions => ({ ...config, limits: { maxRequests, maxElapsedMs: 1_800_000 } });
+    expect(await new GeneralAgentSession(sized(withAssist(f, options(f, "job-pool-short", runs)), pool + ASSIST_WORST_CASE_ROWS - 1)).run()).toMatchObject({ status: "incomplete", reason: "session_limits_invalid" });
+    expect(await new GeneralAgentSession(sized(withAssist(f, options(f, "job-pool-assist", runs)), pool + ASSIST_WORST_CASE_ROWS)).run()).toMatchObject({ status: "submitted" });
+    expect(await new GeneralAgentSession(sized(options(f, "job-pool-bare", runs), pool)).run()).toMatchObject({ status: "submitted" });
+  }, 20_000);
+
+  it("binds the assist into the session identity: the same job under another firing, or without its assist, drifts", async () => {
+    const f = await fixture(), runs: Run[] = [], jobId = "job-assist-identity";
+    expect(await new GeneralAgentSession(withAssist(f, options(f, jobId, runs))).run()).toMatchObject({ status: "submitted" });
+    expect(await new GeneralAgentSession(withAssist(f, options(f, jobId, runs), "local_first")).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    const bare = withAssist(f, options(f, jobId, runs)); delete bare.research!.assist;
+    expect(await new GeneralAgentSession(bare).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    expect(runs).toHaveLength(1);
+  }, 20_000);
+
+  it("ends incomplete with the producer's own code when it refuses the transfer, never with an uncaught throw (BL-20261113-0927-research-v5-design, decision 5)", async () => {
+    const f = await fixture(), runs: Run[] = [], jobId = "job-producer-refusal", config = options(f, jobId, runs);
+    // A settled assist row in the reader context that no stage counted: one reply too many, so the producer refuses the transfer.
+    const real = f.store.dispatches.bind(f.store);
+    vi.spyOn(f.store, "dispatches").mockImplementation(id => { const rows = real(id), index = rows.find(row => row.purpose === "research source index");
+      return index ? [...rows, { ...index, id: "receipt-forged-assist", purpose: PLAN_ASSIST_PURPOSE }] : rows; });
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: expect.stringMatching(/^research_producer_[a-z_]+$/u) });
+    expect(runs).toHaveLength(0);
+  });
 });

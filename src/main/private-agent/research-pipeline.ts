@@ -17,7 +17,8 @@ import { ResearchPlanSchema, ResearchEvidenceSchema, ResearchCoverageSchema, Res
   normalizeQuoteText, locateChunkQuote, locateQuote, researchSourceText, type BriefUnit, type ResearchPlan, type ResearchCoverage, type ResearchEvidence } from "./research-coverage";
 import { RESEARCH_PLAN_JSON_SCHEMA, RESEARCH_PLAN_DIAGNOSTIC_POLICY, ResearchPlanAttemptSchema, assessResearchPlanReply, buildResearchPlanRepair, type ResearchPlanAttempt, type ResearchPlanRepair } from "./research-plan";
 import { INDEX_LIMITS, assessIndexBatch, assembleIndexEntry, buildLiteralSourceCard, summarizeIndexEntries, parseJsonReply, type IndexSourceAssessment, type IndexBatchAssessment } from "./research-index";
-import { RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, planResearchIndexBatches, researchIndexPreviewEnd, researchMandatoryWorkFits, researchSynthesisLengthCap, researchWordCount, type ResearchSynthesisLengthCap } from "./research-admission";
+import { RESEARCH_ADMISSION_POLICY, RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, ResearchAdmissionRatesSchema, planResearchIndexBatches, researchCardAdmission, researchIndexPreviewEnd,
+  researchMandatoryWorkFits, researchSynthesisLengthCap, researchWordCount, type ResearchAdmissionRates, type ResearchAdmissionRecord, type ResearchSynthesisLengthCap } from "./research-admission";
 import { DEFAULT_RESEARCH_ROLE_POLICY, ResearchRolePolicySchema, STRUCTURED_OUTPUT_ROLES, nonDefaultRoleParameters, type ResearchRolePolicy, type StructuredOutputRole } from "./research-roles";
 export { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, type ResearchBudget } from "./research-contract";
 export { ResearchPlanSchema, normalizeQuoteText, locateChunkQuote, locateQuote, researchSourceText, type ResearchPlan } from "./research-coverage";
@@ -135,6 +136,11 @@ export interface ResearchStageCounts {
   conflictsNoted?: number; conflictsInPacket?: number; packetBytes?: number; citationsStripped?: number; argumentBytes?: number;
   initialCalls?: number; repairCalls?: number; sourcesListed?: number; sourcesModelComplete?: number; sourcesLiteralFallback?: number;
   unresolvedModelSummaries?: number; chunksPlanned?: number; chunksComplete?: number;
+  /**
+   * Item (ii) (BL-20261117-1143-research-second-repair-design), on the extract row under a card's admission rates only: the second
+   * repairs sent (each also counted in repairCalls), and how many of them left their chunk complete. Absent without the rates.
+   */
+  secondRepairCalls?: number; secondRepairsComplete?: number;
   /** Synthesis (7b.1, finding D13): the word cap sent, the brief's own limit when it states one, and the accepted argument's words. Recorded, never enforced. */
   lengthCapWords?: number; briefWordLimit?: number; argumentWords?: number;
   /** 7a.1 (findings D2 and D5): what a complete extraction reply lost or had corrected, and the accepted argument's rewritten headings. */
@@ -150,7 +156,8 @@ export interface ResearchStageCounts {
   /** 7b.2: plan questions with a verified quote and none in the packet, and the omissions only the presentation guard made (also counted in quotesLeftByCap). */
   questionsTrimmed?: number; quotesLeftByPresentation?: number;
 }
-export interface ResearchSummary { version: number; protocolSha256: string; budget: ResearchBudget; stages: ResearchStageCounts[] }
+/** 7b.3: `admission` only under a card whose admission basis is `serving_card`; a run without one writes the summary it wrote before. */
+export interface ResearchSummary { version: number; protocolSha256: string; budget: ResearchBudget; stages: ResearchStageCounts[]; admission?: ResearchAdmissionRecord }
 /** One reason a settled reply was rejected: a fixed host code with the schema path it concerns; never model, source or provider text. */
 export interface ResearchDiagnosticReason { code: string; path?: (string | number)[]; expected?: string; minimum?: number; maximum?: number; requirementId?: string; count?: number }
 /**
@@ -177,19 +184,28 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
    * 8.2b: K, the serving card's `localStreams` (1 to MAX_LOCAL_STREAMS). The index and extraction loops run K calls at a time
    * when the reader is zero-risk local, and one at a time otherwise. No part of the protocol hash, the budget or the counts; absent or out of range, 1.
    */
-  localStreams?: number }
+  localStreams?: number;
+  /**
+   * 7b.3 (BL-20261117-1131-research-card-admission-design): the card's measured rates, set only under a serving card whose admission basis
+   * is `serving_card` (the reader derives them). Set, the run keeps room for repair calls and may be refused on the clock before any
+   * request, summary.json records the admission, and the protocol hash binds RESEARCH_ADMISSION_POLICY. Absent, admission and every
+   * file are as without a card. The share of the clock is used only in the admission test: an admitted stage keeps the whole clock.
+   */
+  admission?: ResearchAdmissionRates }
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
 /**
  * The protocol's digest. 7a.2: a role policy is bound only when nonDefaultRoleParameters finds a value (the predicate the serving-card
  * reader's fail-closed step shares), so without a card, or under a card whose values are all default, the value is unchanged. Item 9:
- * the binding (researchRolePolicyBinding) adds the structured-output rule only when a flag is set.
+ * the binding (researchRolePolicyBinding) adds the structured-output rule only when a flag is set. 7b.3: `cardAdmission` binds
+ * RESEARCH_ADMISSION_POLICY, set only when the run reads a card's admission rates.
  */
-export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY): string {
+export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY, cardAdmission = false): string {
   const rolePolicy = researchRolePolicyBinding(roles);
-  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(rolePolicy ? { rolePolicy } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
+  // 7b.3: the admission policy is bound only under a card whose admission basis is `serving_card`, so every other hash is unchanged.
+  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, ...(rolePolicy ? { rolePolicy } : {}), ...(cardAdmission ? { admission: RESEARCH_ADMISSION_POLICY } : {}), prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING, limits: LIMITS, indexLimits: INDEX_LIMITS, coveragePolicy: RESEARCH_COVERAGE_POLICY, presentationPolicy: RESEARCH_PRESENTATION_POLICY, planDiagnostics: RESEARCH_PLAN_DIAGNOSTIC_POLICY,
     schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, planAttempt: z.toJSONSchema(ResearchPlanAttemptSchema), synthesisAttempt: z.toJSONSchema(ResearchSynthesisAttemptSchema), evidence: z.toJSONSchema(ResearchEvidenceSchema), coverage: z.toJSONSchema(ResearchCoverageSchema), extraction: z.toJSONSchema(ExtractReplySchema), synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
-    schemaVersions: { plan: 2, evidence: 2, coverage: 3, synthesis: 1, seed: 2 }, packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
+    schemaVersions: { plan: 2, evidence: 2, coverage: 4, synthesis: 1, seed: 2 }, packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
     quoteChars: [RESEARCH_QUOTE_MIN_CHARS, RESEARCH_QUOTE_MAX_CHARS], budget, files: RESEARCH_FILES,
     requestShapes: { extractionLayout: RESEARCH_EXTRACTION_LAYOUT, indexBatching: RESEARCH_INDEX_BATCH_POLICY, synthesisLength: RESEARCH_SYNTHESIS_LENGTH_POLICY }, tolerance: RESEARCH_TOLERANCE_POLICY, slots: RESEARCH_SLOT_POLICY, fallback: RESEARCH_FALLBACK_POLICY, trim: RESEARCH_TRIM_POLICY }));
 }
@@ -383,7 +399,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const budget = parsedBudget.success ? parsedBudget.data : RESEARCH_PIPELINE_BUDGET, stages: ResearchStageCounts[] = [], files = new Map<string, Buffer>();
   const parsedRoles = input.roles === undefined ? undefined : ResearchRolePolicySchema.safeParse(input.roles);
   const roles: ResearchRolePolicy = parsedRoles?.success ? parsedRoles.data : DEFAULT_RESEARCH_ROLE_POLICY;
-  const protocolSha256 = researchProtocolSha256(budget, roles), summary = (): ResearchSummary => ({ version: RESEARCH_PIPELINE_VERSION, protocolSha256, budget, stages });
+  const protocolSha256 = researchProtocolSha256(budget, roles, input.admission !== undefined);
+  let admission: ResearchAdmissionRecord | undefined;
+  const summary = (): ResearchSummary => ({ version: RESEARCH_PIPELINE_VERSION, protocolSha256, budget, stages, ...(admission ? { admission } : {}) });
   let coverage: ResearchCoverage | undefined;
   const put = (path: string, value: unknown) => files.set(path, Buffer.from(`${canonical(value)}\n`));
   const finish = (status: "completed" | "incomplete", reason: string): ResearchPipelineOutcome => {
@@ -475,7 +493,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     return (off ? flag.thinkingOff : flag.thinkingOn) ? { ...RESEARCH_ROLE_SCHEMAS[role], strict: flag.variant === "strict" } : undefined;
   };
   let inventory: ReturnType<typeof inventoryResearchSources>;
-  try { inventory = inventoryResearchSources(input.sources); coverage = { version: 3, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),
+  try { inventory = inventoryResearchSources(input.sources); coverage = { version: 4, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),
     sourceManifestSha256: inventory.sourceManifestSha256, units: deriveBriefUnits(input.brief), sources: inventory.sources, chunks: inventory.chunks, omissions: [], conflictOmissions: [], unresolved: [],
     synthesis: { status: "pending", questions: [] }, fallbacks: { plan: "none", synthesis: "none" }, status: "incomplete", semanticAcceptance: "not_evaluated", corpusAbsenceEstablished: false }; }
   catch { return finish("incomplete", "research_input_invalid"); }
@@ -484,7 +502,18 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const batches = planResearchIndexBatches(ordered);
   // All mandatory work is known BEFORE the first model request. There is no sampled corpus fallback.
   if (inventory.sources.some(s => !s.readable)) return finish("incomplete", "research_source_unreadable");
-  if (!researchMandatoryWorkFits({ batches: batches.length, chunks: inventory.chunks.length }, budget)) return finish("incomplete", "research_mandatory_budget_exceeded");
+  // 7b.3: under a card's admission rates, the reserve and the clock, decided before any request and recorded in summary.json.
+  if (input.admission !== undefined) {
+    const rates = ResearchAdmissionRatesSchema.safeParse(input.admission);
+    if (!rates.success) return finish("incomplete", "research_admission_invalid");
+    const larger = (role: keyof ResearchRolePolicy) => Math.max(...roles[role].maxOutputTokens);
+    admission = researchCardAdmission({ batchPreviewBytes: batches.map(batch => batch.reduce((bytes, source) => bytes + researchIndexPreviewEnd(source.bytes), 0)),
+      chunkBytes: inventory.chunks.map(chunk => chunk.endByte - chunk.startByte) }, budget,
+      { index: larger("index"), plan: larger("plan"), extract: larger("extract"), synthesis: larger("synthesis") }, rates.data,
+      input.deadlineMs === undefined ? undefined : input.deadlineMs - performance.now());
+  }
+  if (!researchMandatoryWorkFits({ batches: batches.length, chunks: inventory.chunks.length }, budget) || admission?.decision === "refused_budget") return finish("incomplete", "research_mandatory_budget_exceeded");
+  if (admission?.decision === "refused_clock") return finish("incomplete", "research_infeasible_in_clock");
   // 8.2b: the reader's loops run K at a time only when the reader is zero-risk local; otherwise one at a time, as before.
   const readerStreams = input.localStreams !== undefined && input.models.reader.zeroRisk() ? orderedPoolLimit(input.localStreams) : 1;
   const indexCounts: ResearchStageCounts = { stage: "index", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0, sourcesSkipped: 0, batchesSkipped: 0 };
@@ -580,7 +609,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const questions = new Set(plan.questions.map(q => q.id)), verified: ResearchEvidence["quotes"] = [], conflicts: ResearchEvidence["conflicts"] = [], quoteMap = new Map<string, ResearchEvidence["quotes"][number]>();
   const extractCounts: ResearchStageCounts = { stage: "extract", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0,
     chunksPlanned: inventory.chunks.length, chunksComplete: 0, pairsPlanned: inventory.chunks.length, pairsExtracted: 0, quotesDropped: 0,
-    conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0 };
+    conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0,
+    // Item (ii)'s review: under a card's admission rates both counts exist from the row's creation, so a denied row carries them too.
+    ...(admission ? { secondRepairCalls: 0, secondRepairsComplete: 0 } : {}) };
   /**
    * Owner question 3's corner (BL-20261110-0726): a first attempt that dropped every quote it gave for a question it marked
    * evidence_found is held rather than kept. Held chunks are repaired after every other repair, while the budget lasts; a held
@@ -634,12 +665,29 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   };
   const extractRefused = await fanOut(coverage.chunks, readerStreams, (chunk, signal) => extractLaunch(chunk, false, signal), (chunk, reply) => extractApply(chunk, false, reply));
   if (extractRefused) { settleHeld(false); return denied(extractCounts, extractRefused); }
-  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts: the list is computed once,
-  // after the initial pass has drained, and cut to the slots left.
-  const repairs = [...coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), ...coverage.chunks.filter(c => held.has(c.id))];
-  const extractRepairRefused = await fanOut(repairs.slice(0, Math.max(0, budget.extractionCalls - extractCounts.calls)), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal), (chunk, reply) => extractApply(chunk, true, reply));
-  if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
-  settleHeld(true);
+  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts: each list is computed once, after
+  // the passes before it have drained, and cut to the slots left.
+  const slots = () => Math.max(0, budget.extractionCalls - extractCounts.calls);
+  const repairPass = (chunks: ResearchCoverage["chunks"], second: boolean) => fanOut(chunks.slice(0, slots()), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal),
+    (chunk, reply) => { extractApply(chunk, true, reply); if (second) { extractCounts.secondRepairCalls!++; if (chunk.status === "complete") extractCounts.secondRepairsComplete!++; } });
+  const plain = coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), heldChunks = coverage.chunks.filter(c => held.has(c.id));
+  if (!admission) {
+    const extractRepairRefused = await repairPass([...plain, ...heldChunks], false);
+    if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
+    settleHeld(true);
+  } else {
+    // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, a chunk still not complete after its one
+    // repair gets one more, at the second attempt slot (its cap, thinking and response_format), while calls are left. Its review: the
+    // unfinished chunks' second repairs come before the held chunks' repairs, which are optional (a held chunk left unrepaired keeps its
+    // first attempt), and a held chunk whose repair failed gets its second repair last.
+    let refused = await repairPass(plain, false);
+    if (!refused) refused = await repairPass(plain.filter(c => c.status !== "complete" && c.attempts.length === 2), true);
+    if (!refused) refused = await repairPass(heldChunks, false);
+    if (refused) { settleHeld(false); return denied(extractCounts, refused); }
+    settleHeld(true);
+    const heldSecond = await repairPass(heldChunks.filter(c => c.status !== "complete" && c.attempts.length === 2), true);
+    if (heldSecond) return denied(extractCounts, heldSecond);
+  }
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
   // 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): the packet keeps a prefix of the trim's priority
   // (research-trim.ts), conflict notes first because evidence.md renders the kept ones; coverage.json discloses every quote and note

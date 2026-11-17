@@ -52299,3 +52299,59 @@ Paid exposure: None.
 Next gate: The rest of E6's preconditions, then its first run.
 
 References: docs/experiments/e6-card-2026-11-17.md (Amendment 1); BL-20261117-1311-e6-card-amendment-1; BL-20261117-1303-correction-assist-capture-restamp-second-repair; pull requests #147, #148 and #149.
+
+### BL-20261117-1322-correction-general-task-progress-e2e-first-run -- 2026-11-17 -- Correction to BL-20261117-1048-correction-general-task-progress-e2e-review after the first gated run: the run needs a shell that can open windows, and the spec now reports its first failure instead of letting the fixture's cleanup check replace it
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1048-correction-general-task-progress-e2e-review (plan 72.E2E, lane S-desk) after the first run of #72's gated cases.
+- **The run.** The coordinating session followed decision (5) of that entry: a fresh worktree at `main` c4b8ee6, a real install, `pnpm build`, then the gated command. It ran the command through its own tool shell, which is sandboxed.
+- **The result.** Both cases failed at spec line 207, `expect(cleanupConfirmed).toBe(true)`. That line is the test fixture's own teardown check, not the product's task field of the same name.
+- **What the cases' evidence files show,** as the coordinating session reported them:
+  - no model request, response or decision;
+  - `appClosed` false, `containersAbsent` false and `cleanupConfirmed` false;
+  - `forcedAppKill` true;
+  - `sourcePreserved` true.
+- **The reading.** Electron's launch returned, since a close could be forced. But no step that needs the window completed, and closing the app then hung until the fixture's 45-second bound killed it. The line-207 expectation sits in a `finally` block, so it replaced the first failure, which was never reported.
+- **What the run shows.** Nothing about #72's assertion or about the product. The coordinating session corrects its own record of the run to say so.
+
+Decisions:
+
+(1) **The spec now reports its first failure.**
+- **The change.** The test body's error is kept, and thrown again after the fixture's cleanup. The cleanup's own check is recorded beside it as a soft failure (`expect.soft`), instead of replacing it.
+- **When the body passes**, the cleanup checks stay hard expectations, as before.
+- **The evidence file.** `evidence.json` gains `firstFailure`: the body's error, at most 4,000 characters, or `null`.
+
+(2) **The command needs a shell that can open windows.**
+- **Where to run it.** A normal terminal in the owner's desktop session, such as the app's Terminal panel.
+- **Where not to run it.** A sandboxed tool shell, where Electron cannot open its window and the run fails on launch.
+- **The rest of the command stands:** the other conditions and steps of decision (5) of BL-20261117-1048-correction-general-task-progress-e2e-review.
+
+(3) **Not changed here.**
+- The request-size and observations specs end in the same kind of `finally` block, and they read the same checkout environment files (decision (3) of BL-20261117-1030-general-task-progress-e2e-runnable). Both are follow-ups.
+
+Changes:
+- tests/e2e/general-task-progress.spec.ts: the kept first failure, the soft cleanup check and `firstFailure`.
+- docs/BUILD_LOG.md: this Correction.
+
+Evidence:
+- **Checks.** `pnpm typecheck` passes. After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm validate:readiness` passes.
+- **The spec still loads and stays gated.** `pnpm exec playwright test --list` lists the spec's two cases. Without `SOAR_RUN_GENERAL_TASK_E2E`, both are skipped and no app is launched.
+- **The diagnosis** rests on the evidence files' fields as the coordinating session reported them. That session's rerun emptied the output directory before lane S-desk could read the traces.
+- **Not run:** either gated case.
+
+Failures or blockers: The first gated run failed on launch in a sandboxed shell. It is not a result about the product.
+
+Limitations and non-claims:
+- **Whether the two cases pass in a shell that can open windows** is shown only by the coordinating session's rerun.
+- **The product.** This entry claims nothing about the product's own cleanup confirmation, the snapshot's `cleanupConfirmed`. The run never reached it.
+- **Not `Verified`.** Nothing about #72's assertion is `Verified`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. One light review, then CI.
+2. The coordinator merges.
+3. The coordinating session reruns the gated cases in the Terminal panel.
+
+References: BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261109-0459-desktop-resume-reasons-implemented.

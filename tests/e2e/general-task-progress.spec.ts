@@ -122,6 +122,7 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     }
     return app.firstWindow();
   };
+  let bodyFailed = false, bodyError: unknown;
   try {
     const source = path.join(root, "source.csv"); await writeFile(source, progressInput);
     let page = await launch();
@@ -184,6 +185,10 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     expect(ledger(root, jobId)).toEqual(finalLedger); expect(await readFile(source, "utf8")).toBe(progressInput);
     expect(model.requests).toHaveLength(expectedCalls); expect(model.responses).toHaveLength(expectedCalls); expect(model.errors).toEqual([]);
     await noContainer(jobId, finalLedger.claims);
+  } catch (error) {
+    // Kept and thrown again after the cleanup below, so that the cleanup's own checks are reported beside the first failure instead of
+    // replacing it. A launch that timed out was once reported only as an unconfirmed cleanup.
+    bodyFailed = true; bodyError = error;
   } finally {
     let failed = false, containersAbsent = false;
     try { await closeApp(); } catch { failed = true; }
@@ -200,10 +205,16 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     let sourcePreserved = false; try { sourcePreserved = generalTaskRuntimeIdentity(projectRoot) === runtimeSha256; } catch { /* Retain failures. */ }
     const cleanupConfirmed = appClosed && containersAbsent && !failed;
     Object.assign(evidence, { requests: model.requests, responses: model.responses, decisions: model.decisions, fixtureErrors: model.errors,
-      appClosed, containersAbsent, cleanupConfirmed, sourcePreserved, ...(!cleanupConfirmed ? { retainedOriginalDirectory: root } : {}) });
+      appClosed, containersAbsent, cleanupConfirmed, sourcePreserved, ...(!cleanupConfirmed ? { retainedOriginalDirectory: root } : {}),
+      firstFailure: bodyFailed ? String(bodyError instanceof Error ? bodyError.stack ?? bodyError.message : bodyError).slice(0, 4000) : null });
     await writeFile(testInfo.outputPath("evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
     await cp(root, testInfo.outputPath("retained-state"), { recursive: true });
     if (cleanupConfirmed) await rm(root, { recursive: true, force: true });
+    if (bodyFailed) {
+      // The first failure is the one reported; an unconfirmed cleanup is recorded beside it as a soft failure.
+      expect.soft(cleanupConfirmed, "the fixture's cleanup after the failure").toBe(true);
+      throw bodyError;
+    }
     expect(cleanupConfirmed).toBe(true); expect(sourcePreserved).toBe(true); expect(model.requests).toHaveLength(expectedCalls); expect(model.errors).toEqual([]);
   }
 }

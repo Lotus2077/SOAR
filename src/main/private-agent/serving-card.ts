@@ -13,9 +13,7 @@ import type { SoarConfig } from "../config";
 import { canonical, digest, sha256Schema } from "./contracts";
 import { pinned } from "./flash-next-admission";
 import { COORDINATOR_PROFILES } from "./profiles";
-import { ResearchSynthesisSchema } from "./research-coverage";
-import { RESEARCH_EXTRACT_JSON_SCHEMA, researchProtocolSha256 } from "./research-pipeline";
-import { RESEARCH_PLAN_JSON_SCHEMA } from "./research-plan";
+import { RESEARCH_ROLE_SCHEMAS, researchProtocolSha256 } from "./research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, MIN_ROLE_OUTPUT_TOKENS, RESEARCH_ROLES, ResearchRolePolicySchema, STRUCTURED_OUTPUT_ROLES, StructuredOutputVariantSchema,
   nonDefaultRoleParameters, type ResearchRolePolicy, type StructuredOutputRole, type StructuredOutputVariant } from "./research-roles";
 import { SERVING_CARD_CONSUMED, type ServingCardParameter } from "./serving-card-flags";
@@ -53,6 +51,13 @@ const P10CellSchema = z.object({ variant: StructuredOutputVariantSchema, maxToke
   schemaInvalid: count, bindingInvalid: count, requestRejected: count, unassessed: count, meanCompletionTokens: measure, meanReasoningTokens: measure }).strict()
   .refine(cell => cell.valid + cell.truncated + cell.invalidJson + cell.schemaInvalid + cell.bindingInvalid + cell.requestRejected + cell.unassessed === cell.total);
 const AcceptanceSchema = z.object({ strict: z.boolean(), nonStrict: z.boolean() }).strict();
+/**
+ * The settings the role export built P10's bodies under (P10-align: its `requestSettings`, which the probe records), so the reader can
+ * refuse a structured-output flag for a run whose flagged bodies P10 never measured (BL-20261114-2301-serving-card-request-settings-design).
+ */
+const P10RequestSettingsSchema = z.object({ model: identityText(256), streaming: z.boolean(), localReplyContract: z.literal("flash_next_v1").nullable(),
+  localContextTokens: positive.nullable(), profile: z.literal("heavy"), cacheSalt: z.boolean() }).strict()
+  .refine(settings => (settings.localReplyContract === null) === (settings.localContextTokens === null));
 const P10EvidenceSchema = z.object({
   callsPerCell: positive, strictRequested: z.boolean(),
   /** The role export's protocol hash (schemas_protocol_sha256); the assessor's own hash and verdict sit in `assessed`. */
@@ -62,6 +67,8 @@ const P10EvidenceSchema = z.object({
   acceptance: z.object({ plan: AcceptanceSchema.optional(), extract: AcceptanceSchema.optional(), synthesis: AcceptanceSchema.optional() }).strict(),
   cells: z.object({ "plan/on": P10CellSchema.optional(), "plan/off": P10CellSchema.optional(), "extract/on": P10CellSchema.optional(),
     "extract/off": P10CellSchema.optional(), "synthesis/on": P10CellSchema.optional(), "synthesis/off": P10CellSchema.optional() }).strict(),
+  /** Optional within version 1: a card from an earlier writer has none, and then no structured-output flag of it resolves. Null: the probe recorded none. */
+  requestSettings: P10RequestSettingsSchema.nullable().optional(),
 }).strict().refine(p10 => p10.assessed === null || p10.assessed.schemasProtocolMatch === (p10.protocolSha256 !== null && p10.assessed.protocolSha256 === p10.protocolSha256));
 const P11SizeSchema = z.object({ ok: z.boolean(), promptTokens: count.nullable(), completionTokens: count.nullable(), ttftS: measure, prefillTokS: measure,
   decodeTokS: measure, tokensPerWord: measure }).strict();
@@ -95,8 +102,9 @@ export type ServingCardV1 = z.infer<typeof ServingCardV1Schema>;
 
 export const SERVING_CARD_CODES = ["serving_card_pin_drift", "serving_card_version_unsupported", "serving_card_invalid", "serving_card_not_adopted",
   "serving_card_model_mismatch", "serving_card_context_mismatch", "serving_card_cap_out_of_range", "serving_card_structured_output_unassessed",
-  "serving_card_p10_protocol_drift", "serving_card_schema_drift", "serving_card_structured_output_variant_mismatch",
-  "serving_card_structured_output_below_rule", "serving_card_streams_unproven", "serving_card_parameter_unconsumed"] as const;
+  "serving_card_p10_protocol_drift", "serving_card_p10_settings_drift", "serving_card_schema_drift", "serving_card_structured_output_variant_mismatch",
+  "serving_card_structured_output_below_rule", "serving_card_structured_output_cap_unmeasured", "serving_card_streams_unproven",
+  "serving_card_parameter_unconsumed"] as const;
 export type ServingCardCode = (typeof SERVING_CARD_CODES)[number];
 
 /**
@@ -142,17 +150,33 @@ function deepFreeze<T>(value: T): T {
 export const DEFAULT_SERVING_POLICY: Readonly<ServingPolicy> = deepFreeze({ roles: structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as ResearchRolePolicy, localStreams: 1,
   admission: { basis: "none" as const } });
 
-/** SOAR_VLLM_MODEL, and SOAR_VLLM_CONTEXT_TOKENS only under flash_next_v1. */
-export interface ServingCardExpectation { model: string; contextTokens?: number }
-export function servingCardExpectation(config: Pick<SoarConfig, "vllm">): ServingCardExpectation {
+/**
+ * The settings that shape a research role's request body (BL-20261114-2301-serving-card-request-settings-design): the served model,
+ * SOAR_STREAMING, the Flash reply contract and, only under it, its context, the heavy profile (the only profile research runs under) and
+ * the cache salt. The role export records its bodies' settings with this function (cache salt on), and the reader compares a run's.
+ */
+export interface ServingCardRequestSettings { model: string; streaming: boolean; localReplyContract: "flash_next_v1" | null; localContextTokens: number | null;
+  profile: "heavy"; cacheSalt: boolean }
+export function servingCardRequestSettings(config: { vllm: Pick<SoarConfig["vllm"], "model" | "localReplyContract" | "localContextTokens">; streamingEnabled?: boolean },
+  cacheSalt: boolean): ServingCardRequestSettings {
+  const flash = config.vllm.localReplyContract === "flash_next_v1";
+  return { model: config.vllm.model, streaming: config.streamingEnabled === true, localReplyContract: flash ? "flash_next_v1" : null,
+    localContextTokens: flash ? config.vllm.localContextTokens ?? null : null, profile: "heavy", cacheSalt };
+}
+/** SOAR_VLLM_MODEL, SOAR_VLLM_CONTEXT_TOKENS only under flash_next_v1, and the run's request settings (a flagged mode needs P10's to equal them). */
+export interface ServingCardExpectation { model: string; contextTokens?: number; requestSettings: ServingCardRequestSettings }
+export function servingCardExpectation(config: Pick<SoarConfig, "vllm" | "streamingEnabled">, cacheSalt: boolean): ServingCardExpectation {
   return { model: config.vllm.model,
-    ...(config.vllm.localReplyContract === "flash_next_v1" && config.vllm.localContextTokens !== undefined ? { contextTokens: config.vllm.localContextTokens } : {}) };
+    ...(config.vllm.localReplyContract === "flash_next_v1" && config.vllm.localContextTokens !== undefined ? { contextTokens: config.vllm.localContextTokens } : {}),
+    requestSettings: servingCardRequestSettings(config, cacheSalt) };
 }
 
-/** sha256(canonical(schema)) of the three schemas the role export gives P10 (scripts/export-role-schemas.ts); computed on call. */
+/**
+ * sha256(canonical(schema)) of the three schemas the role export gives P10 (scripts/export-role-schemas.ts); computed on call. Since
+ * item 9 (BL-20261116-1208-research-structured-output-design) all three read RESEARCH_ROLE_SCHEMAS, the table a flagged call sends.
+ */
 export function currentRoleSchemaSha256(): Readonly<Record<StructuredOutputRole, string>> {
-  return Object.freeze({ plan: digest(canonical(RESEARCH_PLAN_JSON_SCHEMA)), extract: digest(canonical(RESEARCH_EXTRACT_JSON_SCHEMA)),
-    synthesis: digest(canonical(z.toJSONSchema(ResearchSynthesisSchema))) });
+  return Object.freeze(Object.fromEntries(STRUCTURED_OUTPUT_ROLES.map(role => [role, digest(canonical(RESEARCH_ROLE_SCHEMAS[role].schema))])) as Record<StructuredOutputRole, string>);
 }
 
 const JSON_WHITESPACE = new Set([" ", "\t", "\n", "\r"]);
@@ -218,8 +242,9 @@ export function nonDefaultParameters(policy: ServingPolicy): { parameter: Servin
 
 /**
  * Steps 4-10 of the reader against SERVING_CARD_CONSUMED: adopted, the served alias and (under flash_next_v1) the context,
- * every cap within [128, the heavy profile's limit], the evidence for each flagged structured-output mode, the burst for
- * K > 1, then fail closed. Pure; there is no override argument.
+ * every cap within [128, the heavy profile's limit], the evidence for each flagged structured-output mode (taken under the run's request
+ * settings since BL-20261114-2301-serving-card-request-settings-design, and since item 9's review at the cap P10 measured it at), the
+ * burst for K > 1, then fail closed. Pure; there is no override argument.
  */
 export function resolveServingCard(card: ServingCardV1, expectation: ServingCardExpectation): ServingPolicy {
   if (card.decision.status !== "adopted" || card.decision.entry === null) refuse("serving_card_not_adopted", "decision");
@@ -241,6 +266,9 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
       // The value today's role export would send: P10 evidence measured under another protocol does not describe today's requests.
       protocol ??= researchProtocolSha256();
       if (p10.protocolSha256 !== protocol || p10.assessed.protocolSha256 !== protocol) refuse("serving_card_p10_protocol_drift", at);
+      // The settings the export built P10's bodies under must be the run's: under another reply contract, context, streaming mode, cache salt
+      // or model, a flagged call sends a body no P10 cell measured. A card that records none binds no flag.
+      if (!p10.requestSettings || canonical(p10.requestSettings) !== canonical(expectation.requestSettings)) refuse("serving_card_p10_settings_drift", at);
       schemas ??= currentRoleSchemaSha256();
       if (p10.schemaSha256[role] !== schemas[role]) refuse("serving_card_schema_drift", at);
       const cell = p10.cells[`${role}/${mode}`];
@@ -248,6 +276,12 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
       const requested: StructuredOutputVariant = p10.strictRequested ? "strict" : "non_strict";
       if (flag.variant !== requested || cell.variant !== flag.variant) refuse("serving_card_structured_output_variant_mismatch", at);
       if (cell.total < P10_RULE.minCalls || cell.valid * 100 < P10_RULE.minValidPercent * cell.total) refuse("serving_card_structured_output_below_rule", at);
+      // Item 9's review (BL-20261116-1208-research-structured-output-design): every attempt that sends the format in this mode sends it at
+      // the cap the cell measured. Research roles run under the heavy profile alone, whose thinking is on, so "model" is this mode's "on".
+      card.roles[role].thinking.forEach((thinking, attempt) => {
+        if ((thinking === "disabled" ? "off" : "on") === mode && card.roles[role].maxOutputTokens[attempt] !== cell.maxTokens)
+          refuse("serving_card_structured_output_cap_unmeasured", `roles.${role}.maxOutputTokens[${attempt}]`);
+      });
     }
   }
   const streams = card.concurrency.localStreams;
@@ -284,8 +318,13 @@ export function loadServingCard(descriptor: ServingCardDescriptor, expectation: 
     identity: deepFreeze(card.identity), evidence: deepFreeze(card.evidence), policy: deepFreeze(policy), bytes: Buffer.from(bytes) });
 }
 
-export interface ServingCardFreeze { sha256: string; version: 1; date: string; entry: string }
+/**
+ * 8.2b: `localStreams` is the card's K, which the driver passes to the session in every run with a card: the research loops and the claims
+ * judge run K calls at a time on a zero-risk local model, and one at a time otherwise (ASSIST-M2's default: freeze.json; the registry row's
+ * `localStreams` copies it, BL-20261116-1358-run-row-card-and-doctor-sources-design).
+ */
+export interface ServingCardFreeze { sha256: string; version: 1; date: string; entry: string; localStreams: number }
 /** The freeze.json fragment: {} without a card; never the path. */
 export function servingCardFreeze(loaded: LoadedServingCard | undefined): { servingCard?: ServingCardFreeze } {
-  return loaded ? { servingCard: { sha256: loaded.sha256, version: loaded.version, date: loaded.date, entry: loaded.entry } } : {};
+  return loaded ? { servingCard: { sha256: loaded.sha256, version: loaded.version, date: loaded.date, entry: loaded.entry, localStreams: loaded.policy.localStreams } } : {};
 }

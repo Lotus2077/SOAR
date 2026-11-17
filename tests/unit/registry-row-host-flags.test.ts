@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonical } from "../../src/main/private-agent/contracts";
+import { HostFlagsEventSchema } from "../../src/main/private-agent/host-flags";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 /**
@@ -77,6 +78,9 @@ describe("the hostFlags registry column (backlog item 7(d), part C)", { timeout:
       counts: review.counts, errors: ["misses_failed"], review: { valid: true, errors: { numeric: "IndexError" }, read: review.review.read } });
     expect(row(["--run-dir", runDirectory(root, "invalid-review", { events: [{ ...review, review: { valid: false, reason: "too_large" }, counts: {} }] })]).hostFlags)
       .toEqual({ version: 1, rules: { review: 1 }, counts: {}, review: { valid: false, reason: "too_large" } });
+    // 7d.D: the trimmed counts are miss names like the others, copied as they are.
+    const trimmed = { ...research, misses: { questionsWithoutEvidence: 2, questionsTrimmed: 1, quotesLeftByCap: 14, conflictsLeftByCap: 2, fetchFailures: 1, fetchLimitRefusals: 0 } };
+    expect(row(["--run-dir", runDirectory(root, "trimmed", { events: [trimmed] })]).hostFlags).toMatchObject({ misses: trimmed.misses });
     // Not recorded: no event, so null, never a row of zeros.
     expect(row(["--run-dir", runDirectory(root, "plain")]).hostFlags).toBeNull();
     // A run never carries a hit line, a flag position or an edit id into the registry: the numeric, edit and clause lists are dropped.
@@ -92,6 +96,8 @@ describe("the hostFlags registry column (backlog item 7(d), part C)", { timeout:
     for (const [name, event] of Object.entries({
       version: { ...research, version: 2 }, booleanVersion: { ...research, version: true }, rule: { ...research, rules: { absence: true } }, unknownRule: { ...research, rules: { other: 1 } },
       negative: { ...research, counts: { reportAbsence: -1 } }, boolean: { ...research, counts: { reportAbsence: true } }, fraction: { ...research, misses: { fetchFailures: 0.5 } },
+      trimmedNegative: { ...research, misses: { questionsTrimmed: -1 } }, trimmedFraction: { ...research, misses: { quotesLeftByCap: 1.5 } },
+      trimmedBoolean: { ...research, misses: { conflictsLeftByCap: true } },
       section: { ...research, errors: ["other_failed"] }, emptyErrors: { ...research, errors: [] }, scan: { ...research, report: "scanned" }, reviewState: { ...review, review: { valid: "yes" } },
       // The light review of #99: every kept value lies in the schema's closed sets, so no free text or path reaches the column.
       countName: { ...research, counts: { reportAbsence: 1, "Acme pays Beta": 1 } }, missName: { ...research, misses: { fetchFailures: 0, "/Users/someone": 1 } },
@@ -104,6 +110,14 @@ describe("the hostFlags registry column (backlog item 7(d), part C)", { timeout:
       readCap: { ...review, review: { ...review.review, read: { ...review.review.read, termsCapped: "no" } } } })) {
       expect(refused(["--run-dir", runDirectory(root, name, { events: [event] })]), name).toContain("holds a host_flags event the registry cannot read");
     }
+  });
+  it("keeps its count and miss names equal to the event schema's, which 7d.D extends (BL-20261116-1200-host-flags-trimmed-counts-design)", () => {
+    const load = "import importlib.util, json, sys\nspec = importlib.util.spec_from_file_location('registry_row', sys.argv[1])\nmodule = importlib.util.module_from_spec(spec)\n" +
+      "spec.loader.exec_module(module)\nprint(json.dumps({'counts': list(module.HOST_FLAG_COUNTS), 'misses': list(module.HOST_FLAG_MISSES)}))";
+    const names = JSON.parse(execFileSync("python3", ["-I", "-c", load, SCRIPT], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as { counts: string[]; misses: string[] };
+    expect(names.counts).toEqual(Object.keys(HostFlagsEventSchema.shape.counts.shape));
+    expect(names.misses).toEqual(Object.keys(HostFlagsEventSchema.shape.misses.unwrap().shape));
+    expect(names.misses).toEqual(expect.arrayContaining(["questionsTrimmed", "quotesLeftByCap", "conflictsLeftByCap"]));
   });
   it("copies the column with a superseded row, and leaves it out of the copy of a row written before it", () => {
     const root = scratch(), path = join(root, "registry.jsonl"), flags = { version: 1, rules: { absence: 1 }, counts: { reportAbsence: 0, reportAbsenceUncited: 0, reportBounded: 0 } };

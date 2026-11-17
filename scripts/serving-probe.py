@@ -4,7 +4,8 @@
 Reads SOAR_VLLM_BASE_URL (and the optional SOAR_VLLM_API_KEY, SOAR_VLLM_MODEL,
 SOAR_VLLM_COST_POLICY and SOAR_ALLOW_INSECURE_VLLM_HTTP) from the environment or from
 the repository's ignored .env.local, and only when run: nothing reads the environment
-at import, so the pure helpers can be imported without an endpoint. The address and
+at import, so the pure helpers can be imported without an endpoint. Requests go straight
+to the endpoint: no proxy from the environment or the system settings is used. The address and
 the key are never printed or stored. Server error bodies are stored as status, length
 and sha256 only. The probe JSON and the retained P10 replies go under the ignored
 .soar/experiments/serving-probe-<ts>/ and the printed summary carries no address.
@@ -59,7 +60,8 @@ P10_MODES = ("on", "off")
 # P10-align (BL-20261113-1011-p10-align-design): the export version that carries the pipeline's request bodies.
 P10_EXPORT_VERSION = 2
 P10_SCHEMA_NAMES = {"plan": "research_plan", "extract": "research_extraction", "synthesis": "research_synthesis"}
-P10_CLASSES = ("request_rejected", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed")
+# BL-20261116-1217-serving-probe-direct-transport-design (2): a streamed reply that ended with no finish reason is stream_ended_early, not invalid_json.
+P10_CLASSES = ("request_rejected", "stream_ended_early", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed")
 P11_SIZES = (20_000, 60_000, 120_000)
 P11_MAX_TOKENS = 300
 P11_KS = (1, 2, 4, 8)
@@ -296,10 +298,15 @@ def parse_json_reply(content: Optional[str]) -> Optional[Any]:
         return None
 
 
-def classify_reply(status: int, finish_reason: Optional[str], content: Optional[str], assessment: Optional[str] = None) -> str:
-    """P10 order: request_rejected, truncated, invalid_json, then the schema verdict (assessed in TypeScript)."""
+def classify_reply(status: int, finish_reason: Optional[str], content: Optional[str], assessment: Optional[str] = None,
+                   streamed: bool = False, stream_end: Optional[str] = None) -> str:
+    """P10 order: request_rejected, stream_ended_early (a streamed reply whose connection closed with no finish reason, no [DONE]
+    and no error event: stream_end "eof"), truncated, invalid_json, then the schema verdict (assessed in TypeScript). A stream the
+    server ended with an error event is the server's failure, and is read as before."""
     if status != 200:
         return "request_rejected"
+    if streamed and finish_reason is None and stream_end == "eof":
+        return "stream_ended_early"
     if finish_reason == "length":
         return "truncated"
     if parse_json_reply(content) is None:
@@ -345,12 +352,16 @@ def summarize_cell(calls: List[Dict[str, Any]], thinking: str) -> Dict[str, Any]
 
 
 def aggregate_streams(results: Sequence[Dict[str, Any]], running_samples: Sequence[Optional[float]]) -> Dict[str, Any]:
-    """Per-K view of a burst: per-stream decode, aggregate tokens/s over the burst's wall time, load during it."""
+    """Per-K view of a burst: per-stream decode, aggregate tokens/s over the burst's wall time, load during it. `errors` counts every
+    stream without usage or elapsed time; `transport_errors` only those that failed at transport: an exception, or a stream whose
+    connection closed with no finish reason, no [DONE] and no error event (stream_end "eof", BL-20261116-1217-serving-probe-direct-transport-design)."""
     ok = [r for r in results if "error" not in r and r.get("completion_tokens") and r.get("total_s")]
     decode = [r["decode_tok_s"] for r in ok if r.get("decode_tok_s") is not None]
     ttft = [r["ttft_s"] for r in ok if r.get("ttft_s") is not None]
     load = [s for s in running_samples if s is not None]
-    return {"streams": len(results), "errors": len(results) - len(ok),
+    transport = sum(1 for r in results if isinstance(r.get("error"), str)
+                    or (r.get("status") == 200 and r.get("finish_reason") is None and r.get("stream_end") == "eof"))
+    return {"streams": len(results), "errors": len(results) - len(ok), "transport_errors": transport,
             "per_stream_decode_tok_s": decode, "median_decode_tok_s": round(statistics.median(decode), 2) if decode else None,
             "aggregate_tok_s": round(sum(r["completion_tokens"] for r in ok) / max(r["total_s"] for r in ok), 2) if ok else None,
             "max_ttft_s": round(max(ttft), 3) if ttft else None, "max_total_s": round(max(r["total_s"] for r in ok), 2) if ok else None,
@@ -419,24 +430,28 @@ def p10_request_body(body: Dict[str, Any], role: str, schema: Dict[str, Any], st
     return {**body, "response_format": response_format(role, schema, strict)}
 
 
-def reassemble_stream(lines: Sequence[str]) -> Tuple[Dict[str, Any], int]:
+def reassemble_stream(lines: Sequence[str]) -> Tuple[Dict[str, Any], int, str]:
     """A streamed chat completion as the JSON a plain reply would have: the joined content and reasoning fields, the last
-    finish reason, the usage and the model. Returns the reply and the number of data chunks; a malformed line raises ValueError."""
+    finish reason, the usage and the model. Returns the reply, the number of data chunks and how the stream ended: "error" if the
+    server sent an error event, else "done" at [DONE], else "eof" (the connection closed first). A malformed line raises ValueError."""
     content_parts: List[str] = []
     reasoning: Dict[str, List[str]] = {}
     finish = usage = model = None
     chunks = 0
+    done = errored = False
     for raw in lines:
         line = raw.strip()
         if not line.startswith("data:"):
             continue
         payload = line[5:].strip()
         if payload == "[DONE]":
+            done = True
             break
         obj = json.loads(payload)
         if not isinstance(obj, dict):
             raise ValueError("stream chunk is not an object")
         chunks += 1
+        errored = errored or ("error" in obj or obj.get("object") == "error")
         model = obj.get("model", model)
         usage = obj.get("usage") or usage
         for choice in obj.get("choices") or []:
@@ -452,7 +467,7 @@ def reassemble_stream(lines: Sequence[str]) -> Tuple[Dict[str, Any], int]:
         message[field] = "".join(parts)
     reply: Dict[str, Any] = {"object": "chat.completion", **({"model": model} if model is not None else {}),
                              "choices": [{"index": 0, "message": message, "finish_reason": finish}], **({"usage": usage} if usage is not None else {})}
-    return reply, chunks
+    return reply, chunks, "error" if errored else "done" if done else "eof"
 
 
 def write_private(path: str, data: bytes) -> str:
@@ -481,6 +496,12 @@ def strip_reasoning_fields(raw: bytes) -> bytes:
 
 # --- endpoint access (the only place the address is used; never returned or printed) ---------------------------
 
+# Every request goes straight to the endpoint (BL-20261116-1217-serving-probe-direct-transport-design). urlopen's default opener would take a proxy from the environment's
+# *_proxy variables or, on macOS, from the system settings: a hop the app's own requests never take, and the path two of E0's
+# probe runs took when they dropped partway (the proxy as their cause is an inference, not shown). Only the proxy choice differs
+# from urlopen: every request, status and exception is as before.
+DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 class Endpoint:
     def __init__(self, config: Dict[str, Any]) -> None:
@@ -496,7 +517,7 @@ class Endpoint:
     def get(self, path: str, at_origin: bool = False, timeout: float = 15) -> Tuple[int, str]:
         request = urllib.request.Request((self.origin if at_origin else self.base) + path, headers=self.headers)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 return response.status, response.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as error:
             return error.code, ""
@@ -535,7 +556,7 @@ class Endpoint:
         started = time.monotonic()
         request = urllib.request.Request((self.origin if at_origin else self.base) + path, data=json.dumps(body).encode(), headers=self.headers)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 raw = response.read()
                 try:
                     parsed: Any = json.loads(raw)
@@ -554,7 +575,7 @@ class Endpoint:
         started = time.monotonic()
         request = urllib.request.Request(self.base + path, data=json.dumps(body).encode(), headers=self.headers)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 status = response.status
                 lines = [raw.decode("utf-8", "replace") for raw in response]
         except urllib.error.HTTPError as error:
@@ -563,11 +584,11 @@ class Endpoint:
         except Exception as error:  # timeouts, resets
             return {"status": -1, "raw": b"", "json": None, "elapsed_s": time.monotonic() - started, "transport_error": type(error).__name__}
         try:
-            reply, chunks = reassemble_stream(lines)
+            reply, chunks, ended = reassemble_stream(lines)
         except ValueError:
             return {"status": -1, "raw": b"", "json": None, "elapsed_s": time.monotonic() - started, "transport_error": "StreamMalformed"}
         raw = json.dumps(reply, ensure_ascii=False).encode("utf-8")
-        return {"status": status, "raw": raw, "json": reply, "elapsed_s": time.monotonic() - started, "stream_chunks": chunks}
+        return {"status": status, "raw": raw, "json": reply, "elapsed_s": time.monotonic() - started, "stream_chunks": chunks, "stream_end": ended}
 
     def stream(self, messages: list, max_tokens: int, extra: dict, timeout: float = 900, abort_after: Optional[float] = None,
                keep_content: bool = False) -> dict:
@@ -583,8 +604,9 @@ class Endpoint:
         fields_seen = set()
         model_chunks = model_mismatch = chunk_count = 0
         finish = None
+        done = errored = False
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with DIRECT.open(request, timeout=timeout) as response:
                 for raw in response:
                     if abort_after is not None and time.monotonic() - started > abort_after:
                         return {"aborted_after_s": round(time.monotonic() - started, 2)}
@@ -593,9 +615,11 @@ class Endpoint:
                         continue
                     payload = line[5:].strip()
                     if payload == "[DONE]":
+                        done = True
                         break
                     obj = json.loads(payload)
                     chunk_count += 1
+                    errored = errored or (isinstance(obj, dict) and ("error" in obj or obj.get("object") == "error"))
                     if "model" in obj:
                         if obj.get("model") == self.model:
                             model_chunks += 1
@@ -640,6 +664,7 @@ class Endpoint:
                   "decode_tok_s": round(decode, 2) if decode else None,
                   "prefill_tok_s_est": round(prompt / ttft, 1) if ttft and prompt else None,
                   "total_s": round(time.monotonic() - started, 2), "finish_reason": finish,
+                  "stream_end": "error" if errored else "done" if done else "eof",
                   "reasoning_field": "none" if not fields_seen else (next(iter(fields_seen)) if len(fields_seen) == 1 else "mixed"),
                   "model_chunks": model_chunks, "model_mismatch_chunks": model_mismatch, "chunks": chunk_count,
                   "leading_think_tag": leading_think_tag(head)}
@@ -850,7 +875,8 @@ def probe_p10(ep: Endpoint, card: dict, ctx: dict) -> dict:
             for ordinal in range(1, args.p10_calls + 1):
                 body = p10_request_body(exported, role, schema, variant)
                 result = ep.post_stream("/chat/completions", body, timeout=900) if streamed else ep.post("/chat/completions", body, timeout=900)
-                record: Dict[str, Any] = {"ordinal": ordinal, **post_record(result), **({"stream_chunks": result["stream_chunks"]} if "stream_chunks" in result else {})}
+                record: Dict[str, Any] = {"ordinal": ordinal, **post_record(result),
+                                          **({"stream_chunks": result["stream_chunks"], "stream_end": result["stream_end"]} if "stream_chunks" in result else {})}
                 content = None
                 finish = None
                 body_json = result["json"]
@@ -869,7 +895,7 @@ def probe_p10(ep: Endpoint, card: dict, ctx: dict) -> dict:
                     retained = strip_reasoning_fields(result["raw"]) if args.strip_reasoning else result["raw"]
                     record["reply_file"] = file_name
                     record["body_sha256"] = write_private(os.path.join(p10_dir, file_name), retained)
-                record["classification"] = classify_reply(result["status"], finish, content)
+                record["classification"] = classify_reply(result["status"], finish, content, streamed=streamed, stream_end=record.get("stream_end"))
                 calls.append(record)
             out["cells"][f"{role}/{thinking}"] = {"role": role, "thinking": thinking, "strict": variant, "max_tokens": exported.get("max_tokens"),
                                                  "streamed": streamed, "request_body_sha256": schemas["requests"][role][thinking].get("bodySha256"),

@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -172,6 +172,10 @@ describe("the driver's git state (backlog item 11, part 2)", { timeout: 30_000 }
     expect(localScreenGitState([{ ...stale[0]!, sha256: h("0") }, ...stale.slice(1)], { root, cwd: root })).toEqual({ commit, dirty: true });
     // An edit the status cannot see (skip-worktree) still differs from the committed blob.
     git("update-index", "--skip-worktree", "src/a.ts"); writeFileSync(join(root, "src", "a.ts"), "export const a = 2;\n");
+    // The edit keeps the file's size, so within the second the index recorded it, git's stat check can take it for the committed file
+    // (racy git), and `checkout --` below then skips restoring it: CI on #91 saw `dirty: true` at the clean check. A later mtime makes
+    // the edit visible to the stat check; an index refresh would not, since it trusts the same matching stat.
+    const later = Date.now() / 1000 + 60; utimesSync(join(root, "src", "a.ts"), later, later);
     expect(git("status", "--porcelain")).toBe("");
     expect(localScreenGitState(frozen(), { root, cwd: root })).toEqual({ commit, dirty: true });
     git("update-index", "--no-skip-worktree", "src/a.ts"); git("checkout", "-q", "--", "src/a.ts");

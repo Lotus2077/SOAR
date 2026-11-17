@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_RETAINED_ENV, CLAIMS_SECTION_RULE_PY, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_MARKUP_STRIP_PY, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_REPORT_STRIP_PY, CLAIMS_RETAINED_ENV, CLAIMS_SECTION_RULE_PY, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
 import { BrokerError } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
-import { buildBinarySource, hasIsolatedPypdf } from "../helpers/claims-fixtures";
+import { buildBinarySource, buildDocxFromXml, hasIsolatedPypdf } from "../helpers/claims-fixtures";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const done of cleanup.splice(0).reverse()) done(); });
@@ -15,14 +15,27 @@ const notes = "Alpha report, first edition.\nThe reactor produced 42 units in Ma
 const page = "<html><head><style>p{color:red}</style></head><body><h1>Bravo &amp; Charlie</h1><p>Output fell by <b>12 percent</b> after the outage.</p><script>var x=1;</script></body></html>";
 const sources = [{ id: "input/notes.txt", path: "input/notes.txt" }, { id: "https://example.test/page", path: "sources/page.bin" }];
 
-/** Runs the host-owned check with the local python against a temporary workspace, exactly as the verifier container would. */
-function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string; context?: boolean; timeoutMs?: number } = {}) {
+/**
+ * The first of python3.11 (the container's version) and python3 that is Python 3.11 or later, where the integer string limit exists, or
+ * undefined. On the owner's Mac that is python3.11; on CI's ubuntu runner, its system python3.
+ */
+function pythonWithIntLimit(): string | undefined {
+  for (const python of ["python3.11", "python3"]) {
+    const probe = spawnSync(python, ["-I", "-c", "import sys; sys.get_int_max_str_digits(); print(sys.version_info >= (3, 11))"], { encoding: "utf8" });
+    if (probe.status === 0 && probe.stdout.trim() === "True") return python;
+  }
+  return undefined;
+}
+const LIMITED_PYTHON = pythonWithIntLimit();
+
+/** Runs the host-owned check with the local python (or `python`) against a temporary workspace, exactly as the verifier container would. */
+function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string; context?: boolean; timeoutMs?: number; python?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "soar-claims-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   for (const [path, content] of Object.entries(files)) { mkdirSync(join(root, path, ".."), { recursive: true }); writeFileSync(join(root, path), content); }
   const check = claimsLedgerCheck({ reportPath: extra.reportPath ?? "output/report.md", sources: extra.sources ?? sources, publicSources: extra.publicSources, root });
   expect(check.id).toBe(CLAIMS_LEDGER_CHECK_ID);
   const env = { ...process.env, ...(extra.retained ? { [CLAIMS_RETAINED_ENV]: encodeRetainedClaimsSources(extra.retained) } : {}), ...(extra.context ? { [CLAIMS_CONTEXT_ENV]: "1" } : {}) };
-  try { return { exitCode: 0, result: JSON.parse(execFileSync("python3", ["-I", "-c", check.python], { encoding: "utf8", env, ...(extra.timeoutMs ? { timeout: extra.timeoutMs } : {}) })) }; }
+  try { return { exitCode: 0, result: JSON.parse(execFileSync(extra.python ?? "python3", ["-I", "-c", check.python], { encoding: "utf8", env, ...(extra.timeoutMs ? { timeout: extra.timeoutMs } : {}) })) }; }
   catch (error) {
     const failure = error as { status: number | null; stdout: string; signal?: string | null; code?: string };
     // A check stopped by `timeoutMs` has no JSON to parse: say so instead. Any other signal (a full output buffer, a kill) is rethrown as it is.
@@ -366,5 +379,337 @@ print(json.dumps({'alphabet':len(alphabet),'checked':len(strings),'mismatches':l
     // Defined once each, so no later definition shadows the rule.
     expect(["def strip_trailing(", "def section_present("].map(name => python.split(name).length - 1)).toEqual([1, 1]);
     expect(python).not.toContain(String.raw`[*_:\s]+$`);
+  });
+});
+
+describe("the claims check's text rules: the same results in linear time (decision 6 of E1-J2)", () => {
+  const claims = ledger([
+    { id: "C1", sentence: "The reactor produced 42 units in May 2026.", sourceId: "input/notes.txt", quote: "produced 42 units in May 2026" },
+    { id: "C2", sentence: "Output fell by 12 percent after the outage.", sourceId: "https://example.test/page", quote: "Output fell by 12 percent after the outage." }]);
+  const workspace = (changed: Record<string, string | Buffer>) => ({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report, [CLAIMS_LEDGER_PATH]: claims, ...changed });
+  const beforeHeadings = (text: string) => report.replace("## Conflicting evidence", `${text}\n\n## Conflicting evidence`);
+  const passes = { exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true }, { id: "C2", found: true }],
+    report: { citations: { missing: [], unknown: [] }, sections: { "Conflicting evidence": true, "Unanswered questions": true } } } };
+  // Each input takes the former pattern several minutes or more, by the rates measured on Python 3.11.16 (BL-20261114-1711); the linear
+  // helper takes well under a second. A mutation run with the former pattern back is stopped at the bound.
+  it("checks a report holding 200,000 lines that open a fence and never close one within a 20 s bound", () => {
+    expect(run(workspace({ "output/report.md": beforeHeadings("```x\n".repeat(200_000)) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks a report holding 250,000 comment openers and no closer within a 20 s bound", () => {
+    expect(run(workspace({ "output/report.md": beforeHeadings("<!--".repeat(250_000)) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks an HTML source holding 125,000 script openers and no closer within a 20 s bound", () => {
+    expect(run(workspace({ "sources/page.bin": page + "<script>".repeat(125_000) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks an HTML source holding 600,000 script openers that share one far '>' within a 20 s bound", () => {
+    // #109's light review: each opener searched for its own '>', and here every search ran to the last character (BL-20261114-1711's
+    // decision (3) left that search out). The first '>' at or after an opener is now found once and kept while it lies ahead.
+    expect(run(workspace({ "sources/page.bin": page + "<script".repeat(600_000) + ">" }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks an HTML source ending in 1,000,000 '<' with no '>' after them within a 20 s bound", () => {
+    expect(run(workspace({ "sources/page.bin": page + "<".repeat(1_000_000) }), { timeoutMs: 20_000 })).toMatchObject(passes);
+  }, 30_000);
+  it("checks a DOCX source whose paragraph holds 100,000 run breaks that open run properties and never close them within a 20 s bound", () => {
+    const xml = `<w:document><w:body><w:p><w:r><w:t>The reactor produced 42 units in May 2026.</w:t></w:r></w:p><w:p><w:r><w:t>x${"</w:t></w:r><w:r><w:rPr>".repeat(100_000)}</w:t></w:r></w:p></w:body></w:document>`;
+    const files = { "input/notes.txt": notes, "sources/doc.bin": buildDocxFromXml(xml), "output/report.md": report.replace(" Output fell by 12 percent after the outage [C2].", ""),
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "s", sourceId: "doc", quote: "produced 42 units in May 2026" }]) };
+    expect(run(files, { sources: [{ id: "doc", path: "sources/doc.bin" }], timeoutMs: 20_000 })).toMatchObject({ exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true, locator: "paragraph 1" }] } });
+  }, 30_000);
+  it("reads a PDF's page labels once, not once per page: 1,000 pages build 1,000 labels, and a read that raises leaves every page its number", () => {
+    // A stand-in pypdf, so this runs without pypdf: each read of page_labels builds every page's label, as pypdf's does. The former loop read it
+    // once per page, 1,000 reads and 1,000,000 builds here.
+    const standIn = (raises: boolean) => ["import atexit, sys, types", "reads=[0,0]",
+      "class Page:", " def extract_text(self): return 'The reactor produced 42 units in May 2026.'",
+      "class PdfReader:", " def __init__(self, stream): self.pages=[Page() for _ in range(1000)]",
+      " @property", " def page_labels(self):", "  reads[0]+=1; reads[1]+=len(self.pages)",
+      raises ? "  raise ValueError('labels')" : "  return ['p%d' % (i+1) for i in range(len(self.pages))]",
+      "module=types.ModuleType('pypdf'); module.PdfReader=PdfReader; sys.modules['pypdf']=module",
+      "atexit.register(lambda: sys.stderr.write('label reads %d, builds %d' % tuple(reads)))"].join("\n");
+    for (const raises of [false, true]) {
+      const root = mkdtempSync(join(tmpdir(), "soar-claims-pdf-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+      mkdirSync(join(root, "input")); mkdirSync(join(root, "output")); writeFileSync(join(root, "input/source.pdf"), "%PDF-1.4 stand-in");
+      writeFileSync(join(root, "output/report.md"), "Claim [C1].\n\n## Conflicting evidence\n\nnone\n\n## Unanswered questions\n\nnone\n");
+      writeFileSync(join(root, CLAIMS_LEDGER_PATH), ledger([{ id: "C1", sentence: "Claim.", sourceId: "doc", quote: "produced 42 units in May 2026" }]));
+      const check = claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "doc", path: "input/source.pdf" }], root });
+      const ran = spawnSync("python3", ["-I", "-c", `${standIn(raises)}\n${check.python}`], { encoding: "utf8" });
+      expect([raises, ran.stderr]).toEqual([raises, "label reads 1, builds 1000"]);
+      expect(JSON.parse(ran.stdout)).toMatchObject({ passed: true, claims: [{ id: "C1", found: true, locator: raises ? "page 1" : "page p1" }] });
+    }
+  });
+  /** Compares the helper named in argv with the pattern it replaced, and prints a summary only. The backtick is chr(96), as String.raw cannot hold one. */
+  const DIFFERENTIAL_PY = String.raw`import itertools, json, random, re, sys
+${CLAIMS_REPORT_STRIP_PY}
+${CLAIMS_MARKUP_STRIP_PY}
+B=chr(96); S,I,DI=chr(0x17f),chr(0x131),chr(0x130)
+WS=[' ','\t','\n','\x0b','\x1c',chr(0x85),chr(0xa0),chr(0x2028),chr(0x3000)]
+FORMER={
+ 'strip_fences': lambda s: re.sub(r'(?ms)^[ \t]*'+B*3+r'.*?^[ \t]*'+B*3+r'[ \t]*$','',s),
+ 'strip_comments': lambda s: re.sub(r'(?s)<!--.*?-->','',s),
+ 'strip_tags': lambda s: re.sub(r'<[^>]+>',' ',s),
+ 'strip_scripts': lambda s: re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>',' ',s),
+ 'join_runs': lambda s: re.sub(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>(?:\s*<w:rPr>.*?</w:rPr>)?\s*<w:t\b[^>]*>','',s,flags=re.S),
+}
+TOKENS={
+ 'strip_fences': [B*3,B,' ','\t','\n','x','\r',B*4],
+ 'strip_comments': ['<!--','-->','<','!','-','>','x','\n'],
+ 'strip_tags': ['<','>','x','\n',' ','<>'],
+ 'strip_scripts': ['<script','<STYLE','<'+S+'cr'+DI+'pt','</script>','</SCR'+I+'PT>','</'+S+'cript>','</style>','</sTyLe>','</scrip>','>','<','</','x','\n',' s'],
+ 'join_runs': ['</w:t>','</w:r>','<w:r>','<w:r ','<w:rPr>','</w:rPr>','<w:t>','<w:t ','<w:rx>','<w:r1>','<w:tab/>','>','x',' ','\n',chr(0x3000),'<w:r','<w:t'],
+}
+DEPTH={'strip_fences':6,'strip_comments':6,'strip_tags':7,'strip_scripts':4,'join_runs':4}
+def ws(rng): return ''.join(rng.choice(WS+['x']) for _ in range(rng.choice((0,0,0,1,2))))
+def fence_doc(rng):
+ kinds=[B*3,'  '+B*3+' \t','\t'+B*3+'py',B*4,' '+B*3+' x','x '+B*3,'',' ','x',B*3+'\r',B*2,B*3+chr(0xa0)]
+ return '\n'.join(rng.choice(kinds) for _ in range(rng.randrange(1,40)))
+def script_doc(rng):
+ names=['script','SCRIPT','style','StYlE',S+'cript','scr'+I+'pt','scr'+DI+'pt','scrip','styles']
+ parts=[]
+ for _ in range(rng.randrange(1,12)):
+  r=rng.random(); n=rng.choice(names)
+  if r<0.35: parts.append('<'+n+rng.choice(['','>',' a="1">',' a=\n>','\n',' <x>']))
+  elif r<0.7: parts.append('</'+n+rng.choice(['>','> ',' >','']))
+  else: parts.append(rng.choice(['x','<','>','</','\n','<b>','</b>',' ']))
+ return ''.join(parts)
+def run_doc(rng):
+ parts=[]
+ for _ in range(rng.randrange(1,10)):
+  seg=['</w:t>',ws(rng),'</w:r>',ws(rng),rng.choice(['<w:r>','<w:r w:rsid="1">','<w:rx>','<w:r','<w:r/>']),
+   rng.choice(['',ws(rng)+'<w:rPr>'+rng.choice(['<w:b/>','','</w:rPr>x','<w:i/></w:rPr>'+ws(rng)+'<w:t>'])+rng.choice(['</w:rPr>','','</w:rPr></w:rPr>'])]),
+   ws(rng),rng.choice(['<w:t>','<w:t xml:space="preserve">','<w:tab/>','<w:t','<w:tx>','']),rng.choice(['run text','','<','>'])]
+  if rng.random()<0.3: del seg[rng.randrange(len(seg))]
+  if rng.random()<0.2: k=rng.randrange(len(seg)); seg.insert(k,seg[rng.randrange(len(seg))])
+  parts+=seg
+ return ''.join(parts)
+DOCS={'strip_fences':fence_doc,'strip_scripts':script_doc,'join_runs':run_doc}
+name=sys.argv[1]; toks=TOKENS[name]; rng=random.Random(20261115)
+strings=[''.join(p) for n in range(DEPTH[name]+1) for p in itertools.product(toks,repeat=n)]
+strings+=[''.join(rng.choice(toks) for _ in range(rng.randrange(6,301))) for _ in range(3000)]
+strings+=[''.join(rng.choice(toks+WS) for _ in range(rng.randrange(6,301))) for _ in range(3000)]
+if name in DOCS: strings+=[DOCS[name](rng) for _ in range(40000)]
+helper=globals()[name]; former=[FORMER[name](s) for s in strings]
+bad=[s for s,f in zip(strings,former) if helper(s)!=f]
+print(json.dumps({'checked':len(strings),'changed':sum(f!=s for s,f in zip(strings,former)),'mismatches':len(bad),'first':bad[:3]}))`;
+  it.each([["strip_fences", 345_593], ["strip_comments", 305_593], ["strip_tags", 341_923], ["strip_scripts", 100_241], ["join_runs", 157_151]] as const)(
+    "%s returns what the pattern it replaced returns, on every token sequence up to a length and on seeded random documents", (helper, checked) => {
+      // Token sets cover each pattern's edges: Unicode whitespace, word boundaries, CR, case folding (U+017F, U+0131, U+0130) and unclosed openers.
+      const summary = JSON.parse(execFileSync("python3", ["-I", "-c", DIFFERENTIAL_PY, helper], { encoding: "utf8" })) as { checked: number; changed: number; mismatches: number; first: string[] };
+      expect(summary).toMatchObject({ checked, mismatches: 0, first: [] });
+      // Each input set also exercises the former pattern: it changed over 10,000 of the strings.
+      expect(summary.changed).toBeGreaterThan(10_000);
+    }, 60_000);
+  it("gives fixed results read from TypeScript, so an escaping slip that broke both sides alike would still show", () => {
+    const F = "```", S = String.fromCharCode(0x17f);
+    const cases = {
+      strip_fences: [`a\n${F}py\nb\n${F}\nc`, `${F}\nx`, `  ${F}  \nx\n\t${F}\t\ny`, "x\n" + F + "`\ny\n" + F + "\nz", `${F}\r\nx\n${F}\r\n`, `${F}\n${F}\n${F}`],
+      strip_comments: ["a<!-- x -->b", "a<!-->b-->c", "a<!--b", "<!--a--><!--b-->c", "<!---->x"],
+      strip_tags: ["a<b>c", "a<>b", "a<b", "<<a>>", "x>y<z", "<a\nb>c"],
+      strip_scripts: ["a<script>x</script>b", "a<SCRIPT type=x>x</script >b</ScRiPt>c", "<style>a</script>b</style>c", "<script>a", `<${S}cript>a</script>b</${S}cript>c`, "<script x=\">\">a</script>b"],
+      join_runs: ["<w:t>a</w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>b</w:t>", "</w:t></w:r><w:r><w:t>", "</w:t> </w:r>\n<w:r w:x=\"1\"><w:rPr></w:rPr> <w:t xml:space=\"preserve\">",
+        "</w:t></w:r><w:rx><w:t>", "</w:t></w:r><w:r><w:rPr></w:rPr></w:rPr><w:t>", "</w:t></w:r><w:r><w:rPr><w:t>", "</w:t></w:r><w:r> <w:rPr></w:rPr><w:t>"] };
+    const script = `import json, sys\n${CLAIMS_REPORT_STRIP_PY}\n${CLAIMS_MARKUP_STRIP_PY}\ncases=json.load(sys.stdin)\n` +
+      "print(json.dumps({name:[globals()[name](text) for text in texts] for name,texts in cases.items()}))";
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", script], { input: JSON.stringify(cases), encoding: "utf8" }))).toEqual({
+      strip_fences: ["a\n\nc", `${F}\nx`, "\ny", "x\n\nz", `${F}\r\nx\n${F}\r\n`, `\n${F}`],
+      strip_comments: ["ab", "ac", "a<!--b", "c", "x"],
+      strip_tags: ["a c", "a<>b", "a<b", " >", "x>y<z", " c"],
+      strip_scripts: ["a b", "a c", " c", "<script>a", " c", " b"],
+      join_runs: ["<w:t>ab</w:t>", "", "", "</w:t></w:r><w:rx><w:t>", "", "</w:t></w:r><w:r><w:rPr><w:t>", ""] });
+    // Single backslashes reach Python where the patterns need them.
+    for (const piece of [String.raw`</\1>`, String.raw`r'\s*<w:rPr>'`, String.raw`<w:r\b[^>]*>`]) expect(CLAIMS_MARKUP_STRIP_PY).toContain(piece);
+    expect(CLAIMS_REPORT_STRIP_PY).toContain(String.raw`text.split('\n')`);
+  });
+  it("runs both rules in the check, and neither the former patterns on text nor a label read per page", () => {
+    const python = claimsLedgerCheck({ reportPath: "output/report.md", sources }).python;
+    expect(python).toContain(CLAIMS_REPORT_STRIP_PY);
+    expect(python).toContain(CLAIMS_MARKUP_STRIP_PY);
+    expect(python).toContain("body=strip_comments(strip_fences(report))");
+    // Defined once each, so no later definition shadows a rule.
+    expect(["def strip_fences(", "def strip_comments(", "def strip_scripts(", "def strip_tags(", "def join_runs("].map(name => python.split(name).length - 1)).toEqual([1, 1, 1, 1, 1]);
+    for (const former of [String.raw`.*?^[ \t]*`, String.raw`re.sub(r'(?s)<!--`, String.raw`re.sub(r'(?is)<(script|style)`, String.raw`re.sub(r'<[^>]+>'`,
+      String.raw`(?:\s*<w:rPr>.*?</w:rPr>)?`, "page_labels[index]"]) expect(python).not.toContain(former);
+  });
+});
+
+describe("the claims check reads a long decimal character reference as html.unescape would without Python's integer limit (BL-20261114-1803)", () => {
+  const claims = ledger([
+    { id: "C1", sentence: "The reactor produced 42 units in May 2026.", sourceId: "input/notes.txt", quote: "produced 42 units in May 2026" },
+    { id: "C2", sentence: "Output fell by 12 percent after the outage.", sourceId: "https://example.test/page", quote: "Output fell by 12 percent after the outage." }]);
+  const passes = { exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true }, { id: "C2", found: true }],
+    report: { citations: { missing: [], unknown: [] }, sections: { "Conflicting evidence": true, "Unanswered questions": true } } } };
+  const LONG = `&#${"1".repeat(4301)};`, FFFD = String.fromCharCode(0xfffd);
+  it.skipIf(!LIMITED_PYTHON)("checks an HTML source and a DOCX source that each hold a 4,301-digit decimal reference, under Python 3.11 or later as in the container", () => {
+    // Before, html.unescape raised ValueError there and the whole check failed with ledger_invalid.
+    const python = LIMITED_PYTHON!;
+    expect(execFileSync(python, ["-I", "-c", "import sys; print(sys.get_int_max_str_digits())"], { encoding: "utf8" }).trim()).toBe("4300");
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page.replace("</body>", `<p>${LONG}</p></body>`), "output/report.md": report, [CLAIMS_LEDGER_PATH]: claims }, { python }))
+      .toMatchObject(passes);
+    const xml = `<w:document><w:body><w:p><w:r><w:t>The reactor produced 42 units in May 2026.</w:t></w:r></w:p><w:p><w:r><w:t>x${LONG}</w:t></w:r></w:p></w:body></w:document>`;
+    const files = { "input/notes.txt": notes, "sources/doc.bin": buildDocxFromXml(xml), "output/report.md": report.replace(" Output fell by 12 percent after the outage [C2].", ""),
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "s", sourceId: "doc", quote: "produced 42 units in May 2026" }]) };
+    expect(run(files, { sources: [{ id: "doc", path: "sources/doc.bin" }], python })).toMatchObject({ exitCode: 0, result: { passed: true, claims: [{ id: "C1", found: true, locator: "paragraph 1" }] } });
+  });
+  /** Compares `unescape`, under the default limit, with html.unescape with the limit lifted, and prints a summary only. */
+  const UNESCAPE_DIFFERENTIAL_PY = String.raw`import itertools, json, random, sys
+${CLAIMS_MARKUP_STRIP_PY}
+def ref(rng):
+ zeros='0'*rng.choice((0,0,1,7,4301))
+ if rng.random()<0.5: body=rng.choice(('0','11','13','38','65','150','55296','1114111','1114112'))
+ else: body=str(rng.randrange(10))*rng.choice((1,7,8,9,40,4301))
+ return '&#'+zeros+body+rng.choice(('',';',';;','x','&','<'))
+ITEMS=[ref,ref,ref,ref]+[lambda rng,t=t: t for t in ('&amp;','&amp','&ampx','&#x41;','&#X10FFFF;','&lt','&','#','&#','&#;','x',' ','\n')]+[lambda rng: '&#x'+'f'*4400+';']
+def doc(rng): return ''.join(rng.choice(ITEMS)(rng) for _ in range(rng.randrange(1,8)))
+rng=random.Random(20261114)
+strings=[''.join(p) for n in range(6) for p in itertools.product(['&','#','0','1','9',';','x','a'],repeat=n)]+[doc(rng) for _ in range(20000)]
+ours=[unescape(s) for s in strings]
+lift=getattr(sys,'set_int_max_str_digits',None); refused=0
+if lift:
+ for s in strings:
+  try: html.unescape(s)
+  except ValueError: refused+=1
+ lift(0)
+bad=[s[:60] for s,o in zip(strings,ours) if o!=html.unescape(s)]
+print(json.dumps({'checked':len(strings),'refused':refused,'mismatches':len(bad),'first':bad[:2]}))`;
+  it("reads every short sequence and 20,000 seeded documents as html.unescape reads them with the limit lifted, including those it refuses under the limit", () => {
+    // Every sequence of up to five of & # 0 1 9 ; x a, and documents mixing decimal references of 1 to 8,602 digits, with and without leading
+    // zeros and a semicolon, with named, hexadecimal and malformed references. Where the limit exists, the stock html.unescape refuses 4,224 of them.
+    const summary = JSON.parse(execFileSync(LIMITED_PYTHON ?? "python3", ["-I", "-c", UNESCAPE_DIFFERENTIAL_PY], { encoding: "utf8" }));
+    expect(summary).toEqual({ checked: 57_449, refused: LIMITED_PYTHON ? 4_224 : 0, mismatches: 0, first: [] });
+  }, 60_000);
+  it("gives fixed results read from TypeScript, with the limit in force where it exists", () => {
+    const zeros = "0".repeat(5000);
+    const cases = ["&#65;", "&#00000065;", `&#${zeros}65;`, LONG, "&#1114111;", "&#01114112;", "&#00000150;x", "&#000055296", "&#00000013;", "&#00000011;", "&#0000000000;",
+      "&amp;&#00000038;amp;", "&#x41;", `&#${zeros}38;lt;`];
+    const script = `import json, sys\n${CLAIMS_MARKUP_STRIP_PY}\nprint(json.dumps([unescape(text) for text in json.load(sys.stdin)]))`;
+    // A long reference reads as U+FFFD, or as the character its value names after leading zeros, and the text after it is not read again.
+    expect(JSON.parse(execFileSync(LIMITED_PYTHON ?? "python3", ["-I", "-c", script], { input: JSON.stringify(cases), encoding: "utf8" }))).toEqual(
+      ["A", "A", "A", FFFD, "", FFFD, `${String.fromCharCode(0x2013)}x`, FFFD, "\r", "", FFFD, "&&amp;", "A", "&lt;"]);
+    expect(CLAIMS_MARKUP_STRIP_PY).toContain(String.raw`LONG_DECIMAL=re.compile(r'&#([0-9]{8,});?')`);
+  });
+  it("decodes through that rule in the check, which calls html.unescape only inside it", () => {
+    const python = claimsLedgerCheck({ reportPath: "output/report.md", sources }).python;
+    expect(python).toContain("paras=[unescape(strip_tags(join_runs(chunk)))");
+    expect(python).toContain("stripped=unescape(strip_tags(strip_scripts(text)))");
+    expect([python.split("def unescape(").length - 1, python.split("html.unescape(").length - 1]).toEqual([1, 2]);
+  });
+});
+
+describe("backlog item 8.2b: the judge runs K claims at a time on the ordered pool and keeps the verdicts that arrive (ASSIST-2)", () => {
+  /** n claims, C1..Cn; the listed indexes carry no context window. Each context names its claim, so a call is known by its messages. */
+  const claimsOf = (n: number, omitted: number[] = []) => Array.from({ length: n }, (_, i) => ({ id: `C${i + 1}`, sentence: `s${i + 1}`, quote: `q${i + 1}`, context: omitted.includes(i) ? "" : `window-C${i + 1}` }));
+  const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+  const verdict = (name: string) => `{"verdict":"${name}"}`;
+  /** A judge whose calls the test settles by claim id; a call honours its signal as the broker's would, and the calls in flight are counted. */
+  function held() {
+    const calls = new Map<string, { signal: AbortSignal; answer: (content: string) => void; fail: (error: unknown) => void }>(), launched: string[] = [];
+    let live = 0, peak = 0;
+    const complete = (messages: { content?: unknown }[], _tools: [], signal: AbortSignal) => new Promise<{ content: string }>((resolve, reject) => {
+      const id = /window-(C\d+)/u.exec(String(messages[1]!.content))![1]!; launched.push(id);
+      live++; peak = Math.max(peak, live);
+      const end = () => { if (calls.get(id)) { calls.delete(id); live--; } };
+      calls.set(id, { signal, answer: content => { end(); resolve({ content }); }, fail: error => { end(); reject(error); } });
+      signal.addEventListener("abort", () => { calls.get(id)?.fail(new BrokerError("request_failed")); }, { once: true });
+    });
+    return { complete, calls, launched, live: () => live, peak: () => peak, answer: (id: string, content: string) => calls.get(id)!.answer(content), fail: (id: string) => calls.get(id)!.fail(new BrokerError("request_failed")) };
+  }
+  const far = () => 600_000;
+
+  it("keeps the verdicts in claim order when calls finish out of order, with at most K in flight", async () => {
+    const judge = held(), claims = claimsOf(6);
+    const pass = judgeClaims({ claims, limit: 3, complete: judge.complete, signal: new AbortController().signal, remainingMs: far });
+    for (let round = 0; round < 6 && judge.calls.size; round++) {
+      await tick();
+      for (const id of [...judge.calls.keys()].reverse()) { judge.answer(id, verdict(Number(id.slice(1)) % 2 ? "supported" : "partial")); await tick(); }
+    }
+    const outcome = await pass;
+    expect(outcome).toMatchObject({ entailmentCalls: 6, truncated: false, counts: { supported: 3, partial: 3, not_judged: 0 } });
+    expect(outcome.verdicts.map(row => [row.id, row.verdict])).toEqual(claims.map((claim, i) => [claim.id, i % 2 ? "partial" : "supported"]));
+    expect(judge.peak()).toBe(3); expect(judge.launched).toEqual(claims.map(claim => claim.id));
+  });
+
+  it("on a failed call stops launching at once, lets the siblings finish without an abort, and keeps their verdicts, even for a claim after the failing one", async () => {
+    const judge = held(), claims = claimsOf(7);
+    const pass = judgeClaims({ claims, limit: 4, complete: judge.complete, signal: new AbortController().signal, remainingMs: far });
+    await tick(); expect(judge.launched).toEqual(["C1", "C2", "C3", "C4"]);
+    judge.fail("C3"); await tick();
+    // C1's verdict frees a slot while C3, still behind C2, is not yet applied: nothing more launches all the same.
+    judge.answer("C1", verdict("supported")); await tick(); expect(judge.launched).toHaveLength(4);
+    // C4, launched after C3, is neither aborted nor dropped.
+    expect(judge.calls.get("C4")!.signal.aborted).toBe(false); judge.answer("C4", verdict("contradicted")); await tick(); judge.answer("C2", verdict("partial"));
+    const outcome = await pass;
+    expect(judge.launched).toEqual(["C1", "C2", "C3", "C4"]);
+    expect(outcome).toMatchObject({ entailmentCalls: 4, truncated: true, stopReason: "request_failed", counts: { supported: 1, partial: 1, contradicted: 1, not_judged: 4 } });
+    expect(outcome.verdicts).toEqual([{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "partial" }, { id: "C3", verdict: "not_judged", reason: "judge_request_failed" },
+      { id: "C4", verdict: "contradicted" }, ...["C5", "C6", "C7"].map(id => ({ id, verdict: "not_judged", reason: "pass_stopped" }))]);
+  });
+
+  it("checks a pause before each launch, once a slot is free: the claims in flight keep their verdicts and the first claim left takes paused", async () => {
+    const judge = held(), claims = claimsOf(5);
+    let paused = false;
+    const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: new AbortController().signal, remainingMs: far, stop: () => paused });
+    await tick(); paused = true;
+    judge.answer("C1", verdict("supported")); await tick(); judge.answer("C2", verdict("unsupported"));
+    const outcome = await pass;
+    expect(judge.launched).toEqual(["C1", "C2"]);
+    expect(outcome).toMatchObject({ entailmentCalls: 2, truncated: true, stopReason: "paused" });
+    expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["supported", "unsupported", "paused", "pass_stopped", "pass_stopped"]);
+  });
+
+  it("labels the claim a deadline stopped at with the deadline, though a pause arrives while the calls in flight finish", async () => {
+    const judge = held(), claims = claimsOf(3);
+    let paused = false, remaining = 600_000;
+    const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: new AbortController().signal, remainingMs: () => remaining, stop: () => paused });
+    await tick(); remaining = 0;
+    judge.answer("C1", verdict("supported")); await tick();
+    // C3 was refused at its slot by the deadline; the pause comes later, while C2 is still in flight.
+    paused = true; judge.answer("C2", verdict("supported"));
+    const outcome = await pass;
+    expect(outcome).toMatchObject({ entailmentCalls: 2, truncated: true, stopReason: "deadline_or_cancelled" });
+    expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["supported", "supported", "deadline_or_cancelled"]);
+  });
+
+  it("labels every call a cancel stopped in flight by the cancel, and the claims never launched pass_stopped", async () => {
+    const judge = held(), claims = claimsOf(4), cancel = new AbortController();
+    const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: cancel.signal, remainingMs: far });
+    await tick(); cancel.abort();
+    const outcome = await pass;
+    expect(outcome).toMatchObject({ entailmentCalls: 2, truncated: true, stopReason: "deadline_or_cancelled" });
+    expect(outcome.verdicts.map(row => row.reason)).toEqual(["deadline_or_cancelled", "deadline_or_cancelled", "pass_stopped", "pass_stopped"]);
+  });
+
+  it("gives the first claim left the stop's label when the pass is cancelled or paused between claims, as the serial pass did", async () => {
+    for (const paused of [false, true]) {
+      const claims = claimsOf(3), cancel = new AbortController();
+      let stop = false;
+      const outcome = await judgeClaims({ claims, limit: 1, signal: cancel.signal, remainingMs: far, stop: () => stop,
+        complete: async () => { stop = paused; cancel.abort(); return { content: verdict("supported") }; } });
+      expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: paused ? "paused" : "deadline_or_cancelled" });
+      expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["supported", paused ? "paused" : "deadline_or_cancelled", "pass_stopped"]);
+    }
+  });
+
+  it("answers a claim without context with no call and no pause check at any K, so it never stops the pass", async () => {
+    // It still takes its window slot until it is applied in turn: with C1 omitted, C2 and C3 are the two calls in flight.
+    for (const pause of [false, true]) {
+      const judge = held(), claims = claimsOf(5, [0, 3]);
+      let paused = false;
+      const pass = judgeClaims({ claims, limit: 2, complete: judge.complete, signal: new AbortController().signal, remainingMs: far, stop: () => paused });
+      await tick(); expect(judge.launched).toEqual(["C2", "C3"]);
+      paused = pause; judge.answer("C3", verdict("partial")); await tick(); judge.answer("C2", verdict("supported")); await tick();
+      // C4 has no context: answered after the pause without a check; C5 is the claim the pause stops at.
+      if (!pause) judge.answer("C5", verdict("unsupported"));
+      const outcome = await pass;
+      expect(judge.launched).toEqual(pause ? ["C2", "C3"] : ["C2", "C3", "C5"]);
+      expect(outcome).toMatchObject({ entailmentCalls: pause ? 2 : 3, truncated: pause });
+      expect(outcome.verdicts.map(row => row.reason ?? row.verdict)).toEqual(["context_omitted", "supported", "partial", "context_omitted", pause ? "paused" : "unsupported"]);
+    }
+  });
+
+  it("judges one claim at a time when K is absent or out of range", async () => {
+    for (const limit of [undefined, 0, 9, 1.5, Number.NaN, -1]) {
+      const judge = held(), claims = claimsOf(3);
+      const pass = judgeClaims({ claims, ...(limit === undefined ? {} : { limit }), complete: judge.complete, signal: new AbortController().signal, remainingMs: far });
+      for (let i = 0; i < 3; i++) { await tick(); expect(judge.calls.size).toBe(1); judge.answer([...judge.calls.keys()][0]!, verdict("supported")); }
+      expect((await pass).entailmentCalls).toBe(3); expect(judge.peak()).toBe(1);
+    }
   });
 });

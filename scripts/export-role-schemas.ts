@@ -13,17 +13,17 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { z } from "zod";
 import { loadConfig, type SoarConfig } from "../src/main/config";
 import type { PrivateAgentBroker } from "../src/main/private-agent/broker";
 import { canonical, digest } from "../src/main/private-agent/contracts";
-import { PrivateAgentModel } from "../src/main/private-agent/model";
+import { PrivateAgentModel, type ModelResponseFormat } from "../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { researchSynthesisLengthCap } from "../src/main/private-agent/research-admission";
-import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema, deriveBriefUnits, inventoryResearchSources } from "../src/main/private-agent/research-coverage";
+import { ResearchCoverageSchema, ResearchEvidenceSchema, deriveBriefUnits, inventoryResearchSources } from "../src/main/private-agent/research-coverage";
 import { assembleIndexEntry, buildLiteralSourceCard } from "../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanSchema } from "../src/main/private-agent/research-plan";
-import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_SCHEMAS, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
+import { servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
 import { buildLocalScreenModelConfig } from "./private-agent-local-screen";
 
 export const ROLE_SCHEMA_EXPORT_VERSION = 2;
@@ -51,8 +51,11 @@ export interface RoleSchemaExport {
   outputTokens: typeof OUTPUT_TOKENS;
   thinking: typeof THINKING;
   payloads: { plan: { userContent: string; units: string[]; sourceIds: string[] }; extract: { userContent: string }; synthesis: { userContent: string } };
-  /** The settings the bodies were built under: the desktop's model, streaming and Flash reply contract, the heavy profile and the cache salt. */
-  requestSettings: { model: string; streaming: boolean; localReplyContract: string | null; localContextTokens: number | null; profile: "heavy"; cacheSalt: true };
+  /**
+   * The settings the bodies were built under: the desktop's model, streaming and Flash reply contract, the heavy profile and the cache
+   * salt. Built by the serving-card reader's own function, which compares a run's settings with the card's copy of this record.
+   */
+  requestSettings: ServingCardRequestSettings;
   /** The body the pipeline sends for each role and thinking mode, before P10 adds `response_format`, with its SHA-256. */
   requests: Record<RoleWithSchema, Record<P10ThinkingMode, P10Request>>;
 }
@@ -63,21 +66,32 @@ export function requestSettingsOf(config: Pick<SoarConfig, "vllm" | "streamingEn
     streamingEnabled: config.streamingEnabled === true };
 }
 
+/** The system message the pipeline sends for each role with a reply schema. */
+const ROLE_SYSTEMS: Readonly<Record<RoleWithSchema, string>> = Object.freeze({ plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM });
+
 /**
- * P10-align (BL-20261113-1011-p10-align-design): each body exactly as `PrivateAgentModel.requestBody` builds it for a pipeline call, under the
- * configuration the headless driver gives every local research role (`buildLocalScreenModelConfig`), with the heavy profile, whose thinking is
- * on, and the cache salt on. "on" is the role call with the model's thinking; "off" adds the call override `thinking: "disabled"`, as the
- * pipeline's call() sends a role whose thinking is disabled. The broker is never called: requestBody only builds.
+ * P10-align (BL-20261113-1011-p10-align-design): one role call's body exactly as `PrivateAgentModel.requestBody` builds it for a pipeline call,
+ * under the configuration the headless driver gives every local research role (`buildLocalScreenModelConfig`), with the heavy profile, whose
+ * thinking is on, and the cache salt on, salted for `jobId`. Without overrides the call takes the model's thinking and the role's pipeline cap;
+ * `thinking: "disabled"` is the override the pipeline's call() sends for a role whose thinking is disabled. P10's cells (buildP10Requests) and
+ * E0's extractor fixture (scripts/extractor-fixture.ts, BL-20261116-1123-e0-extractor-fixture-design) build their bodies here. The broker is
+ * never called: requestBody only builds, and it never reads the model's context id.
  */
-export function buildP10Requests(settings: RequestSettings, userContent: Record<RoleWithSchema, Record<P10ThinkingMode, string>>): RoleSchemaExport["requests"] {
+export function buildRoleRequest(settings: RequestSettings, jobId: string, role: RoleWithSchema, userContent: string,
+  overrides: { thinking?: "disabled"; maxOutputTokens?: number; responseFormat?: ModelResponseFormat } = {}): P10Request {
   const config = buildLocalScreenModelConfig({ vllm: settings.vllm as SoarConfig["vllm"], streamingEnabled: settings.streamingEnabled }, COORDINATOR_PROFILES.heavy, true);
-  const model = new PrivateAgentModel({} as PrivateAgentBroker, config, P10_JOB_ID, "p10");
-  const systems = { plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM };
-  const cell = (role: RoleWithSchema, mode: P10ThinkingMode): P10Request => {
-    const { body } = model.requestBody([{ role: "system", content: systems[role] }, { role: "user", content: userContent[role][mode] }], [],
-      { maxOutputTokens: OUTPUT_TOKENS[role], ...(mode === "off" ? { thinking: "disabled" as const } : {}) });
-    return { body: JSON.parse(body) as Record<string, unknown>, bodySha256: digest(body) };
-  };
+  const model = new PrivateAgentModel({} as PrivateAgentBroker, config, jobId, jobId);
+  const { body } = model.requestBody([{ role: "system", content: ROLE_SYSTEMS[role] }, { role: "user", content: userContent }], [],
+    { maxOutputTokens: overrides.maxOutputTokens ?? OUTPUT_TOKENS[role], ...(overrides.thinking ? { thinking: overrides.thinking } : {}),
+      // The serving card's call adds item 9's response_format (E0's fixtures, BL-20261116-1256-e0-extractor-structured-condition-design);
+      // P10's own cells never pass it, so their bodies are unchanged.
+      ...(overrides.responseFormat ? { responseFormat: overrides.responseFormat } : {}) });
+  return { body: JSON.parse(body) as Record<string, unknown>, bodySha256: digest(body) };
+}
+
+/** P10's six cells: "on" is the role call with the model's thinking; "off" adds the call override `thinking: "disabled"`. */
+export function buildP10Requests(settings: RequestSettings, userContent: Record<RoleWithSchema, Record<P10ThinkingMode, string>>): RoleSchemaExport["requests"] {
+  const cell = (role: RoleWithSchema, mode: P10ThinkingMode): P10Request => buildRoleRequest(settings, P10_JOB_ID, role, userContent[role][mode], mode === "off" ? { thinking: "disabled" } : {});
   return Object.fromEntries(P10_ROLES.map(role => [role, { on: cell(role, "on"), off: cell(role, "off") }])) as RoleSchemaExport["requests"];
 }
 
@@ -104,7 +118,7 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
   const quote = "The orchard recorded twelve healthy trees during the autumn survey.";
   const evidence = ResearchEvidenceSchema.parse({ version: 2, quotes: [{ id: "E1", questionIds: ["Q1"], sourceId: chunkSource.id, sourceSha256: chunk.sourceSha256, chunkIds: [chunk.id], locator: "line 2", quote, note: "" }],
     conflicts: [], counts: { verified: 1, inPacket: 1, leftByCap: 0, droppedUnverifiedOrDuplicate: 0, conflictsNoted: 0 } });
-  const coverage = ResearchCoverageSchema.parse({ version: 2, protocolSha256: researchProtocolSha256(), briefSha256: digest(Buffer.from(brief)), briefBytes: Buffer.byteLength(brief),
+  const coverage = ResearchCoverageSchema.parse({ version: 3, protocolSha256: researchProtocolSha256(), briefSha256: digest(Buffer.from(brief)), briefBytes: Buffer.byteLength(brief),
     sourceManifestSha256: inventory.sourceManifestSha256, units, sources: inventory.sources,
     chunks: inventory.chunks.map(c => ({ ...c, status: "complete", attempts: [{ responseSha256: digest("synthetic extraction reply"), status: "complete" }],
       questions: plan.questions.map(q => ({ questionId: q.id, status: c.id === chunk.id && q.id === "Q1" ? "evidence_retained" : "no_verified_evidence", evidenceIds: c.id === chunk.id && q.id === "Q1" ? ["E1"] : [] })) })),
@@ -120,13 +134,13 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
     synthesis: { on: canonical(synthesisPayload), off: canonical({ ...synthesisPayload, lengthCap: { words: offCap.words } }) } };
   return {
     version: ROLE_SCHEMA_EXPORT_VERSION, generatedUtc, protocolSha256: researchProtocolSha256(),
-    schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, extract: RESEARCH_EXTRACT_JSON_SCHEMA, synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
+    // Item 9: the table a flagged pipeline call sends (the same values as before), so P10 measures the schema item 9 sends.
+    schemas: { plan: RESEARCH_ROLE_SCHEMAS.plan.schema, extract: RESEARCH_ROLE_SCHEMAS.extract.schema, synthesis: RESEARCH_ROLE_SCHEMAS.synthesis.schema },
     systems: { plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING,
     payloads: { plan: { userContent: planUser, units: units.map(u => u.id), sourceIds: inventory.sources.map(s => s.id) },
       extract: { userContent: extractUser }, synthesis: { userContent: userContent.synthesis.on } },
-    requestSettings: { model: settings.vllm.model, streaming: settings.streamingEnabled, localReplyContract: settings.vllm.localReplyContract ?? null,
-      localContextTokens: settings.vllm.localContextTokens ?? null, profile: "heavy", cacheSalt: true },
+    requestSettings: servingCardRequestSettings(settings, true),
     requests: buildP10Requests(settings, userContent),
   };
 }

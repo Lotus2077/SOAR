@@ -2,8 +2,10 @@
  * P10 assessor (backlog item 5, experiment E0): reads a probe JSON written by `scripts/serving-probe.py` (probe_version 2),
  * validates every retained P10 reply with the real zod schemas (the planner through assessResearchPlanReply, bound to the
  * synthetic units and source ids the probe sent; the extractor and synthesis through their reply schemas) and writes the
- * classification and the per-cell counts back into the probe JSON. The order is the probe's: request_rejected, truncated,
- * invalid_json, then schema_invalid, binding_invalid (planner only) or valid. It reads no endpoint, sends nothing and
+ * classification and the per-cell counts back into the probe JSON. The order is the probe's: request_rejected, stream_ended_early
+ * (a streamed reply whose connection closed with no finish reason, [DONE] or error event, BL-20261116-1217-serving-probe-direct-transport-design), truncated,
+ * invalid_json, then schema_invalid,
+ * binding_invalid (planner only) or valid. It reads no endpoint, sends nothing and
  * prints counts only; reply text never leaves the ignored run directory.
  *
  *   pnpm probe:assess -- --probe .soar/experiments/serving-probe-<ts>/probe.json
@@ -17,20 +19,27 @@ import { parseJsonReply } from "../src/main/private-agent/research-index";
 import { assessResearchPlanReply } from "../src/main/private-agent/research-plan";
 import { ExtractReplySchema, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
 
-export const P10_CLASSES = ["request_rejected", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed"] as const;
+export const P10_CLASSES = ["request_rejected", "stream_ended_early", "truncated", "invalid_json", "schema_invalid", "binding_invalid", "valid", "unassessed"] as const;
 export type P10Class = (typeof P10_CLASSES)[number];
 export type P10Role = "plan" | "extract" | "synthesis";
-export interface P10Call { ordinal: number; status: number; finish_reason?: string | null; classification: P10Class; reply_file?: string; body_sha256?: string; content_sha256?: string | null; codes?: string[]; [key: string]: unknown }
-export interface P10Cell { role: P10Role; thinking: "on" | "off"; strict: boolean; max_tokens: number; calls: P10Call[]; counts: Record<string, unknown> }
+export interface P10Call { ordinal: number; status: number; finish_reason?: string | null; stream_end?: string | null; classification: P10Class; reply_file?: string; body_sha256?: string; content_sha256?: string | null; codes?: string[]; [key: string]: unknown }
+export interface P10Cell { role: P10Role; thinking: "on" | "off"; strict: boolean; max_tokens: number; streamed?: boolean; calls: P10Call[]; counts: Record<string, unknown> }
 export interface P10Binding { units: string[]; sourceIds: string[] }
 
 const MAX_CODES = 16;
 
-/** The verdict for one retained reply body; digests must match the probe's record or the file is not the reply. */
-export function classifyRetainedReply(role: P10Role, body: Buffer, call: P10Call, binding: P10Binding): { classification: P10Class; codes: string[] } {
+/**
+ * The verdict for one retained reply body; digests must match the probe's record or the file is not the reply. `streamed` is the cell's
+ * flag: a streamed reply answered 200 with no finish reason whose call records stream_end "eof" (its connection closed with no [DONE]
+ * and no error event) ended early, whatever its content. A record written before stream_end existed is read as before.
+ */
+export function classifyRetainedReply(role: P10Role, body: Buffer, call: P10Call, binding: P10Binding, streamed = false): { classification: P10Class; codes: string[] } {
   if (call.body_sha256 !== digest(body)) throw new Error("p10_reply_body_digest_mismatch");
   let reply: unknown;
   try { reply = JSON.parse(body.toString("utf8")); } catch { throw new Error("p10_reply_body_not_json"); }
+  if (streamed && call.status === 200 && (call.finish_reason === null || call.finish_reason === undefined) && call.stream_end === "eof") {
+    return { classification: "stream_ended_early", codes: ["stream_ended_early"] };
+  }
   const choices = (reply as { choices?: unknown }).choices;
   const message = Array.isArray(choices) && choices.length ? (choices[0] as { message?: { content?: unknown }; finish_reason?: unknown }).message : undefined;
   const content = message && typeof message.content === "string" ? message.content : undefined;
@@ -71,7 +80,7 @@ export function assessProbeFile(probePath: string, now = new Date().toISOString(
     for (const call of cell.calls) {
       if (!call.reply_file) continue;
       if (basename(call.reply_file) !== call.reply_file) throw new Error("p10_reply_file_name_invalid");
-      const verdict = classifyRetainedReply(cell.role, readFileSync(join(replyDir, call.reply_file)), call, p10.binding);
+      const verdict = classifyRetainedReply(cell.role, readFileSync(join(replyDir, call.reply_file)), call, p10.binding, cell.streamed === true);
       call.classification = verdict.classification; call.codes = verdict.codes;
     }
     cell.counts = { ...cell.counts, ...countClasses(cell.calls) };

@@ -1,0 +1,54 @@
+{
+ "schemaVersion": 1,
+ "name": "e0-extractor-fixture-v2",
+ "status": "pinned",
+ "note": "The corpus and its pins are v1's (the committed synthetic corpus beside this file's v1, every file bound by sha256 and byte count); v1 and its run record stay as they are. The exposure is exposed: v1's run on 2026-11-16 has seen the corpus, though no prompt was tuned on it. The conditions are the deployed extraction call, thinking-off (thinking disabled, 2,048 output tokens), the control within the run, and the extract call the committed serving card would send if adopted as written (its decision is still proposed), thinking-off-structured: the same call with the strict research_extraction response_format item 9 sends. 2 conditions x 3 chunks x 10 repeats = 60 calls, each (repeat, condition) salted as one job; v1's thinking-off calls took about 5 to 19 s each, so about 5 to 19 minutes. Proposed by BL-20261116-1256-e0-extractor-structured-condition-design; the E0 card's amendment names the command before the run. Raw replies and the summary stay under the ignored .soar/experiments/.",
+ "task": "e0-extractor-synthetic-v1",
+ "exposure": "exposed",
+ "corpus": "e0-extractor-fixture-v1",
+ "brief": {
+  "file": "brief.md",
+  "sha256": "a84e2c7689dc325a6e843f351646133d1177ca8adecc2457e070efa5b67667a4",
+  "bytes": 406
+ },
+ "units": [
+  "U1",
+  "U2",
+  "U3",
+  "U4",
+  "U5"
+ ],
+ "plan": {
+  "file": "plan.json",
+  "sha256": "7d92c892e07d080695357198a54bb0deef4c4bbdddb9c90157e4c8f293ba9c83",
+  "bytes": 1831
+ },
+ "sources": [
+  {
+   "id": "input/corpus/board-notice.md",
+   "file": "sources/board-notice.md",
+   "sha256": "333790c0149b2ceeda89a2d3c1d72d764911c5c601f88761dc5d2ddc158196eb",
+   "bytes": 1745,
+   "chunkId": "S1C1"
+  },
+  {
+   "id": "input/corpus/gauge-log.md",
+   "file": "sources/gauge-log.md",
+   "sha256": "ba92e4e9a20415a3a80e7df6bb87d7d1985e16f726fb9a35c1c3082045e3c3fe",
+   "bytes": 62694,
+   "chunkId": "S2C1"
+  },
+  {
+   "id": "input/corpus/monitoring-report.md",
+   "file": "sources/monitoring-report.md",
+   "sha256": "03ef4f92d8fa2566f01955ab7911d0f7c48f641378fe213b250d09ae8e534ea3",
+   "bytes": 6691,
+   "chunkId": "S3C1"
+  }
+ ],
+ "conditions": [
+  "thinking-off",
+  "thinking-off-structured"
+ ],
+ "repeats": 10
+}

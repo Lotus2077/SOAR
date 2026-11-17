@@ -50,6 +50,24 @@ describe("the reported issues of a submission's host flags (backlog item 7(d), p
       "1 research question has no retained evidence.", "2 research questions were left unresolved by the synthesis.", "3 public source fetches failed.",
       "1 public source fetch was refused at the fetch limit."]);
   });
+  it("names the questions whose verified quotes the packet's caps all left out and the packet's omissions (7d.D); an event from before 7d.D reads as before", () => {
+    const lines = (misses: Record<string, number>) => hostFlagIssues([event({ misses })], true);
+    const trimmed = (n: number, of: string) => `${n} research question${n === 1 ? " has" : "s have"} no retained evidence; ${of} had verified evidence, all left out of the packet at its caps.`;
+    expect(lines({ questionsWithoutEvidence: 3, questionsTrimmed: 1 })).toEqual([trimmed(3, "1 of them")]);
+    expect(lines({ questionsWithoutEvidence: 3, questionsTrimmed: 2 })).toEqual([trimmed(3, "2 of them")]);
+    expect(lines({ questionsWithoutEvidence: 2, questionsTrimmed: 2 })).toEqual([trimmed(2, "each")]);
+    expect(lines({ questionsWithoutEvidence: 1, questionsTrimmed: 1 })).toEqual([trimmed(1, "it")]);
+    // None trimmed, and an event recorded before 7d.D, which has no such count: the line as before.
+    expect(lines({ questionsWithoutEvidence: 2, questionsTrimmed: 0 })).toEqual(["2 research questions have no retained evidence."]);
+    expect(lines({ questionsWithoutEvidence: 2 })).toEqual(["2 research questions have no retained evidence."]);
+    expect(lines({ quotesLeftByCap: 14, conflictsLeftByCap: 2 })).toEqual(["The research packet left out 14 verified quotes and 2 conflict notes at its caps."]);
+    expect(lines({ quotesLeftByCap: 1, conflictsLeftByCap: 0 })).toEqual(["The research packet left out 1 verified quote at its caps."]);
+    expect(lines({ quotesLeftByCap: 0, conflictsLeftByCap: 3 })).toEqual(["The research packet left out 3 conflict notes at its caps."]);
+    expect(lines({ questionsWithoutEvidence: 0, questionsTrimmed: 0, quotesLeftByCap: 0, conflictsLeftByCap: 0 })).toEqual([]);
+    // In the event's order: the questions, the unresolved ones, the packet's omissions, then the fetches.
+    expect(lines({ questionsWithoutEvidence: 1, questionsTrimmed: 1, unresolvedQuestions: 1, quotesLeftByCap: 3, conflictsLeftByCap: 1, fetchFailures: 1 })).toEqual([trimmed(1, "it"),
+      "1 research question was left unresolved by the synthesis.", "The research packet left out 3 verified quotes and 1 conflict note at its caps.", "1 public source fetch failed."]);
+  });
   it("summarizes a document review by positions and edit ids, names a failed rule or step, and says why a flags file was not read", () => {
     for (const [reason, text] of [["missing", "missing"], ["too_large", "too large to read"], ["invalid", "invalid"]]) {
       expect(hostFlagIssues([event({ rules: { review: 1 }, review: { valid: false, reason } })], false)).toEqual([`The document review's flags file was ${text}, so its flags were not read.`]);

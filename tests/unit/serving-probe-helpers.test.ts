@@ -4,13 +4,14 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { RESEARCH_SYNTHESIS_LENGTH_POLICY } from "../../src/main/private-agent/research-admission";
-import { RESEARCH_EXTRACTION_LAYOUT, researchExtractionUserContent } from "../../src/main/private-agent/research-pipeline";
+import { jsonSchemaResponseFormat } from "../../src/main/private-agent/model";
+import { RESEARCH_EXTRACTION_LAYOUT, RESEARCH_ROLE_SCHEMAS, researchExtractionUserContent } from "../../src/main/private-agent/research-pipeline";
 import { currentSyntheticProbe, runCardWriter } from "../helpers/serving-card-fixture";
 import { P10_ROLES, P10_THINKING_MODES, buildRoleSchemaExport } from "../../scripts/export-role-schemas";
-import { assessProbeFile } from "../../scripts/assess-probe-replies";
+import { P10_CLASSES, assessProbeFile } from "../../scripts/assess-probe-replies";
 
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-probe.py");
 const root = mkdtempSync(join(tmpdir(), "soar-probe-helpers-"));
@@ -41,8 +42,15 @@ function probe(args: string[], environment: Record<string, string>) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+/** A loopback port nothing listens on: bound, then closed. */
+async function deadPort(): Promise<number> {
+  const server = http.createServer(); await new Promise<void>(ready => server.listen(0, "127.0.0.1", ready));
+  const { port } = server.address() as AddressInfo; await new Promise<void>(done => server.close(() => done()));
+  return port;
+}
+
 describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
-  it("classifies P10 replies in order: rejected, truncated, invalid JSON, then the TypeScript assessment", () => {
+  it("classifies P10 replies in order: rejected, a stream that ended early, truncated, invalid JSON, then the TypeScript assessment", () => {
     const cut = '{"version":2,"questions":[{"id":"Q1"';
     expect(values([
       { fn: "classify_reply", args: [400, null, null] }, { fn: "classify_reply", args: [-1, null, null] },
@@ -52,6 +60,16 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
       { fn: "classify_reply", args: [200, "stop", "{}", "schema_invalid"] }, { fn: "classify_reply", args: [200, "stop", "{}", "binding_invalid"] }, { fn: "classify_reply", args: [200, "stop", "{}", "valid"] },
       { fn: "classify_reply", args: [200, "length", "{}", "valid"] }, { fn: "classify_reply", args: [500, "stop", "{}", "valid"] },
     ])).toEqual(["request_rejected", "request_rejected", "truncated", "truncated", "invalid_json", "invalid_json", "invalid_json", "unassessed", "schema_invalid", "binding_invalid", "valid", "truncated", "request_rejected"]);
+    // BL-20261116-1217-serving-probe-direct-transport-design (2), as implemented: a streamed reply answered 200 with no finish reason whose
+    // connection closed with no [DONE] and no error event (stream_end eof) ended early, whatever its content. A server's error event, a
+    // record without stream_end, a reply cut by an exception (request_rejected) and one that was not streamed are read as before.
+    expect(values([
+      { fn: "classify_reply", args: [200, null, cut], kwargs: { streamed: true, stream_end: "eof" } },
+      { fn: "classify_reply", args: [200, null, '{"a": 1}'], kwargs: { streamed: true, stream_end: "eof" } },
+      { fn: "classify_reply", args: [-1, null, null], kwargs: { streamed: true } }, { fn: "classify_reply", args: [200, "length", cut], kwargs: { streamed: true, stream_end: "done" } },
+      { fn: "classify_reply", args: [200, "stop", "{}", "valid"], kwargs: { streamed: true, stream_end: "done" } }, { fn: "classify_reply", args: [200, null, "{}"] },
+      { fn: "classify_reply", args: [200, null, null], kwargs: { streamed: true, stream_end: "error" } }, { fn: "classify_reply", args: [200, null, "{}"], kwargs: { streamed: true } },
+    ])).toEqual(["stream_ended_early", "stream_ended_early", "request_rejected", "truncated", "valid", "unassessed", "invalid_json", "unassessed"]);
     expect(one("classify_reply", 200, "stop", "{}", "bogus")).toMatchObject({ ok: false, error: "ValueError" });
     expect(values([{ fn: "parse_json_reply", args: ['Reply: {"a": {"b": 2}} tail'] }, { fn: "parse_json_reply", args: ["}{"] }, { fn: "parse_json_reply", args: [null] }])).toEqual([{ a: { b: 2 } }, null, null]);
   });
@@ -117,14 +135,25 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
     expect(JSON.parse(withLayout.policy!.toString("utf8")).evidence.p11).toEqual(JSON.parse(plain.policy!.toString("utf8")).evidence.p11);
   });
 
+  it("keeps its P10 classes equal to the assessor's, stream_ended_early included", () => {
+    const classes = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('serving_probe', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)", "print(json.dumps(list(m.P10_CLASSES)))"].join("\n");
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", classes, SCRIPT], { encoding: "utf8", env: { PATH: process.env.PATH ?? "" } }))).toEqual([...P10_CLASSES]);
+  });
+
   it("parses K lists and aggregates a burst of streams with its load samples", () => {
     expect(values([{ fn: "parse_int_list", args: ["8,1,2,2", "k"] }, { fn: "parse_int_list", args: ["4", "k"] }])).toEqual([[1, 2, 8], [4]]);
     for (const bad of ["0,1", "a", "", "-2"]) expect(one("parse_int_list", bad, "k")).toMatchObject({ ok: false, error: "ValueError" });
     expect(values([{ fn: "select_probes", args: ["P10,P1", null] }, { fn: "select_probes", args: [null, "P8,P11"] }])).toEqual([["P1", "P10"], ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P9", "P10", "adapter"]]);
     expect(one("select_probes", "Px", null)).toMatchObject({ ok: false, error: "ValueError" });
     const streams = [{ completion_tokens: 900, total_s: 26, decode_tok_s: 35, ttft_s: 0.13 }, { completion_tokens: 900, total_s: 25.5, decode_tok_s: 33.5, ttft_s: 0.2 }, { error: "URLError", elapsed_s: 1 }];
-    expect(values([{ fn: "aggregate_streams", args: [streams, [1, 2, null, 2]] }])[0]).toMatchObject({ streams: 3, errors: 1, per_stream_decode_tok_s: [35, 33.5], median_decode_tok_s: 34.25, aggregate_tok_s: 69.23, max_ttft_s: 0.2, max_total_s: 26, running_max: 2 });
+    expect(values([{ fn: "aggregate_streams", args: [streams, [1, 2, null, 2]] }])[0]).toMatchObject({ streams: 3, errors: 1, transport_errors: 1, per_stream_decode_tok_s: [35, 33.5], median_decode_tok_s: 34.25, aggregate_tok_s: 69.23, max_ttft_s: 0.2, max_total_s: 26, running_max: 2 });
     expect(values([{ fn: "aggregate_streams", args: [[{ error: "x" }], []] }])[0]).toMatchObject({ streams: 1, errors: 1, aggregate_tok_s: null, running_max: null });
+    // `errors` also counts a stream with no elapsed time, a server's error event and an HTTP error; `transport_errors` counts only a
+    // stream that raised, or whose connection closed with no finish reason, [DONE] or error event.
+    const mixed = [{ status: 200, finish_reason: "stop", stream_end: "done", completion_tokens: 900, total_s: 0 },
+      { status: 200, finish_reason: null, stream_end: "eof", completion_tokens: 0, total_s: 3 }, { status: 200, finish_reason: null, stream_end: "error", completion_tokens: 0, total_s: 2 },
+      { error: 500, elapsed_s: 1 }];
+    expect(values([{ fn: "aggregate_streams", args: [mixed, []] }])[0]).toMatchObject({ streams: 4, errors: 4, transport_errors: 1 });
   });
 
   it("redacts server error bodies to length and digest, and the card-safe post view never carries the body", () => {
@@ -171,6 +200,23 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
       .toEqual([true, true, true, false, false, false]);
   });
 
+  it("item 9: the pipeline sends the probe's response_format for each role and variant, under P10's names (BL-20261116-1208-research-structured-output-design)", () => {
+    const cases = P10_ROLES.flatMap(role => [true, false].map(strict => ({ role, strict })));
+    const probed = values(cases.map(({ role, strict }) => ({ fn: "response_format", args: [role, RESEARCH_ROLE_SCHEMAS[role].schema, strict] })));
+    cases.forEach(({ role, strict }, index) => {
+      const sent = jsonSchemaResponseFormat({ ...RESEARCH_ROLE_SCHEMAS[role], strict });
+      expect(probed[index]).toEqual(sent); expect(canonical(probed[index])).toBe(canonical(sent));
+    });
+    const names = JSON.parse(execFileSync("python3", ["-I", "-c", [
+      "import importlib.util, json, sys",
+      "spec = importlib.util.spec_from_file_location('serving_probe', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
+      "print(json.dumps(module.P10_SCHEMA_NAMES))"].join("\n"), SCRIPT], { encoding: "utf8", env: { PATH: process.env.PATH ?? "" } }));
+    expect(names).toEqual(Object.fromEntries(P10_ROLES.map(role => [role, RESEARCH_ROLE_SCHEMAS[role].name])));
+    // The role export gives P10 the table's schemas, so P10 measures the schema a flagged call sends.
+    const exported = buildRoleSchemaExport("2026-11-14T00:00:00.000Z");
+    for (const role of P10_ROLES) expect(exported.schemas[role]).toBe(RESEARCH_ROLE_SCHEMAS[role].schema);
+  });
+
   it("builds both response_format variants, picks the accepted one, and counts cells including grammar-suppressed thinking", () => {
     const [strict, loose] = values([{ fn: "response_format", args: ["plan", { type: "object" }, true] }, { fn: "response_format", args: ["extract", { type: "object" }, false] }]);
     expect(strict).toEqual({ type: "json_schema", json_schema: { name: "research_plan", strict: true, schema: { type: "object" } } });
@@ -181,7 +227,7 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
     ])).toEqual([true, false, true, true]);
     const calls = [{ status: 200, classification: "valid", elapsed_s: 10, completion_tokens: 300, reasoning_tokens: 0 }, { status: 200, classification: "truncated", elapsed_s: 30, completion_tokens: 8192, reasoning_tokens: 7000 },
       { status: 400, classification: "request_rejected", elapsed_s: 0.1 }, { status: 200, classification: "unassessed", elapsed_s: 12, completion_tokens: 400, reasoning_tokens: null }];
-    expect(values([{ fn: "summarize_cell", args: [calls, "on"] }])[0]).toEqual({ request_rejected: 1, truncated: 1, invalid_json: 0, schema_invalid: 0, binding_invalid: 0, valid: 1, unassessed: 1, total: 4,
+    expect(values([{ fn: "summarize_cell", args: [calls, "on"] }])[0]).toEqual({ request_rejected: 1, stream_ended_early: 0, truncated: 1, invalid_json: 0, schema_invalid: 0, binding_invalid: 0, valid: 1, unassessed: 1, total: 4,
       median_elapsed_s: 11, max_elapsed_s: 30, median_completion_tokens: 400, thinking_on_zero_reasoning: 1, reasoning_tokens_unreported: 1 });
     expect(values([{ fn: "summarize_cell", args: [calls, "off"] }])[0]).not.toHaveProperty("thinking_on_zero_reasoning");
   });
@@ -204,10 +250,13 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
 
 describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-align-design)", () => {
   const exported = (streamingEnabled: boolean) => buildRoleSchemaExport("2026-11-13T00:00:00.000Z", { vllm: { model: "Synthetic" }, streamingEnabled });
-  /** python3 -I without blocking the event loop, so a loopback server in this process can answer the probe. */
-  function python(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  /** Dead-port proxies in every form urllib reads (BL-20261116-1217-serving-probe-direct-transport-design (6)): a request that took one would be refused. */
+  let proxies: Record<string, string> = {};
+  beforeAll(async () => { const url = `http://127.0.0.1:${await deadPort()}`; proxies = { http_proxy: url, https_proxy: url, HTTP_PROXY: url, HTTPS_PROXY: url }; });
+  /** python3 -I without blocking the event loop, so a loopback server in this process can answer the probe; the proxies are set. */
+  function python(args: string[], environment?: Record<string, string>): Promise<{ code: number | null; stdout: string; stderr: string }> {
     return new Promise((done, fail) => {
-      const child = spawn("python3", ["-I", ...args], { env: { PATH: process.env.PATH ?? "" } });
+      const child = spawn("python3", ["-I", ...args], { env: { PATH: process.env.PATH ?? "", ...(environment ?? proxies) } });
       let stdout = "", stderr = ""; child.stdout.on("data", chunk => { stdout += chunk; }); child.stderr.on("data", chunk => { stderr += chunk; });
       child.on("error", fail); child.on("close", code => done({ code, stdout, stderr })); child.stdin.end();
     });
@@ -230,8 +279,11 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
     const chunk = (delta: object, extra: object = {}) => `data: ${JSON.stringify({ model: "Synthetic", choices: [{ index: 0, delta, ...extra }] })}`;
     const lines = [": keep-alive", chunk({ role: "assistant" }), chunk({ reasoning_content: "thinking " }), chunk({ reasoning_content: "more" }), chunk({ content: "{\"version\":" }),
       chunk({ content: "2}" }, { finish_reason: "stop" }), `data: ${JSON.stringify({ model: "Synthetic", choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } })}`, "data: [DONE]", chunk({ content: "after DONE" })];
-    const [[reply, chunks]] = values([{ fn: "reassemble_stream", args: [lines] }]);
-    expect(chunks).toBe(6);
+    const [[reply, chunks, ended]] = values([{ fn: "reassemble_stream", args: [lines] }]);
+    expect([chunks, ended]).toEqual([6, "done"]);
+    // How a stream ended: eof when its connection closed first, error after a server's error event (in either shape vLLM sends), [DONE] or not.
+    expect(values([{ fn: "reassemble_stream", args: [lines.slice(0, 6)] }, { fn: "reassemble_stream", args: [[...lines.slice(0, 5), 'data: {"error": {"message": "m", "code": 500}}', "data: [DONE]"]] },
+      { fn: "reassemble_stream", args: [[...lines.slice(0, 5), 'data: {"object": "error", "message": "m"}']] }]).map(result => result[2])).toEqual(["eof", "error", "error"]);
     expect(reply).toEqual({ object: "chat.completion", model: "Synthetic", usage: { prompt_tokens: 11, completion_tokens: 7 },
       choices: [{ index: 0, message: { role: "assistant", content: "{\"version\":2}", reasoning_content: "thinking more" }, finish_reason: "stop" }] });
     expect(run([{ fn: "reassemble_stream", args: [["data: {not json"]] }])[0]).toMatchObject({ ok: false, error: "JSONDecodeError" });
@@ -244,6 +296,101 @@ describe("P10-align: the pipeline's own request bodies (BL-20261113-1011-p10-ali
     expect(stale.status).toBe(2); expect(stale.stderr).toContain("role export version 2");
     const other = probe(["--only", "P10", "--schemas", current], { SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1", SOAR_VLLM_MODEL: "Another" });
     expect(other.status).toBe(2); expect(other.stderr).toContain("another model");
+  });
+
+  it("connects directly on every request path whatever the proxy settings, and records a refused endpoint as before (BL-20261116-1217-serving-probe-direct-transport-design)", async () => {
+    let received = 0;
+    const server = http.createServer((request, response) => {
+      let raw = ""; request.on("data", piece => { raw += piece; }); request.on("end", () => {
+        received++;
+        if (request.method === "GET") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "Synthetic" }] })); return; }
+        const body = JSON.parse(raw) as { stream?: boolean; messages?: { content?: string }[] };
+        if (body.stream) {
+          response.setHeader("content-type", "text/event-stream");
+          // A failure inside the server, ended the way vLLM ends such a stream: an error event, then [DONE].
+          if (body.messages?.[0]?.content === "fail") { response.write(`data: ${JSON.stringify({ error: { message: "synthetic failure", code: 500 } })}\n\n`); response.end("data: [DONE]\n\n"); return; }
+          response.write(`data: ${JSON.stringify({ model: "Synthetic", choices: [{ index: 0, delta: { content: "ready" }, finish_reason: "stop" }] })}\n\n`);
+          response.end("data: [DONE]\n\n"); return;
+        }
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ model: "Synthetic", choices: [{ index: 0, message: { role: "assistant", content: "ready" }, finish_reason: "stop" }] }));
+      });
+    });
+    await new Promise<void>(ready => server.listen(0, "127.0.0.1", ready));
+    try {
+      // Each of the four request paths, against the live loopback server and against a port nothing listens on, with python()'s dead-port
+      // proxies set: the requests that took a proxy would never arrive, and a refused endpoint records the transport class it did before.
+      const driver = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('serving_probe', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)", "out = {}",
+        "for name, port in (('live', sys.argv[2]), ('refused', sys.argv[3])):",
+        "    ep = m.Endpoint({'base': f'http://127.0.0.1:{port}/v1', 'model': 'Synthetic', 'key': None})",
+        "    body = {'model': 'Synthetic', 'messages': [{'role': 'user', 'content': 'u'}], 'max_tokens': 4}",
+        "    status, _ = ep.get('/models')",
+        "    post, streamed = m.post_record(ep.post('/chat/completions', body, timeout=10)), m.post_record(ep.post_stream('/chat/completions', {**body, 'stream': True}, timeout=10))",
+        "    stream, failed = ep.stream(body['messages'], 4, {}, timeout=10), ep.stream([{'role': 'user', 'content': 'fail'}], 4, {}, timeout=10)",
+        "    pick = lambda record, keys: {key: record.get(key) for key in keys}",
+        "    out[name] = {'get': status, 'post': pick(post, ('status', 'transport_error')), 'post_stream': pick(streamed, ('status', 'transport_error')),",
+        "                 'stream': pick(stream, ('status', 'error', 'finish_reason', 'stream_end')), 'failed': pick(failed, ('status', 'error', 'finish_reason', 'stream_end'))}",
+        "print(json.dumps(out))"].join("\n");
+      // With the dead-port proxies (python()'s default) and without any proxy variable.
+      for (const environment of [undefined, {}]) {
+        const result = await python(["-c", driver, SCRIPT, String((server.address() as AddressInfo).port), String(await deadPort())], environment);
+        expect(result.code, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toEqual({
+          live: { get: 200, post: { status: 200, transport_error: null }, post_stream: { status: 200, transport_error: null },
+            stream: { status: 200, error: null, finish_reason: "stop", stream_end: "done" }, failed: { status: 200, error: null, finish_reason: null, stream_end: "error" } },
+          refused: { get: -1, post: { status: -1, transport_error: "URLError" }, post_stream: { status: -1, transport_error: "URLError" },
+            stream: { status: null, error: "URLError", finish_reason: null, stream_end: null }, failed: { status: null, error: "URLError", finish_reason: null, stream_end: null } } });
+      }
+      expect(received).toBe(10);
+    } finally { await new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }); }
+  });
+
+  it("classes a P10 stream whose connection closed with no finish reason stream_ended_early, a server's error event as before, and the assessor keeps both (BL-20261116-1217-serving-probe-direct-transport-design)", async () => {
+    const data = exported(true), dir = mkdtempSync(join(root, "p10-early-")), schemasPath = join(dir, "role-schemas.json");
+    writeFileSync(schemasPath, JSON.stringify(data));
+    let streamed = 0;
+    const server = http.createServer((request, response) => {
+      let raw = ""; request.on("data", piece => { raw += piece; }); request.on("end", () => {
+        if (request.method === "GET") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "Synthetic", max_model_len: 262144 }] })); return; }
+        const body = JSON.parse(raw) as Record<string, unknown>, content = "{\"version\":2}";
+        if (body.stream === true) {
+          response.setHeader("content-type", "text/event-stream");
+          // The first streamed call's connection closes cleanly after one chunk: no finish reason, no usage and no [DONE].
+          if (++streamed === 1) { response.end(`data: ${JSON.stringify({ model: "Synthetic", choices: [{ index: 0, delta: { content: content.slice(0, 5) } }] })}\n\n`); return; }
+          // The second ends the way vLLM ends a stream that failed in the server: an error event, then [DONE].
+          if (streamed === 2) { response.write(`data: ${JSON.stringify({ error: { message: "synthetic failure", code: 500 } })}\n\n`); response.end("data: [DONE]\n\n"); return; }
+          for (const piece of [{ choices: [{ index: 0, delta: { content }, finish_reason: "stop" }] }, { choices: [], usage: { prompt_tokens: 9, completion_tokens: 4 } }])
+            response.write(`data: ${JSON.stringify({ model: "Synthetic", ...piece })}\n\n`);
+          response.end("data: [DONE]\n\n");
+        } else {
+          response.setHeader("content-type", "application/json");
+          response.end(JSON.stringify({ model: "Synthetic", choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }], usage: { prompt_tokens: 9, completion_tokens: 4 } }));
+        }
+      });
+    });
+    await new Promise<void>(ready => server.listen(0, "127.0.0.1", ready));
+    try {
+      const driver = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('serving_probe', sys.argv[1]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)",
+        "ep = m.Endpoint({'base': f'http://127.0.0.1:{sys.argv[2]}/v1', 'model': 'Synthetic', 'key': None})",
+        "ctx = {'args': m.parse_args(['--p10-calls', '1']), 'schemas': json.load(open(sys.argv[3])), 'run_dir': sys.argv[4]}",
+        "print(json.dumps(m.probe_p10(ep, {}, ctx)))"].join("\n");
+      const result = await python(["-c", driver, SCRIPT, String((server.address() as AddressInfo).port), schemasPath, dir]);
+      expect(result.code, result.stderr).toBe(0);
+      const p10 = JSON.parse(result.stdout);
+      expect(Object.values(p10.cells).flatMap((cell: any) => cell.calls.map((call: { classification: string }) => call.classification)))
+        .toEqual(["stream_ended_early", "invalid_json", "unassessed", "unassessed", "unassessed", "unassessed"]);
+      expect(p10.cells["plan/on"].calls[0]).toMatchObject({ status: 200, finish_reason: null, stream_end: "eof" });
+      expect(p10.cells["plan/off"].calls[0]).toMatchObject({ status: 200, finish_reason: null, stream_end: "error" });
+      expect(p10.cells["extract/on"].calls[0]).toMatchObject({ status: 200, finish_reason: "stop", stream_end: "done" });
+      expect(p10.cells["plan/on"].counts).toMatchObject({ stream_ended_early: 1, invalid_json: 0, total: 1 });
+      // The assessor reads the cell's streamed flag and the call's missing finish reason, so assessing the probe keeps the class.
+      const probePath = join(dir, "probe.json");
+      writeFileSync(probePath, JSON.stringify({ probe_version: 2, P10: p10 }));
+      assessProbeFile(probePath, "2026-11-16T10:00:00.000Z");
+      const assessed = JSON.parse(readFileSync(probePath, "utf8")).P10.cells["plan/on"];
+      expect([assessed.calls[0].classification, assessed.counts.stream_ended_early, assessed.counts.invalid_json]).toEqual(["stream_ended_early", 1, 0]);
+      expect(JSON.parse(readFileSync(probePath, "utf8")).P10.cells["plan/off"].calls[0].classification).toBe("invalid_json");
+    } finally { await new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }); }
   });
 
   it("sends each cell the exported body plus response_format on a loopback server, streamed or not, and retains replies the assessor reads", async () => {

@@ -123,6 +123,12 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
       loop: { selected: null, step: null, stopped: { stage: "a", failure: "loop_stage_incomplete", closed: false } } });
     expect(refused(["--loop-dir", unfinished], "rejected")).toContain("record --outcome infra_invalid");
     expect(refused(["--loop-dir", unfinished], "accepted")).toContain("the loop selected nothing");
+    // BL-20261116-1358-run-row-card-and-doctor-sources-design: a stopped stage's freeze gives the row its protocol hash, card and K too.
+    const cardFreeze = `${canonical({ version: 1, jobId: "job-a", startedAt: time(0), sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, profile: "heavy",
+      modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, limits: { feeMicrousd: 0 }, arm: { arm: "local" }, pipeline: { name: "research", protocolSha256: h("d") },
+      servingCard: { sha256: h("c"), version: 1, date: "2026-11-10", entry: "BL-20261116-1203-research-role-policy-design", localStreams: 3 } })}\n`;
+    const carded = row(["--loop-dir", stoppedLoop(loop => runDirectory(loop, "a", { result: false, calls: 2, freeze: cardFreeze }), { stage: "a", failure: "loop_stage_incomplete" })], "infra_invalid");
+    expect([carded.researchProtocolSha256, carded.servingCard, carded.localStreams]).toEqual([h("d"), { sha256: h("c"), entry: "BL-20261116-1203-research-role-policy-design" }, 3]);
     // A sample cut by the loop's interrupt that ended cancelled, its resume used: the operator's stop.
     const cut = stoppedLoop(loop => { runDirectory(loop, "a"); runDirectory(loop, "b", { status: "incomplete", reason: "cancelled_or_deadline" }); },
       { stage: "b", failure: "loop_stage_interrupted" }, { stages: [{ stage: "b", ...span(5, 9), reused: false, interrupted: true }], candidates: { a: candidate("submitted"), b: candidate("incomplete", "cancelled_or_deadline"), repair: null } });
@@ -137,7 +143,10 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     expect(refused(["--loop-dir", billing], "infra_invalid")).toContain("did not end on infrastructure");
     // An integrity stop, with no directory left for the stage.
     const missing = stoppedLoop(() => undefined, { stage: "a", failure: "loop_stage_missing" });
-    expect(row(["--loop-dir", missing], "infra_invalid")).toMatchObject({ runClass: infra("loop_stage_missing"), modelCalls: 0 });
+    const missingRow = row(["--loop-dir", missing], "infra_invalid");
+    expect(missingRow).toMatchObject({ runClass: infra("loop_stage_missing"), modelCalls: 0 });
+    // BL-20261116-1358-run-row-card-and-doctor-sources-design: with no stage freeze, the protocol hash, the card and K are unknown, never left out.
+    expect([missingRow.researchProtocolSha256, missingRow.servingCard, missingRow.localStreams]).toEqual([null, null, null]);
   });
   it("classifies a version-2 critique_failed or repair_failed loop by its draft, or by the stop's recorded cause when the draft did not submit", () => {
     const ending = (draft: Record<string, unknown>, final: Record<string, unknown>) => {

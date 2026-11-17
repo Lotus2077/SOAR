@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_POLICY_APPLICATION, RESEARCH_ROLE_SCHEMAS, RESEARCH_STRUCTURED_OUTPUT_APPLICATION, SYNTHESIS_SYSTEM, normalizeQuoteText, researchRolePolicyBinding, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
 import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
@@ -13,6 +13,11 @@ import { ResearchPlanAttemptSchema, ResearchPlanSchema } from "../../src/main/pr
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 import { F2_SHAPE_KIB, inventedCorpus, previewBoundarySource } from "../helpers/research-corpus";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
+import { researchSynthesisLengthCap as lengthCapFor } from "../../src/main/private-agent/research-admission";
+import { RESEARCH_TRIM_POLICY, researchTrimOrder } from "../../src/main/private-agent/research-trim";
+import { researchPresentationBytes } from "../../src/main/private-agent/research-presentation";
+import { RESEARCH_PRESENTATION_POLICY } from "../../src/main/private-agent/research-contract";
 
 type Stage = "index" | "plan" | "extract" | "synthesise";
 type Script = (stage: Stage, input: any, sequence: number, system: string) => string | { content: string; truncated: boolean } | Error;
@@ -50,7 +55,13 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   // 7a.1 (BL-20261109-0447): what a kept extraction reply lost or had corrected, and the accepted argument's rewritten headings; all counts.
   "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged",
   // 7(c) (BL-20261113-0927-research-v5-design): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
-  "fallback", "synthesisAttempts"]);
+  "fallback", "synthesisAttempts",
+  // 7a.2 (BL-20261116-1203-research-role-policy-design): attempt 2's synthesis length cap, only when a role policy makes it differ; a count.
+  "secondAttemptLengthCapWords",
+  // Item 9 (BL-20261116-1208-research-structured-output-design): the stage's calls that carried a response_format, only when one did; a count.
+  "structuredOutputCalls",
+  // 7b.2 (BL-20261115-1939-research-priority-trim-design): the questions the trim left without a packet quote, and the presentation guard's omissions; both counts.
+  "questionsTrimmed", "quotesLeftByPresentation"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
     expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
@@ -101,11 +112,15 @@ describe("research v4 actual serialized stages", () => {
     const m = models(); const budget = { indexCalls: 24, extractionCalls: 40, plannerCalls: 2, unexpected: 2 } as unknown as typeof RESEARCH_PIPELINE_BUDGET;
     expect((await run(m, { budget })).reason).toBe("research_budget_invalid"); expect(m.request).not.toHaveBeenCalled();
   });
-  it("preserves conflict-cap omissions and refuses a selectively incomplete ready packet", async () => {
+  it("keeps the trim's first sixteen conflict notes, discloses the rest by hash, and hands the packet on (7b.2, BL-20261115-1939-research-priority-trim-design)", async () => {
     const sources = Array.from({ length: 5 }, (_, i) => ({ id: `input/conflict-${i}`, path: `input/conflict-${i}`, bytes: Buffer.from(`The synthetic survey recorded twelve trees in location ${i}.`) }));
     const m = models((stage, input, n, system) => { const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "extract") reply.conflicts = Array.from({ length: 4 }, (_, i) => ({ questionIds: ["Q1"], note: `Unverified conflict ${n}-${i}` })); return JSON.stringify(reply); });
-    const result = await run(m, { sources }); expect(result.reason).toBe("research_conflict_cap_omission");
-    expect(parsed(result, RESEARCH_FILES.coverage).conflictOmissions).toHaveLength(4); expect(m.calls.some(c => c.stage === "synthesise")).toBe(false);
+    const result = await run(m, { sources }), coverage = parsed(result, RESEARCH_FILES.coverage), evidence = parsed(result, RESEARCH_FILES.evidence);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(m.calls.some(c => c.stage === "synthesise")).toBe(true);
+    // One question, so the priority is the order the notes were noted: twenty notes, the first sixteen kept, the last source's four disclosed.
+    expect(evidence.conflicts.map((c: any) => c.note)).toEqual(Array.from({ length: 16 }, (_, k) => `Unverified conflict ${Math.floor(k / 4)}-${k % 4}`));
+    expect(coverage.conflictOmissions).toEqual(Array.from({ length: 4 }, (_, k) => ({ sourceId: "input/conflict-4", questionIds: ["Q1"], noteSha256: digest(`Unverified conflict 4-${k}`), reason: "conflict_cap" })));
+    expect(evidence.counts.conflictsNoted).toBe(20); expect(result.summary.stages[2]).toMatchObject({ conflictsNoted: 20, conflictsInPacket: 16 });
   });
   it("reads a source the planner omitted, against every original brief span", async () => {
     const m = models((stage, input, n, system) => { const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "plan") reply.questions[0].sourceIds = [researchV4Sources()[0]!.id]; return JSON.stringify(reply); });
@@ -175,10 +190,20 @@ describe("research v4 actual serialized stages", () => {
     const result = await run(m); expect(result.status).toBe("completed"); const evidence = parsed(result, RESEARCH_FILES.evidence); expect(evidence.quotes).toHaveLength(2); expect(evidence.quotes[0].questionIds).toEqual(["Q1", "Q2"]);
     expect(parsed(result, RESEARCH_FILES.coverage).semanticAcceptance).toBe("not_evaluated");
   });
-  it("refuses packet-cap omissions instead of handing a selectively trimmed packet to the writer", async () => {
+  it("hands a packet the trim cut at 64 KiB to synthesis, every quote it left out disclosed with its chunk and line (7b.2, D4)", async () => {
     const corpus = Array.from({ length: 20 }, (_, i) => ({ id: `input/source-${String(i).padStart(2, "0")}.md`, path: `input/source-${i}.md`, bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"describes a synthetic observation with bounded uncertainty. ".repeat(4)}`).join("\n")) }));
     const m = models((stage, input, n, system) => stage === "extract" ? JSON.stringify({ questions: input.plan.questions.map((q: any) => ({ questionId: q.id, status: "evidence_found" })), quotes: input.chunk.text.split("\n").map((quote: string) => ({ quote, questionIds: ["Q1"], note: "x".repeat(200) })), conflicts: [] }) : happy(stage, input, n, system));
-    const result = await run(m, { sources: corpus }); expect(result.reason).toBe("research_packet_cap_omission"); expect(parsed(result, RESEARCH_FILES.coverage).omissions.length).toBeGreaterThan(0); expect(m.calls.some(c => c.stage === "synthesise")).toBe(false);
+    const result = await run(m, { sources: corpus }), coverage = parsed(result, RESEARCH_FILES.coverage), evidence = parsed(result, RESEARCH_FILES.evidence);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(m.calls.some(c => c.stage === "synthesise")).toBe(true);
+    expect(coverage.omissions.length).toBeGreaterThan(0);
+    expect(evidence.counts).toMatchObject({ verified: 240, inPacket: evidence.quotes.length, leftByCap: coverage.omissions.length }); expect(evidence.quotes.length + coverage.omissions.length).toBe(240);
+    expect(result.summary.stages[2]).toMatchObject({ quotesVerified: 240, quotesLeftByCap: coverage.omissions.length, quotesLeftByPresentation: 0, questionsTrimmed: 0 });
+    // One question, so the priority is evidence-id order: the packet is E1 to En, and each omission names one chunk and one line.
+    expect(evidence.quotes.map((q: any) => q.id)).toEqual(Array.from({ length: evidence.quotes.length }, (_, i) => `E${i + 1}`));
+    expect(coverage.omissions.every((o: any) => o.reason === "packet_cap" && o.chunkIds.length === 1 && /^line [0-9]+$/u.test(o.locator))).toBe(true);
+    // A chunk whose quotes were all left out has the outcome evidence_trimmed, and no evidence id.
+    const trimmed = coverage.chunks.filter((c: any) => c.questions[0].status === "evidence_trimmed");
+    expect(trimmed.length).toBeGreaterThan(0); expect(trimmed.every((c: any) => c.questions[0].evidenceIds.length === 0 && coverage.omissions.some((o: any) => o.chunkIds.includes(c.id)))).toBe(true);
   });
   it("does not start a stage call that the deadline could cut when the model says so, and consults the guard only with a deadline (finding A8)", async () => {
     const m = models(), events: ResearchStageCounts[] = [];
@@ -707,7 +732,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // A settled assist is one of the stage's calls, its usage summed with the stage's; a no_reply outcome is counted nowhere.
     expect(stage.usage.inputTokens).toBe(stageCount * 100 + (settledAssist ? usage.inputTokens : 0));
     const coverage = parsed(result, RESEARCH_FILES.coverage), plan = parsed(result, RESEARCH_FILES.plan);
-    expect(coverage.version).toBe(2); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
+    expect(coverage.version).toBe(3); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
     // An accepted assist plan is kept with its aliases translated to the real ids; otherwise the host fallback plan.
     if (kind === "accepted") expect(plan.questions[0].sourceIds).toEqual(["input/corpus/beta.md", "input/corpus/alpha.md"]);
     else expect(plan).toEqual(hostFallbackPlan(coverage.units));
@@ -806,7 +831,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // Synthesis requests differ from 7a.1's only by coverage: its version, `fallbacks` and the protocol hash.
     const clean = models(); await run(clean); const synthesis = clean.calls.find(c => c.stage === "synthesise")!.input;
     expect(Object.keys(synthesis)).toEqual(["brief", "coverage", "evidence", "lengthCap", "plan", "repairReason", "units"]);
-    expect(synthesis.coverage).toMatchObject({ version: 2, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
+    expect(synthesis.coverage).toMatchObject({ version: 3, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
     // With coverage put back in 7a.1's shape (version 1, no fallbacks, 7a.1's protocol), the request is 7a.1's byte for byte
     // (captured at #76's head 2fe1ec8, whose protocol is 05f342b2...).
     const v4 = JSON.parse(clean.calls.find(c => c.stage === "synthesise")!.body.messages[1].content as string);
@@ -1199,16 +1224,516 @@ describe("E1 recoverability: the reading stage's recoveries and pinned limits at
     expect(m.request).not.toHaveBeenCalled(); expect(events).toEqual([]);
     expect(result.files.map(f => f.path).sort()).toEqual([RESEARCH_FILES.coverage, RESEARCH_FILES.summary].sort());
   });
-  it("pins a limitation item 7b.2 flips (D4): dense quotes at f2's scale overflow the 64 KiB packet, and the stage ends research_packet_cap_omission before synthesis", async () => {
+  it("flips the limitation pinned for item 7b.2 (D4): dense quotes at f2's scale are trimmed to the 64 KiB packet, every omission disclosed, and the stage reaches synthesis", async () => {
     const sources = inventedCorpus("dense", F2_SHAPE_KIB);
     const note = "An invented note restating the quoted row for the planner's question; its relevance and truth still require an independent review.";
     const m = models((stage, input, n, system) => stage !== "extract" ? happy(stage, input, n, system) : JSON.stringify({ questions: input.plan.questions.map((q: any) => ({ questionId: q.id, status: "evidence_found" })),
       quotes: String(input.chunk.text).split("\n").filter((line: string) => !line.startsWith("#")).slice(0, 12).map((quote: string) => ({ quote, questionIds: ["Q1"], note })), conflicts: [] }));
     const result = await run(m, { sources }), row = result.summary.stages[2]!, coverage = parsed(result, RESEARCH_FILES.coverage);
-    expect(result).toMatchObject({ status: "incomplete", reason: "research_packet_cap_omission" });
-    expect(row).toMatchObject({ stage: "extract", calls: 21, invalidReplies: 0, quotesDropped: 0, quotesVerified: 252 });
+    // BL-20261115-1939-research-priority-trim-design: before 7b.2 this run ended research_packet_cap_omission with no synthesis call.
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(row).toMatchObject({ stage: "extract", calls: 21, invalidReplies: 0, quotesDropped: 0, quotesVerified: 252, quotesLeftByPresentation: 0, questionsTrimmed: 0 });
     expect(row.quotesLeftByCap).toBeGreaterThan(0); expect(row.quotesInPacket! + row.quotesLeftByCap!).toBe(252); expect(row.packetBytes).toBeLessThanOrEqual(64 * 1024);
     expect(coverage.omissions).toHaveLength(row.quotesLeftByCap!); expect(coverage.omissions.every((o: any) => o.reason === "packet_cap")).toBe(true);
-    expect(m.calls.some(c => c.stage === "synthesise")).toBe(false);
+    expect(parsed(result, RESEARCH_FILES.evidence).counts).toEqual({ verified: 252, inPacket: row.quotesInPacket, leftByCap: row.quotesLeftByCap, droppedUnverifiedOrDuplicate: 0, conflictsNoted: 0 });
+    expect(m.calls.filter(c => c.stage === "synthesise")).toHaveLength(1);
+  });
+});
+
+/**
+ * Item 7b.2 (BL-20261115-1939-research-priority-trim-design): which quotes the packet keeps, and the presentation guard. `rows` sources
+ * of twelve rows each answer with every row as a quote with a 200-character note; `paths` sets each source path's length, which only
+ * coverage.json carries, so it grows the writer's presentation without changing the packet.
+ */
+const trimCorpus = (count: number, paths = 10, character = "p") => Array.from({ length: count }, (_, i) => ({ id: `input/t-${String(i).padStart(2, "0")}.md`, path: `input/${character.repeat(paths)}-${i}.md`,
+  bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+const everyRow = (questionIds: (row: number, source: string) => string[]) => (stage: Stage, input: any, n: number, system: string) => stage !== "extract" ? happy(stage, input, n, system) :
+  JSON.stringify({ questions: input.plan.questions.map((q: any) => ({ questionId: q.id, status: "evidence_found" })), conflicts: [],
+    quotes: String(input.chunk.text).split("\n").map((quote: string, row: number) => ({ quote, questionIds: questionIds(row, input.source.id), note: "n".repeat(200) })) });
+const four = (result: Awaited<ReturnType<typeof runResearchPipeline>>) => result.files.filter(f => [RESEARCH_FILES.argument, RESEARCH_FILES.evidenceText, RESEARCH_FILES.plan, RESEARCH_FILES.coverage].includes(f.path as never));
+const longArgument = `The packet supports a bounded finding [E1]. ${"word ".repeat(24_000)}\n\n## Conflicting evidence\nNone noted.\n\n## Unanswered questions\nNone.`;
+
+describe("item 7b.2: the priority trim and the presentation guard (BL-20261115-1939-research-priority-trim-design)", () => {
+  it("keeps a prefix of the round-robin over the plan's questions, places a shared quote once, and leaves no question without a packet quote", async () => {
+    // Three questions: rows 0 to 9 answer Q1, row 10 answers Q2, and row 11 answers Q2 and Q3 together, so in verification order Q1 would fill the packet first.
+    const plan = (stage: Stage, input: any, n: number, system: string) => { const reply = JSON.parse(happy(stage, input, n, system));
+      if (stage === "plan") reply.questions = ["Q1", "Q2", "Q3"].map(id => ({ ...reply.questions[0], id, text: `Synthetic question ${id}` })); return JSON.stringify(reply); };
+    const rowQuestions = (row: number) => row < 10 ? ["Q1"] : row === 10 ? ["Q2"] : ["Q2", "Q3"], extract = everyRow(rowQuestions);
+    const m = models((stage, input, n, system) => stage === "extract" ? extract(stage, input, n, system) : plan(stage, input, n, system));
+    const result = await run(m, { sources: trimCorpus(20) }), evidence = parsed(result, RESEARCH_FILES.evidence), row = result.summary.stages[2]!;
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(row).toMatchObject({ quotesVerified: 240, questionsTrimmed: 0, quotesLeftByPresentation: 0 });
+    // Every row verifies and none merges, so E(12s + r + 1) is source s, row r; the packet is exactly the first quotes of the trim's priority, in id order.
+    const verified = Array.from({ length: 240 }, (_, i) => ({ questionIds: rowQuestions(i % 12) })), order = researchTrimOrder(["Q1", "Q2", "Q3"], verified);
+    const kept = order.slice(0, evidence.quotes.length).sort((a, b) => a - b).map(i => `E${i + 1}`);
+    expect(evidence.quotes.map((q: any) => q.id)).toEqual(kept); expect(new Set(kept).size).toBe(kept.length);
+    expect(order.slice(0, 4)).toEqual([0, 10, 11, 1]); // Q1's E1, Q2's E11, Q3's E12 (shared with Q2), then Q1's E2; Q2's second turn is the shared E12, already placed.
+    for (const q of ["Q1", "Q2", "Q3"]) expect(evidence.quotes.some((e: any) => e.questionIds.includes(q))).toBe(true);
+    // In verification order the packet would have held rows of the first ten sources only, and Q2 and Q3 would have lost most of theirs.
+    expect(evidence.quotes.filter((e: any) => e.questionIds.includes("Q2")).length).toBeGreaterThan(30);
+  });
+  it("shrinks the packet when the presentation would not fit, discloses the extra quotes as presentation_cap omissions, and the presentation fits", async () => {
+    // Long non-ASCII source paths fill coverage.json, so the 64 KiB packet no longer fits the writer's 196,608-byte presentation.
+    const m = models(everyRow(() => ["Q1"])), result = await run(m, { sources: trimCorpus(24, 1500, String.fromCharCode(0x4e2d)).map(s => ({ ...s, bytes: Buffer.from(s.bytes.toString().split("\n").slice(0, 8).join("\n")) })) });
+    const row = result.summary.stages[2]!, coverage = parsed(result, RESEARCH_FILES.coverage);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(m.calls.filter(c => c.stage === "synthesise")).toHaveLength(1);
+    expect(row.quotesVerified).toBe(192); expect(row.quotesLeftByPresentation).toBeGreaterThan(0); expect(row.packetBytes).toBeLessThan(64 * 1024);
+    // One question, so the priority is id order: the guard's omissions come first in coverage.json, then those beyond the 64 KiB prefix.
+    const reasons = coverage.omissions.map((o: any) => o.reason), byPresentation = row.quotesLeftByPresentation!;
+    expect(reasons).toEqual([...Array(byPresentation).fill("presentation_cap"), ...Array(reasons.length - byPresentation).fill("packet_cap")]);
+    expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
+  });
+  it("ends research_presentation_too_large before any synthesis call when not even a one-quote packet would fit, with the 64 KiB packet written", async () => {
+    const m = models(everyRow(() => ["Q1"])), events: ResearchStageCounts[] = [], result = await run(m, { sources: trimCorpus(40, 2000) }, events);
+    expect(result).toMatchObject({ status: "incomplete", reason: "research_presentation_too_large" });
+    expect(m.calls.some(c => c.stage === "synthesise")).toBe(false); expect(events.map(e => e.stage)).toEqual(["index", "plan", "extract"]);
+    const coverage = parsed(result, RESEARCH_FILES.coverage);
+    expect(coverage.omissions.every((o: any) => o.reason === "packet_cap")).toBe(true); expect(events[2]).toMatchObject({ quotesVerified: 480, quotesLeftByPresentation: 0 });
+    expect(coverage.unresolved).toEqual(["research_presentation_too_large"]);
+  });
+  it("rejects a reply whose presentation would exceed the cap with presentation_too_large, then accepts the next attempt", async () => {
+    const retained: ResearchDiagnostic[] = [], base = everyRow(() => ["Q1"]);
+    const m = models((stage, input, n, system) => stage === "synthesise" && n === 0 ? JSON.stringify({ ...JSON.parse(happy(stage, input, n, system)), argument: longArgument }) : base(stage, input, n, system));
+    const result = await run(m, { sources: trimCorpus(20), diagnostics: { retain: entry => retained.push(entry) } }), row = result.summary.stages[3]!;
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(row).toMatchObject({ calls: 2, invalidReplies: 1 }); expect(row.synthesisAttempts!.map(a => a.accepted)).toEqual([false, true]);
+    expect(retained.filter(e => e.stage === "synthesise").map(e => e.reasons)).toEqual([[{ code: "presentation_too_large", path: ["argument"], maximum: RESEARCH_PRESENTATION_POLICY.maxBytes }]]);
+    expect(parsed(result, RESEARCH_FILES.coverage).synthesis.status).toBe("complete");
+  });
+  it("falls back to the host skeleton when every reply is too large for the presentation; the guard reserved room for the skeleton", async () => {
+    const base = everyRow(() => ["Q1"]);
+    const m = models((stage, input, n, system) => stage === "synthesise" ? JSON.stringify({ ...JSON.parse(happy(stage, input, n, system)), argument: longArgument }) : base(stage, input, n, system));
+    const result = await run(m, { sources: trimCorpus(20) }), row = result.summary.stages[3]!;
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(row).toMatchObject({ calls: 2, invalidReplies: 2, fallback: "skeleton" });
+    expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
+  });
+  it("assumes a synthesiser request cap of about 210 KB: with ids equal to paths, 40 dense sources pass the guard and the heavy profile's 640 KiB sends the request, while the 192 KiB default refuses it before any synthesis call", async () => {
+    // As the session builds sources (id = path), 30-character ids. The guard bounds the writer's presentation, not the synthesis request,
+    // which also carries the evidence as JSON and the brief: about 201 KB here (BL-20261115-1939-research-priority-trim-design, review of #102).
+    const sources = trimCorpus(40).map((source, i) => { const id = `input/${"p".repeat(18)}-${String(i).padStart(2, "0")}.md`; return { ...source, id, path: id }; });
+    const small = models(everyRow(() => ["Q1"])), refused = await run(small, { sources });
+    expect(refused).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(refused.summary.stages[3]).toMatchObject({ stage: "synthesise", calls: 0, denied: "request_body_size_exceeded" }); expect(small.calls.some(c => c.stage === "synthesise")).toBe(false);
+    const heavy = models(everyRow(() => ["Q1"])), synthesiser = new PrivateAgentModel({ request: heavy.request } as unknown as PrivateAgentBroker,
+      { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", maxRequestBytes: 640 * 1024 }, "job", "reader");
+    const sent = await run(heavy, { sources, models: { ...heavy.models, synthesiser } });
+    expect(sent).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const bytes = Buffer.byteLength(JSON.stringify(heavy.calls.find(c => c.stage === "synthesise")!.body));
+    expect(bytes).toBeGreaterThan(192 * 1024); expect(bytes).toBeLessThan(210 * 1024);
+  });
+  it("bounds the skeleton's synthesis section too: twelve questions sharing every quote, every reply rejected, and the skeleton still fits", async () => {
+    // The skeleton lists every packet id under each of twelve questions, in its argument and in coverage.json, and here outgrows the
+    // 9,600-byte argument reserve; a bound without its synthesis section lets the packet grow until the skeleton breaks the cap.
+    const twelve = Array.from({ length: 12 }, (_, i) => `Q${i + 1}`);
+    const sources = Array.from({ length: 30 }, (_, i) => ({ id: `input/s-${String(i).padStart(2, "0")}.md`, path: `input/s-${i}.md`,
+      bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `S${i} r${j} ${"x".repeat(100)}`).join("\n")) }));
+    const m = models((stage, input, n, system) => stage === "plan" ? JSON.stringify({ ...JSON.parse(happy(stage, input, n, system)),
+        questions: twelve.map(id => ({ id, text: `Synthetic question ${id}`, requirementIds: input.units.map((u: any) => u.id), sourceIds: [], lookFor: [] })) })
+      : stage === "extract" ? JSON.stringify({ questions: twelve.map(questionId => ({ questionId, status: "evidence_found" })), conflicts: [],
+        quotes: String(input.chunk.text).split("\n").map((quote: string) => ({ quote, questionIds: twelve })) })
+      : stage === "synthesise" ? "not json" : happy(stage, input, n, system));
+    const synthesiser = new PrivateAgentModel({ request: m.request } as unknown as PrivateAgentBroker,
+      { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", maxRequestBytes: 640 * 1024 }, "job", "reader");
+    const result = await run(m, { sources, models: { ...m.models, synthesiser } }), row = result.summary.stages[2]!;
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(result.summary.stages[3]).toMatchObject({ calls: 2, fallback: "skeleton" });
+    expect(row.quotesLeftByPresentation).toBeGreaterThan(0);
+    expect(result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.length).toBeGreaterThan(1200 * RESEARCH_TRIM_POLICY.presentation.argumentReserveBytesPerWord);
+    expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
+  });
+  it("orders conflict notes by the same round-robin, so a question with few notes keeps them all within the sixteen", async () => {
+    // Each of five sources notes three conflicts for Q1, then one for Q2: in noted order the packet would keep sixteen and lose Q2's last.
+    const sources = Array.from({ length: 5 }, (_, i) => ({ id: `input/conflict-${i}`, path: `input/conflict-${i}`, bytes: Buffer.from(`The synthetic survey recorded twelve trees in location ${i}.`) }));
+    const m = models((stage, input, n, system) => { const reply = JSON.parse(happy(stage, input, n, system));
+      if (stage === "plan") reply.questions = ["Q1", "Q2"].map(id => ({ ...reply.questions[0], id }));
+      if (stage === "extract") reply.conflicts = [0, 1, 2, 3].map(k => ({ questionIds: [k < 3 ? "Q1" : "Q2"], note: `Unverified conflict ${n}-${k}` }));
+      return JSON.stringify(reply); });
+    const result = await run(m, { sources }), evidence = parsed(result, RESEARCH_FILES.evidence), coverage = parsed(result, RESEARCH_FILES.coverage);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(evidence.conflicts.filter((c: any) => c.questionIds.includes("Q2"))).toHaveLength(5); expect(evidence.conflicts).toHaveLength(16);
+    // Q1's fifteen notes take the other eleven places; its last four, from sources 3 and 4, are disclosed, in the order they were noted.
+    expect(coverage.conflictOmissions.map((o: any) => o.noteSha256)).toEqual(["3-2", "4-0", "4-1", "4-2"].map(k => digest(`Unverified conflict ${k}`)));
+    expect(RESEARCH_TRIM_POLICY.conflicts.chosen).toBe("before_quotes");
+  });
+});
+
+/** Item 7a.2 (BL-20261116-1203-research-role-policy-design): a role policy as an adopted serving card resolves it. */
+const rolePolicy = (edit: (roles: any) => void = () => {}): ResearchRolePolicy => { const roles = structuredClone(DEFAULT_RESEARCH_ROLE_POLICY) as any; edit(roles); return roles; };
+const CARD = rolePolicy(r => { r.index.maxOutputTokens = [1024, 1536]; r.plan.maxOutputTokens = [4096, 8192]; r.plan.thinking = ["disabled", "model"];
+  r.extract.maxOutputTokens = [1024, 2048]; r.synthesis.maxOutputTokens = [8192, 6000]; r.synthesis.thinking = ["disabled", "model"]; });
+/** A model of the fixture's shape with another configuration, on the same fixture broker. */
+const modelOf = (m: ReturnType<typeof models>, change: Record<string, unknown>) => new PrivateAgentModel({ request: m.request } as unknown as PrivateAgentBroker,
+  { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", ...change }, "job", "reader");
+/** The first attempt of every stage is broken, so each role sends attempt 1 and attempt 2. */
+const twoAttempts = (stage: Stage, input: any, n: number, system: string) => n === 0 && stage !== "extract" ? "not json" : stage === "extract" && n === 0 ? "not json" : happy(stage, input, n, system);
+const sent = (m: ReturnType<typeof models>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => [c.body.max_tokens, c.body.reasoning_effort ?? "off", c.body.chat_template_kwargs?.enable_thinking ?? null]);
+
+describe("item 7a.2: per-role caps and per-attempt thinking from an adopted card (BL-20261116-1203-research-role-policy-design)", () => {
+  it("sends each local role's attempt 1 and attempt 2 their caps and thinking, and each synthesis attempt its own length cap", async () => {
+    const m = models(twoAttempts), events: ResearchStageCounts[] = [], result = await run(m, { roles: CARD }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(sent(m, "index")).toEqual([[1024, "off", false], [1536, "off", false]]);
+    expect(sent(m, "plan")).toEqual([[4096, "off", false], [8192, "medium", null]]);
+    // Two chunks: the first one's initial call is broken and repaired after the second's.
+    expect(sent(m, "extract")).toEqual([[1024, "off", false], [1024, "off", false], [2048, "off", false]]);
+    expect(sent(m, "synthesise")).toEqual([[8192, "off", false], [6000, "medium", null]]);
+    const caps = [lengthCapFor(RESEARCH_V4_TEST_BRIEF, { maxOutputTokens: 8192, thinking: "disabled" }).words, lengthCapFor(RESEARCH_V4_TEST_BRIEF, { maxOutputTokens: 6000, thinking: "model" }).words];
+    expect(caps).toEqual([5757, 1200]);
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap.words)).toEqual(caps);
+    expect(events[3]).toMatchObject({ stage: "synthesise", lengthCapWords: 5757, secondAttemptLengthCapWords: 1200 }); for (const event of events) hashOnlyStageRow(event);
+    expect(result.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD)); expect(result.summary.protocolSha256).not.toBe(RESEARCH_PROTOCOL_SHA256);
+  });
+  it("keeps today's values for a cloud planner and synthesiser while the local reader follows the card", async () => {
+    const m = models(twoAttempts), priced = { inputUsdPerMillion: 1, outputUsdPerMillion: 1 };
+    // A synthesis ceiling below the floor would refuse a local synthesiser; a cloud one never reads the policy.
+    const card = rolePolicy(r => { Object.assign(r, structuredClone(CARD)); r.synthesis.maxOutputTokens = [1100, 1100]; });
+    const result = await run(m, { roles: card, models: { reader: m.models.reader, planner: modelOf(m, priced), synthesiser: modelOf(m, priced) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(sent(m, "index")).toEqual([[1024, "off", false], [1536, "off", false]]); expect(sent(m, "extract").map(row => row[0])).toEqual([1024, 1024, 2048]);
+    expect(sent(m, "plan")).toEqual([[8192, "medium", null], [8192, "medium", null]]); expect(sent(m, "synthesise")).toEqual([[8192, "medium", null], [8192, "medium", null]]);
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap.words)).toEqual([1200, 1200]);
+  });
+  it("refuses before any request a cap above its role model's limit, a synthesis ceiling below the floor, and a malformed policy", async () => {
+    const cases: [Parameters<typeof runResearchPipeline>[0]["roles"], (m: ReturnType<typeof models>) => Partial<Parameters<typeof runResearchPipeline>[0]>][] = [
+      // A 4,096-token role model under a non-default policy: plan's 8,192 would be cut silently, so it is refused even though only extract changed.
+      [rolePolicy(r => { r.extract.maxOutputTokens = [1024, 2048]; }), m => ({ models: { reader: modelOf(m, { maxOutputTokens: 4096 }), planner: modelOf(m, { maxOutputTokens: 4096 }), synthesiser: modelOf(m, { maxOutputTokens: 4096 }) } })],
+      // 1,100 tokens leave floor((1,100 - 1,024) / 1.245) = 61 words, below the 100-word floor.
+      [rolePolicy(r => { r.synthesis.maxOutputTokens = [8192, 1100]; }), () => ({})],
+      [{ ...rolePolicy(), extract: { maxOutputTokens: [0, 2048], thinking: ["disabled", "disabled"], structuredOutput: null } } as unknown as ResearchRolePolicy, () => ({})],
+    ];
+    for (const [roles, extra] of cases) {
+      const m = models(), events: ResearchStageCounts[] = [], result = await run(m, { roles, ...extra(m) }, events);
+      expect(result).toMatchObject({ status: "incomplete", reason: "research_role_policy_invalid" });
+      expect(m.request).not.toHaveBeenCalled(); expect(events).toEqual([]); expect(result.files.map(f => f.path)).toEqual([RESEARCH_FILES.summary]);
+    }
+    // The same 4,096-token models without a card run as they always did: the default policy is never checked.
+    const m = models(), result = await run(m, { models: { reader: modelOf(m, { maxOutputTokens: 4096 }), planner: modelOf(m, { maxOutputTokens: 4096 }), synthesiser: modelOf(m, { maxOutputTokens: 4096 }) } });
+    expect(result.status).toBe("completed");
+  });
+  it("binds the policy into the protocol only when it is not the default: without a card every body, row and hash is byte-identical", async () => {
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY)).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, rolePolicy())).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD)).not.toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, rolePolicy(r => { r.plan.thinking = ["model", "disabled"]; }))).not.toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD));
+    const bare = models(twoAttempts), carded = models(twoAttempts), bareEvents: ResearchStageCounts[] = [], cardEvents: ResearchStageCounts[] = [];
+    const without = await run(bare, {}, bareEvents), withDefault = await run(carded, { roles: rolePolicy() }, cardEvents);
+    expect(carded.calls.map(c => canonical(c.body))).toEqual(bare.calls.map(c => canonical(c.body)));
+    expect(canonical(cardEvents)).toBe(canonical(bareEvents)); expect(canonical(withDefault.files.map(f => [f.path, f.bytes.toString()]))).toBe(canonical(without.files.map(f => [f.path, f.bytes.toString()])));
+  });
+  it("reserves the presentation guard's argument room for the larger of the two synthesis attempts' length caps, whichever attempt carries it", async () => {
+    // 7b.2's shrink corpus with shorter paths: the guard binds under a 5,757-word reserve (8,192 tokens without thinking) and not under
+    // a 1,200-word one (6,000 tokens with thinking).
+    const sources = trimCorpus(24, 900, String.fromCharCode(0x4e2d)).map(s => ({ ...s, bytes: Buffer.from(s.bytes.toString().split("\n").slice(0, 8).join("\n")) }));
+    const packet = async (maxOutputTokens: [number, number], thinking: [string, string]) => {
+      const m = models(everyRow(() => ["Q1"])), events: ResearchStageCounts[] = [];
+      const result = await run(m, { sources, roles: rolePolicy(r => { r.synthesis.maxOutputTokens = maxOutputTokens; r.synthesis.thinking = thinking; }) }, events);
+      expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+      expect(researchPresentationBytes(four(result))).toBeLessThanOrEqual(RESEARCH_PRESENTATION_POLICY.maxBytes);
+      return [events[2]!.quotesInPacket, events[2]!.quotesLeftByPresentation];
+    };
+    const largerSecond = await packet([6000, 8192], ["model", "disabled"]), largerFirst = await packet([8192, 6000], ["disabled", "model"]);
+    const bothSmall = await packet([6000, 6000], ["model", "model"]);
+    // The same reserve, 5,757 words, whichever attempt carries the larger cap; two 1,200-word attempts keep the whole 64 KiB prefix.
+    expect(largerSecond).toEqual(largerFirst); expect(bothSmall[1]).toBe(0);
+    expect(largerSecond[0]).toBeLessThan(bothSmall[0]!); expect(largerSecond[1]).toBeGreaterThan(bothSmall[1]!);
+    // Exactly the larger cap, not a sum: two 5,757-word attempts reserve the same room.
+    expect(largerSecond).toEqual(await packet([8192, 8192], ["disabled", "disabled"]));
+    expect(RESEARCH_ROLE_POLICY_APPLICATION.presentationReserve).toBe("larger_attempt_length_cap");
+  });
+});
+
+/** Item 9 (BL-20261116-1208-research-structured-output-design): CARD's caps and thinking, with a structured-output flag on each schema role. */
+const FLAGGED = rolePolicy(r => { Object.assign(r, structuredClone(CARD)); r.plan.structuredOutput = { variant: "strict", thinkingOff: true, thinkingOn: false };
+  r.extract.structuredOutput = { variant: "non_strict", thinkingOff: true, thinkingOn: true }; r.synthesis.structuredOutput = { variant: "strict", thinkingOff: false, thinkingOn: true }; });
+/** Each call's format in a stage: [name, true for strict or "non_strict" when the key is absent], or null without one. */
+const formats = (m: ReturnType<typeof models>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => c.body.response_format === undefined ? null
+  : [c.body.response_format.json_schema.name, c.body.response_format.json_schema.strict ?? "non_strict"]);
+
+describe("item 9: structured output from an adopted card (BL-20261116-1208-research-structured-output-design)", () => {
+  it("sends a schema role's attempt response_format exactly when the flag for its effective thinking mode is set, and adds nothing else", async () => {
+    const m = models(twoAttempts), events: ResearchStageCounts[] = [], result = await run(m, { roles: FLAGGED }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    // CARD sends plan and synthesis attempt 1 with thinking off and attempt 2 with it on, extract off throughout; index has no schema.
+    expect(formats(m, "index")).toEqual([null, null]);
+    expect(formats(m, "plan")).toEqual([["research_plan", true], null]);
+    expect(formats(m, "extract")).toEqual([["research_extraction", "non_strict"], ["research_extraction", "non_strict"], ["research_extraction", "non_strict"]]);
+    expect(formats(m, "synthesise")).toEqual([null, ["research_synthesis", true]]);
+    const schemaOf: Record<string, unknown> = { plan: RESEARCH_ROLE_SCHEMAS.plan.schema, extract: RESEARCH_ROLE_SCHEMAS.extract.schema, synthesise: RESEARCH_ROLE_SCHEMAS.synthesis.schema };
+    for (const c of m.calls.filter(c => c.body.response_format)) expect(c.body.response_format).toEqual({ type: "json_schema", json_schema: { ...c.body.response_format.json_schema, schema: schemaOf[c.stage] } });
+    // The same card without the flags sends the same calls in the same order, and each body differs by response_format alone. The
+    // synthesis payload's coverage names the protocol hash, which the flags change, so that one value is left out of the comparison.
+    const plain = models(twoAttempts); await run(plain, { roles: CARD });
+    expect(m.calls.map(c => c.stage)).toEqual(plain.calls.map(c => c.stage));
+    const withoutHash = (input: any) => input.coverage ? { ...input, coverage: { ...input.coverage, protocolSha256: null } } : input;
+    m.calls.forEach((c, index) => {
+      const { response_format: _format, messages, ...rest } = c.body, { messages: plainMessages, ...plainRest } = plain.calls[index]!.body;
+      expect(rest).toEqual(plainRest); expect(messages[0]).toEqual(plainMessages[0]);
+      expect(withoutHash(c.input)).toEqual(withoutHash(plain.calls[index]!.input));
+      if (c.stage !== "synthesise") expect(messages[1]).toEqual(plainMessages[1]);
+    });
+    // The counter: absent on index, and on each schema stage the settled calls that carried a format.
+    expect(events.map(e => e.structuredOutputCalls)).toEqual([undefined, 1, 3, 1]); for (const event of events) hashOnlyStageRow(event);
+    expect(parsed(result, RESEARCH_FILES.summary).stages.map((stage: ResearchStageCounts) => stage.structuredOutputCalls)).toEqual([undefined, 1, 3, 1]);
+    expect(result.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, FLAGGED));
+    expect(result.summary.protocolSha256).not.toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, CARD));
+  });
+  it("never sends it from a cloud planner or synthesiser, and counts a local role model's own disabled thinking as off", async () => {
+    const m = models(twoAttempts), priced = { inputUsdPerMillion: 1, outputUsdPerMillion: 1 };
+    const result = await run(m, { roles: FLAGGED, models: { reader: m.models.reader, planner: modelOf(m, priced), synthesiser: modelOf(m, priced) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(formats(m, "plan")).toEqual([null, null]); expect(formats(m, "synthesise")).toEqual([null, null]);
+    expect(formats(m, "extract")).toEqual([["research_extraction", "non_strict"], ["research_extraction", "non_strict"], ["research_extraction", "non_strict"]]);
+    // Extract's thinking follows the model; the reader's own thinking decides the mode, as P10's `<role>/off` and `<role>/on` cells.
+    const flag = (thinkingOff: boolean, thinkingOn: boolean) => rolePolicy(r => { r.extract.thinking = ["model", "model"]; r.extract.structuredOutput = { variant: "strict", thinkingOff, thinkingOn }; });
+    const cases: [ResearchRolePolicy, "disabled" | "medium", unknown][] = [[flag(false, true), "disabled", null], [flag(true, false), "disabled", ["research_extraction", true]],
+      [flag(false, true), "medium", ["research_extraction", true]], [flag(true, false), "medium", null]];
+    for (const [roles, thinking, expected] of cases) {
+      const n = models(), outcome = await run(n, { roles, models: { reader: modelOf(n, { thinking }), planner: n.models.planner, synthesiser: n.models.synthesiser } });
+      expect(outcome.status).toBe("completed");
+      const extract = n.calls.filter(c => c.stage === "extract");
+      expect(extract.length).toBeGreaterThan(0); expect(formats(n, "extract")).toEqual(extract.map(() => expected));
+      expect(extract.map(c => c.body.chat_template_kwargs?.enable_thinking ?? c.body.reasoning_effort)).toEqual(extract.map(() => thinking === "disabled" ? false : "medium"));
+    }
+  });
+  it("binds the structured-output rule only when a flag is set: a caps-and-thinking card keeps 7a.2's binding, and without a card nothing changes", async () => {
+    expect(researchRolePolicyBinding(DEFAULT_RESEARCH_ROLE_POLICY)).toBeUndefined(); expect(researchRolePolicyBinding(rolePolicy())).toBeUndefined();
+    // Exactly 7a.2's binding, so a card of caps and thinking alone keeps the hash 7a.2 gave it.
+    expect(researchRolePolicyBinding(CARD)).toStrictEqual({ roles: CARD, application: RESEARCH_ROLE_POLICY_APPLICATION });
+    expect(researchRolePolicyBinding(FLAGGED)).toStrictEqual({ roles: FLAGGED, application: RESEARCH_ROLE_POLICY_APPLICATION, structuredOutput: RESEARCH_STRUCTURED_OUTPUT_APPLICATION });
+    expect(RESEARCH_STRUCTURED_OUTPUT_APPLICATION.names).toEqual({ plan: "research_plan", extract: "research_extraction", synthesis: "research_synthesis" });
+    // One flag alone is a non-default policy (research-roles.ts's nonDefaultRoleParameters): it binds the rule, and its variant is part of the hash.
+    const one = (variant: "strict" | "non_strict") => rolePolicy(r => { r.extract.structuredOutput = { variant, thinkingOff: true, thinkingOn: false }; });
+    expect(researchRolePolicyBinding(one("strict"))).toHaveProperty("structuredOutput", RESEARCH_STRUCTURED_OUTPUT_APPLICATION);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, one("strict"))).not.toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, one("strict"))).not.toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, one("non_strict")));
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+    const bare = models(twoAttempts), bareEvents: ResearchStageCounts[] = []; await run(bare, {}, bareEvents);
+    expect(bare.calls.some(c => "response_format" in c.body)).toBe(false); expect(bareEvents.some(e => "structuredOutputCalls" in e)).toBe(false);
+  });
+});
+
+describe("backlog item 8.2b: the index and extraction loops run K calls at a time for a zero-risk reader (BL-20261116-1213)", () => {
+  /** Seven small sources: three index batches ([0-2], [3-5], [6]) and seven extraction chunks, one per source. */
+  const seven = () => Array.from({ length: 7 }, (_, i) => ({ id: `input/s${i}.md`, path: `input/s${i}.md`, bytes: Buffer.from(`# Source ${i}\nThe synthetic survey counted ${10 + i} healthy trees in sector ${i}.\n`) }));
+  type Hold = number | Promise<void>;
+  /**
+   * The loopback reader of models(), on a broker that dispatches at zero risk (`zeroRisk` false: a priced or cloud reader), with each
+   * call held for `hold(stage, n)`: some milliseconds, or until a promise settles. A held call honours its signal as the broker does;
+   * an Error from the script is thrown when the hold ends. `n` counts every call of its stage, in launch order.
+   */
+  function fanned(script: Script, hold: (stage: Stage, n: number) => Hold, zeroRisk = true) {
+    const calls: { stage: Stage; n: number; body: string; signal: AbortSignal }[] = [], settledOrder: [Stage, number][] = [];
+    const live: Record<Stage, number> = { index: 0, plan: 0, extract: 0, synthesise: 0 }, peak = { ...live };
+    const request = vi.fn(async (input: { body: string; purpose: string; signal: AbortSignal }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string;
+      const stage: Stage = system.startsWith("You index") ? "index" : system.startsWith("You plan") ? "plan" : system.startsWith("You extract") ? "extract" : "synthesise";
+      assertResearchUserLayout(system, user);
+      const n = calls.filter(c => c.stage === stage).length; calls.push({ stage, n, body: input.body, signal: input.signal });
+      const output = script(stage, parseResearchUserContent(user), n, system), wait = hold(stage, n);
+      live[stage]++; peak[stage] = Math.max(peak[stage], live[stage]);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const stop = () => reject(new BrokerError("request_failed"));
+          if (input.signal.aborted) { stop(); return; }
+          input.signal.addEventListener("abort", stop, { once: true });
+          void (typeof wait === "number" ? new Promise<void>(done => setTimeout(done, wait)) : wait).then(() => { input.signal.removeEventListener("abort", stop); resolve(); });
+        });
+      } finally { live[stage]--; }
+      settledOrder.push([stage, n]);
+      if (output instanceof Error) throw output;
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: typeof output === "string" ? output : output.content }, finish_reason: typeof output === "string" || !output.truncated ? "stop" : "length" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const config = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
+    const broker = { request, zeroRiskDispatch: () => zeroRisk } as unknown as PrivateAgentBroker;
+    const make = () => new PrivateAgentModel(broker, config, "job", "reader");
+    return { models: { reader: make(), planner: make(), synthesiser: make() }, calls, settledOrder, request, peak };
+  }
+  /** One run on the seven sources: its outcome, stage rows, retained diagnostics and request bodies in launch order. */
+  async function observe(m: ReturnType<typeof fanned>, extra: Partial<Parameters<typeof runResearchPipeline>[0]> = {}) {
+    const events: ResearchStageCounts[] = [], retained: ResearchDiagnostic[] = [];
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: seven(), models: m.models, signal: new AbortController().signal, record: e => events.push(e),
+      diagnostics: { retain: entry => retained.push(entry) }, ...extra });
+    return { outcome, events, retained, bodies: m.calls.map(c => c.body), files: outcome.files.map(f => [f.path, f.bytes.toString("base64")]) };
+  }
+  /** Within each window of four, a later call finishes first: at K = 4 the replies settle out of order. */
+  const reversed = (stage: Stage, n: number) => stage === "index" || stage === "extract" ? 2 + 4 * (3 - (n % 4)) : 0;
+  const invented = (stage: Stage, input: any, n: number, system: string) => { const reply = JSON.parse(happy(stage, input, n, system)); reply.quotes[0].quote = "Invented evidence that never occurred in the supplied source."; return JSON.stringify(reply); };
+
+  it("gives byte-identical files, summary, stage rows, diagnostics and requests at K = 4 as at K = 1, replies settling out of order, through index and extraction repairs and a held chunk", async () => {
+    // Index batch 1 lists titles only; extraction chunks 0 and 5 reply invalid JSON, 2 is truncated, and 4 invents its only quote (held).
+    const script: Script = (stage, input, n, system) => {
+      if (stage === "index" && n === 1) return JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) });
+      if (stage === "extract" && (n === 0 || n === 5)) return "bad JSON";
+      if (stage === "extract" && n === 2) return { content: happy(stage, input, n, system), truncated: true };
+      if (stage === "extract" && n === 4) return invented(stage, input, n, system);
+      return happy(stage, input, n, system);
+    };
+    const one = fanned(script, reversed), four = fanned(script, reversed);
+    const serial = await observe(one), fannedOut = await observe(four, { localStreams: 4 });
+    expect(serial.outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(serial.events.find(e => e.stage === "index")).toMatchObject({ calls: 4, initialCalls: 3, repairCalls: 1 });
+    expect(serial.events.find(e => e.stage === "extract")).toMatchObject({ calls: 11, initialCalls: 7, repairCalls: 4 });
+    expect(serial.retained.length).toBeGreaterThan(0);
+    for (const key of ["files", "events", "retained", "bodies"] as const) expect(fannedOut[key]).toEqual(serial[key]);
+    expect(fannedOut.outcome.summary).toEqual(serial.outcome.summary); expect(fannedOut.outcome.reason).toBe(serial.outcome.reason);
+    // At most K in flight, and K reached: min(K, items) for the three batches and the seven chunks; plan and synthesis stay sequential.
+    expect(one.peak).toEqual({ index: 1, plan: 1, extract: 1, synthesise: 1 }); expect(four.peak).toEqual({ index: 3, plan: 1, extract: 4, synthesise: 1 });
+    // The replies did settle out of order at K = 4, and in order at K = 1.
+    const settled = (m: ReturnType<typeof fanned>) => m.settledOrder.filter(([stage]) => stage === "extract").map(([, n]) => n);
+    expect(settled(one)).toEqual([...settled(one)].sort((a, b) => a - b)); expect(settled(four)).not.toEqual([...settled(four)].sort((a, b) => a - b));
+  });
+
+  it("cuts each repair list to the slots left before its pool starts, so it runs the repairs the serial loop's per-call budget check ran", async () => {
+    // Every first reply fails: three index batches with one repair slot left, seven chunks with three.
+    const script: Script = (stage, input, n, system) => stage === "index" && n < 3 ? JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) })
+      : stage === "extract" && n < 7 ? "bad JSON" : happy(stage, input, n, system);
+    const budget = { ...RESEARCH_PIPELINE_BUDGET, indexCalls: 4, extractionCalls: 10 };
+    const one = fanned(script, reversed), four = fanned(script, reversed);
+    const serial = await observe(one, { budget }), fannedOut = await observe(four, { budget, localStreams: 4 });
+    expect(serial.outcome).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(serial.events.find(e => e.stage === "index")).toMatchObject({ calls: 4, repairCalls: 1 }); expect(serial.events.find(e => e.stage === "extract")).toMatchObject({ calls: 10, repairCalls: 3 });
+    for (const key of ["files", "events", "retained", "bodies"] as const) expect(fannedOut[key]).toEqual(serial[key]);
+    expect(four.peak).toMatchObject({ index: 3, extract: 4 });
+  });
+
+  it("on a denial stops launching, aborts and drains the siblings, applies every settled reply in order, and records the denial (ASSIST-1)", async () => {
+    // K = 4: chunk 3 settles first, then chunk 2 is denied while chunks 0 and 1 are still in flight.
+    const script: Script = (stage, input, n, system) => stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const hold = (stage: Stage, n: number) => stage !== "extract" ? 0 : n === 3 ? 1 : n === 2 ? 15 : 500;
+    const four = fanned(script, hold), result = await observe(four, { localStreams: 4 });
+    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    const extract = four.calls.filter(c => c.stage === "extract");
+    expect(extract.map(c => [c.n, c.signal.aborted])).toEqual([[0, true], [1, true], [2, false], [3, false]]);
+    // The aborted siblings answer cancelled after the pool's abort: sibling stops, never the stage's denial. Chunk 3's reply is applied in its turn.
+    expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 1, initialCalls: 1, pairsExtracted: 1, denied: "budget_denied" });
+    // The serial loop's row differs, as decision 2 records: chunks 0 and 1 applied, chunk 3 never launched.
+    const one = fanned(script, (stage, n) => hold(stage, n) === 500 ? 1 : hold(stage, n)), serial = await observe(one);
+    expect(serial.events.at(-1)).toMatchObject({ stage: "extract", calls: 2, denied: "budget_denied" }); expect(one.calls.filter(c => c.stage === "extract")).toHaveLength(3);
+  });
+
+  it("can end a stage on another call's denial than K = 1 does, so the run class flips either way (#110's review; the correction to 1645 decision 5)", async () => {
+    // Chunk 0 fails request_failed (infrastructure) after 30 ms; chunk 2 is refused budget_denied (task) at once.
+    const script: Script = (stage, input, n, system) => stage === "extract" && n === 0 ? new BrokerError("request_failed") : stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const hold = (stage: Stage, n: number) => stage !== "extract" ? 0 : n === 0 ? 30 : n === 2 ? 1 : 5;
+    const serial = await observe(fanned(script, hold)), four = fanned(script, hold), fannedOut = await observe(four, { localStreams: 4 });
+    // K = 1: chunk 0's own failure ends the stage before chunk 2 launches.
+    expect(serial.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "request_failed" });
+    // K = 4: chunk 2's refusal aborts chunk 0 first. Chunk 0 then answers cancelled, a sibling stop, so the stage's denial is chunk 2's.
+    expect(fannedOut.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "budget_denied" });
+    expect(four.calls.find(c => c.stage === "extract" && c.n === 0)!.signal.aborted).toBe(true);
+  });
+
+  it("takes a lower-index call that failed for its own reason as the stage's denial, though a higher one's abort reached it first (#71's review F3)", async () => {
+    // Chunks 0 and 2 fail, 2 first. In one synchronous block, the pool reads both labels before 2's interrupt aborts: neither is marked. One
+    // microtask later, 0's call() reads its signal before that abort and the pool reads 0's label after it: 0 is applied with afterAbort,
+    // and is still no sibling stop, since it failed for its own reason. Either way the stage's denial is chunk 0's.
+    for (const later of [false, true]) {
+      let release0!: () => void, release2!: () => void;
+      const gate0 = new Promise<void>(resolve => { release0 = resolve; }), gate2 = new Promise<void>(resolve => { release2 = resolve; });
+      const script: Script = (stage, input, n, system) => stage === "extract" && n === 0 ? new BrokerError("request_failed") : stage === "extract" && n === 2 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+      const four = fanned(script, (stage, n) => stage !== "extract" ? 0 : n === 0 ? gate0 : n === 2 ? gate2 : 500);
+      const running = observe(four, { localStreams: 4 });
+      while (four.calls.filter(c => c.stage === "extract").length < 4) await new Promise(resolve => setImmediate(resolve));
+      release2(); if (later) queueMicrotask(release0); else release0();
+      const result = await running;
+      expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+      expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "request_failed" });
+    }
+  });
+
+  it("ends research_cancelled when the stage is cancelled with calls in flight, and launches nothing after", async () => {
+    const stage = new AbortController();
+    const script: Script = (name, input, n, system) => { if (name === "extract" && n === 3) stage.abort(); return happy(name, input, n, system); };
+    const four = fanned(script, () => 50), result = await observe(four, { localStreams: 4, signal: stage.signal });
+    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+    expect(result.events.at(-1)).toMatchObject({ stage: "extract", calls: 0, denied: "cancelled" });
+    expect(four.calls.filter(c => c.stage === "extract")).toHaveLength(4);
+  });
+
+  it("ends research_cancelled when the stage is cancelled while no call is in flight, at K = 1 as at K = 4 (#71's review)", async () => {
+    // The diagnostics sink runs inside chunk 0's apply: a cancel there leaves the pool nothing in flight at K = 1, so it launches nothing more.
+    for (const streams of [undefined, 4]) {
+      const stage = new AbortController(), m = fanned((name, input, n, system) => name === "extract" && n === 0 ? "bad JSON" : happy(name, input, n, system), (name, n) => name === "extract" && n > 0 ? 50 : 1);
+      const events: ResearchStageCounts[] = [];
+      const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: seven(), models: m.models, signal: stage.signal, record: e => events.push(e),
+        diagnostics: { retain: () => stage.abort() }, ...(streams ? { localStreams: streams } : {}) });
+      expect(outcome).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+      expect(events.at(-1)).toMatchObject({ stage: "extract", calls: 1, invalidReplies: 1, denied: "cancelled" });
+      expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(streams ?? 1);
+    }
+  });
+
+  it("runs one call at a time for a reader that is not zero-risk, or without K, and treats a K out of range as 1", async () => {
+    const priced = fanned(happy, reversed, false); await observe(priced, { localStreams: 4 });
+    const unset = fanned(happy, reversed); await observe(unset);
+    for (const localStreams of [0, 9, 2.5]) { const odd = fanned(happy, reversed); expect((await observe(odd, { localStreams })).outcome.status).toBe("completed"); expect(odd.peak).toMatchObject({ index: 1, extract: 1 }); }
+    expect(priced.peak).toMatchObject({ index: 1, extract: 1 }); expect(unset.peak).toMatchObject({ index: 1, extract: 1 });
+    // K is no part of the protocol hash, the budget or the counts.
+    const k = fanned(happy, reversed), withK = await observe(k, { localStreams: 8 }), without = await observe(fanned(happy, reversed));
+    expect(withK.outcome.summary).toEqual(without.outcome.summary); expect(withK.files).toEqual(without.files); expect(k.peak.extract).toBe(7);
+  });
+
+  it("calls a model zero-risk only when every rate is zero, the long tier's too, and the broker dispatches it at zero risk", () => {
+    const zeroRiskDispatch = vi.fn((input: { maxFeeMicrousd: number }) => input.maxFeeMicrousd === 0);
+    const broker = { zeroRiskDispatch } as unknown as PrivateAgentBroker;
+    const base = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 1024, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
+    const zeroRisk = (config: object) => new PrivateAgentModel(broker, { ...base, ...config }, "job", "reader").zeroRisk();
+    expect(zeroRisk({})).toBe(true);
+    // A cache-write rate is at most four times its input rate, so with every input rate zero it is zero too.
+    expect(zeroRisk({ inputUsdPerMillion: 1 })).toBe(false); expect(zeroRisk({ outputUsdPerMillion: 1 })).toBe(false);
+    expect(zeroRisk({ inputUsdPerMillion: 1, cacheWriteUsdPerMillion: 2 })).toBe(false);
+    expect(zeroRisk({ longContext: { aboveTokens: 1000, inputUsdPerMillion: 0, outputUsdPerMillion: 0 } })).toBe(true);
+    expect(zeroRisk({ longContext: { aboveTokens: 1000, inputUsdPerMillion: 2, outputUsdPerMillion: 0 } })).toBe(false);
+    expect(zeroRisk({ longContext: { aboveTokens: 1000, inputUsdPerMillion: 0, outputUsdPerMillion: 2 } })).toBe(false);
+    expect(zeroRiskDispatch.mock.calls.map(([input]) => input)).toContainEqual({ destinationId: "owned", maxFeeMicrousd: 0, method: "POST" });
+  });
+
+  it("sends each attempt its own cap, thinking and format at K = 4 as at K = 1, repairs included, under a policy whose two attempts differ (#110's skeptic check)", async () => {
+    // Index and extract think on their repair only, with another cap per attempt; extract's flag is for thinking off, so only its first attempts carry the format.
+    const roles = rolePolicy(r => { r.index.maxOutputTokens = [1024, 1536]; r.index.thinking = ["disabled", "model"];
+      r.extract.maxOutputTokens = [1024, 2048]; r.extract.thinking = ["disabled", "model"]; r.extract.structuredOutput = { variant: "strict", thinkingOff: true, thinkingOn: false }; });
+    // Index batch 1 lists titles only and extraction chunk 3 replies invalid JSON: one repair each, launched after its stage's initial calls.
+    const script: Script = (stage, input, n, system) => stage === "index" && n === 1 ? JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) })
+      : stage === "extract" && n === 3 ? "bad JSON" : happy(stage, input, n, system);
+    const one = fanned(script, reversed), four = fanned(script, reversed);
+    const serial = await observe(one, { roles }), fannedOut = await observe(four, { roles, localStreams: 4 });
+    expect(serial.outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    for (const key of ["files", "events", "retained", "bodies"] as const) expect(fannedOut[key]).toEqual(serial[key]);
+    expect(four.peak).toMatchObject({ index: 3, extract: 4 });
+    /** A stage's calls in launch order: the cap, the thinking fields as the 7a.2 tests read them, and the format's name and strictness. */
+    const attempts = (m: ReturnType<typeof fanned>, stage: Stage) => m.calls.filter(c => c.stage === stage).map(c => { const body = JSON.parse(c.body);
+      return [body.max_tokens, body.reasoning_effort ?? "off", body.chat_template_kwargs?.enable_thinking ?? null,
+        body.response_format ? [body.response_format.json_schema.name, body.response_format.json_schema.strict] : null]; });
+    for (const m of [one, four]) {
+      expect(attempts(m, "index")).toEqual([...Array.from({ length: 3 }, () => [1024, "off", false, null]), [1536, "medium", null, null]]);
+      expect(attempts(m, "extract")).toEqual([...Array.from({ length: 7 }, () => [1024, "off", false, ["research_extraction", true]]), [2048, "medium", null, null]]);
+    }
+    expect(serial.events.find(e => e.stage === "extract")).toMatchObject({ calls: 8, repairCalls: 1, structuredOutputCalls: 7 });
+  });
+
+  it("aborts both held siblings when an index batch is denied at K = 3: each first-pass index launch carries its own signal (#110's skeptic check)", async () => {
+    // The three index batches launch together; batch 1 is refused at once while batches 0 and 2 are held.
+    const script: Script = (stage, input, n, system) => stage === "index" && n === 1 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const three = fanned(script, (stage, n) => stage === "index" && n !== 1 ? 500 : 0), result = await observe(three, { localStreams: 3 });
+    expect(result.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(three.calls.map(c => [c.stage, c.n, c.signal.aborted])).toEqual([["index", 0, true], ["index", 1, false], ["index", 2, true]]);
+    // The aborted siblings answer cancelled after the pool's abort: sibling stops, never the stage's denial.
+    expect(result.events.at(-1)).toMatchObject({ stage: "index", calls: 0, denied: "budget_denied" });
+  });
+
+  it("aborts a held repair when another repair is denied, in the index and the extraction repair passes at K = 4 (#110's skeptic check, its follow-up's review)", async () => {
+    // Index batches 0 and 1 list titles only, so the repair pass holds two calls: n = 3 is refused at once while n = 4 is held.
+    const titles = (input: any) => JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: "title alone" })) });
+    const indexScript: Script = (stage, input, n, system) => stage === "index" && n < 2 ? titles(input) : stage === "index" && n === 3 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const index = fanned(indexScript, (stage, n) => stage === "index" && n === 4 ? 500 : 0), indexed = await observe(index, { localStreams: 4 });
+    expect(indexed.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(index.calls.filter(c => c.stage === "index").map(c => [c.n, c.signal.aborted])).toEqual([[0, false], [1, false], [2, false], [3, false], [4, true]]);
+    expect(indexed.events.at(-1)).toMatchObject({ stage: "index", calls: 3, repairCalls: 0, denied: "budget_denied" });
+    // Extraction chunks 0 and 1 reply invalid JSON, so the repair pass holds two calls: n = 7 is refused at once while n = 8 is held.
+    const extractScript: Script = (stage, input, n, system) => stage === "extract" && n < 2 ? "bad JSON" : stage === "extract" && n === 7 ? new BrokerError("budget_denied") : happy(stage, input, n, system);
+    const extract = fanned(extractScript, (stage, n) => stage === "extract" && n === 8 ? 500 : 0), extracted = await observe(extract, { localStreams: 4 });
+    expect(extracted.outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(extract.calls.filter(c => c.stage === "extract" && c.n >= 7).map(c => [c.n, c.signal.aborted])).toEqual([[7, false], [8, true]]);
+    expect(extracted.events.at(-1)).toMatchObject({ stage: "extract", calls: 7, repairCalls: 0, denied: "budget_denied" });
   });
 });

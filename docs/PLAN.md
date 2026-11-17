@@ -53,7 +53,7 @@ on the three columns, and that it leaves the privacy rule for labelled data and 
 [2026-11-05 review](PROJECT_REVIEW_2026-11-05.md)'s §2 goal statement and its cloud-role
 procedure (§5.10, item 2) and approved its zero-fee process entry and E3 and E4 (items 4 and
 5); the rest of the review stays proposed. The next session starts at
-[HANDOFF.md](HANDOFF.md)'s "Start here (2026-11-07)" section.
+[HANDOFF.md](HANDOFF.md)'s "Start here" section.
 
 The owner's own jobs, in priority order (2026-09-29):
 1. deep and reliable research;

@@ -52887,3 +52887,97 @@ Paid exposure: None.
 Next gate: CI and the coordinating session's merge.
 
 References: pull request #153 and its failed `check` run; tests/unit/planner-fixture.test.ts; tests/unit/judge-fixture.test.ts; tests/unit/extractor-fixture.test.ts.
+
+### BL-20261117-1701-e0-card-amendment-6-r3-remeasurement -- 2026-11-17 -- E0 card Amendment 6: three zero-fee r3 runs under the adopted serving card are registered before they run, with their readings, the rule that reads the second repair's counts and what follows each outcome
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner accepted that the incomplete-chunk rule stays, that 7b.3 is built and that the rule is then re-measured (decision 2 of BL-20261117-0940-owner-direction-decisions-delegated, topic 5). 7b.3 and the second repair are on `main` (BL-20261117-1132-research-card-admission-implemented, BL-20261117-1145-research-second-repair-implemented), the re-probe has run (BL-20261117-1356-e0-reprobe-result-plan-cap-16384), and the serving card of 2026-11-17 is adopted on the owner's go (BL-20261117-1616-serving-card-2026-11-17-adopted). This entry records Amendment 6 to E0's card, which registers the re-measurement before it runs: three serial zero-fee runs of r3 under the adopted card. `Implemented` covers the amendment's text. Nothing has run under it. Hypothesis: on r3, under the adopted card, at least one chunk that its one repair leaves unfinished is saved by a second repair. No rate is claimed.
+
+Decisions:
+1. **Three runs are added after E0's close and the card's adoption.** E0's closing entry stands (BL-20261116-1357-e0-verified). The runs are new runs under E0's card, with rows of their own.
+   - **What comes from earlier entries.** The re-measurement is the owner's answer to topic 5 (decision 2 of BL-20261117-0940-owner-direction-decisions-delegated). That one re-measurement covers extraction's flag and the second repair together, and that 7b.3 cannot move r3's result by itself, are decisions 1 and 2 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe.
+   - **What this entry decides.** Everything else below is the session's, under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated. The owner chose none of these values and may replace any of them.
+2. **The command** is the one E0's five r3 runs used, with diagnostics retained on every run. The amendment gives it flag by flag.
+   - **The dry run first.** The same command line runs first with `--dry-run true`. It must show the card's admission basis and rates, the bound protocol hash af4715a1d6946edbf4260d057c541b34226a17474dc9838f50695733c92014cf, the adopted file's sha256 79ce24812e1619a041476f73c761288e0518dfddac751cefba3d6e45de4d2d64, the entry the card's `decision` names, K 1, the image id the doctor reports as qualified, a clean tree and retained diagnostics. Otherwise nothing starts.
+   - **The entry a run prints** is BL-20261117-1356-e0-reprobe-result-plan-cap-16384, which the adopted card's `decision` names. The adoption itself is recorded in BL-20261117-1616-serving-card-2026-11-17-adopted.
+   - **`--runtime-sha256`** is the source-freeze digest at the run's commit. It is c39a5ccb5ec086d52b774be12d486ccf95cbe3a6bd2ac8ab60fe8e8076132462 at `main` 6da7080 and keeps that value unless a pull request that changes a freeze-covered file merges first. It is recomputed at the run's commit, and the result entry names it.
+3. **The conditions.**
+   - The owner's main checkout, at a commit on `main` that contains the amendment and the adoption, with nothing staged, changed or untracked outside ignored paths. All runs are made at one commit.
+   - The owner's two settings lines set first. The session never opens that file.
+   - The doctor before each run, read-only. It must reach and identify the model, report the card configured with the adopted file's sha256 and its entry, report the card's identity matched, and report `ready`. Amendments 3 and 5 did not require `ready`, since their runs used neither Docker nor the task image. These runs use both. The doctor runs under the pinned Node, and its report is not committed.
+   - Nothing else on the endpoint during a run, and no pull or change of the main checkout during a run.
+   - No pull request that changes the source freeze or `researchProtocolSha256()` merges between the first dry run and the last run. If one does, the runs after it are void.
+4. **The readings,** from each run directory, read-only, as numbers and enums only:
+   - the outcome;
+   - the extract stage row's counts, with `secondRepairCalls` and `secondRepairsComplete`, and the counts derived from them: first repairs, chunks saved by a second repair, second repairs that failed and chunks cut by the budget;
+   - the plan row's attempts, and the synthesis row's fallback, which is descriptive;
+   - the admission record, from summary.json for a completed stage and from the `research_admission` event otherwise;
+   - the retained diagnostics' reason codes by class;
+   - each run's denied code and its count of unsettled dispatch rows.
+5. **Counts are registered, not a rate.** The reading rule:
+   - **The second repair helps on r3** if at least one chunk is saved by it.
+   - **It does not help on r3** if three or more second repairs are sent and none saves its chunk.
+   - **The budget binds** if any chunk is cut by the budget. The next lever is then the budget or the reserve, not repairs.
+   - **Not settled:** no chunk is saved and two or fewer second repairs are sent, none included. A further amendment adds runs, and nothing is concluded about the second repair.
+   - **Together.** "Helps" stands even if another run ends incomplete; that run's failed second repairs are reported by class. "The budget binds" is read apart and may hold with any of the three.
+   - **The per-run reading.** A run that reached the packet with at least one chunk saved by a second repair would have ended incomplete under one repair. Under the basis the first repairs run before any second repair, in the same order and with the same requests as without it. A held chunk that loses its optional repair to the budget keeps its first attempt and counts complete.
+6. **A stopped run** is one that ends `research_request_denied` or `unresolved_dispatch_no_replay`, one with a stage row that carries `denied`, or one that a condition of the amendment's item 2 stops or voids. It is no reading of the incomplete-chunk rule. It is run again once after its cause is found. A second stops the work.
+   - **A session-clock end in the reading stage** shows as `research_cancelled`, with `denied` `cancelled` on its stage row. It is a stopped run.
+   - **A run that a merge voids is not run again here;** a further amendment registers runs at the new commit.
+   - **A run without `result.json` is stopped.** The writer cannot row it; the result entry records it without a row.
+   - **A run with no extract row for another reason,** such as an admission refused before any request, is no reading either and is handled the same way.
+7. **What follows each outcome is fixed now.** No value changes by these runs alone: the incomplete-chunk rule stays, the serving card stays adopted as it is, and no code changes.
+   - The second repair helps: it stays as built, and the result entry names the runs that reached the packet only through it.
+   - It does not help: the session reports the counts and the failed second repairs' classes, and a later entry names the next lever before any further r3 run.
+   - The budget binds: a design entry proposes the budget or the reserve, and no further repair is added.
+   - Not settled: a further amendment adds runs before anything is concluded.
+8. **The comparison with E0's five r3 runs is descriptive and post hoc.** Those runs give: 1 of 5 finished; chunks unfinished after one repair of 1, 2, 4, 2 and 0; and the 8 failed repairs of runs 2 to 4 classified as `needs_followup` 5, `schema_too_big` 2 and a question-set mismatch 1, with none truncated. The comparison is confounded, since the card, the plan cap, the two formats, admission, the second repair, the commit and the day all changed. It is no test.
+9. **Times.** `expectedSeconds` in the admission record is the admission test's input, not a forecast, and is recorded descriptively. No time per call is registered. The amendment states only that one call of the re-probe that did not stream was cut at about 121 s, and that two streamed calls ran 185.0 s and 130.9 s and ended normally, so two streamed calls of the probe's client ran past 121 s; the driver's client is not measured (BL-20261117-1356-e0-reprobe-result-plan-cap-16384).
+10. **The records.** One registry row for each run, as E0's r3 rows were written: batch `e0-<date>` by the first run's UTC date, task `r3-grid-batteries`, family `research`, arm `local-heavy-pipeline-research`, exposure `exposed`, verdict `none`, E0's ids with the suffix `-remeasure`, and a one-line `--lesson` with the outcome and the extract counts. A stopped or void run that is rowed says so in its lesson, and why. The result entry is reviewed before its commit.
+11. **Not shown by these runs:** anything about E2's fresh tasks or E3's; product quality; a rate; and the effect of any single change, since several changed together.
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: Amendment 6.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The command and the readings are lane S-pipe's proposal,** which the lane read against the code on `main`, first at c4b8ee6 and again at 6da7080. The proposal names the command, the dry run's checks, the readings, a read-only reading script, the number of runs and the reading rule. It is in the lanes' shared notes folder, not in Git.
+- **The classification of E0's failed repairs** is lane S-pipe's, read-only, from hashes-only diagnostics and stage rows (decision 1 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe). Its table is in the same folder.
+- **E0's five r3 runs had no amendment of their own.** The card's item 4 names one run, and BL-20261116-0813-e0-r3-runs-index-and-harvest records the command and the five runs. So the amendment takes the command from that entry. Amendment 3 registers the extractor fixture.
+- **Checked against the code at `main` 6da7080 while the amendment was drafted.** No request was sent, Docker was not called, no settings file was opened, and no run directory was opened.
+  - **The flags.** Every flag of the command is in the parser of scripts/private-agent-local-screen.ts, with the pairings the amendment states. The parser refuses an unknown flag, and it admits `--dry-run true` on the local arm.
+  - **The dry run** returns before the run directory is made. It prints the freeze's fixed fields with `state` `dry_run`. Among them are `pipeline` with `protocolSha256` and, under the basis, `admission`; `servingCard` with `sha256`, `entry` and `localStreams`; `git` with `commit` and `dirty`; and `diagnosticsRetained`. It loads the card first, so a card the reader refuses also refuses the dry run.
+  - **The names.** The extract row's keys, the plan attempt's keys, the admission record's keys and the events `research_stage`, `research_admission` and `research_transfer` exist under the names the amendment uses, in research-pipeline.ts, research-plan.ts, research-admission.ts and session.ts under src/main/private-agent.
+  - **The repair passes.** Under the basis they run in this order: the unfinished chunks' first repairs, their second repairs, the held chunks' repairs, then a held chunk's second repair. The per-run reading rests on that order. A denied extract row keeps `chunksComplete` 0, so the derived counts hold only on a row without `denied`.
+  - **The digests, recomputed offline.** The source freeze at 6da7080 is c39a5ccb5ec086d52b774be12d486ccf95cbe3a6bd2ac8ab60fe8e8076132462. The default protocol hash is e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c. The committed card with the adoption's two edits applied in memory, serialised as the writer serialises it, has sha256 79ce24812e1619a041476f73c761288e0518dfddac751cefba3d6e45de4d2d64. The reader's own function resolves that card to the basis `serving_card`, K 1 and the rates the amendment lists, and the protocol hash under its roles with admission on is af4715a1d6946edbf4260d057c541b34226a17474dc9838f50695733c92014cf.
+  - **The task.** docs/experiments/phase2-tasks-v1.json pins the job and brief digests the command names, and E0's five rows record the same job digest. `runtime/` has no change between d92a3af and 6da7080.
+  - **E0's rows.** Their ids, batch, task, family, arm, exposure, outcome and verdict were read from docs/experiments/registry.jsonl.
+  - **Three points of the review, read in the code.** `scripts/registry-row.py --run-dir` opens `result.json` without a fallback, so it cannot row a run that lacks one. A zero-fee local call is never refused on the deadline before it is sent, so a session-clock end in the reading stage aborts the call and ends the stage `research_cancelled` with `denied` `cancelled`. `research_admission_invalid` returns before the admission record is made.
+  - **At `main` 53813fd,** which holds the adoption, the committed card file's sha256 is 79ce24812e1619a041476f73c761288e0518dfddac751cefba3d6e45de4d2d64, and only the build log, the handoff and that card file differ from 6da7080. So no freeze-covered file changed.
+- **A reviewer read this amendment before the commit.** It found no blocker and one major finding: two outcomes of the reading rule overlapped, and they are now separated as "helps", "does not help on r3", "the budget binds" and "not settled". Its eight minor findings and its nits are applied.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Nothing has run.** No dry run, no doctor run, no run and no row exists for these runs yet.
+- **The first live use.** 7b.3's admission and the second repair have unit tests only. These runs are their first use against the endpoint, and the first runs under an adopted card.
+- **Three runs, on one task, with one model, at one commit.** The amendment registers counts. It estimates no rate.
+- **The comparison with E0 is confounded.** The card, the plan cap, the two formats, admission, the second repair, the commit and the day all changed between the two sets of runs.
+- **The per-run reading is of a run's own replies.** It says what one repair would have left given those replies. It is not a second run under one repair.
+- **The classes come from hashes-only manifests.** No reply text is read, so a class is the host's reason code and nothing more.
+- **Three ends keep no admission record.** Two are named in BL-20261117-1326-research-admission-record-incomplete-stage: a stage ended by the operator's cancel or a policy drift, and a stage that completes but whose transfer then fails. The third is `research_admission_invalid`, which ends before a record is made.
+- **No record shows an idle endpoint.** That nothing else used the endpoint during a run will be the session's account.
+- **The runs' reports are not assessed.** A submitted run is rowed without a verdict, as E0's run 5 was.
+- **The session relies on the lane's account and on the checks above.** No command of the amendment was run while it was written.
+
+Paid exposure: None. The runs are zero-fee, on the owner's endpoint.
+
+Next gate:
+1. The owner's two settings lines, once the adoption commit and this amendment are on `main`.
+2. The doctor and the first dry run, from the main checkout at that commit.
+3. The three runs, one at a time, each read before the next.
+4. The result entry, reviewed before its commit.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendments 1, 3, 4, 5 and 6); docs/experiments/serving-card-2026-11-17.json; docs/experiments/README.md; docs/experiments/LAUNCHER.md; docs/experiments/phase2-tasks-v1.json; docs/experiments/registry.jsonl; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1616-serving-card-2026-11-17-adopted; BL-20261117-1356-e0-reprobe-result-plan-cap-16384; BL-20261117-1155-e0-card-amendment-5; BL-20261117-1132-research-card-admission-implemented; BL-20261117-1142-correction-research-card-admission-review-restamp; BL-20261117-1145-research-second-repair-implemented; BL-20261117-1148-correction-research-second-repair-merge-before-reprobe; BL-20261117-1326-research-admission-record-incomplete-stage; BL-20261116-0813-e0-r3-runs-index-and-harvest; BL-20261116-0838-correction-e0-amendment-1-review; BL-20261116-1357-e0-verified; BL-20261116-1358-run-row-card-and-doctor-sources-design; BL-20261115-1937-owner-adopts-standing-defaults; pull requests #137, #142 and #151.

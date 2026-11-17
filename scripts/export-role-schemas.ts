@@ -8,7 +8,11 @@
  * not exported. Nothing here reads the endpoint or sends a request; the payloads are invented text with no owner data, and
  * neither the bodies nor the recorded settings carry an address or a key.
  *
- *   pnpm probe:export-schemas [-- --out <path>]
+ *   pnpm probe:export-schemas [-- [--out <path>] [--plan-cap <tokens>]]
+ *
+ * `--plan-cap` (topic 6, BL-20261117-1000-p10-plan-cap-export-design) builds both plan cells at that cap, from 128 to 16,384 tokens,
+ * and records it as `outputTokens.plan`. The probe copies those caps and the card writer proposes the planner's attempts from them,
+ * so the planner a card proposes and its P10 plan cells name one cap. Any other argument is refused before anything is written.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -23,11 +27,16 @@ import { ResearchCoverageSchema, ResearchEvidenceSchema, deriveBriefUnits, inven
 import { assembleIndexEntry, buildLiteralSourceCard } from "../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanSchema } from "../src/main/private-agent/research-plan";
 import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_SCHEMAS, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
-import { servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
+import { MIN_ROLE_OUTPUT_TOKENS } from "../src/main/private-agent/research-roles";
+import { RESEARCH_ROLE_MAX_OUTPUT_TOKENS, servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
 import { buildLocalScreenModelConfig } from "./private-agent-local-screen";
 
 export const ROLE_SCHEMA_EXPORT_VERSION = 2;
 export const DEFAULT_ROLE_SCHEMAS_PATH = ".soar/experiments/role-schemas.json";
+/** Topic 6: the plan cap P10's plan cells are built at, when it is not the pipeline's own. */
+export interface RoleSchemaExportOptions { planCap?: number }
+/** The command line's values: the file it writes and the export's options. */
+export interface RoleSchemaExportArguments extends RoleSchemaExportOptions { out: string }
 /** The roles with a reply JSON schema; the index role is validated structurally and has none. */
 export const P10_ROLES = ["plan", "extract", "synthesis"] as const;
 export type RoleWithSchema = (typeof P10_ROLES)[number];
@@ -48,7 +57,8 @@ export interface RoleSchemaExport {
   protocolSha256: string;
   schemas: Record<RoleWithSchema, unknown>;
   systems: Record<RoleWithSchema, string>;
-  outputTokens: typeof OUTPUT_TOKENS;
+  /** The caps the bodies were built at: the pipeline's `OUTPUT_TOKENS`, or with the plan's replaced by a plan cap (topic 6). */
+  outputTokens: Readonly<Record<keyof typeof OUTPUT_TOKENS, number>>;
   thinking: typeof THINKING;
   payloads: { plan: { userContent: string; units: string[]; sourceIds: string[] }; extract: { userContent: string }; synthesis: { userContent: string } };
   /**
@@ -89,10 +99,45 @@ export function buildRoleRequest(settings: RequestSettings, jobId: string, role:
   return { body: JSON.parse(body) as Record<string, unknown>, bodySha256: digest(body) };
 }
 
-/** P10's six cells: "on" is the role call with the model's thinking; "off" adds the call override `thinking: "disabled"`. */
-export function buildP10Requests(settings: RequestSettings, userContent: Record<RoleWithSchema, Record<P10ThinkingMode, string>>): RoleSchemaExport["requests"] {
-  const cell = (role: RoleWithSchema, mode: P10ThinkingMode): P10Request => buildRoleRequest(settings, P10_JOB_ID, role, userContent[role][mode], mode === "off" ? { thinking: "disabled" } : {});
+/**
+ * P10's six cells: "on" is the role call with the model's thinking; "off" adds the call override `thinking: "disabled"`. Each is built
+ * at its role's cap in `caps`, the pipeline's own unless the export was given a plan cap.
+ */
+export function buildP10Requests(settings: RequestSettings, userContent: Record<RoleWithSchema, Record<P10ThinkingMode, string>>,
+  caps: Readonly<Record<RoleWithSchema, number>> = OUTPUT_TOKENS): RoleSchemaExport["requests"] {
+  const cell = (role: RoleWithSchema, mode: P10ThinkingMode): P10Request => buildRoleRequest(settings, P10_JOB_ID, role, userContent[role][mode],
+    { maxOutputTokens: caps[role], ...(mode === "off" ? { thinking: "disabled" as const } : {}) });
   return Object.fromEntries(P10_ROLES.map(role => [role, { on: cell(role, "on"), off: cell(role, "off") }])) as RoleSchemaExport["requests"];
+}
+
+/**
+ * A plan cap the reader accepts: an integer from MIN_ROLE_OUTPUT_TOKENS to RESEARCH_ROLE_MAX_OUTPUT_TOKENS (`serving_card_cap_out_of_range`).
+ * Above the Heavy profile's limit the model layer would clamp the body's cap without a word, and the body and the recorded cap would disagree.
+ */
+export function isRoleSchemaExportPlanCap(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= MIN_ROLE_OUTPUT_TOKENS && value <= RESEARCH_ROLE_MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * The command line: `--out <path>` and `--plan-cap <tokens>`, each at most once, after one optional leading `--`, which pnpm 10 passes
+ * through (as scripts/serving-card.py allows). Anything else throws `role_export_arguments_invalid`, so a mistyped option can never
+ * export the pipeline's 8,192 for a re-probe meant to measure another plan cap.
+ */
+export function parseRoleSchemaExportArguments(argv: readonly string[]): RoleSchemaExportArguments {
+  const args = argv[0] === "--" ? argv.slice(1) : argv, seen = new Set<string>(), invalid = (why: string) => new Error(`role_export_arguments_invalid: ${why}`);
+  let out = DEFAULT_ROLE_SCHEMAS_PATH, planCap: number | undefined;
+  for (let i = 0; i < args.length; i += 2) {
+    const option = args[i]!, value = args[i + 1];
+    if (option !== "--out" && option !== "--plan-cap") throw invalid(`unknown argument ${JSON.stringify(option)}; the options are --out <path> and --plan-cap <tokens>`);
+    if (seen.has(option)) throw invalid(`${option} given twice`);
+    seen.add(option);
+    if (value === undefined || value === "" || value.startsWith("--")) throw invalid(`${option} needs a value`);
+    if (option === "--out") { out = value; continue; }
+    if (!/^[1-9][0-9]{0,5}$/u.test(value) || !isRoleSchemaExportPlanCap(Number(value)))
+      throw invalid(`--plan-cap takes an integer from ${MIN_ROLE_OUTPUT_TOKENS} to ${RESEARCH_ROLE_MAX_OUTPUT_TOKENS}`);
+    planCap = Number(value);
+  }
+  return { out, ...(planCap === undefined ? {} : { planCap }) };
 }
 
 /** Synthetic corpus for the P10 payloads: invented public text, two short sources, three numbered requirements. */
@@ -105,7 +150,12 @@ export function syntheticRoleCorpus() {
   return { brief, sources };
 }
 
-export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), settings: RequestSettings = SYNTHETIC_REQUEST_SETTINGS): RoleSchemaExport {
+export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), settings: RequestSettings = SYNTHETIC_REQUEST_SETTINGS,
+  options: RoleSchemaExportOptions = {}): RoleSchemaExport {
+  if (options.planCap !== undefined && !isRoleSchemaExportPlanCap(options.planCap)) throw new RangeError("role_export_plan_cap_invalid");
+  // Topic 6 (BL-20261117-1000-p10-plan-cap-export-design): a plan cap reaches both plan bodies and the recorded caps, which the probe copies
+  // and the card writer proposes the planner's attempts from. Without one the caps are the pipeline's own object, so the file is today's.
+  const outputTokens: RoleSchemaExport["outputTokens"] = options.planCap === undefined ? OUTPUT_TOKENS : Object.freeze({ ...OUTPUT_TOKENS, plan: options.planCap });
   const { brief, sources } = syntheticRoleCorpus();
   const units = deriveBriefUnits(brief), inventory = inventoryResearchSources(sources);
   const ordered = inventory.sources.map(s => sources.find(item => item.id === s.id)!);
@@ -137,22 +187,27 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
     // Item 9: the table a flagged pipeline call sends (the same values as before), so P10 measures the schema item 9 sends.
     schemas: { plan: RESEARCH_ROLE_SCHEMAS.plan.schema, extract: RESEARCH_ROLE_SCHEMAS.extract.schema, synthesis: RESEARCH_ROLE_SCHEMAS.synthesis.schema },
     systems: { plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM },
-    outputTokens: OUTPUT_TOKENS, thinking: THINKING,
+    outputTokens, thinking: THINKING,
     payloads: { plan: { userContent: planUser, units: units.map(u => u.id), sourceIds: inventory.sources.map(s => s.id) },
       extract: { userContent: extractUser }, synthesis: { userContent: userContent.synthesis.on } },
     requestSettings: servingCardRequestSettings(settings, true),
-    requests: buildP10Requests(settings, userContent),
+    requests: buildP10Requests(settings, userContent, outputTokens),
   };
 }
 
 function main(): number {
-  const outIndex = process.argv.indexOf("--out");
-  const out = resolve(outIndex >= 0 && process.argv[outIndex + 1] ? process.argv[outIndex + 1]! : DEFAULT_ROLE_SCHEMAS_PATH);
+  let args: RoleSchemaExportArguments;
+  try { args = parseRoleSchemaExportArguments(process.argv.slice(2)); } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
+    return 2;
+  }
+  const out = resolve(args.out);
   // The desktop's own settings: the same parser, environment and env files the app reads.
-  const data = buildRoleSchemaExport(undefined, requestSettingsOf(loadConfig()));
+  const data = buildRoleSchemaExport(undefined, requestSettingsOf(loadConfig()), args.planCap === undefined ? {} : { planCap: args.planCap });
   mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
   writeFileSync(out, `${JSON.stringify(data, null, 1)}\n`, { mode: 0o600 });
-  process.stdout.write(`${JSON.stringify({ written: true, roles: Object.keys(data.schemas), protocolSha256: data.protocolSha256,
+  // The caps the bodies were built at come first after the hash, so the operator sees the plan cap before probing.
+  process.stdout.write(`${JSON.stringify({ written: true, roles: Object.keys(data.schemas), protocolSha256: data.protocolSha256, outputTokens: data.outputTokens,
     schemaSha256: Object.fromEntries(P10_ROLES.map(role => [role, digest(canonical(data.schemas[role]))])), requestSettings: data.requestSettings,
     bodySha256: Object.fromEntries(P10_ROLES.map(role => [role, { on: data.requests[role].on.bodySha256, off: data.requests[role].off.bodySha256 }])) })}\n`);
   return 0;

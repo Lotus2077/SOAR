@@ -49608,3 +49608,116 @@ References:
 - BL-20261117-1000-p10-plan-cap-export-design;
 - BL-20261116-1203-research-role-policy-design;
 - BL-20261115-1939-research-priority-trim-design.
+
+### BL-20261117-1100-research-second-repair-implemented -- 2026-11-17 -- Item (ii) implemented and held: under a card's `serving_card` admission basis, a chunk still unfinished after its one repair gets a second; the default protocol hash moves, so the pull request must not merge before the coordinating session decides
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1049-research-second-repair-design, implemented.
+- **Built now, held.** On 2026-11-17 the coordinating session asked for it to be built now, as a pull request that stays unmerged until it decides. Its reasoning:
+  - E0's r3 runs left 1, 2, 4, 2 and 0 of 24 chunks unfinished, about 7.5% after one repair. A run needs all 24, so about one run in five or six finishes.
+  - The adopted card's extract flag would have to cut that rate about eightfold on its own.
+  - So (ii), or the larger repair cap the design names, is expected to be needed. The r3 re-measurement under the adopted card decides which.
+- **Its order of events:**
+  1. the re-probe on `main` without (ii), and the owner's adoption commit;
+  2. the r3 re-measurement;
+  3. if (ii) merges, another re-probe and another adoption, because (ii) moves the default protocol hash.
+
+Decisions:
+(1) **As designed.**
+- **When.** Under a card whose admission basis is `serving_card` (the pipeline's admission record), every chunk still not complete after its one repair gets one more repair.
+- **How.** The chunks go in coverage order, at the stage's K, while extraction calls are left. Each is sent at the role policy's second attempt slot (its cap, thinking and `response_format`), with the repair payload and its `repairReason` built from the state the first repair left.
+- **The contracts:**
+  - coverage.json is version 4, and a chunk's `attempts` hold at most 3;
+  - `schemaVersions.coverage` is 4;
+  - `RESEARCH_ADMISSION_POLICY` is version 2, with `repairsPerChunk: 2`;
+  - the ready-packet gate accepts a third attempt only beside an admission record (`extraction_attempts`).
+
+(2) **Clarifications and departures:**
+- **Held chunks.** A held chunk that was not repaired kept its first attempt and is complete, so it gets no second repair. A held chunk whose repair failed is unfinished like any other, and it gets one. The design's "held chunks get none" meant the first case.
+- **Two counts, not one.** The extract row gains `secondRepairCalls`, the second repairs sent, and `secondRepairsComplete`, those that left their chunk complete. Both are present under the basis only. `repairCalls` counts both repair passes.
+- **7b.3's cap-bound estimate grows.** It now counts each chunk's first attempt and two repairs within the budget. The expected estimate and the admission decision are unchanged.
+- **The export's coverage is version 4.** So P10's synthesis bodies change as well as the hash. The re-probe after a merge covers both.
+
+(3) **What an r3 run records, so the re-measurement can count it** (the coordinating session's request).
+- **The extract stage row,** the run's `research_stage` event, is durable in every run's store, finished or not:
+  - `secondRepairCalls` counts the chunks that got a second repair, and `secondRepairsComplete` counts those it saved.
+  - So the chunks the second repair did not save are `secondRepairCalls` - `secondRepairsComplete`.
+  - `chunksPlanned` - `chunksComplete` counts every unfinished chunk. Whatever it exceeds that difference by were chunks whose first or second repair the budget cut.
+  - `repairCalls` counts both repair passes.
+- **coverage.json** holds each chunk's attempts, but a session keeps the stage's files only when the stage completes. In a finished run:
+  - a chunk with three attempts, the last `complete`, was saved by the second repair;
+  - one with two attempts, the last `complete`, was saved by the first.
+  - A run that ends `research_extraction_incomplete` keeps no coverage.json, so its count comes from the row alone.
+- **Without the basis** neither count is present, and no chunk has a third attempt.
+
+(4) **The default protocol hash moves for every run,** card or none, because the hash binds coverage's JSON schema and `schemaVersions`.
+- It goes from 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 to e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c, re-pinned in tests/helpers/research-protocol-pin.ts.
+- Under the admission policy with the default roles, the hash is f157570b4a34cf3135a9d7545350b212ac3f90b5007e07f37cde52860551a2f2.
+- **After a merge:**
+  - every card whose P10 evidence was measured under the old hash is refused for its flags with `serving_card_p10_protocol_drift`, the card adopted after #136's re-probe included;
+  - earlier run directories become unseedable;
+  - the full re-probe and a new adoption follow.
+- **Therefore the pull request must not merge before the coordinating session says so.**
+
+Changes:
+- src/main/private-agent:
+  - research-pipeline.ts: the second repair pass, the two counts, coverage version 4 and `schemaVersions`;
+  - research-coverage.ts: the schema's version 4 and the bound of 3 attempts, and the gate's check;
+  - research-admission.ts: policy version 2, the record schema, the cap-bound.
+- scripts/export-role-schemas.ts: the synthetic coverage's version.
+- tests/helpers/research-protocol-pin.ts: the re-pin, with the old and new values.
+- Tests:
+  - tests/unit/private-agent-research-pipeline.test.ts:
+    - `DOCUMENTED_STAGE_KEYS`;
+    - five tests: a chunk saved by the second repair, a chunk it did not save, no second repair without the rates, the second slot and the budget, and the gate;
+    - two coverage-version assertions.
+  - tests/unit/private-agent-research-session.test.ts: two coverage-version assertions.
+  - tests/unit/private-agent-research-admission.test.ts: the policy pin, and the cap-bound worked by hand, now 962.6 s.
+- docs/experiments/README.md: the second-repair bullet.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **A chunk saved by the second repair.** Under rates, with the target chunk's first attempt and first repair failing and its second repair succeeding:
+  - the run is `research_packet_ready`;
+  - its coverage attempts are `invalid`, `invalid`, `complete`;
+  - the extract row has calls = chunks + 2, `repairCalls` 2, `secondRepairCalls` 1 and `secondRepairsComplete` 1;
+  - both repairs carry `previous_invalid; ...` from the state before them.
+- **A chunk it did not save.** When the second repair fails too, the run ends `research_extraction_incomplete`, with three `invalid` attempts, `secondRepairCalls` 1 and `secondRepairsComplete` 0.
+- **A chunk the first repair completed** gets no second: its attempts are `invalid`, `complete`, and `secondRepairCalls` is 0.
+- **Without rates** the chunk ends after one repair, and the row carries neither new key.
+- **The slot and the budget.**
+  - With extract caps [1024, 1536], the chunk's three calls carry 1,024, 1,536 and 1,536 tokens.
+  - When the reserve's one spare call pays the first repair, none is left for a second, and `secondRepairCalls` is 0.
+- **The gate** accepts the packet beside its admission record, and refuses it without one (`extraction_attempts`).
+- **Every key** of an admission run's stage rows is in `DOCUMENTED_STAGE_KEYS`.
+- **Mutants:** ten single edits each fail a test of the changed files. A first run left one alive: a second repair also for a chunk its first repair completed. One more test now kills it.
+- **Hashes.** The default is e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c, re-pinned from 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. Under the admission policy with the default roles it is f157570b4a34cf3135a9d7545350b212ac3f90b5007e07f37cde52860551a2f2.
+- **The source freeze** on this head is e553299a0afb0a224af32783f75760beb461b5d119e9246c23bab923c8891fc9. On #137's head it is a34f6cd7….
+- **Checks at this head:**
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm --silent validate:build-log` exits 0 against the branch's base, `main` 9673bb9, its status read directly. `main` has since moved, and this branch is re-stamped before any merge.
+  - The three changed test files pass: 241 tests.
+  - The full suite: 193 files passed and 13 skipped; 3,899 tests passed and 86 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called.
+- **Whether a second repair saves real chunks** is what the r3 re-measurement and a later run would show. Here only fixture replies are used.
+- **The extractor fixture** sends initial attempts only, and shows nothing about (ii).
+- **A chunk that fails for a reason a repair repeats** may fail twice. Run 2's diagnostics name `schema_too_big`, `needs_followup` and quote-location failures.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- **Held:** the coordinating session's decision, after the r3 re-measurement under the adopted card, between merging (ii) and the larger-repair-cap alternative.
+- If (ii) merges: the full re-probe and a new adoption.
+- Before any merge: one light review, CI, and a re-stamp after the tail of that moment.
+
+References:
+- BL-20261117-1049-research-second-repair-design;
+- BL-20261117-1048-research-card-admission-implemented;
+- BL-20261117-1022-research-card-admission-design;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261117-1000-p10-plan-cap-export-design.

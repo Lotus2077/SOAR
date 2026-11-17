@@ -53,7 +53,8 @@ export function researchMandatoryWorkFits(work: { batches: number; chunks: numbe
  * refused before any request only when even its expected (lower-bound) time exceeds its share of the session clock. The share is
  * used only in that test: an admitted stage may still use the whole remaining clock.
  */
-export const RESEARCH_ADMISSION_POLICY = Object.freeze({ version: 1, basis: "serving_card", repairReserve: Object.freeze({ chunksPerRepair: 4, minimum: 1 }),
+// Version 2 (item (ii), BL-20261117-1049-research-second-repair-design): a chunk still unfinished after its one repair gets one more.
+export const RESEARCH_ADMISSION_POLICY = Object.freeze({ version: 2, basis: "serving_card", repairReserve: Object.freeze({ chunksPerRepair: 4, minimum: 1 }), repairsPerChunk: 2,
   stageShare: Object.freeze({ numerator: 1, denominator: 2 }), bytesPerToken: 4, refusal: "expected_estimate_above_share" } as const);
 
 const positiveFinite = z.number().positive().finite();
@@ -89,6 +90,7 @@ const count = z.number().int().nonnegative(), seconds = z.number().nonnegative()
 export const ResearchAdmissionRecordSchema = z.object({ basis: z.literal("serving_card"),
   policy: z.object({ version: z.literal(RESEARCH_ADMISSION_POLICY.version), basis: z.literal(RESEARCH_ADMISSION_POLICY.basis),
     repairReserve: z.object({ chunksPerRepair: z.literal(RESEARCH_ADMISSION_POLICY.repairReserve.chunksPerRepair), minimum: z.literal(RESEARCH_ADMISSION_POLICY.repairReserve.minimum) }).strict(),
+    repairsPerChunk: z.literal(RESEARCH_ADMISSION_POLICY.repairsPerChunk),
     stageShare: z.object({ numerator: z.literal(RESEARCH_ADMISSION_POLICY.stageShare.numerator), denominator: z.literal(RESEARCH_ADMISSION_POLICY.stageShare.denominator) }).strict(),
     bytesPerToken: z.literal(RESEARCH_ADMISSION_POLICY.bytesPerToken), refusal: z.literal(RESEARCH_ADMISSION_POLICY.refusal) }).strict(),
   rates: ResearchAdmissionRatesSchema,
@@ -104,7 +106,8 @@ const tenths = (value: number) => Math.round(value * 10) / 10;
  * - The expected estimate, a lower bound in intent: each batch's previews and each chunk's text prefilled once at the fastest rate, each
  *   chunk's expected extraction output at the fastest fan-out rate, and one plan and one synthesis call's expected output at the fastest
  *   single-stream rate. It leaves out index output, repairs and every prompt part not known before the first request.
- * - The cap-bound estimate, disclosed only: every call the budget allows for the work (at most two per batch and per chunk), prefilled
+ * - The cap-bound estimate, disclosed only: every call the budget allows for the work (at most two per batch, and per chunk its first
+ *   attempt and `repairsPerChunk` repairs), prefilled
  *   at the slowest rate and decoding its role's larger cap at the slowest rate, plus every planner and synthesiser call.
  * - `refused_clock` when the expected estimate exceeds the share, half the remaining clock, both in tenths of a second.
  */
@@ -115,7 +118,7 @@ export function researchCardAdmission(work: ResearchAdmissionWork, budget: Resea
   const previewTokens = sum(work.batchPreviewBytes.map(tokens)), chunkTokens = sum(work.chunkBytes.map(tokens)), expectedOutput = rates.expectedOutputTokens;
   const expected = (previewTokens + chunkTokens) / rates.prefillTokensPerSecond.fastest + chunks * expectedOutput.extract / rates.fanOutDecodeTokensPerSecond.fastest
     + (expectedOutput.plan + expectedOutput.synthesis) / rates.decodeTokensPerSecond.fastest;
-  const indexCalls = Math.min(budget.indexCalls, 2 * batches), extractCalls = Math.min(budget.extractionCalls, 2 * chunks);
+  const indexCalls = Math.min(budget.indexCalls, 2 * batches), extractCalls = Math.min(budget.extractionCalls, (1 + policy.repairsPerChunk) * chunks);
   const capPromptTokens = (batches ? previewTokens * indexCalls / batches : 0) + (chunks ? chunkTokens * extractCalls / chunks : 0);
   const capBound = capPromptTokens / rates.prefillTokensPerSecond.slowest + (indexCalls * caps.index + extractCalls * caps.extract) / rates.fanOutDecodeTokensPerSecond.slowest
     + (budget.plannerCalls * caps.plan + budget.synthesisCalls * caps.synthesis) / rates.decodeTokensPerSecond.slowest;

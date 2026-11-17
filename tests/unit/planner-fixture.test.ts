@@ -261,6 +261,9 @@ describe("planner fixture: the serving card's plan call (manifest v2, BL-2026111
 
   it("salts every body with the fixture's one salt under --cache-salt and only then: the request digests a dry run records, and the bodies a run sends on every repeat", async () => {
     const f = fixtureInputs(), inputs = { index: f.index, brief: f.briefBytes, manifest: f.manifest }, messages = buildPlannerMessages(verifyFixtureInputs(inputs));
+    // The job id fixes the one salt, and with it every salted digest Amendment 4's item 6 fixes (decision 4 of
+    // BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution): only a literal catches a change to it.
+    expect(FIXTURE_JOB_ID).toBe("e0-planner-fixture");
     const salt = vllmCacheSalt(FIXTURE_JOB_ID), conditions = [...FIXTURE_CONDITIONS];
     const plain = conditions.map(c => buildPlannerBody(c, "Synthetic", messages)), salted = conditions.map(c => buildPlannerBody(c, "Synthetic", messages, { cacheSalt: salt }));
     // Each salted body is the plain body with the one salt added, and nothing else changed.

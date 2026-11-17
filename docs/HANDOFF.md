@@ -1,6 +1,6 @@
 # SOAR handoff
 
-## Start here (2026-11-16)
+## Start here (2026-11-17)
 
 This section is the entrypoint for the next session. It supersedes every earlier
 "next step" in this file; the rest of the file is the September 2026 record. "The
@@ -113,6 +113,9 @@ tests/helpers/research-protocol-pin.ts.
      owner answers and what stays open.
    - BL-20261115-1938-e1-l-sandbox-suite-docker-verified: E1's gate released.
    - BL-20261116-0814-e0-card-amendment-1, decision 3: the merge go of 2026-11-16.
+   - BL-20261117-0530-owner-merge-go-handoff-restatements, as
+     BL-20261117-0539-correction-owner-merge-go-review corrects it: the merge go for
+     handoff restatements, and what it does not cover.
    - BL-20261116-1131-owner-directions-merge-and-continue, corrected by
      BL-20261116-1159-correction-e0-amendment-3-pre-run-review: the owner's two
      directions, what they do not lift, and the open topics.
@@ -207,6 +210,8 @@ tests/helpers/research-protocol-pin.ts.
   BL-20261117-0530-owner-merge-go-handoff-restatements). After merging #132 the
   owner wrote: "you may merge a handoff restatement myself on a clean review and green
   CI".
+  - `Approved` covers the quote only. The reading below is the session's, until the
+    owner replaces it.
   - It covers a pull request that restates this section, with the entries that record
     the restatement, once its light review is clean and CI is green.
   - It does not cover an experiment's card, the serving card's adoption commit, or any
@@ -586,9 +591,9 @@ the session's choice, and no entry records it.
   the tool. Its body, 63,658 bytes of public or synthetic material, is the only
   request body E0 sent to a cloud provider.
 - **The harness source-freeze digest** moved on 2026-11-16 with #102, #116, #119, #103,
-  #108, #110, #127 and #128. At `main` 7ef19ea it is
+  #108, #110, #127 and #128. At `main` d14ad42 it is
   e4c29bf0c08d95df95f80a52b470e96596e0158ee2526fbc5e602137627a4dca over 61 files, the
-  output of `localScreenSourceFreeze()` itself. #129, #130 and #131 change no hashed
+  output of `localScreenSourceFreeze()` at da30c9d's code. #129 to #133 change no hashed
   file.
   - Recompute `--runtime-sha256`, the digest `localScreenSourceFreeze()` in
     scripts/private-agent-local-screen.ts returns, before any loop or E-run, and let

@@ -47967,3 +47967,35 @@ Paid exposure: None.
 Next gate: None. The other fourteen questions stand as docs/HANDOFF.md "Start here" §4 lists them.
 
 References: docs/HANDOFF.md; BL-20261116-1600-handoff-start-here-restated; BL-20261116-1637-correction-handoff-start-here-final-check; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1131-owner-directions-merge-and-continue; pull requests #118 and #132.
+
+### BL-20261117-0539-correction-owner-merge-go-review -- 2026-11-17 -- Correction to BL-20261117-0530-owner-merge-go-handoff-restatements after the light review of pull request #133: what "clean" means is the session's reading, the question's wording is the summary's, and decision 4 is the session's reading too
+
+Status: `Implemented`
+
+Scope or hypothesis: One read-only reviewer checked pull request #133 at e7bf382, with privacy checked. It found no blocker, no major issue and no privacy issue: four minor findings and six nits. This entry records them. BL-20261117-0530-owner-merge-go-handoff-restatements stays as written, and where this entry differs from it, this entry governs. The owner's quoted words do not change.
+
+Decisions:
+1. **"Clean" is the session's reading** (decision 2 of that entry). No entry defines it, for lane pull requests either. The reading: the light review leaves no blocker or major finding open, and each minor finding or nit is fixed or answered in the pull request before the merge. The owner may replace it.
+2. **The question's wording** (decision 1 of that entry). Decision 1 of BL-20261116-1637-correction-handoff-start-here-final-check records question 15 as "whether the session may merge a handoff restatement on a clean review and green CI". The sentence that entry quotes, "May I merge the handoff restatement when its review is clean and CI is green?", is the wording of the session's git-ignored summary, which the log does not hold.
+3. **Decision 4 is the session's reading too.** Applying the go to pull request #133 is the session's call, as decisions 2 and 3 are, and the owner may replace it. #133 is a targeted update of the section, not a full rewrite. With this entry it also re-dates the section's heading to 2026-11-17, as each earlier restatement re-dated it.
+4. **Who merged #132.** GitHub records the owner's account for the session's merges too. That the owner merged #132 is the session's account: the session did not merge it, and the owner wrote "merged" in the session's chat.
+5. **The Next gate** of that entry said "None". This pull request's merge waits for its light review, which this entry closes, and for green CI on its new head.
+6. **Changes that entry did not list.** Its edit to §6's session-practice line, which now excepts a handoff restatement from the merges the session asks about. And, with this entry: the heading's date, one line in §2's reading list, the caveat on the §3 bullet that the reading is the session's, and the source-freeze passage in §7, which now names `main` at d14ad42 and pull requests #129 to #133.
+
+Changes: docs/HANDOFF.md, as decision 6 says. docs/BUILD_LOG.md, this entry.
+
+Evidence:
+- **The reviewer found correct:** the owner's sentence verbatim in the entry and in §3; the entry's fields and ID order; #132's merge on GitHub at 05:25:29 UTC as d14ad42 with both jobs green; the #118 precedent, as an inference from decision 3 of BL-20261116-0814-e0-card-amendment-1; every changed line of the section; that no other place in the section was left stale; and that the diff holds no private string.
+- **It also checked** that the commits from 7ef19ea to d14ad42 touch four documentation files only and that the source freeze hashes no documentation file.
+- **CI** was green on both jobs at e7bf382.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The fixes are the reviewer's replacement texts, applied by the session and not reviewed again. No skeptic ran, since the review found no blocker or major issue.
+
+Paid exposure: None.
+
+Next gate: Green CI on this pull request's new head, then the session merges it under the go.
+
+References: docs/HANDOFF.md; BL-20261117-0530-owner-merge-go-handoff-restatements; BL-20261116-1637-correction-handoff-start-here-final-check; BL-20261116-1600-handoff-start-here-restated; BL-20261116-0814-e0-card-amendment-1; pull requests #118, #132 and #133.

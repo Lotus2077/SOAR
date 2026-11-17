@@ -10,7 +10,7 @@
  * audited. This module never imports research-pipeline.ts, which will import it (a test keeps that so).
  */
 import { z } from "zod";
-import { BrokerError, BROKER_MAX_BODY_BYTES } from "./broker";
+import { BrokerError, BROKER_MAX_ATTEMPTS, BROKER_MAX_BODY_BYTES } from "./broker";
 import { canonical, digest, exactText } from "./contracts";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "./dispatch-purposes";
 import { ASSIST_CACHE_MODE, ModelRequestBodyTooLarge, type GeneralMessage, type PrivateAgentModel } from "./model";
@@ -36,6 +36,12 @@ export const ASSIST_HEADING_MIN_CHARS = 32;
 export const ASSIST_HOST_MARKERS: readonly string[] = Object.freeze(["Claims ledger requirement:", "Additional evidence contract:",
   "A separately isolated public retrieval phase supplied", "A host-run research stage supplied"]);
 export const ASSIST_SYNTHESIS_REPAIR_REASON = "previous_reply_truncated; evidence trimmed; return a complete concise structure with both sections";
+/**
+ * 10.b (BL-20261117-1036-assist-wiring-design, decision 5; BL-20261113-0920-assist-wrapper-design, decision (14)): the most ledger rows
+ * one reading stage's assists can commit, which the session's request-pool check adds: three calls (T1, T2 and its one retry), each
+ * with up to the broker's attempts (the Anthropic retries).
+ */
+export const ASSIST_WORST_CASE_ROWS = 3 * BROKER_MAX_ATTEMPTS;
 /**
  * 10.b (BL-20261117-1036-assist-wiring-design, decision 9b; C8 of BL-20261113-0925-correction-assist-core-rereview): the longest
  * string, in UTF-16 code units, that the scrubber reads in each model-written or quoted field. Each is its caller's own cap: the

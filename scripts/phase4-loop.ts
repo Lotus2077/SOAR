@@ -154,6 +154,8 @@ const DRIVER_INPUT_SPEND: { readonly [K in keyof Required<DriverInput>]: "free" 
   taskDirectory: "free", expectedJobSha256: "free", expectedBriefSha256: "free", syntheticAuthoritySha256: "free", expectedRuntimeSha256: "free", imageId: "free",
   outputDirectory: "free", publicRetrieval: "free", publicSnapshot: "free", pauseAfterTools: "free", profile: "free", claimsLedger: "free", cacheSalt: "free",
   pipeline: "free", documentReview: "free", cloudArm: "spends", repairFrom: "free", researchFrom: "free", retainDiagnostics: "free",
+  // 10.b (BL-20261117-1036-assist-wiring-design, decision 10): the assist arm's firing spends nothing of its own; only the cloud arm it needs spends.
+  assistFiring: "free",
 };
 /** Whether a rerun with this driver input cannot spend: every key set is marked spend-free, and none is unknown. */
 export function rerunCannotSpend(input: Partial<DriverInput>): boolean {
@@ -472,7 +474,7 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
     return rerunCannotSpend(rerun()) ? "rerun" : null;
   };
   /** A seeded stage writes from the packet of a sample whose stage completed, never with a stage or a cloud writer of its own. */
-  const seeded = (from: string): Partial<DriverInput> => ({ researchFrom: from, pipeline: undefined, cloudArm: undefined });
+  const seeded = (from: string): Partial<DriverInput> => ({ researchFrom: from, pipeline: undefined, cloudArm: undefined, assistFiring: undefined });
   /** Whether a run directory holds a readable freeze (a start that froze nothing sent nothing); a ledger that cannot be read is examined. */
   const frozen = (dir: string) => { try { return deps.readLedger(dir).freeze !== null; } catch { return true; } };
 

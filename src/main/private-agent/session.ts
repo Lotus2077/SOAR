@@ -16,6 +16,8 @@ import { validateReadyResearchPacket } from "./research-coverage";
 import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { createResearchInput, createResearchProducer, validateResearchProducer } from "./research-producer";
 import type { ResearchRolePolicy } from "./research-roles";
+import { ASSIST_WORST_CASE_ROWS, createResearchAssists } from "./research-assist";
+import type { ResearchAssistFiring, ResearchAssists } from "./research-assist-contract";
 
 export interface SessionFile { path: string; bytes: Buffer }
 export interface SessionPhase {
@@ -75,8 +77,20 @@ export interface GeneralSessionOptions {
      * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
      * of the session identity; the desktop passes none.
      */
-    diagnostics?: ResearchDiagnosticsSink };
+    diagnostics?: ResearchDiagnosticsSink;
+    /**
+     * 10.b (BL-20261117-1036-assist-wiring-design, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
+     * session builds one wrapper per reading stage, with the cloud arm's fee cap. Before any dispatch it refuses
+     * (`session_research_assist_invalid`) an assist without a cloud arm, one whose planner or synthesiser is not zero-risk local, one
+     * whose model is not on the cloud arm's destination, and one the wrapper refuses to build. The firing binds the protocol hash, and
+     * the firing, the model and the authored brief's digest bind the session identity.
+     */
+    assist?: { firing: ResearchAssistFiring; model: (contextId: string) => PrivateAgentModel;
+      /** The owner's own brief (the prepared task's brief.md text), which the composed goal begins with; never the composed goal. */
+      authoredBrief: string } };
 }
+/** 10.b: a research producer's refusal as a session reason: its own fixed code, or one fixed code for anything else. */
+const producerRefusal = (error: unknown) => error instanceof Error && /^research_[a-z_]+$/u.test(error.message) ? error.message : "research_producer_invalid";
 export interface GeneralSessionResult {
   status: "submitted" | "paused" | "incomplete";
   reason: string;
@@ -285,6 +299,19 @@ export class GeneralAgentSession {
       let privateModel = options.trustedHostModelFactory(privateContextId);
       let publicModel = options.publicPhase ? options.trustedHostModelFactory(publicContextId) : undefined;
       let researchModels = options.research?.models(readerContextId);
+      const assistOption = options.research?.assist;
+      // 10.b (decision 5): the reading stage's assist wrapper for a reader context, or undefined when the configuration is refused.
+      const assistsFor = (contextId: string, models: ResearchModels | undefined): ResearchAssists | undefined => {
+        if (!assistOption || !models || !options.cloudArm || !models.planner.zeroRisk() || !models.synthesiser.zeroRisk()) return undefined;
+        try {
+          const model = assistOption.model(contextId);
+          if (model.config.destinationId !== options.cloudArm.destinationId) return undefined;
+          return createResearchAssists({ firing: assistOption.firing, model, authoredBrief: assistOption.authoredBrief, maxFeeMicrousd: options.cloudArm.maxFeeMicrousd });
+        } catch { return undefined; }
+      };
+      let assists = assistsFor(readerContextId, researchModels);
+      if (assistOption && !assists) return result("incomplete", "session_research_assist_invalid");
+      const assistIdentity = () => assistOption ? { version: 1, firing: assistOption.firing, model: modelIdentity(assistOption.model(readerContextId).config), authoredBriefSha256: digest(assistOption.authoredBrief) } : null;
       const judgeModel = options.judgeModelFactory?.(privateContextId);
       const researchIdentity = (models: ResearchModels) => ({ reader: modelIdentity(models.reader.config), planner: modelIdentity(models.planner.config), synthesiser: modelIdentity(models.synthesiser.config) });
       const destinations = [...new Set([privateModel.config.destinationId, ...(publicModel ? [publicModel.config.destinationId] : []),
@@ -298,8 +325,9 @@ export class GeneralAgentSession {
           !Number.isSafeInteger(limits.maxElapsedMs) || limits.maxElapsedMs < 1 || limits.maxElapsedMs > 7_200_000) return result("incomplete", "session_limits_invalid");
       // H2c: the reader's calls draw on the same session request pool as the writer's (and a public phase's), so the pool
       // must hold all of them; the writer's own contract budget is per context and stays whole either way.
+      // 10.b (decision 5): with an assist, the pool also holds the assists' worst case (ASSIST_WORST_CASE_ROWS).
       if (options.research && limits.maxRequests < researchBudgetTotal(options.research.budget ?? RESEARCH_PIPELINE_BUDGET) + options.privatePhase.contract.maxModelCalls +
-          (options.publicPhase ? options.publicPhase.contract.maxModelCalls : 0)) return result("incomplete", "session_limits_invalid");
+          (options.publicPhase ? options.publicPhase.contract.maxModelCalls : 0) + (assistOption ? ASSIST_WORST_CASE_ROWS : 0)) return result("incomplete", "session_limits_invalid");
       const expectedPolicy = { version: 1 as const, id: jobId, mode: options.consultation || options.cloudArm ? "cloud_help" as const : "private" as const, revision: 0, cancelled: false,
         destinations, maxRequests: limits.maxRequests, maxFeeMicrousd: (options.consultation?.maxFeeMicrousd ?? 0) + (options.cloudArm?.maxFeeMicrousd ?? 0) };
       if (!policy) {
@@ -322,19 +350,22 @@ export class GeneralAgentSession {
         ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: modelIdentity(judgeModel.config) } : {}),
         // H2b: the frozen pipeline protocol and the stage's model identities, spread only when configured.
         // 7a.2: a non-default role policy is bound through the protocol hash; the default leaves it unchanged.
-        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles),
-          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels) } } : {}) }));
+        // 10.b (decision 6): an assist's firing is bound through the protocol hash, and its configuration beside it; without one, nothing changes.
+        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles, assistOption?.firing),
+          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels), ...(assistOption ? { assist: assistIdentity() } : {}) } } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,
         startedAt: old ? Number(old.startedAt) : Date.now(), privateContextId, publicContextId, ...(options.research ? { readerContextId } : {}) });
       if (privateContextId !== start.privateContextId || publicContextId !== start.publicContextId || (start.readerContextId !== undefined && readerContextId !== start.readerContextId)) {
-        const priorModelIdentity = canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null]);
+        const priorModelIdentity = canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assistIdentity()]);
         privateContextId = start.privateContextId; publicContextId = start.publicContextId; readerContextId = start.readerContextId ?? readerContextId;
         privateModel = options.trustedHostModelFactory(privateContextId);
         publicModel = options.publicPhase ? options.trustedHostModelFactory(publicContextId) : undefined;
         researchModels = options.research?.models(readerContextId);
-        if (canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null]) !== priorModelIdentity) return result("incomplete", "session_model_factory_drift");
+        if (canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assistIdentity()]) !== priorModelIdentity) return result("incomplete", "session_model_factory_drift");
+        assists = assistsFor(readerContextId, researchModels);
+        if (assistOption && !assists) return result("incomplete", "session_research_assist_invalid");
       }
       const startedAt = start.startedAt;
       if (!Number.isSafeInteger(startedAt) || startedAt > Date.now()) return result("incomplete", "session_start_invalid");
@@ -402,7 +433,9 @@ export class GeneralAgentSession {
           const binding = prior.binding as { snapshot: WorkspaceSnapshot; snapshotSha256: string; files: { path: string; sha256: string }[]; producer: unknown };
           produced = checkpoints.load(binding.snapshot);
           if (checkpoints.fingerprint(binding.snapshot) !== binding.snapshotSha256 || canonical(sessionFileManifest(produced)) !== canonical(binding.files)) return result("incomplete", "research_transfer_drift");
-          validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput });
+          // 10.b (BL-20261113-0927-research-v5-design, decision 5): a producer refusal ends the session with its code, never an uncaught throw.
+          try { validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput }); }
+          catch (error) { return result("incomplete", producerRefusal(error)); }
         } else {
           if (this.pauseRequested || boundedSignal.aborted) return result(this.pauseRequested ? "paused" : "incomplete", "session_stopped");
           // An unresolved dispatch from an interrupted stage is never replayed past, as in the runner; nothing resolves an unknown row today,
@@ -422,7 +455,9 @@ export class GeneralAgentSession {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
               deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
               ...(options.research.roles ? { roles: options.research.roles } : {}),
-              ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}) });
+              ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}),
+              // 10.b (decision 5): the wrapper, with the session deadline the pipeline already passes it (BL-20261113-0929, decision 2).
+              ...(assists ? { assists } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {
@@ -437,8 +472,10 @@ export class GeneralAgentSession {
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
           if (outcome.files.some(file => privatePhase.files.some(existing => existing.path === file.path))) return result("incomplete", "research_transfer_collision");
           const snapshot = checkpoints.save(outcome.files);
-          const producer = createResearchProducer({ kind: "session", jobId, contextId: readerContextId,
-            brief: privatePhase.contract.goal, sources, files: outcome.files, receipts: store.dispatches(jobId) });
+          let producer: ReturnType<typeof createResearchProducer>;
+          try { producer = createResearchProducer({ kind: "session", jobId, contextId: readerContextId,
+            brief: privatePhase.contract.goal, sources, files: outcome.files, receipts: store.dispatches(jobId) }); }
+          catch (error) { return result("incomplete", producerRefusal(error)); }
           store.append(jobId, { type: "research_transfer", contextId: readerContextId,
             binding: { snapshot, snapshotSha256: checkpoints.fingerprint(snapshot), files: sessionFileManifest(outcome.files), summary: outcome.summary, producer } });
           produced = outcome.files;

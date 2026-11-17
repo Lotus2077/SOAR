@@ -37,10 +37,10 @@ import { SELECTION_PROTOCOL_VERSION, ZERO_FEE_DESTINATIONS, compareCandidates, r
 import { servingCardRefusal } from "../src/main/private-agent/serving-card";
 import { critique, type CritiqueArguments } from "./phase2-repair";
 import { loadPreparedOperatorTask } from "./private-agent-run";
-import { localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen } from "./private-agent-local-screen";
+import { localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen, type LocalScreenInput } from "./private-agent-local-screen";
 
 export const LOOP_VERSION = 2;
-export type DriverInput = Parameters<typeof runLocalArtifactScreen>[0];
+export type DriverInput = LocalScreenInput;
 export type LoopCandidate = "a" | "b" | "repair";
 export type LoopStage = LoopCandidate | "critique";
 const STAGES: readonly LoopStage[] = ["a", "b", "critique", "repair"];
@@ -154,6 +154,8 @@ const DRIVER_INPUT_SPEND: { readonly [K in keyof Required<DriverInput>]: "free" 
   taskDirectory: "free", expectedJobSha256: "free", expectedBriefSha256: "free", syntheticAuthoritySha256: "free", expectedRuntimeSha256: "free", imageId: "free",
   outputDirectory: "free", publicRetrieval: "free", publicSnapshot: "free", pauseAfterTools: "free", profile: "free", claimsLedger: "free", cacheSalt: "free",
   pipeline: "free", documentReview: "free", cloudArm: "spends", repairFrom: "free", researchFrom: "free", retainDiagnostics: "free",
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): both are refused on the loop's command line, and neither spends.
+  writeBound: "free", dryRun: "free",
 };
 /** Whether a rerun with this driver input cannot spend: every key set is marked spend-free, and none is unknown. */
 export function rerunCannotSpend(input: Partial<DriverInput>): boolean {
@@ -193,6 +195,8 @@ export function ledgerDependencies(): Pick<LoopDependencies, "readRunEnd" | "rea
 /** Every sample runs under the heavy profile with a local writer: a cloud writer is the all-cloud arm, which is a single run and never a loop. */
 export function checkLoopInput(base: LoopInput["base"]): void {
   if (base.profile !== "heavy" || (base.cloudArm !== undefined && base.pipeline !== "research")) throw new Error("loop_cli_invalid");
+  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): no stage takes a named write bound, and the loop has no dry run, however its input was built.
+  if (base.writeBound !== undefined || base.dryRun !== undefined) throw new Error("loop_cli_invalid");
 }
 
 /** A stop the loop cannot resume past (decision (6)), with what the stopped stage left, for the stop's class. */
@@ -768,7 +772,8 @@ export async function closeLoop(loopDirectory: string, deps: Pick<LoopDependenci
 /** The loop takes the driver's own flags; the per-stage output, repair and seed are the loop's to set. */
 export function parseLoopArguments(args: string[]): LoopInput {
   if (args[0] !== "--select-and-repair" || args.length % 2 !== 1 || args.indexOf("--loop-directory") < 1 || args.indexOf("--loop-directory") % 2 !== 1) throw new Error("loop_cli_invalid");
-  for (const name of ["--output-directory", "--repair-from", "--research-from", "--pause-after-tools"]) if (args.includes(name)) throw new Error("loop_cli_invalid");
+  // E2: no stage takes a named write bound, and the loop has no dry run of its own.
+  for (const name of ["--output-directory", "--repair-from", "--research-from", "--pause-after-tools", "--write-bound", "--dry-run"]) if (args.includes(name)) throw new Error("loop_cli_invalid");
   const at = args.indexOf("--loop-directory"), loopDirectory = args[at + 1]!;
   if (!loopDirectory) throw new Error("loop_cli_invalid");
   const rest = [...args.slice(1, at), ...args.slice(at + 2)];

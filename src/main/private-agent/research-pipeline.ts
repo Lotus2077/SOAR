@@ -609,7 +609,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const questions = new Set(plan.questions.map(q => q.id)), verified: ResearchEvidence["quotes"] = [], conflicts: ResearchEvidence["conflicts"] = [], quoteMap = new Map<string, ResearchEvidence["quotes"][number]>();
   const extractCounts: ResearchStageCounts = { stage: "extract", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0,
     chunksPlanned: inventory.chunks.length, chunksComplete: 0, pairsPlanned: inventory.chunks.length, pairsExtracted: 0, quotesDropped: 0,
-    conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0 };
+    conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0,
+    // Item (ii)'s review: under a card's admission rates both counts exist from the row's creation, so a denied row carries them too.
+    ...(admission ? { secondRepairCalls: 0, secondRepairsComplete: 0 } : {}) };
   /**
    * Owner question 3's corner (BL-20261110-0726): a first attempt that dropped every quote it gave for a question it marked
    * evidence_found is held rather than kept. Held chunks are repaired after every other repair, while the budget lasts; a held
@@ -663,21 +665,28 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   };
   const extractRefused = await fanOut(coverage.chunks, readerStreams, (chunk, signal) => extractLaunch(chunk, false, signal), (chunk, reply) => extractApply(chunk, false, reply));
   if (extractRefused) { settleHeld(false); return denied(extractCounts, extractRefused); }
-  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts: the list is computed once,
-  // after the initial pass has drained, and cut to the slots left.
-  const repairs = [...coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), ...coverage.chunks.filter(c => held.has(c.id))];
-  const extractRepairRefused = await fanOut(repairs.slice(0, Math.max(0, budget.extractionCalls - extractCounts.calls)), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal), (chunk, reply) => extractApply(chunk, true, reply));
-  if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
-  settleHeld(true);
-  // Item (ii) (BL-20261117-1049-research-second-repair-design): under a card's admission rates, every chunk still not complete after its
-  // one repair gets one more, in coverage order, at the second attempt slot (its cap, thinking and response_format), while calls are left
-  // within the budget that admission reserved repair room in. A held chunk that was not repaired kept its first attempt and is complete.
-  if (admission) {
-    extractCounts.secondRepairCalls = 0; extractCounts.secondRepairsComplete = 0;
-    const second = coverage.chunks.filter(c => c.status !== "complete" && c.attempts.length === 2);
-    const secondRefused = await fanOut(second.slice(0, Math.max(0, budget.extractionCalls - extractCounts.calls)), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal),
-      (chunk, reply) => { extractApply(chunk, true, reply); extractCounts.secondRepairCalls!++; if (chunk.status === "complete") extractCounts.secondRepairsComplete!++; });
-    if (secondRefused) return denied(extractCounts, secondRefused);
+  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts: each list is computed once, after
+  // the passes before it have drained, and cut to the slots left.
+  const slots = () => Math.max(0, budget.extractionCalls - extractCounts.calls);
+  const repairPass = (chunks: ResearchCoverage["chunks"], second: boolean) => fanOut(chunks.slice(0, slots()), readerStreams, (chunk, signal) => extractLaunch(chunk, true, signal),
+    (chunk, reply) => { extractApply(chunk, true, reply); if (second) { extractCounts.secondRepairCalls!++; if (chunk.status === "complete") extractCounts.secondRepairsComplete!++; } });
+  const plain = coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), heldChunks = coverage.chunks.filter(c => held.has(c.id));
+  if (!admission) {
+    const extractRepairRefused = await repairPass([...plain, ...heldChunks], false);
+    if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
+    settleHeld(true);
+  } else {
+    // Item (ii) (BL-20261117-1049-research-second-repair-design): under a card's admission rates, a chunk still not complete after its one
+    // repair gets one more, at the second attempt slot (its cap, thinking and response_format), while calls are left. Its review: the
+    // unfinished chunks' second repairs come before the held chunks' repairs, which are optional (a held chunk left unrepaired keeps its
+    // first attempt), and a held chunk whose repair failed gets its second repair last.
+    let refused = await repairPass(plain, false);
+    if (!refused) refused = await repairPass(plain.filter(c => c.status !== "complete" && c.attempts.length === 2), true);
+    if (!refused) refused = await repairPass(heldChunks, false);
+    if (refused) { settleHeld(false); return denied(extractCounts, refused); }
+    settleHeld(true);
+    const heldSecond = await repairPass(heldChunks.filter(c => c.status !== "complete" && c.attempts.length === 2), true);
+    if (heldSecond) return denied(extractCounts, heldSecond);
   }
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
   // 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): the packet keeps a prefix of the trim's priority

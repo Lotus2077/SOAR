@@ -1858,10 +1858,11 @@ describe("item (ii): a second repair for a chunk its one repair left unfinished"
     expect(extractRow(outcome)).toMatchObject({ repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 0 });
   });
 
-  it("sends no second repair without a card's rates: the chunk ends after one repair, the row carries no new key, and the bodies are as before", async () => {
-    const outcome = await run(models(failing(2)));
+  it("sends no second repair without a card's rates: the chunk ends after one repair, and the row carries no new key", async () => {
+    const m = models(failing(2)), outcome = await run(m);
     expect(outcome).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
     expect(attemptsOf(outcome)).toEqual(["invalid", "invalid"]);
+    expect(m.calls.filter(c => c.stage === "extract").length).toBe(inventoryResearchSources(researchV4Sources()).chunks.length + 1);
     expect(extractRow(outcome)).not.toHaveProperty("secondRepairCalls"); expect(extractRow(outcome)).not.toHaveProperty("secondRepairsComplete");
   });
 
@@ -1875,6 +1876,65 @@ describe("item (ii): a second repair for a chunk its one repair left unfinished"
     const tight = await run(models(failing(2)), { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks + researchRepairReserve(chunks) } });
     expect(researchRepairReserve(chunks)).toBe(1);
     expect(tight).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" }); expect(extractRow(tight)).toMatchObject({ repairCalls: 1, secondRepairCalls: 0, secondRepairsComplete: 0 });
+  });
+
+  // Item (ii)'s review: the budget's last call, a denial in either second pass, the order, a held chunk, and the passes' priority.
+  const chunkIds = () => inventoryResearchSources(researchV4Sources()).chunks.map(c => c.id);
+  const invented = "Invented evidence that never occurred in the supplied source.";
+  const scripted = (reply: (chunk: string, attempt: number, input: any, n: number, system: string) => string | Error | undefined) => { const tries = new Map<string, number>();
+    return (stage: Stage, input: any, n: number, system: string) => {
+      if (stage !== "extract") return happy(stage, input, n, system);
+      const attempt = (tries.get(input.chunk.id) ?? 0) + 1; tries.set(input.chunk.id, attempt);
+      return reply(input.chunk.id, attempt, input, n, system) ?? happy(stage, input, n, system);
+    }; };
+  const heldFirst = (input: any, n: number, system: string) => { const r = JSON.parse(happy("extract", input, n, system)); r.quotes[0].quote = invented; return JSON.stringify(r); };
+
+  it("sends a second repair with the budget's last call", async () => {
+    const chunks = chunkIds().length, outcome = await run(models(failing(2)), { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks + 2 } });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(extractRow(outcome)).toMatchObject({ calls: chunks + 2, repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 1 });
+  });
+
+  it("ends the stage on a denied second repair, plain or held, with both counts on the denied row", async () => {
+    const [a] = chunkIds();
+    const plain = await run(models(scripted((chunk, attempt) => chunk !== a ? undefined : attempt <= 2 ? "not json" : new BrokerError("synthetic_destination_private_data_denied"))), { admission: rates });
+    expect(plain).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(extractRow(plain)).toMatchObject({ denied: "synthetic_destination_private_data_denied", repairCalls: 1, secondRepairCalls: 0, secondRepairsComplete: 0 });
+    const held = await run(models(scripted((chunk, attempt, input, n, system) => chunk !== a ? undefined : attempt === 1 ? heldFirst(input, n, system) : attempt === 2 ? "not json"
+      : new BrokerError("synthetic_destination_private_data_denied"))), { admission: rates });
+    expect(held).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(extractRow(held)).toMatchObject({ denied: "synthetic_destination_private_data_denied", repairCalls: 1, secondRepairCalls: 0, secondRepairsComplete: 0 });
+    // A denial before any second repair leaves both counts at zero on the row, not absent.
+    const early = await run(models(scripted((chunk, attempt) => chunk !== a ? undefined : attempt === 1 ? "not json" : new BrokerError("synthetic_destination_private_data_denied"))), { admission: rates });
+    expect(extractRow(early)).toMatchObject({ denied: "synthetic_destination_private_data_denied", repairCalls: 0, secondRepairCalls: 0, secondRepairsComplete: 0 });
+  });
+
+  it("sends second repairs in coverage order, after every first repair", async () => {
+    const ids = chunkIds(), m = models(scripted((_chunk, attempt) => attempt <= 2 ? "not json" : undefined)), outcome = await run(m, { admission: rates });
+    expect(outcome.status).toBe("completed");
+    expect(m.calls.filter(c => c.stage === "extract").map(c => c.input.chunk.id)).toEqual([...ids, ...ids, ...ids]);
+    expect(extractRow(outcome)).toMatchObject({ secondRepairCalls: ids.length, secondRepairsComplete: ids.length });
+  });
+
+  it("gives a held chunk whose repair failed a second repair, after its held attempt is settled", async () => {
+    const [a] = chunkIds(), m = models(scripted((chunk, attempt, input, n, system) => chunk !== a ? undefined : attempt === 1 ? heldFirst(input, n, system) : attempt === 2 ? "not json" : undefined));
+    const outcome = await run(m, { admission: rates });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(attemptsOf(outcome)).toEqual(["invalid", "invalid", "complete"]);
+    expect(extractRow(outcome)).toMatchObject({ repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 1 });
+  });
+
+  it("pays an unfinished chunk's second repair before a held chunk's optional repair, which the held chunk then goes without", async () => {
+    const [a, b] = chunkIds();
+    const reply = (chunk: string, attempt: number, input: any, n: number, system: string) => chunk === a ? (attempt === 1 ? heldFirst(input, n, system) : undefined) : attempt <= 2 ? "not json" : undefined;
+    const carded = models(scripted(reply)), outcome = await run(carded, { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4 } });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(carded.calls.filter(c => c.stage === "extract").map(c => c.input.chunk.id)).toEqual([a, b, b, b]);
+    expect(parsed(outcome, RESEARCH_FILES.coverage).chunks.map((c: any) => c.attempts.map((x: any) => x.status))).toEqual([["complete"], ["invalid", "invalid", "complete"]]);
+    // Without the rates the held chunk's repair comes in the one repair pass, and the unfinished chunk ends after its one repair.
+    const plain = models(scripted(reply)), without = await run(plain, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4 } });
+    expect(plain.calls.filter(c => c.stage === "extract").map(c => c.input.chunk.id)).toEqual([a, b, b, a]);
+    expect(without).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
   });
 
   it("lets a ready packet hold a third attempt only beside an admission record", async () => {

@@ -9,7 +9,7 @@ import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
 import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
 import { DEFAULT_SERVING_POLICY, ServingCardError, servingCardExpectation, servingCardFreeze } from "../../src/main/private-agent/serving-card";
-import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenResearchOption, localScreenSourceFreeze, localScreenStreams, researchPipelineFreeze, runLocalArtifactScreen,
+import { assertLocalScreenSeed, buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenResearchOption, localScreenSourceFreeze, localScreenStreams, researchPipelineFreeze, runLocalArtifactScreen,
   withClaimsLedger } from "../../scripts/private-agent-local-screen";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
@@ -220,6 +220,26 @@ describe("shared harness local role configuration", () => {
       sources: task.phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })), roles: nonDefault() });
     await expect(runLocalArtifactScreen({ ...options, researchFrom: source }, { environment: plainEnvironment, cwd })).rejects.toThrow("research_seed_protocol_mismatch");
     expect(existsSync(options.outputDirectory)).toBe(false);
+  });
+
+  it("item (ii)'s review: a seeded run without a card refuses, before any output exists, a source that read under a serving_card admission basis", async () => {
+    const root = workspace(), cwd = join(root, "empty-cwd"); mkdirSync(cwd);
+    const options = operatorTask(root), task = loadPreparedOperatorTask(options.taskDirectory, { jobSha256: options.expectedJobSha256, briefSha256: options.expectedBriefSha256 });
+    const source = join(root, "source-run"), admission: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+      fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+    await writeResearchSeedSource(source, { taskBinding: task.binding, brief: withClaimsLedger(task.phase, false).contract.goal,
+      sources: task.phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })), admission });
+    await expect(runLocalArtifactScreen({ ...options, researchFrom: source }, { environment: plainEnvironment, cwd })).rejects.toThrow("research_seed_protocol_mismatch");
+    expect(existsSync(options.outputDirectory)).toBe(false);
+    // The driver's check takes the card's basis: a card with a `serving_card` basis seeds from such a source, and from no other.
+    const card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
+    const loaded = (basis: "none" | "serving_card") => { const value = structuredClone(card) as { admission: { basis: string } }; value.admission.basis = basis;
+      const written = writeCard(workspace(), value), paired = config(true); paired.vllm.servingCard = { path: written.path, sha256: written.sha256 }; return buildLocalScreenServingCard(paired)!; };
+    const withAdmission = { pipeline: { admission: { basis: "serving_card" as const, rates: admission } } }, without = { pipeline: {} };
+    expect(() => assertLocalScreenSeed(withAdmission, loaded("serving_card"))).not.toThrow();
+    expect(() => assertLocalScreenSeed(withAdmission, loaded("none"))).toThrow("research_seed_protocol_mismatch");
+    expect(() => assertLocalScreenSeed(without, loaded("serving_card"))).toThrow("research_seed_protocol_mismatch");
+    expect(() => assertLocalScreenSeed(without, undefined)).not.toThrow(); expect(() => assertLocalScreenSeed(undefined, loaded("serving_card"))).not.toThrow();
   });
 
   it("7b.3: a card whose admission basis is serving_card loads through the pair with its evidence's rates, and the research option and freeze.json carry them (BL-20261117-1022-research-card-admission-design)", () => {

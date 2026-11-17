@@ -374,8 +374,12 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const admission = { basis: "serving_card" as const, rates }, base = { files: outcome.files, receipts: rows };
     const seed = loadResearchSeed(sourceRun({ base, freeze: { pipeline: { ...pipeline(), protocolSha256: carded, admission } } }), task);
     expect(seed.pipeline.admission).toEqual(admission);
-    // Admission decides only whether a stage runs, never a packet, so a seeding run compares its role policy alone.
-    expect(() => assertSeedRolePolicy(seed.pipeline, undefined)).not.toThrow();
+    // Since item (ii) the basis also decides a packet (a second repair), so a seeding run must read under its source's basis; the rates are
+    // not compared (BL-20261117-1049-research-second-repair-design, its review).
+    expect(() => assertSeedRolePolicy(seed.pipeline, undefined, true)).not.toThrow();
+    expect(() => assertSeedRolePolicy(seed.pipeline, undefined)).toThrow("research_seed_protocol_mismatch");
+    expect(() => assertSeedRolePolicy({ ...seed.pipeline, admission: undefined }, undefined, true)).toThrow("research_seed_protocol_mismatch");
+    expect(() => assertSeedRolePolicy({ ...seed.pipeline, admission: undefined }, undefined)).not.toThrow();
     // A recorded admission the protocol does not bind, and a protocol that binds one the block does not record, are refused.
     expect(() => loadResearchSeed(sourceRun({ base, freeze: { pipeline: { ...pipeline(), admission } } }), task)).toThrow("research_seed_protocol_mismatch");
     expect(() => loadResearchSeed(sourceRun({ base, freeze: { pipeline: { ...pipeline(), protocolSha256: carded } } }), task)).toThrow("research_seed_protocol_mismatch");

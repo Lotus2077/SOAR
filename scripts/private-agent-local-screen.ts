@@ -25,7 +25,7 @@ import { claimsReportPath } from "../src/main/private-agent/host-flags";
 import { withDocumentReview } from "../src/main/private-agent/document-review";
 import { loadRepairDirectory, repairMatchesRun, repairSeedMatches, withRepair } from "../src/main/private-agent/repair";
 import { DECK_CHECK_VERSION, deckArtifacts, withDeckValidity } from "../src/main/private-agent/ooxml";
-import { assertSeedRolePolicy, loadResearchSeed, seededPipelineFreeze } from "../src/main/private-agent/research-seed";
+import { assertSeedRolePolicy, loadResearchSeed, seededPipelineFreeze, type PipelineFreeze } from "../src/main/private-agent/research-seed";
 import { assertRunDirectoryIgnored, createDiagnosticsFileSink } from "../src/main/private-agent/research-diagnostics";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
@@ -34,6 +34,7 @@ import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX
 import { createResearchInput } from "../src/main/private-agent/research-producer";
 import { researchPresentationPolicySha256, researchPresentationIdentity } from "../src/main/private-agent/research-presentation";
 import { loadServingCard, servingCardExpectation, servingCardFreeze, servingCardRefusal, type LoadedServingCard } from "../src/main/private-agent/serving-card";
+import type { ResearchAdmissionRates } from "../src/main/private-agent/research-admission";
 import { nonDefaultRoleParameters, type ResearchRolePolicy } from "../src/main/private-agent/research-roles";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -250,13 +251,13 @@ export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm" | "s
  * synthesiser are local, and `extras.assist` gives the session item 10's assists.
  */
 export function localScreenResearchOption(broker: PrivateAgentBroker, jobId: string, local: PrivateModelConfig, cloud: PrivateModelConfig | undefined,
-  extras: { diagnostics?: ResearchDiagnosticsSink; roles?: ResearchRolePolicy;
-    /** 10.b (BL-20261117-1131-assist-wiring-design, decision 2): the assist arm's firing, assist model configuration and authored brief. */
+  extras: { diagnostics?: ResearchDiagnosticsSink; roles?: ResearchRolePolicy; admission?: ResearchAdmissionRates;
+    /** 10.b (BL-20261117-1202-assist-wiring-design, decision 2): the assist arm's firing, assist model configuration and authored brief. */
     assist?: { firing: ResearchAssistFiring; modelConfig: PrivateModelConfig; authoredBrief: string } } = {}): NonNullable<GeneralSessionOptions["research"]> {
   const assist = extras.assist;
   return { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, local, jobId, contextId), planner: new PrivateAgentModel(broker, cloud ?? local, jobId, contextId),
     synthesiser: new PrivateAgentModel(broker, cloud ?? local, jobId, contextId) }),
-    ...(extras.diagnostics ? { diagnostics: extras.diagnostics } : {}), ...(extras.roles ? { roles: extras.roles } : {}),
+    ...(extras.diagnostics ? { diagnostics: extras.diagnostics } : {}), ...(extras.roles ? { roles: extras.roles } : {}), ...(extras.admission ? { admission: extras.admission } : {}),
     ...(assist ? { assist: { firing: assist.firing, model: (contextId: string) => new PrivateAgentModel(broker, assist.modelConfig, jobId, contextId), authoredBrief: assist.authoredBrief } } : {}) };
 }
 /**
@@ -264,19 +265,37 @@ export function localScreenResearchOption(broker: PrivateAgentBroker, jobId: str
  * only when it is not the default (7a.2, BL-20261116-1203-research-role-policy-design), so a run without a card records what it did.
  * 10.b: under the assist arm, also under the assist's firing, which the block names with its own digest.
  */
-export function researchPipelineFreeze(planner: "cloud" | "local", roles?: ResearchRolePolicy, assist?: ResearchAssistFiring) {
-  return { name: "research" as const, version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, assist), budget: RESEARCH_PIPELINE_BUDGET,
+export function researchPipelineFreeze(planner: "cloud" | "local", roles?: ResearchRolePolicy, admission?: ResearchAdmissionRates, assist?: ResearchAssistFiring) {
+  return { name: "research" as const, version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, roles, admission !== undefined, assist), budget: RESEARCH_PIPELINE_BUDGET,
     planner, writer: "local" as const, ...(roles && nonDefaultRoleParameters(roles).length ? { roles } : {}),
+    // 7b.3: a card's admission rates under a `serving_card` basis, named only then, beside the protocol that binds their policy.
+    ...(admission ? { admission: { basis: "serving_card" as const, rates: admission } } : {}),
     // 10.b (decision 10): the assist arm's firing and its block's digest; the pipeline hash above binds the same firing.
     ...(assist ? { assist: { version: 1 as const, firing: assist, protocolSha256: researchAssistProtocolSha256(assist) } } : {}) };
 }
 /**
- * 10.b (BL-20261117-1131-assist-wiring-design, decision 2): on the assist arm (`--pipeline research` with the cloud arm), its firing
+ * 10.b (BL-20261117-1202-assist-wiring-design, decision 2): on the assist arm (`--pipeline research` with the cloud arm), its firing
  * (forced_split absent) and the assist model's configuration, the cloud arm's in the assist cache mode; off that arm, none.
  */
 export function localScreenAssistArm(input: { pipeline?: "research"; assistFiring?: ResearchAssistFiring }, cloud: { modelConfig: PrivateModelConfig } | undefined):
   { firing: ResearchAssistFiring; modelConfig: PrivateModelConfig } | undefined {
   return cloud && input.pipeline === "research" ? { firing: input.assistFiring ?? "forced_split", modelConfig: { ...cloud.modelConfig, promptCaching: ASSIST_CACHE_MODE } } : undefined;
+}
+/**
+ * 7a.2 and item (ii)'s review (BL-20261117-1143-research-second-repair-design): a seeded run writes from a packet read under its source's
+ * role policy and admission basis, so both must be this run's (the defaults without a card); refused before anything is created.
+ */
+export function assertLocalScreenSeed(seed: { pipeline: Pick<PipelineFreeze, "roles" | "admission"> } | undefined, servingCard: LoadedServingCard | undefined): void {
+  if (seed) assertSeedRolePolicy(seed.pipeline, servingCard?.policy.roles, servingCard?.policy.admission.basis === "serving_card");
+}
+/**
+ * 7b.3's review (BL-20261117-1131-research-card-admission-design): a card's research values, read once, for both freeze.json's pipeline
+ * block and the session's research option, so the two cannot drift apart; a drift would surface only when the run is later seeded. The
+ * role policy goes to both; the admission rates only under a `serving_card` basis. 10.b: the assist arm's firing goes to the pipeline block.
+ */
+export function localScreenCardResearch(servingCard: LoadedServingCard | undefined, planner: "cloud" | "local", assist?: ResearchAssistFiring) {
+  const roles = servingCard?.policy.roles, admission = servingCard?.policy.admission.basis === "serving_card" ? servingCard.policy.admission.rates : undefined;
+  return { pipeline: researchPipelineFreeze(planner, roles, admission, assist), option: { ...(roles ? { roles } : {}), ...(admission ? { admission } : {}) } };
 }
 /**
  * 8.2b: the session's K, the pair's card's `localStreams`, in every run with a card: the research loops and the claims judge run that
@@ -412,7 +431,7 @@ export interface LocalScreenInput {
   /** H2a: salt the owned server's prefix cache per job (default true); `--cache-salt false` is the unsalted control arm of the isolation probe. */
   cacheSalt?: boolean;
   /**
-   * H2b/H2c: run the host-run research stage before the write phase. With the cloud arm, since 10.b (BL-20261117-1131-assist-wiring-design,
+   * H2b/H2c: run the host-run research stage before the write phase. With the cloud arm, since 10.b (BL-20261117-1202-assist-wiring-design,
    * decision 2), this is the assist arm: the planner and synthesiser are local and the cloud model serves only item 10's T1 and T2.
    * Earlier runs' freezes record the legacy split arm (`planner: "cloud"`) as history.
    */
@@ -497,7 +516,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   // default, the freeze's pipeline block. A seeded run writes from a packet read under a policy, so its source must have read under
   // this run's policy (the default without a card); refused, like the card, before anything is created.
   const roles = servingCard?.policy.roles;
-  if (seed) assertSeedRolePolicy(seed.pipeline, roles);
+  assertLocalScreenSeed(seed, servingCard);
   // 7a.2: a card whose synthesis attempts cannot hold the 100-word floor would be refused inside the session, after the run directory,
   // freeze.json and the database exist; it is refused here instead, like any card refusal. A split-arm synthesiser never reads the policy,
   // and the pipeline keeps its own check (research-pipeline.ts).
@@ -520,10 +539,11 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
       profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}),
-      // 10.b (BL-20261117-1131-assist-wiring-design, decision 10): the assist arm records the effective assist configuration (the assist
+      // 10.b (BL-20261117-1202-assist-wiring-design, decision 10): the assist arm records the effective assist configuration (the assist
       // cache mode) as the arm's model configuration, and its firing in the pipeline block, whose planner is local.
       arm: cloud ? (assist ? { ...cloud.freeze, modelConfig: assist.modelConfig } : cloud.freeze) : { arm: "local" as const },
-      ...(pipeline ? { pipeline: researchPipelineFreeze("local", roles, assist?.firing) } : {}),
+      // 7b.3: the card's roles and, under a `serving_card` admission basis, its rates, from the one helper the research option reads too.
+      ...(pipeline ? { pipeline: localScreenCardResearch(servingCard, "local", assist?.firing).pipeline } : {}),
       ...(run.diagnostics ? { diagnosticsRetained: true } : {}),
       ...(pipeline || seed ? { researchPresentationPolicySha256: researchPresentationPolicySha256() } : {}),
       ...(pipeline && !publicPhase ? { researchInput: createResearchInput(privatePhase.contract.goal,
@@ -628,8 +648,8 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
       trustedHostModelFactory: contextId => new PrivateAgentModel(broker, modelConfig, jobId, contextId),
       ...(cloud ? { cloudArm: { destinationId: cloud.destination.id, maxFeeMicrousd: cloud.maxFeeMicrousd },
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
-      ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, undefined, { ...(diagnostics ? { diagnostics } : {}), ...(roles ? { roles } : {}),
-        ...(assistArm && authoredBrief !== undefined ? { assist: { ...assistArm, authoredBrief } } : {}) }) } : {}),
+      ...(pipeline ? { research: localScreenResearchOption(broker, jobId, localModelConfig, undefined, { ...(diagnostics ? { diagnostics } : {}),
+        ...localScreenCardResearch(servingCard, "local", assistArm?.firing).option, ...(assistArm && authoredBrief !== undefined ? { assist: { ...assistArm, authoredBrief } } : {}) }) } : {}),
       // 8.2b: the card's K reaches the research loops and the claims judge, with or without a pipeline; freeze.json records it (servingCardFreeze).
       ...localScreenStreams(servingCard),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },

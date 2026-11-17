@@ -215,7 +215,7 @@ export function frozen<T>(value: T): T {
 }
 
 /**
- * 10.b (BL-20261117-1131-assist-wiring-design, decision 7): the attempt record the real wrapper attaches to each outcome, for a fake
+ * 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the attempt record the real wrapper attaches to each outcome, for a fake
  * hook. A reply settled with no fee and a reported zero write; a skip or failure was dispatched, a refusal or stop was not. An
  * outcome that carries a record already, or that is not an outcome of a known kind, is returned as it is.
  */

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
@@ -18,7 +19,7 @@ import { researchV4Reply } from "./research-v4-fixture";
  * `roles` (absent: the default policy), with fixture receipts. The same shapes as the seed test's own source runs.
  */
 export async function writeResearchSeedSource(directory: string, input: { taskBinding: { jobSha256: string; briefSha256: string }; brief: string;
-  sources: { id: string; path: string; bytes: Buffer }[]; roles?: ResearchRolePolicy; jobId?: string }): Promise<void> {
+  sources: { id: string; path: string; bytes: Buffer }[]; roles?: ResearchRolePolicy; jobId?: string; admission?: ResearchAdmissionRates }): Promise<void> {
   const jobId = input.jobId ?? "seed-source", contextId = "reader", h = (n: string) => n.repeat(64), receipts: Record<string, unknown>[] = [];
   const request = async (call: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
     const body = JSON.parse(call.body) as { messages: { content: string }[] }, content = researchV4Reply(body.messages[0]!.content, body.messages[1]!.content);
@@ -31,13 +32,13 @@ export async function writeResearchSeedSource(directory: string, input: { taskBi
   const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium",
     inputUsdPerMillion: 0, outputUsdPerMillion: 0 }, jobId, contextId);
   const outcome = await runResearchPipeline({ brief: input.brief, sources: input.sources, models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal,
-    record() {}, ...(input.roles ? { roles: input.roles } : {}) });
+    record() {}, ...(input.roles ? { roles: input.roles } : {}), ...(input.admission ? { admission: input.admission } : {}) });
   if (outcome.status !== "completed") throw new Error(`research_seed_source_${outcome.reason}`);
   const researchInput = createResearchInput(input.brief, input.sources), rolesSet = input.roles !== undefined && nonDefaultRoleParameters(input.roles).length > 0;
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "freeze.json"), `${canonical({ version: 1, jobId, taskBinding: input.taskBinding, deployment: "synthetic_only_unverified_for_private_data",
-    pipeline: { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, input.roles), budget: { ...RESEARCH_PIPELINE_BUDGET },
-      planner: "local", writer: "local", ...(rolesSet ? { roles: input.roles } : {}) },
+    pipeline: { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, input.roles, input.admission !== undefined), budget: { ...RESEARCH_PIPELINE_BUDGET },
+      planner: "local", writer: "local", ...(rolesSet ? { roles: input.roles } : {}), ...(input.admission ? { admission: { basis: "serving_card", rates: input.admission } } : {}) },
     researchInput, researchProducerKind: "session", startedAt: new Date(1).toISOString() })}\n`);
   const producer = createResearchProducer({ kind: "session", jobId, contextId, brief: input.brief, sources: input.sources, files: outcome.files, receipts });
   const db = new Database(join(directory, "state.sqlite")), store = new PrivateAgentStore(db);

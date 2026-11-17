@@ -50386,7 +50386,1065 @@ Next gate: The re-probe under E0's Amendment 5, at a commit that contains #142. 
 
 References: docs/experiments/e6-card-2026-11-17.md; docs/experiments/e2-card-2026-11-17.md; docs/experiments/e0-card-2026-11-13.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1357-e0-verified; pull requests #135, #137, #138, #139, #140 and #142.
 
-### BL-20261117-1131-assist-wiring-design -- 2026-11-17 -- Item 10's PR 10.b decided: the assist wrapper wired into the reading stage through 7(c)'s hook, with its stage record, its protocol binding, the session's and driver's plumbing, and the legacy split arm switched to the forced split
+### BL-20261117-1131-research-card-admission-design -- 2026-11-17 -- Item 7b.3 designed: under a card whose admission basis is `serving_card`, the reading stage reserves repair calls, estimates its time from the card's measured rates and refuses before any request only when even the expected estimate exceeds its share of the session clock
+
+Status: `Proposed`
+
+Scope or hypothesis: Topic 5 of BL-20261117-0940-owner-direction-decisions-delegated: "The incomplete-chunk rule stays. 7b.3 is built, and the rule is then re-measured." The coordinating session queued 7b.3 to lane S-pipe. It builds the last part of backlog item 7(b) that the earlier parts left: the card-derived ceilings, the reserved repair budget and the feasibility estimate (findings S1, D3 and D8's ceilings; research-admission.ts names them as part 3).
+- **What reaches 7b.3 today.** The card's `admission` field is `{basis: "none" | "serving_card"}`. The reader refuses `serving_card` with `serving_card_parameter_unconsumed`, since `SERVING_CARD_CONSUMED.admission` is false. Nothing reads the card's measured rates downstream: `LoadedServingCard.evidence` stays with the driver.
+- **What 7b.3 cannot change, decided before this design** (the coordinating session's decision, after lane S-pipe's finding of 2026-11-17).
+  - r3 has 24 chunks against 40 extraction calls, so 16 calls are left for repairs. Each unfinished chunk gets exactly one repair (research-pipeline.ts, the `repairs` list).
+  - E0's runs 1 to 4 ended `research_extraction_incomplete` on chunks whose one repair failed, never on a repair cut by the budget. Run 1 used 10 repairs, and runs 2 to 4's dispatch counts allow at most 13 each.
+  - So the reserve below fits inside r3's spare calls, and an r3 run shows only the new admission record.
+  - A second repair paid from the reserve is a separate item, designed after this one's implementation pull request.
+
+Decisions:
+(1) **Two paths.**
+- **Without a card, or under a card whose admission basis is `none`:** admission is exactly today's, and every request, summary, coverage file and hash is byte-identical. Batches must fit `indexCalls` and chunks `extractionCalls`, or the run ends `research_mandatory_budget_exceeded`. Repairs take whatever calls are left.
+- **Under a card whose basis is `serving_card`:** decisions (2) to (7) apply.
+- The summary records admission only on the second path, so a run without a card writes the summary it writes today. This departs from the lane plan's `summary.admission {basis: none}`, to keep that path byte-identical.
+
+(2) **The reserved repair budget** (D3). The run needs room for at least max(1, ceil(chunks / 4)) repair calls inside `extractionCalls`.
+- **The rule.** Chunks plus that reserve must not exceed `extractionCalls`, or the run ends `research_mandatory_budget_exceeded` before any request. With the budget's 40, that admits at most 32 chunks, against 40 today.
+- **What it does not change.** Repairs are allocated as today: every chunk that is not complete, then the held chunks, in order, while calls are left. The reserve is a floor on the spare calls that admission guarantees, not a new allocation. A corpus of 32 chunks or fewer already has at least that many spare calls, so for it the reserve changes nothing.
+- **The card-derived ceilings** are the budget's own, tightened by the reserve. They stay at or below today's 24 batches and 40 chunks (D8: raising them needs item 12's web request pool). The clock enters through decision (4), not as a separate ceiling, so one rule decides it.
+
+(3) **The rates, read from the card by the reader.** Consumers read only the resolved policy (SC's final contract, guard R10). So `ServingPolicy.admission` becomes `{basis: "none"}` or `{basis: "serving_card", rates}`. The reader derives the rates from the card's evidence, and the card's JSON is unchanged.
+- **Prefill and decode,** tokens per second: the fastest and the slowest of P11's measured sizes whose run succeeded (`prefillTokS`, `decodeTokS`; thinking off).
+- **Fan-out decode,** the rate the index and extraction loops decode at: the single-stream rate at K 1, and at K above 1 the aggregate of P11's burst at that K (`kStreams[K].aggregateTokS`), which 8.2b already requires to exist without errors.
+- **Expected output per call:** P10's mean completion tokens for plan, extract and synthesis, from the cell of the thinking mode the role's first attempt uses under the card's roles. Index has no P10 cell, so its expected output is not counted.
+- **The card's sha256,** so the record names the card the rates came from.
+- **A new refusal.** The reader refuses a `serving_card` basis whose card lacks any of these with `serving_card_admission_unmeasured` at `admission.basis`. A card that asks for card-derived admission must carry what it needs.
+
+(4) **The feasibility estimate,** computed before any request from what is known then:
+- the preview bytes of each index batch;
+- the text bytes of each chunk;
+- the counts of batches, chunks and the reserve;
+- the role policy's caps.
+
+Bytes become tokens at `bytesPerToken` 4. The two estimates:
+- **Expected (the one decision (5) reads).** Each batch's preview tokens and each chunk's text tokens, prefilled once at the fastest prefill rate. Plus each chunk's expected extraction output at the fastest fan-out rate, and one plan and one synthesis call's expected output at the fastest single-stream rate.
+  - It leaves out what is not known before the first request, such as the plan packet each extraction call repeats and the index summaries the plan carries. It also leaves out index output and every repair.
+  - So it is a lower bound in intent.
+- **Cap-bound (disclosed, never decides).** Every call the budget allows for the work (at most two per batch and per chunk, within `indexCalls` and `extractionCalls`, plus the planner's and the synthesiser's calls). Each is prefilled at the slowest rate and decodes its role's larger attempt cap at the slowest rate.
+- **Why these bounds.** The card's rates come from one-shot runs on a shared server, and its writer calls them "orders of magnitude". A refusal should need even the optimistic estimate to fail.
+
+(5) **Value 1, for the coordinating session to decide here: the refusal rule.**
+- **Proposed:** refuse with `research_infeasible_in_clock`, before any request, only when the expected estimate exceeds the stage's share of the session clock (decision (6)). Otherwise admit, and disclose both estimates.
+- Without a session deadline, which seeded runs and direct pipeline calls do not set, there is no share and never a refusal.
+- **What it guards in practice.** For r3, the expected estimate is a few minutes against a share of about 45 minutes. For a 32-chunk corpus of 64 KiB chunks, about 5 minutes. So the refusal fires on a stage started late in its session, a resume with little clock left, not on corpus size.
+
+(6) **Value 2, for the coordinating session to decide here: the stage's share of the session clock.**
+- **Proposed:** one half of the session's remaining clock at admission, `deadlineMs` less the moment of admission. The other half is left for the writer and the claims check.
+- This holds until E2, or a card, gives the Heavy writer a measured budget. E2's card bounds writer-2, not the Heavy writer.
+- Today nothing reserves the writer's time, and the reading stage may use the whole remaining clock.
+
+(7) **The record and the bindings.**
+- **summary.json** gains `admission`, on the second path only:
+  - `basis` and `policy` (`RESEARCH_ADMISSION_POLICY`);
+  - `cardSha256`;
+  - `work`: batches, chunks, the reserve and `extractionCalls`;
+  - `estimate`: expected seconds, cap-bound seconds and share seconds, the last null without a deadline;
+  - `decision`: `admitted`, `refused_reserve` or `refused_clock`.
+  On a refusal the run ends before any request with that record. No stage row is added, and `DOCUMENTED_STAGE_KEYS` is unchanged.
+- **The research protocol hash** binds `RESEARCH_ADMISSION_POLICY` on the second path only: the version, the reserve rule, the share, the token rule and the refusal rule. So the default hash stays 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. A card's rates are not protocol: they enter the session identity and the records.
+- **The session identity** binds the rates, spread only when set. A resume under another card's rates ends `session_contract_drift`.
+- **freeze.json's pipeline block** records the protocol under the policy and `admission: {basis, rates}`, spread only when set.
+- **`SERVING_CARD_CONSUMED.admission`** becomes true. The reader's tests that expected `admission` to be unconsumed are updated to the new refusal and resolution.
+
+(8) **Failed calls stay as they are.** A denied or failed call still ends the stage, so item 1's failed-counted producer rule stays unreachable for packets. The lane plan's regression, that a `request_failed` extraction call ends the stage `research_request_denied` with no packet, is added if no test holds it already.
+
+(9) **What 7b.3 shows, for the card amendment that registers its measurement.**
+- **An r3 run** under a card with basis `serving_card` shows the admission record only: a reserve of 6, an expected estimate of minutes and a share near 45 minutes, so the decision is `admitted`. No change to the incomplete-chunk rule is expected from 7b.3.
+- **The extractor fixture** never passes through admission.
+- **The rule's re-measurement on r3** runs under the adopted card and measures its extract flag (the coordinating session's decision).
+
+(10) **What is left out:**
+- a context check against P1's limit, which the token admission and the model layer guard per request;
+- reserving index repairs;
+- clock-derived call ceilings apart from decision (4);
+- anything for web-scale corpora, which item 12 owns.
+
+Changes: This entry only. The implementation follows in its own pull request, with:
+- src/main/private-agent/research-admission.ts (the policy, the reserve, the estimate and the decision);
+- research-pipeline.ts (the input, the checks, the summary record and the hash);
+- serving-card.ts and serving-card-flags.ts (the rates, the refusal and the flag);
+- session.ts (the option and the identity);
+- scripts/private-agent-local-screen.ts (the option and freeze.json);
+- docs/experiments/README.md;
+- the tests.
+
+Evidence: None yet; this is a design.
+- The r3 figures are from docs/experiments/e0-planner-fixture-v1.json (24 sources, 24 chunks, `extractionCallBudget` 40) and from the E0 rows of docs/experiments/registry.jsonl (46, 43, 47 and 39 dispatches, run 1 "after 10 repairs").
+- The rates are those of docs/experiments/serving-card-2026-11-16.json:
+  - P11 prefill 3,473.6 to 3,576.2 tokens per second, and decode 81.78 to 98.31;
+  - P10 means of 2,426.6 (plan, thinking on), 199.9 (extract, thinking off) and 2,811.3 (synthesis, thinking on) completion tokens.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **The estimate is coarse.** The rates are one-shot measurements, and the token count is a fixed 4 bytes per token.
+- **P10's means are of synthetic replies that carry `response_format`.** An unflagged role's replies may run longer or shorter.
+- **The refusal protects the clock, not quality.** It says nothing about whether the corpus's evidence can be extracted.
+
+Paid exposure: None.
+
+Next gate:
+- the coordinating session's decision of values 1 and 2, recorded in its next entry or here as a Correction;
+- the implementation, its `Implemented` entry and one light review;
+- CI and the merge;
+- then item (ii)'s `Proposed` design entry.
+
+References:
+- BL-20261117-0940-owner-direction-decisions-delegated (topic 5);
+- BL-20261109-0334-research-request-shapes-design (7b.1's admission module);
+- BL-20261115-1939-research-priority-trim-design (7b.2's incomplete-chunk rule);
+- BL-20261116-1213-local-fanout-design (8.2b's K);
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261116-1546-e0-structured-fixtures-result;
+- docs/PROJECT_REVIEW_2026-11-05.md, findings D3 and D8 and stage S1.
+
+### BL-20261117-1132-research-card-admission-implemented -- 2026-11-17 -- Item 7b.3 implemented: under a card whose admission basis is `serving_card`, the reading stage keeps room for repairs and is refused before any request only when its expected time exceeds half the session's remaining clock; the two values are decided
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1131-research-card-admission-design, implemented, with the two values the coordinating session decided and the departures below.
+
+Decisions:
+(1) **The two values are decided.** The coordinating session decided both under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, as proposed in decisions (5) and (6) of the design. The coordinating session carries the same decision in its own next entry.
+- **Value 1, the refusal rule.** Refuse with `research_infeasible_in_clock`, before any request, only when the expected (lower-bound) estimate exceeds the stage's share. Otherwise admit, and disclose both estimates. Never refuse without a session deadline.
+- **Value 2, the share:** half of the session's remaining clock at admission.
+- **The condition on value 2, in one plain sentence:** the share is used only in the admission test, and an admitted reading stage may still use the whole remaining clock, as before.
+
+(2) **As designed.**
+- research-admission.ts: `RESEARCH_ADMISSION_POLICY`, `ResearchAdmissionRatesSchema`, `researchRepairReserve` and `researchCardAdmission`.
+- research-pipeline.ts:
+  - the input `admission`;
+  - the checks before any request, after the readable-source check;
+  - summary.json's `admission`;
+  - `researchProtocolSha256`'s third argument, which binds the policy only when set.
+- serving-card.ts:
+  - `ServingPolicy.admission` is `{basis: "none"}` or `{basis: "serving_card", rates}`;
+  - `servingCardAdmissionRates` derives the rates;
+  - the new code `serving_card_admission_unmeasured`.
+  - The fail-closed step still compares the basis alone with the defaults, so under mocked flags an unconsumed basis is refused as before.
+- serving-card-flags.ts: `admission` is true.
+- session.ts: the option, which the identity binds and passes to the pipeline.
+- scripts/private-agent-local-screen.ts: the card's rates reach the research option, and freeze.json's pipeline block, only under a `serving_card` basis.
+
+(3) **Departures from the design, each smaller than it:**
+- **The decision values** are `admitted`, `refused_budget` and `refused_clock`, not `refused_reserve`. The budget's own check and the reserve end the run with one reason, and the record's `work` shows which bound it.
+- **The rates carry no card sha256.** freeze.json's `servingCard` block already names the card, and the reader derives the rates without the file's digest. The summary's record carries the rates themselves.
+- **The ready-packet gate** (research-coverage.ts) parses summary.json strictly. It now accepts an `admission` record, and only an admitted one. A refused run never makes a packet.
+- **The seed loader's** `PipelineFreezeSchema` accepts the block's `admission` and recomputes the source's protocol with it. Admission decides only whether a stage runs, never a packet, so a seeding run still compares its role policy alone.
+- **A rates object the schema refuses** ends the run `research_admission_invalid` before any request.
+
+(4) **What 7b.3 shows** (the coordinating session's decision; decision (9) of the design).
+- An r3 run under a card with basis `serving_card` shows the admission record only. No change to the incomplete-chunk rule is expected from 7b.3.
+- The extractor fixture never passes through admission.
+- The rule's re-measurement on r3 runs under the adopted card and measures its extract flag.
+
+Changes:
+- src/main/private-agent: research-admission.ts, research-pipeline.ts, research-coverage.ts, research-seed.ts, serving-card.ts, serving-card-flags.ts and session.ts.
+- scripts/private-agent-local-screen.ts.
+- docs/experiments/README.md: the admission bullet, replacing "refused until 7(b)".
+- Tests:
+  - tests/unit/private-agent-research-admission.test.ts: the policy pin; the reserve; the estimate, worked by hand; the clock's boundaries; the rates schema.
+  - tests/unit/private-agent-research-pipeline.test.ts:
+    - no record and the pinned hash without rates;
+    - an admitted run whose index, plan and extraction bodies equal the run without rates;
+    - the clock refusal and the budget refusal with zero requests;
+    - invalid rates;
+    - the gate's refusal of a refused or malformed record;
+    - the hash's four distinct values.
+  - tests/unit/serving-card-reader.test.ts:
+    - five `serving_card_admission_unmeasured` cases;
+    - the rates at K 4, with a first attempt that thinks;
+    - the flags pin;
+    - the code count, 17.
+  - tests/unit/private-agent-research-session.test.ts: the identity's drift on other rates or none, and the stage's record read from the transfer.
+  - tests/unit/private-agent-research-seed.test.ts: a seed under admission, and two refusals.
+  - tests/unit/private-agent-local-role-config.test.ts: a card loaded through the pair with its rates, the research option and the freeze block.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **Without a card's rates nothing changes.**
+  - The pipeline's summary has no `admission` key, and its protocol is the pinned 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5.
+  - Every earlier test passes unchanged, except the reader's admission expectations of decision (2).
+- **With rates, a run is admitted.**
+  - Its index, plan and extraction request bodies equal those of the same run without rates.
+  - Its record's work and estimates equal `researchCardAdmission` on the same corpus.
+  - Its share lies between 1,790 and 1,800 s under an hour's deadline.
+- **The refusals:**
+  - on the clock, with a 1 s deadline;
+  - on the budget, with extraction calls equal to the chunks;
+  - and on rates the schema refuses.
+  Each ends before any request: the fixture broker's request is never called.
+- **The estimate, worked by hand,** for two batches and three chunks: 43.0 s expected and 885.7 s cap-bound.
+  - Admitted when the share equals the estimate, and refused 0.1 s below it.
+  - Never refused without a deadline.
+- **The reader:**
+  - rates at K 1 and at K 4, from P11's sizes and burst and P10's means in each role's first-attempt mode;
+  - five `serving_card_admission_unmeasured` cases.
+- **The session:**
+  - the identity drifts on other rates, and on none;
+  - the transfer's summary.json records an admitted record against a share of the session's clock.
+- **The seed:** a source under admission seeds, and the loader refuses a block and a protocol that disagree.
+- **The driver:** a card with the basis loads through the pair with its rates, and the freeze block and the research option carry them.
+- **Mutants:** twenty-five single edits, of which 22 fail a test. The three that survive:
+  - M25, removing the reader's own check for a missing burst rate, is equivalent: the rates schema refuses the same card with the same code at the same path.
+  - M22 and M23 drop the rates at the driver's two call sites in `runLocalArtifactScreen`. Only the Docker-gated suite, tests/integration/private-agent-runtime.test.ts, runs that function past its refusals, and it was not run.
+- **Hashes.**
+  - `researchProtocolSha256()` is 7100b7a2…, pinned and unchanged.
+  - Under the admission policy with the default roles it is 865b82c07844d9603fcf51f0cf8d7110aced0c41acc82f71c3c456023dd9b196. Nothing pins it.
+- **The source freeze** moves on this head from 19beba427465d4537ca62350f6f0e52fbd43ebcf7f2da86fd91cb7d8f474aa48 (`main` b359613, and #136's head) to a34f6cd74ff3967414d1baf6ea49266ab6a806f9b8a688707bf0e76e8c6b4ff2.
+- **Checks at this head,** which merges #136's head 73c7f14:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass;
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly;
+  - the six changed test files pass: 362 tests;
+  - the full suite:
+    - 191 files passed and 13 skipped; 3,891 tests passed and 86 skipped.
+    - Two failed, both by timing out at 5 s: one in tests/unit/inspect-git-changes.test.ts and one in tests/unit/private-agent-sandbox-capture.test.ts. Neither file is changed here, and both pass alone (46 tests passed, 1 skipped).
+    - An earlier run, on e6384da's tree before the merge of #136's head, timed out once the same way in tests/unit/patch-routing-comparison.test.ts. That file passes alone (63 tests).
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called, and no card with a `serving_card` basis has been adopted.
+- The limits of the design stand:
+  - the estimate is coarse;
+  - P10's means are of synthetic replies that carry the format;
+  - the refusal protects the clock, not quality.
+- **A split arm's cloud planner and synthesiser** are estimated at the card's local rates. The card measures no cloud route.
+- **The driver's two call sites** hand the card's rates to freeze.json and to the research option. They are held by typecheck and by the tests of the helpers they call, not by a run, so mutants M22 and M23 survive them.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review of this pull request, CI, and the coordinating session's merge after #136;
+- then item (ii)'s `Proposed` design entry;
+- the r3 re-measurement under the adopted card.
+
+References:
+- BL-20261117-1131-research-card-admission-design;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261116-1213-local-fanout-design;
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261115-1939-research-priority-trim-design.
+
+### BL-20261117-1142-correction-research-card-admission-review-restamp -- 2026-11-17 -- Correction to BL-20261117-1132-research-card-admission-implemented: 7b.3's light review (three minors fixed, the nits recorded) and the re-stamp of its two entries after the chain's tail
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session's one reviewer read pull request #137 at 7722ba1 and found no blocker or major issue: three minor findings and four nits. This entry records the fixes. It also records the re-stamp of the PR's two entries after the tail of the merge chain, which is #146's entry. Both entries stay as written. Where this entry differs from them, this entry governs.
+
+Decisions:
+(1) **Minor 1: a refused admission's record now reaches disk.**
+- **Before.** The session keeps no summary of an incomplete stage, and a refused stage writes no file and no stage row. So the record behind `research_infeasible_in_clock` or `research_mandatory_budget_exceeded` (the work, both estimates, the share and the decision) reached disk only for a direct pipeline caller. BL-20261117-1132-research-card-admission-implemented decision (3) said "the record's `work` shows which bound it", and that held for such callers alone.
+- **Now.** On a non-admitted decision the session appends `research_admission`, with its `contextId` and the record, to the run's events.
+- An admitted run writes no such event: its record is in its summary.json.
+- Readers that filter events by type (scripts/registry-row.py, selection.ts, the seed loader) ignore it. A refused run makes no packet, so it is never seeded.
+
+(2) **Minor 2: the fan-out floor, and the word "expected".**
+- **The fan-out floor.** At K above 1, `fanOutDecodeTokensPerSecond.fastest` is now the larger of the K burst's aggregate and single-stream decode, and `slowest` the smaller.
+  - Before, a burst slower than one stream gave the expected estimate the slower rate. The committed card's K 1 burst is 84.51 tokens a second, against 98.31 for single-stream decode.
+  - So a one-chunk corpus would have been refused with less than about 119 s left, and an r3-shaped one with less than about 6 minutes.
+- **The wording.** BL-20261117-1131-research-card-admission-design and BL-20261117-1132-research-card-admission-implemented call the estimate "a lower bound in intent", and this entry supersedes that. The code's comments and the README now call it "expected".
+  - It uses the fastest measured rates and P10's mean outputs, and it leaves out what is not known before the first request.
+  - So it tends to fall below the run's time, but it is not a bound.
+- **Value 1 stands.** The coordinating session's decision on the refusal rule holds with that wording: refuse only when the expected estimate exceeds the share.
+
+(3) **Minor 3: one helper for the driver's two call sites.**
+- `localScreenCardResearch(servingCard, planner)` builds freeze.json's pipeline block and the research option's card values together, and both call sites read it. The block is built inside #140's `fixedFreeze`.
+- A unit test pins that both carry the same roles and rates, and that the block's protocol hash is the one computed under them.
+- This kills BL-20261117-1132-research-card-admission-implemented's two surviving driver mutants, M22 and M23, without Docker.
+
+(4) **The nits:**
+- **No call ceiling is derived from the card.** The ceilings are the budget's, less the reserve, and the rates enter only the clock test. BL-20261117-1131-research-card-admission-design's "card-derived ceilings" names that budget less the reserve. The README now says so.
+- **Both new reasons classify as `task`.** `research_infeasible_in_clock` and `research_admission_invalid` are task causes in scripts/registry-row.py's run classes, since neither is listed among the infrastructure reasons. This is stated here before E3 freezes those lists.
+- **"Failures or blockers: None" in BL-20261117-1132-research-card-admission-implemented stands for the change.** The two full-suite timeouts in its Evidence were in files the change does not touch, and both passed alone. They are not blockers.
+
+(5) **The re-stamp,** under BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates.
+- **The design entry** was authored at 10:22 UTC on 2026-11-17 as 1022 (commit ed320e6). It is now BL-20261117-1131-research-card-admission-design.
+- **The implemented entry** was authored at 10:48 UTC on 2026-11-17 as 1048 (commit 7722ba1). It is now BL-20261117-1132-research-card-admission-implemented.
+- **Only headings and references change.** There are 4 in the two entries, the headings included, and 19 in 15 files outside the log: eight freeze-covered files (seven under src/main/private-agent, and scripts/private-agent-local-screen.ts), the README, and six test files. The bodies keep what they state as written.
+- **The source freeze moves with the references,** because the design entry's ID is cited in freeze-covered source files. At this head it is 5974b2e9d9e28b5900c3593ea6ece602bd335bd6b17773275b049147bb908783. BL-20261117-1132-research-card-admission-implemented's a34f6cd74ff3967414d1baf6ea49266ab6a806f9b8a688707bf0e76e8c6b4ff2 was its value at 7722ba1.
+
+(6) **The merge.** This head merges #146's head 623d87f540a3736b3bbc0be88637f3eea2e983a6, the coordinating session's decisions entry. That head holds #135's head f590881, #143's head and `main` e8b3aa7, and #143 has since merged as 25910c9.
+- **The log** is #146's head's, then the two re-stamped entries, then this entry.
+- **The driver** takes #140's `fixedFreeze`, with the pipeline block read from the helper of decision (3).
+
+(7) **The coordinating session's entry.** BL-20261117-1132-research-card-admission-implemented decision (1) said the coordinating session would carry the two values in its own next entry. That entry is BL-20261117-1130-lane-decisions-second-repair-before-reprobe: its decision 2 holds 7b.3's two values. This head is chained on its pull request.
+
+Changes:
+- src/main/private-agent/session.ts: decision (1).
+- src/main/private-agent/serving-card.ts: decision (2).
+- src/main/private-agent/research-admission.ts: decision (2)'s wording.
+- scripts/private-agent-local-screen.ts: decision (3) and the merge.
+- docs/experiments/README.md: decisions (2) and (4).
+- Tests:
+  - tests/unit/private-agent-research-session.test.ts: refusals on the budget and on the clock write the event, and an admitted run writes none.
+  - tests/unit/serving-card-reader.test.ts: the fan-out floor.
+  - tests/unit/private-agent-local-role-config.test.ts: the helper.
+- The references of decision (5).
+- docs/BUILD_LOG.md: decision (5) and this entry.
+
+Evidence:
+- **Tests.** The changed test files, with #140's tests/unit/local-screen-write-bound.test.ts, pass: 368 tests in 7 files. Among them:
+  - in a session, a refusal on the budget and one on the clock each write the event, and an admitted run writes none;
+  - the reader's fan-out floor, with a burst at 10 tokens a second;
+  - the helper's freeze block and option agree under both planners, without a card, and under the basis `none`.
+- **Mutants.** Four single edits each fail a test:
+  - the helper's freeze block dropping the rates, and its option dropping them (the counterparts of BL-20261117-1132-research-card-admission-implemented's M22 and M23);
+  - the session writing no refusal event;
+  - the fan-out floor dropped.
+- **The re-stamp.** With the IDs mapped back, the two bodies equal the branch's entries at 7722ba1 byte for byte, and no old full ID remains in the tree.
+- **Hashes.** The default `researchProtocolSha256()` is 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. Under the admission policy with the default roles it is 865b82c07844d9603fcf51f0cf8d7110aced0c41acc82f71c3c456023dd9b196. Both are unchanged. The source freeze is decision (5)'s.
+- **Checks at this head:**
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+  - The full suite: 195 files passed and 14 skipped; 3,919 tests passed and 88 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **An admitted run that ends incomplete keeps no admission record.** The session drops an incomplete stage's summary, and the event is written only for a refusal.
+- `Implemented`, not `Verified`. No model was called.
+
+Paid exposure: None.
+
+Next gate: CI on this head, and the coordinating session's merge in the chain's order: #135, #144, #145, #146, this PR, #139, #142, then #141.
+
+References:
+- BL-20261117-1131-research-card-admission-design;
+- BL-20261117-1132-research-card-admission-implemented;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261117-1130-lane-decisions-second-repair-before-reprobe.
+
+### BL-20261117-1143-research-second-repair-design -- 2026-11-17 -- Item (ii) designed for a decision: under a card's `serving_card` admission basis, a chunk still unfinished after its one repair gets a second repair from the calls admission reserved; it moves the default protocol hash, so the adopted card would need a full re-probe
+
+Status: `Proposed`
+
+Scope or hypothesis: The coordinating session asked for this design after 7b.3's implementation pull request was up (its decision after lane S-pipe's finding of 2026-11-17).
+- **Why.** E0's r3 runs 1 to 4 ended `research_extraction_incomplete` on chunks whose one repair failed, never on a repair cut by the budget. 7b.3's reserve (BL-20261117-1131-research-card-admission-design) cannot move that. A second repair is the budget-side lever that can.
+- **The rule for building it** is the coordinating session's: it is built only if the r3 re-measurement under the adopted card still ends runs on chunks whose one repair failed.
+- **The hypothesis, for that re-measurement to decide:** a second repair completes some of the chunks a first repair leaves unfinished.
+
+Decisions:
+(1) **When.** Only under a card whose admission basis is `serving_card`, the basis whose reserve guarantees the calls. Without it, a chunk gets one repair, as today.
+
+(2) **What.**
+- **Who gets one.** After the first repair pass, every chunk that is still not complete gets one more repair, while extraction calls are left: invalid, truncated or needing follow-up. Chunks go in coverage order, at the stage's K.
+- **Held chunks** get none. A held chunk that was not repaired keeps its first attempt, as today.
+- **Its payload** is the repair payload the pipeline builds today, with the second attempt's state as its `repairReason`.
+- **Its cap, thinking and `response_format`** are the card's second attempt slot's. For extraction, "attempt 2" in the role policy then means every repair. The card's schema keeps its two slots.
+- **P10's binding** already covers it: the reader checks each flagged mode's cap, and the second repair uses the same cap and mode as the first.
+
+(3) **The contracts that change.** Each is a persisted contract or a frozen file, so each needs this entry's approval before code.
+- **coverage.json.** A chunk's `attempts` may hold 3, up from 2 (`ResearchCoverageSchema`). `schemaVersions.coverage` goes from 3 to 4.
+  - The ready-packet gate's counts already hold for three attempts. They are sums over the attempts: the extract row's calls, invalid replies and truncated replies (research-coverage.ts).
+  - The gate also accepts a third attempt only when summary.json's admission record is present.
+- **The extract stage row** gains `secondRepairCalls`, and `repairCalls` keeps counting every repair. `DOCUMENTED_STAGE_KEYS` is extended. scripts/registry-row.py reads only `calls`, usage and `truncatedReplies`, so the rows are unchanged.
+- **`RESEARCH_ADMISSION_POLICY`** goes to version 2, with `repairsPerChunk: 2`. It is bound only under the basis, as now.
+
+(4) **The default protocol hash moves.** This is the main cost, and it does not depend on a card.
+- `researchProtocolSha256()` binds the JSON schema of `ResearchCoverageSchema` and `schemaVersions`. Allowing a third attempt changes both for every run, with or without a card.
+- So the default hash moves from 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 to a new value, re-pinned in tests/helpers/research-protocol-pin.ts.
+- **The consequences.** The serving card adopted after #136's re-probe binds its P10 evidence to the old hash, and the reader would then refuse its flags with `serving_card_p10_protocol_drift`. Building (ii) therefore means another full re-probe (P1, P10, P11 and the adapter) and another adoption. Every earlier run directory also becomes unseedable, as after any protocol change.
+- **Sequencing.** If (ii) is built, it should merge before a re-probe, not after one.
+- No design that records a third attempt in coverage.json avoids this. A second repair that replaces the first in the record would hide a settled call from the producer's binding.
+
+(5) **An alternative with no protocol change.**
+- If the r3 re-measurement's unfinished chunks are mostly truncations, the card can give extraction's second attempt a larger cap. 7a.2 already reads per-attempt caps.
+- The flagged extract mode needs a P10 cell at that cap, as topic 6 needed for plan. That is an export option like `--plan-cap` (BL-20261117-1000-p10-plan-cap-export-design), and a re-probe.
+- The default hash would not move, and the card's other evidence would stand.
+- **Which to prefer** depends on the re-measurement's failure classes. The coordinating session decides that with the run's record.
+
+(6) **What the measurement would show.** Under the adopted card, with basis `serving_card` and (ii) built, an r3 run's extract row would show:
+- `secondRepairCalls`;
+- each chunk's three attempts in coverage.json;
+- whether runs that ended `research_extraction_incomplete` now reach `research_packet_ready`.
+
+The extractor fixture sends initial attempts only and shows nothing about (ii).
+
+Changes: This entry only. Nothing is implemented.
+
+Evidence: None yet; this is a design.
+- The hash binding is read from `researchProtocolSha256` in research-pipeline.ts: its `schemas.coverage` is `z.toJSONSchema(ResearchCoverageSchema)`, and its `schemaVersions` holds `coverage: 3`.
+- The two-attempt bound is `attempts: ...max(2)` in research-coverage.ts.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. The coordinating session decides whether to build it, under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, on the r3 re-measurement.
+- **A second repair may not complete more chunks.** Run 2's diagnostics name `schema_too_big`, `needs_followup` and quote-location failures, and a repair may repeat the same failure.
+- **It adds calls** within the extraction budget, so time and receipts grow with it.
+
+Paid exposure: None.
+
+Next gate: the r3 re-measurement under the adopted card, then the coordinating session's decision, and only then an implementation pull request.
+
+References:
+- BL-20261117-1131-research-card-admission-design;
+- BL-20261117-1132-research-card-admission-implemented;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261117-1000-p10-plan-cap-export-design;
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261115-1939-research-priority-trim-design.
+
+### BL-20261117-1144-correction-research-second-repair-design-restamp -- 2026-11-17 -- Correction: item (ii)'s design entry is re-stamped after #137's tail, with its original ID, and the coordinating session's decision to merge (ii) before the re-probe
+
+Status: `Implemented`
+
+Scope or hypothesis: Pull request #139 holds one entry, item (ii)'s design. It is chained on #137 and merges after it, so its entry is re-stamped after #137's tail, BL-20261117-1142-correction-research-card-admission-review-restamp. The rules are BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates.
+
+Decisions:
+(1) **The re-stamp.**
+- The design entry was authored at 10:49 UTC on 2026-11-17 as 1049 (commit 5e01323). It is now BL-20261117-1143-research-second-repair-design.
+- Only its heading and its references change:
+  - its own ID;
+  - its citations of #137's two entries, now BL-20261117-1131-research-card-admission-design and BL-20261117-1132-research-card-admission-implemented.
+- The body keeps what it states as written.
+- No file outside the log cites it in this PR.
+
+(2) **What changed since it was written.**
+- The design is `Proposed`, and it said the coordinating session would decide on the r3 re-measurement.
+- On 2026-11-17 the coordinating session decided, on lane S-pipe's classification of E0's r3 repair failures, that (ii) merges before the re-probe. One probe, one adoption and one r3 re-measurement then cover the extract flag and the second repair together.
+- The classification: 8 failed repairs, of which needs_followup 5, schema_too_big 2 and question_set_mismatch 1. None was truncated, so the larger-cap alternative of decision (5) is not needed.
+- The coordinating session records it as decision 1 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe: an `Approved` approval for the second repair before the re-probe.
+- The implementation is pull request #142.
+
+Changes: docs/BUILD_LOG.md: the re-stamp, and this entry.
+
+Evidence:
+- With the IDs mapped back, the re-stamped body equals 5e01323's entry byte for byte.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The design entry keeps its status, `Proposed`. The decision of (2) is the coordinating session's to record.
+
+Paid exposure: None.
+
+Next gate: CI, and the coordinating session's merge after #137.
+
+References:
+- BL-20261117-1143-research-second-repair-design;
+- BL-20261117-1142-correction-research-card-admission-review-restamp;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates;
+- BL-20261117-1130-lane-decisions-second-repair-before-reprobe.
+
+### BL-20261117-1145-research-second-repair-implemented -- 2026-11-17 -- Item (ii) implemented and held: under a card's `serving_card` admission basis, a chunk still unfinished after its one repair gets a second; the default protocol hash moves, so the pull request must not merge before the coordinating session decides
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1143-research-second-repair-design, implemented.
+- **Built now, held.** On 2026-11-17 the coordinating session asked for it to be built now, as a pull request that stays unmerged until it decides. Its reasoning:
+  - E0's r3 runs left 1, 2, 4, 2 and 0 of 24 chunks unfinished, about 7.5% after one repair. A run needs all 24, so about one run in five or six finishes.
+  - The adopted card's extract flag would have to cut that rate about eightfold on its own.
+  - So (ii), or the larger repair cap the design names, is expected to be needed. The r3 re-measurement under the adopted card decides which.
+- **Its order of events:**
+  1. the re-probe on `main` without (ii), and the owner's adoption commit;
+  2. the r3 re-measurement;
+  3. if (ii) merges, another re-probe and another adoption, because (ii) moves the default protocol hash.
+
+Decisions:
+(1) **As designed.**
+- **When.** Under a card whose admission basis is `serving_card` (the pipeline's admission record), every chunk still not complete after its one repair gets one more repair.
+- **How.** The chunks go in coverage order, at the stage's K, while extraction calls are left. Each is sent at the role policy's second attempt slot (its cap, thinking and `response_format`), with the repair payload and its `repairReason` built from the state the first repair left.
+- **The contracts:**
+  - coverage.json is version 4, and a chunk's `attempts` hold at most 3;
+  - `schemaVersions.coverage` is 4;
+  - `RESEARCH_ADMISSION_POLICY` is version 2, with `repairsPerChunk: 2`;
+  - the ready-packet gate accepts a third attempt only beside an admission record (`extraction_attempts`).
+
+(2) **Clarifications and departures:**
+- **Held chunks.** A held chunk that was not repaired kept its first attempt and is complete, so it gets no second repair. A held chunk whose repair failed is unfinished like any other, and it gets one. The design's "held chunks get none" meant the first case.
+- **Two counts, not one.** The extract row gains `secondRepairCalls`, the second repairs sent, and `secondRepairsComplete`, those that left their chunk complete. Both are present under the basis only. `repairCalls` counts both repair passes.
+- **7b.3's cap-bound estimate grows.** It now counts each chunk's first attempt and two repairs within the budget. The expected estimate and the admission decision are unchanged.
+- **The export's coverage is version 4.** So P10's synthesis bodies change as well as the hash. The re-probe after a merge covers both.
+
+(3) **What an r3 run records, so the re-measurement can count it** (the coordinating session's request).
+- **The extract stage row,** the run's `research_stage` event, is durable in every run's store, finished or not:
+  - `secondRepairCalls` counts the chunks that got a second repair, and `secondRepairsComplete` counts those it saved.
+  - So the chunks the second repair did not save are `secondRepairCalls` - `secondRepairsComplete`.
+  - `chunksPlanned` - `chunksComplete` counts every unfinished chunk. Whatever it exceeds that difference by were chunks whose first or second repair the budget cut.
+  - `repairCalls` counts both repair passes.
+- **coverage.json** holds each chunk's attempts, but a session keeps the stage's files only when the stage completes. In a finished run:
+  - a chunk with three attempts, the last `complete`, was saved by the second repair;
+  - one with two attempts, the last `complete`, was saved by the first.
+  - A run that ends `research_extraction_incomplete` keeps no coverage.json, so its count comes from the row alone.
+- **Without the basis** neither count is present, and no chunk has a third attempt.
+
+(4) **The default protocol hash moves for every run,** card or none, because the hash binds coverage's JSON schema and `schemaVersions`.
+- It goes from 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5 to e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c, re-pinned in tests/helpers/research-protocol-pin.ts.
+- Under the admission policy with the default roles, the hash is f157570b4a34cf3135a9d7545350b212ac3f90b5007e07f37cde52860551a2f2.
+- **After a merge:**
+  - every card whose P10 evidence was measured under the old hash is refused for its flags with `serving_card_p10_protocol_drift`, the card adopted after #136's re-probe included;
+  - earlier run directories become unseedable;
+  - the full re-probe and a new adoption follow.
+- **Therefore the pull request must not merge before the coordinating session says so.**
+
+Changes:
+- src/main/private-agent:
+  - research-pipeline.ts: the second repair pass, the two counts, coverage version 4 and `schemaVersions`;
+  - research-coverage.ts: the schema's version 4 and the bound of 3 attempts, and the gate's check;
+  - research-admission.ts: policy version 2, the record schema, the cap-bound.
+- scripts/export-role-schemas.ts: the synthetic coverage's version.
+- tests/helpers/research-protocol-pin.ts: the re-pin, with the old and new values.
+- Tests:
+  - tests/unit/private-agent-research-pipeline.test.ts:
+    - `DOCUMENTED_STAGE_KEYS`;
+    - five tests: a chunk saved by the second repair, a chunk it did not save, no second repair without the rates, the second slot and the budget, and the gate;
+    - two coverage-version assertions.
+  - tests/unit/private-agent-research-session.test.ts: two coverage-version assertions.
+  - tests/unit/private-agent-research-admission.test.ts: the policy pin, and the cap-bound worked by hand, now 962.6 s.
+- docs/experiments/README.md: the second-repair bullet.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **A chunk saved by the second repair.** Under rates, with the target chunk's first attempt and first repair failing and its second repair succeeding:
+  - the run is `research_packet_ready`;
+  - its coverage attempts are `invalid`, `invalid`, `complete`;
+  - the extract row has calls = chunks + 2, `repairCalls` 2, `secondRepairCalls` 1 and `secondRepairsComplete` 1;
+  - both repairs carry `previous_invalid; ...` from the state before them.
+- **A chunk it did not save.** When the second repair fails too, the run ends `research_extraction_incomplete`, with three `invalid` attempts, `secondRepairCalls` 1 and `secondRepairsComplete` 0.
+- **A chunk the first repair completed** gets no second: its attempts are `invalid`, `complete`, and `secondRepairCalls` is 0.
+- **Without rates** the chunk ends after one repair, and the row carries neither new key.
+- **The slot and the budget.**
+  - With extract caps [1024, 1536], the chunk's three calls carry 1,024, 1,536 and 1,536 tokens.
+  - When the reserve's one spare call pays the first repair, none is left for a second, and `secondRepairCalls` is 0.
+- **The gate** accepts the packet beside its admission record, and refuses it without one (`extraction_attempts`).
+- **Every key** of an admission run's stage rows is in `DOCUMENTED_STAGE_KEYS`.
+- **Mutants:** ten single edits each fail a test of the changed files. A first run left one alive: a second repair also for a chunk its first repair completed. One more test now kills it.
+- **Hashes.** The default is e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c, re-pinned from 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. Under the admission policy with the default roles it is f157570b4a34cf3135a9d7545350b212ac3f90b5007e07f37cde52860551a2f2.
+- **The source freeze** on this head is e553299a0afb0a224af32783f75760beb461b5d119e9246c23bab923c8891fc9. On #137's head it is a34f6cd7….
+- **Checks at this head:**
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm --silent validate:build-log` exits 0 against the branch's base, `main` 9673bb9, its status read directly. `main` has since moved, and this branch is re-stamped before any merge.
+  - The three changed test files pass: 241 tests.
+  - The full suite: 193 files passed and 13 skipped; 3,899 tests passed and 86 skipped. None failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called.
+- **Whether a second repair saves real chunks** is what the r3 re-measurement and a later run would show. Here only fixture replies are used.
+- **The extractor fixture** sends initial attempts only, and shows nothing about (ii).
+- **A chunk that fails for a reason a repair repeats** may fail twice. Run 2's diagnostics name `schema_too_big`, `needs_followup` and quote-location failures.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- **Held:** the coordinating session's decision, after the r3 re-measurement under the adopted card, between merging (ii) and the larger-repair-cap alternative.
+- If (ii) merges: the full re-probe and a new adoption.
+- Before any merge: one light review, CI, and a re-stamp after the tail of that moment.
+
+References:
+- BL-20261117-1143-research-second-repair-design;
+- BL-20261117-1132-research-card-admission-implemented;
+- BL-20261117-1131-research-card-admission-design;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261117-1000-p10-plan-cap-export-design.
+
+### BL-20261117-1148-correction-research-second-repair-merge-before-reprobe -- 2026-11-17 -- Correction to BL-20261117-1145-research-second-repair-implemented: item (ii) merges before the re-probe by the coordinating session's decision; the pins of the old default hash, the final hash, freeze and P10 bodies, and the re-stamp
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261117-1145-research-second-repair-implemented was written as held: "the pull request must not merge before the coordinating session decides". This entry records what changed since, the values at this head, and the entry's re-stamp. The entry stays as written. Where they differ, this entry governs.
+
+Decisions:
+(1) **Merged before the re-probe.**
+- **The decision.** On 2026-11-17 the coordinating session decided that (ii) merges before the re-probe. One probe, one adoption and one r3 re-measurement then cover the extract flag and the second repair together.
+- **What it rested on.** Lane S-pipe's read-only classification of E0's r3 runs. Their hashes-only diagnostics manifests show 8 failed repairs in runs 2 to 5: needs_followup 5, schema_too_big 2 and question_set_mismatch 1. None was truncated at the cap, and no request failed. Run 1 kept no diagnostics.
+- **What follows from it.**
+  - The extract flag removes the schema_too_big class.
+  - A second repair at the same cap is the likely fix for the rest.
+  - The larger-cap alternative of BL-20261117-1143-research-second-repair-design decision (5) is not needed.
+- **The record.** The coordinating session records it as decision 1 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe, an `Approved` approval.
+- **What it supersedes** in BL-20261117-1145-research-second-repair-implemented: the "held" in its title and decision (4), and its Next gate.
+
+(2) **The pins of the old default hash.**
+- #140 added no literal of 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. Its pins in tests/unit/local-screen-write-bound.test.ts read the shared `RESEARCH_PROTOCOL_SHA256` from tests/helpers/research-protocol-pin.ts:
+  - the dry run's pipeline block;
+  - the seeded packet's pipeline block;
+  - the registry row's `researchProtocolSha256`.
+- This pull request re-pins that one constant, so those pins follow it. They pass at this head.
+- No other literal of the old hash is in tests/, scripts/ or src/. The ones in docs/ and docs/experiments/ are records of what earlier runs and cards measured, and they stay.
+- **Writer-1's pinned write phase** (major 1 of the review).
+  - tests/unit/local-screen-write-bound.test.ts's `WRITER_1_PHASE_SHA256` pins writer-1's seeded write phase, which holds the seed packet's coverage.json.
+  - Coverage version 4 and the new hash change it, so it is re-pinned from 047f181ce77830e47681b94ed33c7ec454f13e0740d5201c98ce967b69a1e05f to df3b387d51f3627a39690506682a9c2e86909cf4d5b96eae0eefe18f9a9d0c5a.
+  - The test's comment asks for an entry when that value moves, and this is it.
+- **Stale records, left to the coordinating session:** docs/experiments/e2-card-2026-11-17.md:328 and docs/HANDOFF.md:96-98 still name 7100b7a2…. A card amendment and the handoff restatement will correct them.
+
+(3) **The values at this head:**
+- `researchProtocolSha256()`, the default for every run: e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c, re-pinned from 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5;
+- under the admission policy with the default roles: f157570b4a34cf3135a9d7545350b212ac3f90b5007e07f37cde52860551a2f2;
+- the harness source freeze: fade2bcfb52a776c50b28d6f8a151d12e5e5019a26716ad3bc079f974d46e100.
+
+(4) **P10's request bodies,** for the re-probe's amendment.
+- The comparison is with `main` 25910c93ead95f5bfca5b86287c924edf8c94009, digest by digest, under three request settings: streaming on, streaming off, and the flash_next_v1 contract.
+  - The plan and extract cells' bodies, thinking on and off, are byte-identical.
+  - The synthesis cells' bodies differ: their payload's coverage is version 4 and carries the new hash.
+- Every P10 cell's evidence binds the default protocol hash, so the re-probe measures every cell anew either way.
+
+(5) **The re-stamp,** under BL-20261113-0937-owner-decision-restamp-unmerged-entries, as BL-20261113-0938-correction-restamp-rule-dates corrects it for dates.
+- The implemented entry was authored at 11:00 UTC on 2026-11-17 as 1100 (commit bc79628). It is now BL-20261117-1145-research-second-repair-implemented, after #139's tail, BL-20261117-1144-correction-research-second-repair-design-restamp.
+- Only headings and references change: There are 5 in the entry, its heading included, and 11 in 9 files outside the log: the README, five freeze-covered files (scripts/private-agent-local-screen.ts, and research-admission.ts, research-coverage.ts, research-pipeline.ts and research-seed.ts under src/main/private-agent), and three test files. The body keeps what it states as written.
+
+(6) **The review.** The coordinating session's one reviewer read #142 and found no blocker, two majors (both about merging) and five minors. All are taken here.
+- **Major 1, the writer-1 pin:** re-pinned, as decision (2) says.
+- **Major 2, the record.** BL-20261117-1143-research-second-repair-design and BL-20261117-1145-research-second-repair-implemented put the merge after the re-measurement. The coordinating session's approval in decision (1) and this entry supersede that, and #142's title loses its hold.
+- **Minor 3, the passes' order.** Under the basis there are now four passes:
+  1. the unfinished chunks' first repairs;
+  2. their second repairs;
+  3. the held chunks' optional repairs;
+  4. a held chunk's second repair after a failed one.
+  So an optional repair no longer takes a call a second repair needs. Without the basis the one repair pass is unchanged.
+- **Minor 4, four surviving mutants.** Each now fails a test: the budget's last call, a denied second repair (plain or held), coverage order, and a held chunk's second repair. A fifth test pins the passes' priority.
+- **Minor 5, the counts on a denied row.** Both counts exist from the extract row's creation under the basis, so a denied row carries them. A denied row's `chunksComplete` stays 0, as on any denied extraction row.
+- **Minor 6, seeding.** `assertSeedRolePolicy` now compares the admission basis, since the basis decides a packet. The driver calls it through `assertLocalScreenSeed`, which a unit test pins with cards loaded through the pair. research-seed.ts's comment is corrected.
+- **Minor 7, adoption,** answered to the coordinating session. The adoption commit sets `admission` to `{basis: "serving_card"}` beside `decision`, and the audit allows `admission` to differ from the writer's output.
+- **The nits:**
+  - `repairsPerChunk` is read by the cap-bound estimate and bound by the hash. The pass itself sends one second repair.
+  - The no-card test now asserts what its title says.
+  - BL-20261117-1145-research-second-repair-implemented's Changes lists five new tests where there were six.
+  - The re-stamp replaces full IDs only, so `main`'s BL-20261117-1049-e2-write-bound-and-dry-run-design is untouched.
+
+(7) **The merge.** This head merges #139's head 41388c40133bffe3a87d722f413ab6300c945827, so the chain is: #143, then #135, #137 and #139.
+- **src/main/private-agent/research-admission.ts:** its doc comment keeps #137's "expected" wording and (ii)'s cap-bound wording.
+- **docs/BUILD_LOG.md:** #139's head's log, then BL-20261117-1145-research-second-repair-implemented, then this entry.
+
+Changes:
+- docs/BUILD_LOG.md: the re-stamp, and this entry.
+- The references of decision (5).
+- The merge of decision (7).
+
+Evidence:
+- **Tests.** The changed test files, with #140's write-bound test and the export's test, pass: 392 tests in 8 files.
+- **Mutants of the review's fixes.** Nine single edits each fail a test:
+  - one call fewer for repairs;
+  - a denied repair under the basis ignored, in the plain and held passes, and in the held second pass;
+  - second repairs in reverse order;
+  - no second repair for a held chunk;
+  - held repairs before second repairs;
+  - the counts starting only with a second repair;
+  - the seed loader ignoring the basis;
+  - the driver's seed check passing no basis.
+- **Writer-1's write phase,** recomputed by its test, is df3b387d51f3627a39690506682a9c2e86909cf4d5b96eae0eefe18f9a9d0c5a. That equals the reviewer's recomputation.
+- **P10.** The per-cell body digests at `main` 25910c93ead95f5bfca5b86287c924edf8c94009 and at this head, under three settings: 12 plan and extract cells are identical, and 6 synthesis cells differ.
+- **The re-stamp.** With the IDs mapped back, the body equals bc79628's entry byte for byte, and no old full ID remains in the tree.
+- **Checks at this head:**
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0, its status read directly.
+  - **The full suite:** 192 files passed and 14 skipped; 3,928 tests passed and 88 skipped.
+  - **Three tests failed under a load average near 45 from other sessions:** two at the 5 s timeout, in private-agent-host-flags and private-agent-sandbox-capture, and openai-compatible's provider-timeout test. None of those files is changed here. All three pass alone (75 tests, 1 skipped) and on `main` 25910c9.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No model was called.
+- The P10 comparison is of the export's bodies, not of an endpoint's replies.
+
+Paid exposure: None.
+
+Next gate:
+- CI on this head, and the coordinating session's merge after #139.
+- Then #141 and the full re-probe: P1, P10, P11 and the adapter on the new bodies.
+- Then the owner's adoption commit, and the r3 re-measurement.
+
+References:
+- BL-20261117-1145-research-second-repair-implemented;
+- BL-20261117-1143-research-second-repair-design;
+- BL-20261117-1144-correction-research-second-repair-design-restamp;
+- BL-20261117-1142-correction-research-card-admission-review-restamp;
+- BL-20261117-0940-owner-direction-decisions-delegated;
+- BL-20261117-1130-lane-decisions-second-repair-before-reprobe;
+- BL-20261113-0937-owner-decision-restamp-unmerged-entries;
+- BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1155-e0-card-amendment-5 -- 2026-11-17 -- E0 card Amendment 5: the re-probe with P10's plan cells at 16,384 tokens is registered before it runs, with the rule that reads its counts and what follows each outcome
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner accepted that the probe's plan cell is measured at 16,384 tokens and that the serving card is then adopted with the planner at that cap (decision 2 of BL-20261117-0940-owner-direction-decisions-delegated). Pull request #136 added the export option that makes the measurement possible (BL-20261117-1010-p10-plan-cap-export-implemented). This entry records Amendment 5 to E0's card, which registers the re-probe before it runs. `Implemented` covers the amendment's text. Nothing has run under it. Hypothesis: at a cap of 16,384 tokens the endpoint returns a valid plan for P10's planner request in at least 19 of 20 calls, as it did at 8,192, and extraction's cell meets the same rule again.
+
+Decisions:
+1. **One run is added after E0's close.** E0's closing entry stands (BL-20261116-1357-e0-verified). The re-probe is a new run under E0's card, with rows of its own.
+2. **Six steps.** The export with `--plan-cap 16384`; P1 alone, checked by hand; all twelve probes in one invocation; the assessment; the card writer; and the export once more without the option. The amendment gives each command.
+3. **The conditions.** The owner's main checkout at a commit that contains #136 and the amendment, with a clean tracked tree. The doctor first: it must reach and identify the model, and it need not report `ready`, which also needs Docker and the task image. Nothing else on the endpoint during the probes. No pull or change of the main checkout from the export to the card. A pull request that changes `researchProtocolSha256()` and merges between the export and the assessment voids the run.
+4. **A new card file,** dated by the probe's start. The 2026-11-16 card's two files stay as committed, `proposed` and never adopted. The Markdown goes to a temporary file first.
+5. **The reading rule is the writer's 95% rule, and nothing else.** Two cells bind the adoption: plan/on at 16,384 and extract/off at 2,048. No cell is carried over from the 2026-11-16 card. Counts, tokens and times of the plan cell are descriptive only, and any comparison with the 8,192 cell is post hoc.
+6. **What follows each outcome is fixed now.**
+   - Both binding cells meet the rule: the session asks the owner by name for the adoption commit, with the result.
+   - Either cell misses the rule: the session does not ask for adoption on this run. It reports the counts, and a further amendment registers the next measurement.
+   - Synthesis's thinking-on cell meets the rule, which it missed on 2026-11-16: the card would then send the format on every synthesis call, which no fixture has measured. The session asks for adoption with that flag set to false, and names it. The three other cells bind no run.
+   - A void or stopped run is run again once. A second void stops the work.
+7. **This choice is the session's.** The owner's answer names the measurement and the adoption. The steps' details, the binding cells and the outcomes' rules are the session's, under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, and the owner may replace them.
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: Amendment 5.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The commands** are those of pull request #136's description, which its reviewer checked: every script and flag exists, the order fits E0's stop rule, and only the probe contacts the endpoint, behind its zero-fee guard. The probe has no dry run, so P1 alone is the pre-check.
+- **That reviewer's points on the instructions** are in the amendment: the card's date, the temporary file for the Markdown, the check of the probe's own record before the assessment, the binding cells, and the export once more afterwards.
+- **The reading rule** is lane S-pipe's account of the writer's rule, which the reviewer of #136 confirmed against the writer.
+- **A reviewer read this amendment before the commit,** against the probe's scripts and E0's card. It found no blocker and two major findings, and both are applied. The doctor's `ready` cannot be required, since it also needs Docker and the task image. And no outcome covered synthesis's thinking-on cell meeting the rule. Its minor findings are applied too: the full card command, what a stopped run is, the request-settings check, the load readings and the rows' arguments. The fixes are the reviewer's replacement texts and were not reviewed again.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Nothing has run.** No probe, no card and no row exists for this run yet.
+- **P10's payload is small and synthetic.** A pass shows that the endpoint takes the planner's flagged request at that cap. It does not show how plans fare on a real index.
+- **The adoption is not decided here.** It needs the owner's go, asked by name.
+- **The session did not read the writer's code itself.** The rule's wording rests on lane S-pipe's account, which the reviewer checked against the writer.
+
+Paid exposure: None. The probe is zero-fee, on the owner's endpoint.
+
+Next gate: The re-probe, from the main checkout at a commit that contains this amendment. Then its result entry, reviewed before its commit.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendments 1, 4 and 5); docs/experiments/serving-card-2026-11-16.md; docs/experiments/README.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-1000-p10-plan-cap-export-design; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261116-1357-e0-verified; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0939-e0-probes-serving-card; BL-20261116-1218-serving-probe-direct-transport-implemented; pull request #136.
+
+### BL-20261117-1156-correction-e0-card-amendment-5-second-repair-restamp -- 2026-11-17 -- Correction to BL-20261117-1155-e0-card-amendment-5: E0's Amendment 5 is revised before it merges or runs, because the second repair now lands before the re-probe; its entry is re-stamped
+
+Status: `Implemented`
+
+Scope or hypothesis: The amendment's entry was committed on pull request #141 with the stamp 1054 of 2026-11-17 and has not merged. Since then the session decided that the second repair merges before the re-probe (decision 1 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe), and the log's tail passed 1054. This entry records the re-stamp and what changed in the amendment's text. The entry's body is unchanged. Where the amendment as it now stands in the card differs from that entry's account of it, the card governs.
+
+Decisions:
+1. **The re-stamp.** The entry first stamped 1054, with the same slug, is now BL-20261117-1155-e0-card-amendment-5. Its body is byte-identical apart from the ID in its heading. The old stamp was on pull request #141's branch only and never reached `main`.
+2. **The run's commit** contains pull requests #137 and #142 as well as #136.
+3. **The protocol hash.** The export's printed line at step 1 and the reading rule's assessed protocol are the default at the run's commit, `e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c`. The amendment first named `7100b7a2…`, which was the default before #142.
+4. **The request bodies.** The plan and extraction bodies stay those of 2026-11-16, apart from the plan cells' cap. The synthesis bodies differ by the coverage schema's version, which #142 raised to 4. So synthesis's cells are measured on new bodies. Every cell is measured anew in any case, since no cell is carried over.
+5. **What the adoption commit edits.** Two keys of the new card's JSON, and a third when synthesis's thinking-on cell meets the rule: `decision`, to adopted with its entry; and `admission.basis`, from `none` to `serving_card`. The writer always proposes `none`. Without the second edit, 7b.3's admission and the second repair stay off. The audit lets `admission` differ from the writer's output. The owner then points the two serving-card lines of the ignored `.env.local` at the edited file.
+   - **A check before asking.** Under that basis the reader refuses a card that lacks the rates it derives. So the session first checks that the new card holds a P11 size that ran with prefill and decode rates above 0, and a mean completion above 0 in plan/on, extract/off and synthesis/on. Otherwise it does not ask.
+6. **Synthesis's outcome** now says where its flag is set to false: in `roles`.
+7. **Nothing else in the amendment changed.**
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: Amendment 5, as decisions 2 to 6 say.
+- docs/BUILD_LOG.md: the re-stamped entry and this one.
+
+Evidence:
+- **The hash and the bodies** are lane S-pipe's figures at #142's head af00da2. It compared that head with `main` at 9b37ea2 under three request settings: the 12 plan and extraction cell bodies are byte-identical, and the 6 synthesis cell bodies differ.
+- **The reviewer of #142** reproduced the default hash and confirmed that plan and extraction export bodies and all three role schemas are unchanged.
+- **The audit rule** is docs/experiments/README.md, "Audit": only `decision`, `roles`, `concurrency` and `admission` may differ from the writer's output.
+- **A reviewer read the revision before the commit,** with the build's entry beside it. It found no blocker. It computed the default hash at this tree and confirmed that the six steps work unchanged after the second repair. Its one finding on the amendment is applied: a check of the new card's rates before the session asks for adoption.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Nothing has run.**
+- **The session did not recompute the hash.** Step 1 of the run checks the export's printed line against it.
+- **The basis edit turns on behaviour no run has exercised.** 7b.3's admission and the second repair have unit tests only. The r3 re-measurement is their first live use.
+
+Paid exposure: None.
+
+Next gate: The re-probe, from the main checkout at a commit that contains #142 and this amendment.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendment 5); docs/experiments/README.md; BL-20261117-1155-e0-card-amendment-5; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-0940-owner-direction-decisions-delegated; pull requests #136, #137, #141 and #142.
+
+### BL-20261117-1157-e5-owner-build-cut -- 2026-11-17 -- E5's owner build is cut: `owner-v0.2.1`, a local annotated tag at c02366a in its own worktree, installed and built there; `pnpm check` has not passed there, and the tag is not pushed
+
+Status: `Implemented`
+
+Scope or hypothesis: E5's card decides a new owner build at `main`'s head once the card is on `main`, named `owner-v0.2.1` (O1 and O2 of BL-20261117-0943-e5-card-approved; decision 10 of BL-20261117-0941-group-a-decided-under-delegation; decision 2 of BL-20261117-0953-correction-owner-direction-second-pass). This entry records the cut and exactly what was checked in it. `Implemented` covers the build as it stands on the owner's Mac. No job has run in it. The rehearsal and day 1 are the owner's.
+
+Decisions:
+1. **The build.** `owner-v0.2.1` is an annotated tag at c02366a, the merge of pull request #134, which put E5's card on `main`. It is checked out in its own detached worktree beside the earlier owner builds, with its own `pnpm install --frozen-lockfile`. The tag is local. Its push waits for the owner's go for that push.
+2. **`pnpm check` has not passed there.** Three attempts each stopped at the test step on 5-second timeouts, so the card's condition is not met in letter. The suite passed there only at a 30-second timeout, and the build step ran outside the command. Cutting the build on the parts in Evidence departs from the card. The owner may replace that reading. The command is repeated on a quiet machine before the rehearsal, and its exit is recorded.
+3. **The settings.** The build reads the owner's existing desktop settings through a link, in its worktree, to the earlier build's ignored settings file. The session made the link and did not open the file. The owner may point it elsewhere.
+4. **Before day 1, the owner's steps:**
+   - finish or close any task paused under `owner-v0.2`. By lane S-desk's reading of the build identity, a task begun under one build cannot resume under another;
+   - the rehearsal of O10: one synthetic throwaway job in this build, a verdict and an exported receipt. The session then prints its row with `registry-row.py --verdict-file` and appends nothing;
+   - the doctor on each day a job runs.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing tracked changes: the tag is local, and the worktree's link and install are ignored files.
+
+Evidence:
+- **The install:** `pnpm install --frozen-lockfile` exited 0, under Node 22.22.2 and pnpm 10.12.4.
+- **`pnpm check`, three attempts.** In each, the readiness validator, the build-log validator (732 entries) and the typecheck passed, and the test step failed on timeouts only: 4 tests, then 2, then 6. They were nine distinct tests in seven files, three of them failing in two attempts. The attempts' own logs record load averages of 24 to 49 on a 10-core machine, and the session read 86 right after the first attempt, with system indexing and the lanes' test runs active. The first attempt's four files passed when run alone, 217 tests.
+- **The full suite with a 30-second test timeout,** `pnpm exec vitest run --testTimeout=30000`: 193 files passed and 13 were skipped; 3,868 tests passed and 86 were skipped; none failed.
+- **`pnpm build`** exited 0, and `out/` holds the main, preload and renderer bundles.
+- **CI on the same commit:** the `check` and `electron-e2e` jobs of the push to `main` at c02366a both succeeded.
+- **The doctor,** `pnpm setup:general` without `--write`, run once in the build's worktree at 11:52 UTC: `ready` true; Docker and the qualified image present; the model listed and one completion returned; and the identity's root, engine version and context equal those the 2026-11-16 serving card records. No serving card is configured there, as E5's card expects.
+- **The worktree's tracked tree** is clean at the tag.
+
+Failures or blockers: `pnpm check` as one command, as decision 2 says. No failure other than a test timeout appeared in any attempt.
+
+Limitations and non-claims:
+- **The session did not launch the app.** Whether the build opens the app's existing data is the rehearsal's to show.
+- **No verdict has been recorded in this build.**
+- **Decision 4's first point** rests on lane S-desk's account, which the session did not verify.
+- **The timeouts' cause is inferred** from the load readings, from the first attempt's four files passing alone, and from the full suite passing at a 30-second timeout.
+
+Paid exposure: None. The doctor made one zero-fee completion on the owner's endpoint.
+
+Next gate: `pnpm check` exiting 0 there, before the rehearsal. The owner's three steps of decision 4, then day 1. The tag's push, on the owner's go.
+
+References: docs/experiments/e5-card-2026-11-17.md (O1, O2, O10; "How a build is cut"); BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261008-1210-owner-v0-1-released; pull request #134.
+
+### BL-20261117-1158-e2-synthetic-tasks-frozen -- 2026-11-17 -- E2's two synthetic research tasks are written and frozen by hash in docs/experiments/e2-tasks-v1.json; the authoring session holds their gold and scorer
+
+Status: `Implemented`
+
+Scope or hypothesis: E2's card (docs/experiments/e2-card-2026-11-17.md, items 4 and 5) has a separate session write the two synthetic research tasks and their gold at zero fee. That session commits a hashes-only manifest before any run, so that the session running E2 never sees the gold. The coordinating session assigned lane S-e1 to be that authoring session and the scorer session for the two tasks. This entry is the card's "tasks' freeze". It holds ids, counts and hashes only; no gold is in it, in the manifest or in the pull request.
+
+Decisions:
+- **The two tasks.** Both have exposure `fresh`, as the card's item 15 and the coordinating session ask.
+  - `s1-harbour-flood-defence` (job `e2-s1-harbour-flood-defence`): a council choosing which flood-defence option to bid for. 11 sources, 23,191 bytes.
+  - `s2-elending-platform` (job `e2-s2-elending-platform`): a library consortium choosing which e-lending platform bid to award. 11 sources, 17,433 bytes.
+- **The shape item 5 fixes.** Each task has:
+  - 8 to 12 invented plain-text sources, each under 64 KiB. The largest is 4,024 bytes, so every source is one chunk of the research pipeline.
+  - 7 critical checks, 14 in all.
+  - A scorer.
+  - One planted conflict between two sources.
+- **Modelled on Phase 4's tasks** (BL-20261027-0145-phase4-tasks-design):
+  - The sources are Markdown under `input/corpus/`, each opening with a `#` title line, which the index stage reads.
+  - The briefs name no figure from the sources and ask which source was followed where documents disagree. They name their report headings, both claims-ledger headings among them, unnumbered. They set "at most 1,500 words".
+  - Each brief also asks the writer to open the Recommendation section with one line: "Recommended option: Option <letter>" (s1), or "Recommended bidder: <bidder's name>" (s2). The reason is under "The light review and the skeptic".
+  - The gold for each task is `checks.json`, `key-facts.json`, `conflicts.json` and a reference output (`reference/output/report.md` and `claims.json`).
+  - The scorer is `score.py`, with `make_fake_run.py`, `run_unittest.py` and a README outside its tree.
+  - The organisations, places, figures and dates are invented and drawn from no real record. No model wrote any of it.
+- **The scorer's output.** It is standard-library Python and deterministic. It prints its name and version, the task id, the critical checks passed, their total and whether all passed, and nothing else.
+  - It refuses a task directory whose `job.json` or `brief.md` differs from its checks, and a run whose `freeze.json` binds another task.
+  - It reads a run's files under the host check's own file rules.
+  - The checks' names and rules stay in the private README.
+- **The scorer session's own reading.** For each graded run, the scorer session also reads the Recommendation section and reports, as a count, the runs where its reading disagrees with the recommendation check.
+- **The manifest** follows `phase4-tasks-v1.json` field for field, plus `exposure`.
+  - Its hash rules are Phase 4's: `goldTreeSha256` and `scorer.treeSha256` are the sha256 of the canonical JSON of their `{path, sha256}` lists, and `tasksSha256` is that of the tasks sorted by id. Recomputed on `phase2-tasks-v1.json` and `phase4-tasks-v1.json`, these rules reproduce every committed value, and re-serialising reproduces both files byte for byte.
+  - `driverModeFlags` are the packet runs' mode flags, as in Phase 4's manifest. The graded writer runs replace `--pipeline research` with `--research-from`, as the card says.
+  - `proposedFreezeTag` is a proposal; cutting a tag is the coordinating session's call.
+- **The light review and the skeptic.**
+  - The review (one reviewer) found no blocker and two major findings in the scorer:
+    - it crashed on malformed run files: a list as a `sourceId`, JSON nested 100,000 deep;
+    - its free-text recommendation check failed correct recommendations in common forms.
+  - Fixes before the freeze:
+    - every read is guarded;
+    - fatal ledger errors abort the ledger as the host's check does;
+    - report line endings are normalised as the host reads them;
+    - value and fact patterns were widened or narrowed;
+    - a test now fails each check on its own.
+  - The review's minor findings were fixed in the corpus too:
+    - the name of a real grant programme was replaced by an invented one;
+    - three source details were corrected: the WCAG levels in an accessibility audit, a surge's return period, and a letter's reference to a later meeting.
+  - The skeptic, called in for the majors, confirmed the crash fix: 79 malformed run directories, no traceback.
+  - On the recommendation check, the skeptic measured 116 varied sections (72 correct, 44 wrong or ambiguous). The rule rejected 26% of the correct ones and passed 43% of the wrong ones, with errors that followed the writer's structure.
+  - So the free-text rule was dropped, and the brief now asks for the one recommendation line. The check reads that line and passes when it names the target and no rival. The coordinating session agreed to this change.
+  - The skeptic's minor findings were also fixed: the host's handling of odd `sourceId` types, its file limits and symlink rule, and a `--detail` path in a missing directory.
+- **Where things are.**
+  - The tasks sit under `taskRoot`, `.soar/experiments/e2-v1/tasks`.
+  - The gold and scorer sit under `goldRoot`, in the authoring session's own ignored `.soar/`, with one backup copy outside every checkout.
+  - The inputs-only task directories reached the coordinating session through the shared notes folder. It copies them into the main checkout's `.soar/experiments/` and checks each against the manifest before any run.
+- **The manifest's identity.** The committed file's sha256 is `c540401a3eeb55cc4f7b3f2deef00fd9706f694fe59e428300e8e7a54d8219b1`, and its `tasksSha256` is `ba59819aacc2d33cd846f5d4dc93c23b8a1c3c421fba1aa6c240b34d4fe0747f`.
+
+Changes:
+- docs/experiments/e2-tasks-v1.json: new, hashes and counts only.
+- docs/experiments/README.md: one bullet naming the manifest.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The loader.** Both task directories load through the driver's own loader at `main` c02366a (`node --import tsx scripts/private-agent-run.ts --task-directory … --expected-job-sha256 … --expected-brief-sha256 …`): `prepared: true`, `executionStarted: false`, with `output/report.md` the one required artifact.
+- **The pipeline's admission.** At the same commit, `briefWordLimit` reads 1,500 for both briefs. Each task plans 4 index batches and 11 chunks, and `researchMandatoryWorkFits` holds against `RESEARCH_PIPELINE_BUDGET`.
+- **The host's claims check.** The check `claimsLedgerCheck` builds passes on both reference outputs: 23 and 25 claims, every quote found, no citation missing or unknown, both required sections present.
+- **The scorer's tests.** `python3 -I run_unittest.py` passes 26 tests on fake runs:
+  - the reference scores 7 of 7, and so do a report in other conventions and the reference with CRLF or CR line endings or re-wrapped;
+  - a flawed report fails at least two checks;
+  - each check has a case that fails it alone;
+  - malformed artifacts never crash it;
+  - the refusals and the host's file rules are tested;
+  - the recommendation line is tested on 37 sections.
+- **No paid or networked step.** No model request was made and nothing reached a network. No Docker command ran for E2. The dependencies were installed with `pnpm install --frozen-lockfile --offline`.
+
+Failures or blockers: None. The free-text recommendation rule was a negative result, and it is recorded above.
+
+Limitations and non-claims:
+- **No model has run on these tasks.** Whether the research stage reaches `research_packet_ready` on them is unknown; the card's item 7 allows up to 5 attempts a task.
+- **The checks are pattern rules.** A correct report in unforeseen wording can fail one. They decide nothing in E2: the card reports them beside the blind proxy grade.
+- **The recommendation check needs the brief's line.** A report that recommends the right option without the line fails it. The scorer session's own reading is reported beside it as a disagreement count.
+- **The scorer has seen only fake runs.** It was tested on runs built from the reference outputs, not on a real run directory. The run layout it reads is the one `scripts/private-agent-local-screen.ts` writes at c02366a.
+- **Who has read the gold.** Only the authoring session and its own review agents.
+- **The tasks are small and synthetic.** They show nothing about E3's packets or web-scale work, as the card says. Both were written by one session.
+
+Paid exposure: None. Zero model requests and zero envelope spend. The card's USD 1 for fixtures stays unspent.
+
+Next gate:
+1. The coordinating session copies the two task directories and checks them against this manifest.
+2. Its amendment names the commit, the protocol hash and these ids.
+3. The scorer runs once on each graded run after unblinding, and reports counts only.
+
+References: docs/experiments/e2-card-2026-11-17.md; BL-20261117-0944-e2-card-approved; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261027-0145-phase4-tasks-design; BL-20261013-1627-phase2-scoring-protocol; docs/experiments/phase4-tasks-v1.json.
+
+### BL-20261117-1159-correction-e2-synthetic-tasks-restamp -- 2026-11-17 -- Correction: E2's synthetic-task freeze entry is re-stamped after #141's tail, with its original ID and authoring time, and cites the coordinating session's decisions entry
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries, corrected by BL-20261113-0938-correction-restamp-rule-dates) moves an entry on an unmerged branch after the log's tail at merge. A Correction records the entry's original ID and time. The coordinating session chains #144 on its #141, whose head c0a7697 ends at BL-20261117-1157, so the freeze entry now follows that tail. The entry's body is unchanged.
+
+Decisions:
+- **The re-stamp.** BL-20261117-1158-e2-synthetic-tasks-frozen was authored at 11:26 UTC on 2026-11-17 as BL-20261117-1126. Only its ID changed. Its body is byte-identical.
+- **The decisions entry the freeze entry names without an ID** is BL-20261117-1130-lane-decisions-second-repair-before-reprobe, the coordinating session's decisions of 2026-11-17. Its decision 4 covers:
+  - where the gold lives, under the authoring session's own ignored `.soar/`;
+  - its one backup copy outside every checkout;
+  - the handover of the inputs-only task directories through the shared notes folder.
+- **The research protocol hash.** After the second repair on `main`, the default research protocol hash is `e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c`.
+  - The freeze entry and `docs/experiments/e2-tasks-v1.json` name no protocol hash. The task directories, briefs, inputs and gold do not depend on it.
+  - E2's amendment names the hash, with the commit, before the first packet run, as the card requires.
+
+Changes:
+- docs/BUILD_LOG.md: the re-stamp and this entry.
+- The merge of #141's head. No other file of this pull request changed, and docs/experiments/e2-tasks-v1.json is byte-identical.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref <ref>` exits 0 against #141's head c0a7697 and against `origin/main`, with its exit status checked directly. `pnpm typecheck` and `pnpm validate:readiness` pass.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. No task, gold or scorer changed.
+
+Paid exposure: None.
+
+Next gate: #141 merges, then this pull request, as the coordinating session merges each on green CI.
+
+References: BL-20261117-1158-e2-synthetic-tasks-frozen; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; pull requests #141 and #144.
+
+### BL-20261117-1200-e6-planted-defect-tasks-frozen -- 2026-11-17 -- E6's three planted-defect review tasks are written, generated in the qualified image and frozen by hash in docs/experiments/e6-tasks-v1.json; the authoring session holds their gold
+
+Status: `Implemented`
+
+Scope or hypothesis: E6's card (docs/experiments/e6-card-2026-11-17.md, items 1 and 2) has a separate session build the three planted-defect review tasks and their gold at zero fee, under the ignored `.soar/`. That session also supplies the content of the hashes-only manifest (items 1 and 2 of "What the card needs that does not exist yet"). The coordinating session assigned lane S-e1 to be that authoring session, and the gold-holding session that runs the scorer once, after the grades are filed. This entry is the card's "entry that pins the manifest". It holds ids, counts and hashes only, and no gold.
+
+Decisions:
+- **The three tasks.** All have exposure `fresh`, and each is one `.docx` with at least one table:
+  - `pd1-maintenance-contract` (job `e6-pd1-maintenance-contract`): a draft facilities maintenance services agreement, the contract the card requires. 85 body paragraphs, 38,914 bytes.
+  - `pd2-expenses-policy` (job `e6-pd2-expenses-policy`): a draft staff travel and expenses policy. 72 body paragraphs, 38,632 bytes.
+  - `pd3-programme-report` (job `e6-pd3-programme-report`): a draft annual report on a library programme. 62 body paragraphs, 38,001 bytes.
+- **The composition item 2 fixes.** Each file has eight planted defects and two control clauses: 24 defects and 6 controls in the set.
+  - The defects are two `numeric`, two `clause_contradiction`, two `table_arithmetic`, one `reference_definition` and one `missing_section`.
+  - The organisations, places, figures and dates are invented and drawn from no real record.
+  - The inputs are labelled `private`, Phase 2's label for its invented documents (d2, d3).
+- **The wording the card leaves to the authoring session** (item 2: whether a plant triggers rule N1 or C2).
+  - In each file, one numeric defect and one clause contradiction are worded so that host flag rules v1 flag them, and the other two are not. No control and no other text raises a flag.
+  - So the set holds plants the flags point at and plants they do not. Which ones are flagged is gold.
+- **The gold** is lane S-desk's E6 gold format, version 1 (docs/experiments/e6-gold-format.md on pull request #135; BL-20261117-1005-e6-planted-defect-scorer-design). There is one `gold.json` per task, under `goldRoot`, with opaque ids. Its rules, stated without the plants:
+  - **Settled plants.** Where the documents settle the right value, only a correct fix counts, and the wrong figure must be gone from the clean copy.
+  - **Unsettled plants.** Where they do not, or the brief leaves the decision to the client, any edit on the plant's sentence counts, a comment included.
+  - **Totals** are tested together with the cell they depend on.
+  - **A missing section** counts only for an edit, placed where the brief's order puts that section, whose text names the section.
+  - Every cross-reference in the sources is plain text, and no source holds a Word field or a tracked change.
+- **The generation.** Each `.docx` was written with python-docx 1.2.0 (Python 3.11.16) inside the qualified image `sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f`, already present locally as `soar-private-artifacts:20260911-v1`, with no repository digest.
+  - The coordinating session allowed this one Docker step on 2026-11-17: `--pull never`, `--network none`, no mount beyond the authoring session's own scratch directory, no model call and zero fee.
+  - The command, for each spec, was `docker run --rm --pull never --network none --cap-drop ALL --security-opt no-new-privileges --read-only --user <uid>:<gid> -v <scratch directory>:/work -w /work sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f python3 -I -B /work/gen_docx.py /work/<spec>.json /work/out/<file>.docx`.
+  - The documents hold headings, paragraphs and tables only, with clause numbers as literal text, as the repository's own fixtures write them.
+  - Each regeneration answered a review finding, with the same command and conditions: the contract was generated twice, the policy three times and the report twice. Only the final files are pinned. python-docx stamps zip times, so a further generation would differ byte for byte.
+- **The briefs and jobs.**
+  - The briefs give neutral reviewer instructions, Phase 2's lesson from when its first briefs listed the planted classes. Each names the sections its document must contain and asks for `output/review-summary.md`. None lists a defect class.
+  - `job.json` is written by `scripts/prepare-operator-task.py`.
+- **The manifest** follows the document-review entries of `phase2-tasks-v1.json`. It adds per task `exposure`, `sourceParagraphs`, the planted counts by class, the control count and the gold format, and pins the scorer by path, version and sha256.
+  - Its hash rules are those of `phase2-tasks-v1.json` and `phase4-tasks-v1.json`. Its `tasksSha256` is `fcf516dadd677b2f890bcc068809f16e7902df4b7451bc2ae6a54eba22a59a65`.
+  - The scorer pinned is version 1, `scripts/e6-score.py` at #135's head f590881, sha256 `b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e`. The card pins the merged file, so this pull request stays a draft until #135 merges. If the merged file differs, the pin is updated by a later entry; that changes no gold.
+- **Rule C1 and question 5.**
+  - By the card's own definition of the class, fixing one side of a planted contradiction flips a negation or a polarity, so rule C1 codes a correct fix as an inversion. A fix to a misused defined term can be coded the same way.
+  - The coordinating session decided, on this session's finding, that the scorer reports beside `inversionEdits` the C1-coded edits on planted defects that the same run addressed (null when the flags list is cut at 40). Question 5 reads the remainder, with the total beside it.
+  - The coordinating session will register that reading in an amendment of E6's card before run 1. It will also list two limits there: the agent and the critic read C1's codes, so a repair can undo a correct fix; and deleting a whole negated clause is coded `negation_flipped`.
+- **The light review and the skeptic.**
+  - The review (one reviewer) found no blocker and four major findings:
+    - the missing-section literals matched ordinary rationale words;
+    - the C1 confound above;
+    - one table-side fix could not be anchored;
+    - a reference defect credited a wrong fix.
+  - The skeptic confirmed the first and third resolved and the second broader than first stated (handled above). It found the fourth half fixed, so that plant was re-planted with a settled fix.
+  - The minor findings were fixed:
+    - the wrong figure must be gone for a settled fix;
+    - comment-only plants span their whole sentence;
+    - correct alternative fixes count;
+    - a dead span is now anchorable;
+    - a missing section counts where the brief places it;
+    - unintended slips in the contract and the policy were removed.
+- **Where things are.**
+  - The tasks sit under `taskRoot`, `.soar/experiments/e6-v1/tasks`.
+  - The gold sits under `goldRoot`, in the authoring session's own ignored `.soar/`, with one backup copy outside every checkout.
+  - The inputs-only task directories reached the coordinating session through the shared notes folder.
+
+Changes:
+- docs/experiments/e6-tasks-v1.json: new, hashes and counts only.
+- docs/experiments/README.md: one bullet naming the manifest.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The image.** Offline, before generation, it reported python-docx 1.2.0 and Python 3.11.16.
+- **The loader.** Each task directory loads through the driver's own loader at `main` c02366a: `prepared: true`, `executionStarted: false`, with `output/review-summary.md` the required artifact. Each `input/` holds exactly one top-level `.docx`, whose sha256 equals its gold's `source.sha256`.
+- **`--check-gold`** passes for each gold file with the scorer at f590881: planted 2, 2, 2, 1 and 1 by class (8 in all), and 2 controls.
+- **22 fake review runs,** scored with that scorer, each giving its asserted count. Each run's clean copy was made by applying its edits as text to the pinned input. The runs cover:
+  - a review that fixes or comments on every plant (8 of 8 and no control changed, in each file);
+  - correct alternative fixes and comments elsewhere in a plant's sentence;
+  - one unrelated comment (none addressed);
+  - rewriting both controls (2 changed);
+  - wrong fixes;
+  - inline notes that keep the wrong figure (none addressed).
+- **The host's flag rules** v1, run on each source with no edits (`REVIEW_FLAGS_PY` at c02366a, standard library), give one numeric flag and one clause flag per file, on planted pairs, and nothing else.
+- **No paid or networked step.** No model request was made and nothing reached a network: the container ran with `--network none`.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **The applier was not run.** The fake runs' clean copies came from text replacement, not from the pinned applier, because the Docker allowance covered generation only. Lane S-desk's Docker-gated test compares the scorer's listing with the applier's.
+- **The conditions are literal tests.** A correct fix in other words can go uncounted, and an unrelated edit that names a missing section near its place can count.
+- **The applier refuses non-unique anchors.** Some natural ones, such as a repeated defined term, are among them. That applies to both arms alike.
+- **The scorer's pin is provisional,** as above. C1's reading is as the coordinating session decided.
+- **Three files by one author,** which the card also notes. Only the authoring session and its own review agents have read the gold.
+
+Paid exposure: None. Zero model requests and zero envelope spend. The card's USD 1 for fixtures stays unspent.
+
+Next gate:
+1. #135 merges, and the manifest's scorer pin is confirmed or updated.
+2. The coordinating session copies the three task directories and checks them against the manifest.
+3. The card's other preconditions hold.
+4. After the grades are filed, the authoring session runs the scorer once and returns counts only.
+
+References: docs/experiments/e6-card-2026-11-17.md; BL-20261117-0945-e6-card-approved; BL-20261117-1005-e6-planted-defect-scorer-design; docs/experiments/phase2-tasks-v1.json; BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0933-document-review-flags-party-terms-bounded.
+
+### BL-20261117-1201-correction-e6-planted-defect-tasks-restamp -- 2026-11-17 -- Correction: E6's planted-defect freeze entry is re-stamped after #144's tail, with its original ID and authoring time; the scorer pin is confirmed against the merged scorer, and the coordinating session's decisions entry is cited
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries, corrected by BL-20261113-0938-correction-restamp-rule-dates) moves an entry on an unmerged branch after the log's tail at merge. A Correction records the entry's original ID and time. The coordinating session chains #145 on #144, whose new head ends at BL-20261117-1159-correction-e2-synthetic-tasks-restamp, so the freeze entry now follows that tail. The entry's body is unchanged. This Correction also settles what the freeze entry left open: the scorer's merged version, and the ID of the coordinating session's decisions.
+
+Decisions:
+- **The re-stamp.** BL-20261117-1200-e6-planted-defect-tasks-frozen was authored at 11:27 UTC on 2026-11-17 as BL-20261117-1127. Only its ID changed. Its body is byte-identical.
+- **The decisions entry the freeze entry names without an ID** is BL-20261117-1130-lane-decisions-second-repair-before-reprobe.
+  - Its decision 4 covers the one Docker step that generated the `.docx` files in the qualified image, the gold's location under the authoring session's own ignored `.soar/` with one backup outside every checkout, and the handover of the inputs-only task directories.
+  - Its decision 3 covers the scorer's source, lane S-desk's `scripts/e6-score.py`, and how question 5 reads rule C1's count.
+- **The scorer pin, confirmed.**
+  - #135 is merged. `scripts/e6-score.py` on `main` (6b121eb) has sha256 `b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e`, version 1.
+  - That is the file and version that docs/experiments/e6-tasks-v1.json pins. So the manifest is unchanged, and the pin the freeze entry called provisional is final.
+  - All three gold files pass `--check-gold` with that file.
+- **This pull request is ready for review.** The draft status waited only for the pin.
+- **The research protocol hash.** The E6 manifest and entries name no research protocol hash. A document-review run has no research stage.
+
+Changes:
+- docs/BUILD_LOG.md: the re-stamp and this entry.
+- The merge of #144's head. No other file of this pull request changed, and docs/experiments/e6-tasks-v1.json is byte-identical.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref <ref>` exits 0 against #144's head and against `origin/main`, with its exit status checked directly. `pnpm typecheck` and `pnpm validate:readiness` pass. `python3 -I scripts/e6-score.py --check-gold` passes for each gold file, with the file on `main`.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. No task or gold changed.
+
+Paid exposure: None.
+
+Next gate: #141, then #144, then this pull request, as the coordinating session merges each on green CI.
+
+References: BL-20261117-1200-e6-planted-defect-tasks-frozen; BL-20261117-1159-correction-e2-synthetic-tasks-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; pull requests #135, #141, #144 and #145.
+
+### BL-20261117-1202-assist-wiring-design -- 2026-11-17 -- Item 10's PR 10.b decided: the assist wrapper wired into the reading stage through 7(c)'s hook, with its stage record, its protocol binding, the session's and driver's plumbing, and the legacy split arm switched to the forced split
 
 Status: `Proposed`
 
@@ -50542,7 +51600,7 @@ Next gate:
 
 References: BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0928-research-v5-implemented; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261115-1939-research-priority-trim-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261113-0836-infra-resume-design; BL-20261114-1523-registry-columns-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
 
-### BL-20261117-1132-correction-assist-wiring-restamp -- 2026-11-17 -- Correction: 10.b's design entry is re-stamped after `main`'s tail at this branch's merge of `main`, with its original ID and authoring time, and what the merge keeps from each side
+### BL-20261117-1203-correction-assist-wiring-restamp -- 2026-11-17 -- Correction: 10.b's design entry is re-stamped after `main`'s tail at this branch's merge of `main`, with its original ID and authoring time, and what the merge keeps from each side
 
 Status: `Implemented`
 
@@ -50550,7 +51608,7 @@ Scope or hypothesis: Branch `feat/10b-assist-wiring` brings in `main` at 9b37ea2
 - `main`'s last ID is now BL-20261117-1130-lane-decisions-second-repair-before-reprobe, which comes after this branch's design entry. The validator refuses an ID that moves backward.
 - So the design entry is re-stamped after that tail, under the owner's rule: BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates.
 
-The entry, with its original ID and authoring time: **the design entry**, authored at 10:36 UTC on 2026-11-17 as BL-20261117-1036 in commit 8c6281a, is now BL-20261117-1131-assist-wiring-design.
+The entry, with its original ID and authoring time: **the design entry**, authored at 10:36 UTC on 2026-11-17 as BL-20261117-1036 in commit 8c6281a, is now BL-20261117-1202-assist-wiring-design.
 
 Decisions:
 1. **Only the ID changed.**
@@ -50594,13 +51652,13 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The `Implemented` entry that follows, and the pull request.
 
-References: BL-20261117-1131-assist-wiring-design; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+References: BL-20261117-1202-assist-wiring-design; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1049-e2-write-bound-and-dry-run-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
 
-### BL-20261117-1151-assist-wiring-implemented -- 2026-11-17 -- Item 10's PR 10.b implemented: the assist wrapper wired into the reading stage, with its stage record, its protocol binding, the session's and driver's plumbing, the legacy split arm switched to the forced split, and E1's clause 3 re-proved end to end
+### BL-20261117-1204-assist-wiring-implemented -- 2026-11-17 -- Item 10's PR 10.b implemented: the assist wrapper wired into the reading stage, with its stage record, its protocol binding, the session's and driver's plumbing, the legacy split arm switched to the forced split, and E1's clause 3 re-proved end to end
 
 Status: `Implemented`
 
-Scope or hypothesis: This entry implements BL-20261117-1131-assist-wiring-design, decisions 1 to 13. BL-20261117-1132-correction-assist-wiring-restamp records that entry's re-stamp. Everything below is built and tested offline on loopback fixtures. Nothing live, paid, cloud or Docker-dependent ran.
+Scope or hypothesis: This entry implements BL-20261117-1202-assist-wiring-design, decisions 1 to 13. BL-20261117-1203-correction-assist-wiring-restamp records that entry's re-stamp. Everything below is built and tested offline on loopback fixtures. Nothing live, paid, cloud or Docker-dependent ran.
 
 Decisions:
 1. **The stage record** (design decision 7).
@@ -50725,7 +51783,7 @@ Evidence:
   - The harness source freeze moves from 3213c9d9… on `main` (61 files) to 9d39ba87… (62 files, with research-assist-record.ts).
 - **Privacy.** The diff against `main` holds no local path, account name, e-mail address, endpoint or credential. Its e-mail-shaped and path-shaped strings are synthetic test values.
 - **The light review.** One reviewer read the first local merge, b81381a. It found no correctness problem for valid runs.
-  - **Its one major was process.** `main` had moved past the re-stamped IDs. BL-20261117-1132-correction-assist-wiring-restamp and this merge settle it.
+  - **Its one major was process.** `main` had moved past the re-stamped IDs. BL-20261117-1203-correction-assist-wiring-restamp and this merge settle it.
   - **Its minors are taken here:**
     - the gate's expected-firing tie and its trigger check;
     - the served model's identifier rule;
@@ -50742,7 +51800,7 @@ Failures or blockers:
 - **The fixture's local broker** lacked `requestTimeoutMs`, so a pipeline run with a session deadline threw until it was made zero-risk.
 - **The run-reason contract test** failed on the new computed reason until the scan learned it.
 - **The mutation check** found the gate forgery test too loose (Evidence).
-- **Two local merges of `main` went stale before any push,** because `main` moved past their re-stamped IDs (BL-20261117-1132-correction-assist-wiring-restamp).
+- **Two local merges of `main` went stale before any push,** because `main` moved past their re-stamped IDs (BL-20261117-1203-correction-assist-wiring-restamp).
 
 Limitations and non-claims:
 - **Nothing live ran.** No assist packet has reached a provider, and E3's first paid assisted run needs its card and the pre-run packet scan of decision 1 of BL-20261117-0941-group-a-decided-under-delegation.
@@ -50760,4 +51818,96 @@ Next gate:
 - The pull request, and the coordinating session's merge on green CI.
 - The capture-mode follow-up for E3's pre-run packet scan.
 
-References: BL-20261117-1131-assist-wiring-design; BL-20261117-1132-correction-assist-wiring-restamp; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261109-0501-research-stage-pause-design; BL-20261115-1939-research-priority-trim-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
+References: BL-20261117-1202-assist-wiring-design; BL-20261117-1203-correction-assist-wiring-restamp; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261109-0501-research-stage-pause-design; BL-20261115-1939-research-priority-trim-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
+
+### BL-20261117-1216-correction-assist-wiring-card-admission-merge -- 2026-11-17 -- Correction: 10.b's three entries are re-stamped after `main`'s tail at this branch's merge of lane S-e1's #145 head, with what the merge with 7b.3's card admission and item (ii)'s second repair keeps from each side, the re-pinned hashes, and what an assisted run does under a `serving_card` admission basis
+
+Status: `Implemented`
+
+Scope or hypothesis: Pull request #147 (10.b) merges the head of lane S-e1's #145, 76677dc, in the merge commit that adds this entry. The coordinating session set that order.
+- **What 76677dc holds:**
+  - `main` at 6b121eb, with lane S-pipe's 7b.3 (#137, the card's admission) and item (ii) (#139 and #142, the second extraction repair);
+  - #141, #144 and #145, which change only docs/: the log, the experiments README, the E0 card, and E2's and E6's frozen task files.
+- **The re-stamp.** The tail is now BL-20261117-1201-correction-e6-planted-defect-tasks-restamp, which comes after #147's three entries. So they are re-stamped after it, under BL-20261113-0937-owner-decision-restamp-unmerged-entries, as corrected by BL-20261113-0938-correction-restamp-rule-dates:
+  - **the design entry,** authored at 10:36 UTC as BL-20261117-1036 and pushed as BL-20261117-1131, is now BL-20261117-1202-assist-wiring-design;
+  - **the Correction for its earlier re-stamp,** pushed as BL-20261117-1132, is now BL-20261117-1203-correction-assist-wiring-restamp;
+  - **the `Implemented` entry,** authored at 11:51 UTC and pushed as BL-20261117-1151, is now BL-20261117-1204-assist-wiring-implemented.
+
+  `main` holds an entry of minute 1131 of its own, BL-20261117-1131-research-card-admission-design (7b.3), which is a different entry. Its citations keep their ID.
+- **The direction.** BL-20261117-1130-lane-decisions-second-repair-before-reprobe records the coordinating session's direction for this work:
+  - decision 5 holds 10.b's agreed design, and makes the capture mode a precondition of the first paid assisted run;
+  - decision 6 holds the wider packet scan before it.
+
+Decisions:
+1. **Only the IDs changed in the three entries.**
+   - Each heading's ID and every reference to the three IDs moved.
+   - So did 31 citations of the design entry in code, tests and docs/experiments/README.md, each written in full except one short form.
+   - Mapped back, the three entries equal the pushed head 299e714's byte for byte.
+2. **The merge keeps both sides.**
+   - **The protocol hash.** 7b.3 added a third positional argument to `researchProtocolSha256`, `cardAdmission`. The assist's firing is now the fourth: `researchProtocolSha256(budget, roles, cardAdmission, assist)`.
+     - The admission policy and the assist protocol block are each bound only when set, so a run with neither hashes as before.
+     - Every site passes both: the pipeline (`input.admission !== undefined`, `hooks?.firing`), the session identity, the driver's freeze, and the seed loader.
+   - **The freeze.**
+     - `researchPipelineFreeze(planner, roles, admission, assist)` records `admission` and `assist`, each only when set.
+     - 7b.3's `localScreenCardResearch` takes the assist arm's firing, so the freeze's pipeline block and the research option are still read from one helper.
+     - The pipeline block's planner is `local`, even under the assist arm.
+     - The research option still passes no cloud planner. 7b.3's line passed the cloud arm's configuration there, as for the legacy split arm, which 10.b retired.
+   - **The seed loader.** `PipelineFreezeSchema` admits both optional blocks, and the hash is recomputed under both.
+   - **The ready gate.** The summary parses the stage's `assist` record and 7b.3's top-level `admission` record.
+   - **The stage-key guard.** The pipeline tests' guard admits item (ii)'s `secondRepairCalls` and `secondRepairsComplete` and 10.b's `assist`.
+   - Everything else merged cleanly.
+3. **The hashes, re-pinned on the merged tree.**
+   - **The default.** `researchProtocolSha256()` is `main`'s new default, e3e08871…, because item (ii) raised the coverage schema to version 4. It was 7100b7a2….
+   - **A run with an assist** now hashes 9bf39cad… under `forced_split` and d7febeb8… under `local_first`. At 299e714 these were 6a5bf67b… and 482b8a64….
+   - **Under a card's admission as well,** a run hashes c12285bd… under `forced_split` and f5aace28… under `local_first`.
+   - **The assist protocol blocks** are unchanged: e887963a… (`forced_split`) and 0cdb73d7… (`local_first`).
+   - Every test pin of a firing-bound hash is computed, not literal, so none needed a new value. The calls that passed the firing as the third argument now pass it fourth.
+4. **What an assisted run does under a `serving_card` admission basis** (checked on the merged tree).
+   - **Admission comes first.** The run takes 7b.3's admission exactly as an unassisted run does. The pipeline decides it from the local roles' caps and the card's rates before its first request, so a run refused on the budget or the clock sends neither T1 nor T2. Those refusals are `research_mandatory_budget_exceeded` and `research_infeasible_in_clock`.
+   - **The estimate leaves out the assists.** It counts the local roles only, never the assists' cloud calls. Each assist is still refused before its request when the session's remaining time is under the cloud destination's timeout (`deadline_before_request`), a refusal that falls back to local.
+   - **The second repair is local only.** Item (ii) is an extraction pass on the local reader.
+     - **T1 cannot see it.** T1 is built before extraction under either firing, so it is unaffected.
+     - **T2 can carry its effect.** T2 is built after every repair pass, so a quote a second repair recovered can enter T2's evidence.
+     - **T2 sends no attempt.** Its counts-only coverage reads each chunk's question statuses. A chunk's attempts, up to three under coverage version 4, enter only the scrubber's set of known digests.
+     - So the extra pass can change what T2 cites and its coverage counts, never the shape of either packet.
+   - **The record.** A refused admission writes 7b.3's `research_admission` event and no stage row, so no assist record exists for that run.
+
+Changes:
+- docs/BUILD_LOG.md: the three entries' headings and references, and this entry.
+- The 31 citations of decision 1.
+- The merge resolution in:
+  - src/main/private-agent/research-pipeline.ts, research-coverage.ts, research-seed.ts and session.ts;
+  - scripts/private-agent-local-screen.ts;
+  - tests/unit/private-agent-research-pipeline.test.ts.
+- Four test files, where the firing moves to the hash's fourth argument and the freeze's.
+- tests/unit/private-agent-research-pipeline.test.ts: the hook contract's byte pin, now d2aeb2f8…, because the contract's comment cites the design entry.
+
+Evidence:
+- **The validator.** `pnpm --silent validate:build-log -- --base-ref 76677dc` exits 0: 772 entries, append-only against 76677dc.
+- **Readiness and types.** `pnpm --silent validate:readiness` and `pnpm --silent typecheck` exit 0.
+- **Byte identity.** Mapped back, the three entries equal 299e714's byte for byte. The re-stamp script checks it.
+- **The merge resolution is scripted.**
+  - Before the citations moved, every code and test file of this merge equalled, file by file, a dry-run merge of `main` 6b121eb into 299e714 made with the same script. Only docs/ differed.
+  - That dry run's full suite passed 3,949 tests, with none failed and 88 skipped.
+- **The full suite on this merge:** 3,948 passed, 1 failed and 88 skipped, in 210 files.
+  - The failure is the sandbox-capture lister's 1,024-file test. It timed out at 5 s under the suite's load, as it did at 299e714.
+  - Run alone, its file passes: 13 passed, 1 skipped.
+- **The hashes** of decision 3 are computed on the merged tree, by a scratch script that imports its modules.
+- **The source freeze.** `localScreenSourceFreeze()` gives:
+  - fade2bcf… over 61 files at 76677dc, as at `main` 6b121eb;
+  - 52ce1d3f… over 62 files on this merge.
+
+  The added file is 10.b's src/main/private-agent/research-assist-record.ts. The digest also moves because the code citations of decision 1 moved.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **This entry records a re-stamp and a merge.** Nothing live ran. Commit messages keep the original IDs.
+- **No run combines a card's admission with an assist.** The combination is reasoned from the code (decision 4) and covered by the hashes. 10.b's own tests run without a card.
+- **No owner loop or E-run may span this merge.** It moves the harness source-freeze digest (Evidence).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The coordinating session's merge of #147 after #145, on green CI.
+
+References: BL-20261117-1202-assist-wiring-design; BL-20261117-1203-correction-assist-wiring-restamp; BL-20261117-1204-assist-wiring-implemented; BL-20261117-1201-correction-e6-planted-defect-tasks-restamp; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1131-research-card-admission-design; BL-20261117-1143-research-second-repair-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

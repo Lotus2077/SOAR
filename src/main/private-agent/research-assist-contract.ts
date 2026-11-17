@@ -98,7 +98,7 @@ export interface ResearchAssistAttemptRecord {
 }
 
 /**
- * Since 10.b (BL-20261117-1131-assist-wiring-design, decision 7) every outcome a hook returns carries its attempt `record`
+ * Since 10.b (BL-20261117-1202-assist-wiring-design, decision 7) every outcome a hook returns carries its attempt `record`
  * (research-assist-record.ts); the type keeps it optional only so test fakes can attach one later. The pipeline ends the stage as
  * `research_assist_record_invalid` on a reply, no-reply or stop whose record is missing or does not parse for its touchpoint.
  */

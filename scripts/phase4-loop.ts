@@ -165,7 +165,7 @@ const DRIVER_INPUT_SPEND: { readonly [K in keyof Required<DriverInput>]: "free" 
   taskDirectory: "free", expectedJobSha256: "free", expectedBriefSha256: "free", syntheticAuthoritySha256: "free", expectedRuntimeSha256: "free", imageId: "free",
   outputDirectory: "free", publicRetrieval: "free", publicSnapshot: "free", pauseAfterTools: "free", profile: "free", claimsLedger: "free", cacheSalt: "free",
   pipeline: "free", documentReview: "free", cloudArm: "spends", repairFrom: "free", researchFrom: "free", retainDiagnostics: "free",
-  // 10.b (BL-20261117-1131-assist-wiring-design, decision 10): the assist arm's firing spends nothing of its own; only the cloud arm it needs spends.
+  // 10.b (BL-20261117-1202-assist-wiring-design, decision 10): the assist arm's firing spends nothing of its own; only the cloud arm it needs spends.
   assistFiring: "free",
   // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): both are refused on the loop's command line, and neither spends.
   writeBound: "free", dryRun: "free",

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { canonical, exactText } from "./contracts";
 
 /**
- * 10.b (BL-20261117-1131-assist-wiring-design, decision 9a; the Rayline carry-over (d)): the most characters of the served model
+ * 10.b (BL-20261117-1202-assist-wiring-design, decision 9a; the Rayline carry-over (d)): the most characters of the served model
  * string a settled attempt records, as the provider reported it.
  */
 export const ASSIST_SERVED_MODEL_MAX_CHARS = 200;

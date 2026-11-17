@@ -15,7 +15,7 @@ import { ASSIST_AUTHORED_BRIEF, ASSIST_FEE_CAP_MICROUSD, assistComposedGoal, ass
   type AssistShape } from "../helpers/research-assist-fixture";
 
 /**
- * Backlog item 10's PR 10.b (BL-20261117-1131-assist-wiring-design): item 10's real wrapper inside the pipeline, the stage record and
+ * Backlog item 10's PR 10.b (BL-20261117-1202-assist-wiring-design): item 10's real wrapper inside the pipeline, the stage record and
  * the ready gate's reading of it, the protocol binding, and the wrapper's three additions. The cloud is a capturing fake that answers
  * by the provider's documented caching rules; no request leaves the process.
  */
@@ -59,7 +59,7 @@ describe("10.b: item 10's real wrapper inside the pipeline (decisions 7 and 12)"
     const [first, retry] = synthesis.assist!.attempts.map(a => a.packet!.evidenceBytes!);
     expect(retry).toBeLessThanOrEqual(Math.floor(first! / 2));
     // The ready gate accepted the packet: the records match the slot attempts.
-    expect(() => validateReadyResearchPacket(outcome.files, { brief: assistComposedGoal(), sources: assistSources(), protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, "local_first") })).not.toThrow();
+    expect(() => validateReadyResearchPacket(outcome.files, { brief: assistComposedGoal(), sources: assistSources(), protocolSha256: researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, "local_first") })).not.toThrow();
   });
 
   it("under forced_split, a rejected T1 reply leads to the local planner (a mixed sequence) and an accepted T2 needs no local synthesis", async () => {
@@ -76,7 +76,7 @@ describe("10.b: item 10's real wrapper inside the pipeline (decisions 7 and 12)"
     expect(requests).toHaveLength(0);
     for (const [row, touchpoint] of [[plan, "T1"], [synthesis, "T2"]] as const)
       expect(row.assist).toEqual({ version: 1, touchpoint, policy: "local_first", fired: false, trigger: null, attempts: [], accepted: false, usage: null });
-    expect(outcome.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, "local_first"));
+    expect(outcome.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, "local_first"));
   });
 });
 
@@ -84,7 +84,7 @@ describe("10.b: the protocol binding (decision 6)", () => {
   it("leaves the default unchanged and binds each firing's assist block only when one is given", () => {
     expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
     expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, undefined)).toBe(RESEARCH_PROTOCOL_SHA256);
-    const bound = (["local_first", "forced_split"] as const).map(firing => researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, firing));
+    const bound = (["local_first", "forced_split"] as const).map(firing => researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, firing));
     expect(new Set([RESEARCH_PROTOCOL_SHA256, ...bound]).size).toBe(3);
     // The block is the assist protocol's: a change to it (its digest) changes the bound hash.
     expect(researchAssistProtocolSha256("local_first")).not.toBe(researchAssistProtocolSha256("forced_split"));

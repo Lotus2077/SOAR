@@ -15,6 +15,7 @@ import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, re
 import { validateReadyResearchPacket } from "./research-coverage";
 import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { createResearchInput, createResearchProducer, validateResearchProducer } from "./research-producer";
+import type { ResearchAdmissionRates } from "./research-admission";
 import type { ResearchRolePolicy } from "./research-roles";
 import { ASSIST_WORST_CASE_ROWS, createResearchAssists } from "./research-assist";
 import type { ResearchAssistFiring, ResearchAssists } from "./research-assist-contract";
@@ -73,13 +74,19 @@ export interface GeneralSessionOptions {
     /** 7a.2: the role policy an adopted serving card resolved; absent is the default, and the identity and every request are as without it. */
     roles?: ResearchRolePolicy;
     /**
+     * 7b.3 (BL-20261117-1131-research-card-admission-design): the admission rates of an adopted card whose admission basis is `serving_card`.
+     * Bound into the identity (so a resume under another card's rates ends `session_contract_drift`) and the protocol hash; absent, both
+     * and every request are as without it.
+     */
+    admission?: ResearchAdmissionRates;
+    /**
      * Backlog item 4: a sink for the stage's rejected or truncated replies, and since 7a.1 its kept extraction replies with drops. Forwarded to the pipeline only while the reader
      * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
      * of the session identity; the desktop passes none.
      */
     diagnostics?: ResearchDiagnosticsSink;
     /**
-     * 10.b (BL-20261117-1131-assist-wiring-design, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
+     * 10.b (BL-20261117-1202-assist-wiring-design, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
      * session builds one wrapper per reading stage, with the cloud arm's fee cap. Before any dispatch it refuses
      * (`session_research_assist_invalid`) an assist without a cloud arm, one whose planner or synthesiser is not zero-risk local, one
      * whose model is not on the cloud arm's destination, and one the wrapper refuses to build. The firing binds the protocol hash, and
@@ -357,9 +364,12 @@ export class GeneralAgentSession {
         ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: modelIdentity(judgeModel.config) } : {}),
         // H2b: the frozen pipeline protocol and the stage's model identities, spread only when configured.
         // 7a.2: a non-default role policy is bound through the protocol hash; the default leaves it unchanged.
-        // 10.b (decision 6): an assist's firing is bound through the protocol hash, and its configuration beside it; without one, nothing changes.
-        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles, assistOption?.firing),
-          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels), ...(assist ? { assist: assist.identity } : {}) } } : {}) }));
+        // 7b.3: a card's admission rates are bound (and the admission policy through the hash) only when set. 10.b (decision 6): an assist's
+        // firing is bound through the protocol hash, and its configuration beside it; without either, nothing changes.
+        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION,
+          protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles, options.research.admission !== undefined, assistOption?.firing),
+          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels), ...(options.research.admission ? { admission: options.research.admission } : {}),
+          ...(assist ? { assist: assist.identity } : {}) } } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,
@@ -461,13 +471,17 @@ export class GeneralAgentSession {
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
               deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
-              ...(options.research.roles ? { roles: options.research.roles } : {}),
+              ...(options.research.roles ? { roles: options.research.roles } : {}), ...(options.research.admission ? { admission: options.research.admission } : {}),
               ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}),
               // 10.b (decision 5): the wrapper, with the session deadline the pipeline already passes it (BL-20261113-0929, decision 2).
               ...(assist ? { assists: assist.assists } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {
+            // 7b.3's review (BL-20261117-1131-research-card-admission-design): a refused admission writes no file and no stage row, and the
+            // session keeps no summary of an incomplete stage, so the record (the work, both estimates, the share and the decision) is its own event.
+            if (outcome.summary.admission && outcome.summary.admission.decision !== "admitted")
+              store.append(jobId, { type: "research_admission", contextId: readerContextId, admission: outcome.summary.admission });
             // Backlog item 6 (finding A7): a pause that stopped the stage ends incomplete with the refusal the next run gives (an unresolved
             // row, or a stage that started). Every call the stage stops records a stage event, so the paused arm is defensive: no production
             // caller can pause between the session's check and the pipeline's entry, and the arm is truthful there (the stage never started).

@@ -53,6 +53,12 @@ export interface ResearchAssistSynthesisRequest extends ResearchAssistRequestBas
   readonly coverage: ResearchCoverage;
   /** True only for T2's one retry, after a first T2 reply that settled truncated. */
   readonly retryAfterTruncation: boolean;
+  /**
+   * The plan stage's attempts, stage and assist (10.b's second review): read only into the scrubber's known digests, never sent. The
+   * local planner saw each rejected reply's digest in its repair request, so a piece of one copied into the plan is scrubbed in T2 as
+   * T1 scrubs its prior attempts'. The pipeline always passes them; absent, T2 knows only the digests the rest of the request holds.
+   */
+  readonly planAttempts?: readonly ResearchPlanAttempt[];
 }
 
 /** settled: a reply; skipped: the row stayed unknown; failed: a confirmed failure after dispatch; refused: no dispatch; stopped: the stage ends. */

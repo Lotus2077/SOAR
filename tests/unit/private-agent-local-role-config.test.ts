@@ -215,6 +215,17 @@ describe("shared harness local role configuration", () => {
     expect(existsSync(options.outputDirectory)).toBe(false);
   });
 
+  it("10.b's second review (minor 2): the assist arm's local synthesiser reads the card too, so the same card is refused before anything exists on that arm", async () => {
+    const root = workspace(), cwd = join(root, "empty-cwd"); mkdirSync(cwd);
+    const options = { ...operatorTask(root), pipeline: "research" as const, assistFiring: "forced_split" as const,
+      cloudArm: { model: "claude-sonnet-5-5", endpoint: ANTHROPIC_MESSAGES_ENDPOINT, prices: { input: 2, output: 10, cached: 0.1, write: 2.5 }, maxFeeUsd: 0.5 } };
+    const card = adopt(proposedServingCard(), ADOPTING_ENTRY, { defaults: true }); card.roles.synthesis.maxOutputTokens = [8192, 1148];
+    const written = writeCard(root, card, "below-floor.json");
+    await expect(runLocalArtifactScreen(options, { environment: { ...plainEnvironment, SOAR_SERVING_CARD_FILE: written.path, SOAR_SERVING_CARD_SHA256: written.sha256 }, cwd }))
+      .rejects.toThrow("research_role_policy_invalid");
+    expect(existsSync(options.outputDirectory)).toBe(false);
+  });
+
   it("7a.2 review: a seeded run without a card refuses, before any output exists, a source that read under a non-default role policy", async () => {
     const root = workspace(), cwd = join(root, "empty-cwd"); mkdirSync(cwd);
     const options = operatorTask(root), task = loadPreparedOperatorTask(options.taskDirectory, { jobSha256: options.expectedJobSha256, briefSha256: options.expectedBriefSha256 });

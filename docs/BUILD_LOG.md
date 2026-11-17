@@ -51911,3 +51911,94 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The coordinating session's merge of #147 after #145, on green CI.
 
 References: BL-20261117-1202-assist-wiring-design; BL-20261117-1203-correction-assist-wiring-restamp; BL-20261117-1204-assist-wiring-implemented; BL-20261117-1201-correction-e6-planted-defect-tasks-restamp; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-1131-research-card-admission-design; BL-20261117-1143-research-second-repair-design; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1257-assist-wiring-second-review -- 2026-11-17 -- 10.b's second review: an assist under a card's admission and a second repair tested, with the bound hashes pinned; the synthesis-floor pre-flight on the assist arm; and T2's scrubber told the plan stage's reply digests
+
+Status: `Implemented`
+
+Scope or hypothesis: The coordinating session put a second reviewer on #147 at 72590a1, on its merge resolution and its privacy surface, because the merge with 7b.3 and item (ii) came after 10.b's own light review.
+
+**The reviewer's reading.** There was no blocker and no major.
+- **The merge.** The reviewer redid it in memory. Every hand-resolved hunk is right, nothing is lost or duplicated, and all five hashes match BL-20261117-1216-correction-assist-wiring-card-admission-merge.
+- **Privacy,** as the coordinating session relayed it:
+  - a cloud arm without a synthetic or public approval is refused at construction;
+  - a labelled source added mid-stage got T1 and T2 refused at the broker, with no row and no request;
+  - every packet field is capped, scrubbed and audited, a second repair's quotes included;
+  - records and errors hold no packet text;
+  - a refused admission sends neither packet.
+
+This commit takes the review's two minors and three nits, which the coordinating session asked for on #147 before its merge.
+
+Decisions:
+1. **Minor 1: an assist under a card's admission is tested, and the four bound hashes are pinned.**
+   - **The pins.** The four hashes that 1216 lists are now literal in tests/helpers/research-protocol-pin.ts, the one file where tests pin protocol hashes:
+     - `RESEARCH_PROTOCOL_SHA256_ASSIST`: 9bf39cad… and d7febeb8…;
+     - `RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST`: c12285bd… and f5aace28….
+
+     A test compares each computed value with its pin.
+   - **The pipeline, with the real wrapper,** under a card's rates (private-agent-research-assist-wiring.test.ts):
+     - forced_split on both shapes, with a chunk whose first attempt and first repair fail, so that item (ii)'s second repair completes it;
+     - local_first, with every local plan and synthesis rejected;
+     - each firing refused on its budget, and on its clock.
+   - **The session, on the real broker** (private-agent-research-recoverability.test.ts): an admitted assisted run, and one refused on its clock.
+2. **Minor 2: the driver's synthesis-floor pre-flight now covers the assist arm.**
+   - `--pipeline research --arm cloud` no longer skips it. Since 10.b that arm's synthesiser is local and reads the card.
+   - So a card below the 100-word floor is refused on that arm before the run directory, freeze.json or the database exist, as it is on the local arm.
+   - The comment about the split arm is gone.
+3. **Nit 3, fixed rather than stated: T2's scrubber knows the plan stage's reply digests.**
+   - **The gap.** The local planner sees a rejected reply's `replyContentSha256` in its repair request. T1's scrubber knew its prior attempts' digests, but T2's did not. An 8- to 63-character piece of one, copied into the plan, could therefore have reached T2. A whole 64-character digest was always scrubbed.
+   - **The fix.** The synthesis request now carries the plan stage's attempts, stage and assist (`planAttempts`). It is optional in research-assist-contract.ts, and the pipeline always passes it. The wrapper reads it only into the scrubber's known digests, and never sends it.
+   - **The re-pin.** The hook contract's byte pin moves, deliberately, from d2aeb2f8… to 2c974306….
+   - **Unchanged:** the assist protocol blocks and every protocol hash. The scrub policy names the digest rule, not where known digests come from.
+4. **The other two nits:**
+   - **The wiring test's default-hash check** now passes `false` as `cardAdmission`, the third argument since 7b.3. It passed `undefined` there, and held only by accident.
+   - **research-seed.ts:** 10.b's comment moves out of the `if` condition, to above it.
+5. **What the tests showed that 1216 did not say:**
+   - **The second repair is what lets such a run reach T2.** Without the card's rates, the same chunk ends the run at extraction (`research_extraction_incomplete`), and T2 is never built.
+   - **With the rates, T2 carries every quote of a run whose chunk never failed,** the recovered chunk's included. Its counts-only coverage, and every other field, are that run's.
+     - Only the evidence's order moves. It follows when each chunk completed, so the recovered chunk's quotes come last, and the evidence ids after them are renumbered.
+     - T1, built before extraction, is that run's byte for byte.
+   - **Admission's estimate leaves out up to three assist calls:** T1, T2 and T2's retry, each up to the cloud destination's timeout. Decision 4 of 1216 says the estimate counts the local roles only. The coordinating session said it will note this on E3's card.
+
+Changes:
+- src/main/private-agent/research-assist-contract.ts, research-assist.ts and research-pipeline.ts: decision 3.
+- scripts/private-agent-local-screen.ts: decision 2.
+- src/main/private-agent/research-seed.ts: the comment.
+- tests/helpers/research-protocol-pin.ts: the four pins.
+- tests/helpers/research-assist-fixture.ts: `assistLocalModels` takes `extractFailures`, which fails the first attempts on the first chunk the reader is sent.
+- **Tests:**
+  - tests/unit/private-agent-research-assist-wiring.test.ts, private-agent-research-recoverability.test.ts, private-agent-research-pipeline.test.ts and private-agent-local-role-config.test.ts: the cases above;
+  - the pipeline test also lists `planAttempts` among T2's request keys, and re-pins the contract.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The changed test files pass:**
+  - private-agent-research-assist-wiring.test.ts, 17/17;
+  - private-agent-research-recoverability.test.ts, 9/9;
+  - private-agent-research-pipeline.test.ts, 144/144;
+  - the pre-flight case in private-agent-local-role-config.test.ts.
+- **Each fix is shown by a test that fails without it:**
+  - the pre-flight test, with `!input.cloudArm` restored;
+  - the pipeline's pass-through test, with `planAttempts` dropped from the T2 request;
+  - the scrub test, with T2's known digests reading no plan attempt.
+- **The full suite:** 3,960 passed, none failed and 88 skipped, in 210 files.
+- **Types, the log and readiness.** `pnpm typecheck` exits 0. `pnpm --silent validate:build-log -- --base-ref 72590a1` exits 0: 773 entries, append-only. `pnpm --silent validate:readiness` exits 0.
+- **The hashes are unchanged, and now pinned:**
+  - the default, e3e08871…;
+  - the four bound values in decision 1;
+  - the assist blocks, e887963a… (forced_split) and 0cdb73d7… (local_first).
+- **The source freeze** moves from 52ce1d3f… at 72590a1 to c2741079…, both over 62 files.
+- **The privacy scan of the diff** is clean.
+
+Failures or blockers: The first form of the second-repair test expected T2 to equal a clean run's byte for byte. It failed on the evidence order (decision 5). It now compares the quotes, the counts and every other field.
+
+Limitations and non-claims:
+- **The privacy findings in Scope are the reviewer's,** relayed by the coordinating session. This entry does not re-derive them.
+- **The admission and second-repair cases run on fixtures and loopback only.** No run on a real card ran.
+- **No owner loop or E-run may span this merge.** It moves the harness source-freeze digest.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. Nothing live ran, during the coordinating session's re-probe window or otherwise.
+
+Next gate: The coordinating session's merge of #147 on green CI, after the re-probe is assessed.
+
+References: BL-20261117-1216-correction-assist-wiring-card-admission-merge; BL-20261117-1202-assist-wiring-design; BL-20261117-1204-assist-wiring-implemented; BL-20261117-1131-research-card-admission-design; BL-20261117-1143-research-second-repair-design; BL-20261117-1130-lane-decisions-second-repair-before-reprobe.

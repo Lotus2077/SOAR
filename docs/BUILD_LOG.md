@@ -51066,3 +51066,127 @@ References:
 - BL-20261117-1130-lane-decisions-second-repair-before-reprobe;
 - BL-20261113-0937-owner-decision-restamp-unmerged-entries;
 - BL-20261113-0938-correction-restamp-rule-dates.
+
+### BL-20261117-1155-e0-card-amendment-5 -- 2026-11-17 -- E0 card Amendment 5: the re-probe with P10's plan cells at 16,384 tokens is registered before it runs, with the rule that reads its counts and what follows each outcome
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner accepted that the probe's plan cell is measured at 16,384 tokens and that the serving card is then adopted with the planner at that cap (decision 2 of BL-20261117-0940-owner-direction-decisions-delegated). Pull request #136 added the export option that makes the measurement possible (BL-20261117-1010-p10-plan-cap-export-implemented). This entry records Amendment 5 to E0's card, which registers the re-probe before it runs. `Implemented` covers the amendment's text. Nothing has run under it. Hypothesis: at a cap of 16,384 tokens the endpoint returns a valid plan for P10's planner request in at least 19 of 20 calls, as it did at 8,192, and extraction's cell meets the same rule again.
+
+Decisions:
+1. **One run is added after E0's close.** E0's closing entry stands (BL-20261116-1357-e0-verified). The re-probe is a new run under E0's card, with rows of its own.
+2. **Six steps.** The export with `--plan-cap 16384`; P1 alone, checked by hand; all twelve probes in one invocation; the assessment; the card writer; and the export once more without the option. The amendment gives each command.
+3. **The conditions.** The owner's main checkout at a commit that contains #136 and the amendment, with a clean tracked tree. The doctor first: it must reach and identify the model, and it need not report `ready`, which also needs Docker and the task image. Nothing else on the endpoint during the probes. No pull or change of the main checkout from the export to the card. A pull request that changes `researchProtocolSha256()` and merges between the export and the assessment voids the run.
+4. **A new card file,** dated by the probe's start. The 2026-11-16 card's two files stay as committed, `proposed` and never adopted. The Markdown goes to a temporary file first.
+5. **The reading rule is the writer's 95% rule, and nothing else.** Two cells bind the adoption: plan/on at 16,384 and extract/off at 2,048. No cell is carried over from the 2026-11-16 card. Counts, tokens and times of the plan cell are descriptive only, and any comparison with the 8,192 cell is post hoc.
+6. **What follows each outcome is fixed now.**
+   - Both binding cells meet the rule: the session asks the owner by name for the adoption commit, with the result.
+   - Either cell misses the rule: the session does not ask for adoption on this run. It reports the counts, and a further amendment registers the next measurement.
+   - Synthesis's thinking-on cell meets the rule, which it missed on 2026-11-16: the card would then send the format on every synthesis call, which no fixture has measured. The session asks for adoption with that flag set to false, and names it. The three other cells bind no run.
+   - A void or stopped run is run again once. A second void stops the work.
+7. **This choice is the session's.** The owner's answer names the measurement and the adoption. The steps' details, the binding cells and the outcomes' rules are the session's, under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated, and the owner may replace them.
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: Amendment 5.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The commands** are those of pull request #136's description, which its reviewer checked: every script and flag exists, the order fits E0's stop rule, and only the probe contacts the endpoint, behind its zero-fee guard. The probe has no dry run, so P1 alone is the pre-check.
+- **That reviewer's points on the instructions** are in the amendment: the card's date, the temporary file for the Markdown, the check of the probe's own record before the assessment, the binding cells, and the export once more afterwards.
+- **The reading rule** is lane S-pipe's account of the writer's rule, which the reviewer of #136 confirmed against the writer.
+- **A reviewer read this amendment before the commit,** against the probe's scripts and E0's card. It found no blocker and two major findings, and both are applied. The doctor's `ready` cannot be required, since it also needs Docker and the task image. And no outcome covered synthesis's thinking-on cell meeting the rule. Its minor findings are applied too: the full card command, what a stopped run is, the request-settings check, the load readings and the rows' arguments. The fixes are the reviewer's replacement texts and were not reviewed again.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Nothing has run.** No probe, no card and no row exists for this run yet.
+- **P10's payload is small and synthetic.** A pass shows that the endpoint takes the planner's flagged request at that cap. It does not show how plans fare on a real index.
+- **The adoption is not decided here.** It needs the owner's go, asked by name.
+- **The session did not read the writer's code itself.** The rule's wording rests on lane S-pipe's account, which the reviewer checked against the writer.
+
+Paid exposure: None. The probe is zero-fee, on the owner's endpoint.
+
+Next gate: The re-probe, from the main checkout at a commit that contains this amendment. Then its result entry, reviewed before its commit.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendments 1, 4 and 5); docs/experiments/serving-card-2026-11-16.md; docs/experiments/README.md; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-1000-p10-plan-cap-export-design; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261116-1357-e0-verified; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-0814-e0-card-amendment-1; BL-20261116-0939-e0-probes-serving-card; BL-20261116-1218-serving-probe-direct-transport-implemented; pull request #136.
+
+### BL-20261117-1156-correction-e0-card-amendment-5-second-repair-restamp -- 2026-11-17 -- Correction to BL-20261117-1155-e0-card-amendment-5: E0's Amendment 5 is revised before it merges or runs, because the second repair now lands before the re-probe; its entry is re-stamped
+
+Status: `Implemented`
+
+Scope or hypothesis: The amendment's entry was committed on pull request #141 with the stamp 1054 of 2026-11-17 and has not merged. Since then the session decided that the second repair merges before the re-probe (decision 1 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe), and the log's tail passed 1054. This entry records the re-stamp and what changed in the amendment's text. The entry's body is unchanged. Where the amendment as it now stands in the card differs from that entry's account of it, the card governs.
+
+Decisions:
+1. **The re-stamp.** The entry first stamped 1054, with the same slug, is now BL-20261117-1155-e0-card-amendment-5. Its body is byte-identical apart from the ID in its heading. The old stamp was on pull request #141's branch only and never reached `main`.
+2. **The run's commit** contains pull requests #137 and #142 as well as #136.
+3. **The protocol hash.** The export's printed line at step 1 and the reading rule's assessed protocol are the default at the run's commit, `e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c`. The amendment first named `7100b7a2…`, which was the default before #142.
+4. **The request bodies.** The plan and extraction bodies stay those of 2026-11-16, apart from the plan cells' cap. The synthesis bodies differ by the coverage schema's version, which #142 raised to 4. So synthesis's cells are measured on new bodies. Every cell is measured anew in any case, since no cell is carried over.
+5. **What the adoption commit edits.** Two keys of the new card's JSON, and a third when synthesis's thinking-on cell meets the rule: `decision`, to adopted with its entry; and `admission.basis`, from `none` to `serving_card`. The writer always proposes `none`. Without the second edit, 7b.3's admission and the second repair stay off. The audit lets `admission` differ from the writer's output. The owner then points the two serving-card lines of the ignored `.env.local` at the edited file.
+   - **A check before asking.** Under that basis the reader refuses a card that lacks the rates it derives. So the session first checks that the new card holds a P11 size that ran with prefill and decode rates above 0, and a mean completion above 0 in plan/on, extract/off and synthesis/on. Otherwise it does not ask.
+6. **Synthesis's outcome** now says where its flag is set to false: in `roles`.
+7. **Nothing else in the amendment changed.**
+
+Changes:
+- docs/experiments/e0-card-2026-11-13.md: Amendment 5, as decisions 2 to 6 say.
+- docs/BUILD_LOG.md: the re-stamped entry and this one.
+
+Evidence:
+- **The hash and the bodies** are lane S-pipe's figures at #142's head af00da2. It compared that head with `main` at 9b37ea2 under three request settings: the 12 plan and extraction cell bodies are byte-identical, and the 6 synthesis cell bodies differ.
+- **The reviewer of #142** reproduced the default hash and confirmed that plan and extraction export bodies and all three role schemas are unchanged.
+- **The audit rule** is docs/experiments/README.md, "Audit": only `decision`, `roles`, `concurrency` and `admission` may differ from the writer's output.
+- **A reviewer read the revision before the commit,** with the build's entry beside it. It found no blocker. It computed the default hash at this tree and confirmed that the six steps work unchanged after the second repair. Its one finding on the amendment is applied: a check of the new card's rates before the session asks for adoption.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Nothing has run.**
+- **The session did not recompute the hash.** Step 1 of the run checks the export's printed line against it.
+- **The basis edit turns on behaviour no run has exercised.** 7b.3's admission and the second repair have unit tests only. The r3 re-measurement is their first live use.
+
+Paid exposure: None.
+
+Next gate: The re-probe, from the main checkout at a commit that contains #142 and this amendment.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendment 5); docs/experiments/README.md; BL-20261117-1155-e0-card-amendment-5; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-0940-owner-direction-decisions-delegated; pull requests #136, #137, #141 and #142.
+
+### BL-20261117-1157-e5-owner-build-cut -- 2026-11-17 -- E5's owner build is cut: `owner-v0.2.1`, a local annotated tag at c02366a in its own worktree, installed and built there; `pnpm check` has not passed there, and the tag is not pushed
+
+Status: `Implemented`
+
+Scope or hypothesis: E5's card decides a new owner build at `main`'s head once the card is on `main`, named `owner-v0.2.1` (O1 and O2 of BL-20261117-0943-e5-card-approved; decision 10 of BL-20261117-0941-group-a-decided-under-delegation; decision 2 of BL-20261117-0953-correction-owner-direction-second-pass). This entry records the cut and exactly what was checked in it. `Implemented` covers the build as it stands on the owner's Mac. No job has run in it. The rehearsal and day 1 are the owner's.
+
+Decisions:
+1. **The build.** `owner-v0.2.1` is an annotated tag at c02366a, the merge of pull request #134, which put E5's card on `main`. It is checked out in its own detached worktree beside the earlier owner builds, with its own `pnpm install --frozen-lockfile`. The tag is local. Its push waits for the owner's go for that push.
+2. **`pnpm check` has not passed there.** Three attempts each stopped at the test step on 5-second timeouts, so the card's condition is not met in letter. The suite passed there only at a 30-second timeout, and the build step ran outside the command. Cutting the build on the parts in Evidence departs from the card. The owner may replace that reading. The command is repeated on a quiet machine before the rehearsal, and its exit is recorded.
+3. **The settings.** The build reads the owner's existing desktop settings through a link, in its worktree, to the earlier build's ignored settings file. The session made the link and did not open the file. The owner may point it elsewhere.
+4. **Before day 1, the owner's steps:**
+   - finish or close any task paused under `owner-v0.2`. By lane S-desk's reading of the build identity, a task begun under one build cannot resume under another;
+   - the rehearsal of O10: one synthetic throwaway job in this build, a verdict and an exported receipt. The session then prints its row with `registry-row.py --verdict-file` and appends nothing;
+   - the doctor on each day a job runs.
+
+Changes: docs/BUILD_LOG.md, this entry. Nothing tracked changes: the tag is local, and the worktree's link and install are ignored files.
+
+Evidence:
+- **The install:** `pnpm install --frozen-lockfile` exited 0, under Node 22.22.2 and pnpm 10.12.4.
+- **`pnpm check`, three attempts.** In each, the readiness validator, the build-log validator (732 entries) and the typecheck passed, and the test step failed on timeouts only: 4 tests, then 2, then 6. They were nine distinct tests in seven files, three of them failing in two attempts. The attempts' own logs record load averages of 24 to 49 on a 10-core machine, and the session read 86 right after the first attempt, with system indexing and the lanes' test runs active. The first attempt's four files passed when run alone, 217 tests.
+- **The full suite with a 30-second test timeout,** `pnpm exec vitest run --testTimeout=30000`: 193 files passed and 13 were skipped; 3,868 tests passed and 86 were skipped; none failed.
+- **`pnpm build`** exited 0, and `out/` holds the main, preload and renderer bundles.
+- **CI on the same commit:** the `check` and `electron-e2e` jobs of the push to `main` at c02366a both succeeded.
+- **The doctor,** `pnpm setup:general` without `--write`, run once in the build's worktree at 11:52 UTC: `ready` true; Docker and the qualified image present; the model listed and one completion returned; and the identity's root, engine version and context equal those the 2026-11-16 serving card records. No serving card is configured there, as E5's card expects.
+- **The worktree's tracked tree** is clean at the tag.
+
+Failures or blockers: `pnpm check` as one command, as decision 2 says. No failure other than a test timeout appeared in any attempt.
+
+Limitations and non-claims:
+- **The session did not launch the app.** Whether the build opens the app's existing data is the rehearsal's to show.
+- **No verdict has been recorded in this build.**
+- **Decision 4's first point** rests on lane S-desk's account, which the session did not verify.
+- **The timeouts' cause is inferred** from the load readings, from the first attempt's four files passing alone, and from the full suite passing at a 30-second timeout.
+
+Paid exposure: None. The doctor made one zero-fee completion on the owner's endpoint.
+
+Next gate: `pnpm check` exiting 0 there, before the rehearsal. The owner's three steps of decision 4, then day 1. The tag's push, on the owner's go.
+
+References: docs/experiments/e5-card-2026-11-17.md (O1, O2, O10; "How a build is cut"); BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261008-1210-owner-v0-1-released; pull request #134.

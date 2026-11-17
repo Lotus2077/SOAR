@@ -866,7 +866,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const synthesisAssist = async (): Promise<string | undefined> => {
     if (argument !== undefined || !hooks?.synthesis) return undefined;
     for (const retryAfterTruncation of [false, true]) {
-      const outcome = await consult(hooks.synthesis, () => ({ ...assistBase(), plan: stablePacket.plan, evidence, coverage: coverage!, retryAfterTruncation }));
+      // 10.b's second review: the plan stage's attempts go along for T2's known digests only (research-assist-contract.ts).
+      const outcome = await consult(hooks.synthesis, () => ({ ...assistBase(), plan: stablePacket.plan, evidence, coverage: coverage!, retryAfterTruncation, planAttempts: planCounts.planAttempts! }));
       if (!keep(tracks.T2, outcome)) return "research_assist_record_invalid";
       if (outcome.kind === "stop") return outcome.code;
       if (outcome.kind === "no_reply") return undefined;

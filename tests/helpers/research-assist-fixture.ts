@@ -167,13 +167,18 @@ function localReply(system: string, user: string): string {
 }
 /**
  * A zero-fee local model on a fake broker answering with `localReply`. 10.b: `reject` makes the local planner or synthesiser reply with
- * text the host rejects, so a local-first assist fires after two of them.
+ * text the host rejects, so a local-first assist fires after two of them. 10.b's second review: `extractFailures` makes the first
+ * extraction attempts of the first chunk the reader is sent invalid, so under a card's admission rates a second repair completes it.
  */
-export function assistLocalModels(reject: ReadonlySet<"plan" | "synthesis"> = new Set()) {
+export function assistLocalModels(reject: ReadonlySet<"plan" | "synthesis"> = new Set(), options: { extractFailures?: number } = {}) {
+  let target: string | undefined, tries = 0;
   const request = vi.fn(async (input: { body: string }, settle: (bytes: Buffer) => number) => {
-    const body = JSON.parse(input.body), system = body.messages[0].content as string;
-    const content = reject.has("plan") && system.startsWith("You plan") ? "not a plan" : reject.has("synthesis") && system.startsWith("You write") ? "not a synthesis"
-      : localReply(system, body.messages[1].content as string);
+    const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string;
+    const chunk = system.startsWith("You extract") ? (Object.assign({}, ...user.split("\n").map(line => JSON.parse(line))) as { chunk: { id: string } }).chunk.id : undefined;
+    if (chunk !== undefined && chunk === (target ??= chunk)) tries++;
+    const content = chunk !== undefined && chunk === target && tries <= (options.extractFailures ?? 0) ? "not an extraction"
+      : reject.has("plan") && system.startsWith("You plan") ? "not a plan" : reject.has("synthesis") && system.startsWith("You write") ? "not a synthesis"
+      : localReply(system, user);
     const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
     return { bytes, receipt: { feeMicrousd: settle(bytes) } };
   });

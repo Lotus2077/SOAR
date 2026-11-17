@@ -528,9 +528,9 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   const roles = servingCard?.policy.roles;
   assertLocalScreenSeed(seed, servingCard);
   // 7a.2: a card whose synthesis attempts cannot hold the 100-word floor would be refused inside the session, after the run directory,
-  // freeze.json and the database exist; it is refused here instead, like any card refusal. A split-arm synthesiser never reads the policy,
-  // and the pipeline keeps its own check (research-pipeline.ts).
-  if (input.pipeline === "research" && !input.cloudArm && roles && nonDefaultRoleParameters(roles).length && researchSynthesisBelowFloor(roles.synthesis))
+  // freeze.json and the database exist; it is refused here instead, like any card refusal, and the pipeline keeps its own check
+  // (research-pipeline.ts). Since 10.b the assist arm's synthesiser is local and reads the card too, so its runs are checked as well.
+  if (input.pipeline === "research" && roles && nonDefaultRoleParameters(roles).length && researchSynthesisBelowFloor(roles.synthesis))
     throw new Error("research_role_policy_invalid");
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.

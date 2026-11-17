@@ -77,8 +77,8 @@ export function loadResearchSeed(runDirectory: string, expected: { jobSha256: st
   // 7a.2: the source's protocol is recomputed under the role policy it recorded; the seeding driver compares that policy with its own.
   // 7b.3: and under the admission policy when it recorded a card's admission. Since item (ii) the basis also decides a packet (a second
   // repair is sent only under it), so the seeding driver compares the basis too (assertSeedRolePolicy); the rates decide no packet.
-  if (pipeline.version !== RESEARCH_PIPELINE_VERSION || pipeline.protocolSha256 !== researchProtocolSha256(pipeline.budget, pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY, pipeline.admission !== undefined, pipeline.assist?.firing) ||
   // 10.b: and under the assist's firing it recorded, whose own block digest must be today's.
+  if (pipeline.version !== RESEARCH_PIPELINE_VERSION || pipeline.protocolSha256 !== researchProtocolSha256(pipeline.budget, pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY, pipeline.admission !== undefined, pipeline.assist?.firing) ||
     (pipeline.assist !== undefined && pipeline.assist.protocolSha256 !== researchAssistProtocolSha256(pipeline.assist.firing)) ||
     canonical(pipeline.budget) !== canonical(RESEARCH_PIPELINE_BUDGET)) throw new Error("research_seed_protocol_mismatch");
   const jobId = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u).parse(freeze.jobId);

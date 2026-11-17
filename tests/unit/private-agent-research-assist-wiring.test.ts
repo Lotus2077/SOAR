@@ -9,7 +9,9 @@ import { INDEX_LIMITS } from "../../src/main/private-agent/research-index";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import { ResearchPlanSchema } from "../../src/main/private-agent/research-plan";
 import { ResearchEvidenceSchema } from "../../src/main/private-agent/research-coverage";
-import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
+import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
+import { inventoryResearchSources } from "../../src/main/private-agent/research-coverage";
+import { RESEARCH_PROTOCOL_SHA256, RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST, RESEARCH_PROTOCOL_SHA256_ASSIST } from "../helpers/research-protocol-pin";
 import { researchV4Reply } from "../helpers/research-v4-fixture";
 import { ASSIST_AUTHORED_BRIEF, ASSIST_FEE_CAP_MICROUSD, assistComposedGoal, assistLocalModels, assistPacketOf, assistRequests, assistSources, cachingAssistModel,
   type AssistShape } from "../helpers/research-assist-fixture";
@@ -28,11 +30,13 @@ function cloud(shape: AssistShape, script: (purpose: string, n: number) => Reply
     return script(purpose, n) ?? researchV4Reply(purpose === PLAN_ASSIST_PURPOSE ? "You plan" : "You write", canonical(assistPacketOf(body)));
   });
 }
-async function run(firing: ResearchAssistFiring, shape: AssistShape, options: { reject?: ("plan" | "synthesis")[]; script?: (purpose: string, n: number) => Reply | undefined } = {}) {
+async function run(firing: ResearchAssistFiring, shape: AssistShape, options: { reject?: ("plan" | "synthesis")[]; script?: (purpose: string, n: number) => Reply | undefined;
+  admission?: ResearchAdmissionRates; deadlineMs?: number; budget?: typeof RESEARCH_PIPELINE_BUDGET; extractFailures?: number } = {}) {
   const fake = cloud(shape, options.script);
   const assists = createResearchAssists({ firing, model: fake.model, authoredBrief: ASSIST_AUTHORED_BRIEF, maxFeeMicrousd: ASSIST_FEE_CAP_MICROUSD });
-  const outcome = await runResearchPipeline({ brief: assistComposedGoal(), sources: assistSources(), models: assistLocalModels(new Set(options.reject ?? [])), signal: new AbortController().signal,
-    record: () => {}, assists, deadlineMs: Number.POSITIVE_INFINITY });
+  const outcome = await runResearchPipeline({ brief: assistComposedGoal(), sources: assistSources(), models: assistLocalModels(new Set(options.reject ?? []), { extractFailures: options.extractFailures ?? 0 }),
+    signal: new AbortController().signal, record: () => {}, assists, deadlineMs: options.deadlineMs ?? Number.POSITIVE_INFINITY,
+    ...(options.admission ? { admission: options.admission } : {}), ...(options.budget ? { budget: options.budget } : {}) });
   return { outcome, requests: fake.requests, plan: outcome.summary.stages[1]!, synthesis: outcome.summary.stages[3]! };
 }
 
@@ -76,18 +80,98 @@ describe("10.b: item 10's real wrapper inside the pipeline (decisions 7 and 12)"
     expect(requests).toHaveLength(0);
     for (const [row, touchpoint] of [[plan, "T1"], [synthesis, "T2"]] as const)
       expect(row.assist).toEqual({ version: 1, touchpoint, policy: "local_first", fired: false, trigger: null, attempts: [], accepted: false, usage: null });
-    expect(outcome.summary.protocolSha256).toBe(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, "local_first"));
+    expect(outcome.summary.protocolSha256).toBe(RESEARCH_PROTOCOL_SHA256_ASSIST.local_first);
   });
 });
 
 describe("10.b: the protocol binding (decision 6)", () => {
   it("leaves the default unchanged and binds each firing's assist block only when one is given", () => {
     expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
-    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, undefined)).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, undefined)).toBe(RESEARCH_PROTOCOL_SHA256);
     const bound = (["local_first", "forced_split"] as const).map(firing => researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, firing));
     expect(new Set([RESEARCH_PROTOCOL_SHA256, ...bound]).size).toBe(3);
     // The block is the assist protocol's: a change to it (its digest) changes the bound hash.
     expect(researchAssistProtocolSha256("local_first")).not.toBe(researchAssistProtocolSha256("forced_split"));
+  });
+  it("pins the four bound hashes (10.b's second review): each firing, without and with a card's admission policy", () => {
+    for (const firing of ["forced_split", "local_first"] as const) {
+      expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, false, firing)).toBe(RESEARCH_PROTOCOL_SHA256_ASSIST[firing]);
+      expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, undefined, true, firing)).toBe(RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST[firing]);
+    }
+  });
+});
+
+/**
+ * 10.b's second review, minor 1 (BL-20261117-1216-correction-assist-wiring-card-admission-merge, decision 4): the real wrapper inside
+ * the pipeline under a card's admission rates (7b.3), with item (ii)'s second repair, which only those rates allow.
+ */
+describe("10.b under a card's admission rates and item (ii)'s second repair", () => {
+  const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+    fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+  const hour = () => performance.now() + 3_600_000;
+  const gate = (outcome: Awaited<ReturnType<typeof run>>["outcome"], firing: ResearchAssistFiring) => validateReadyResearchPacket(outcome.files, { brief: assistComposedGoal(),
+    sources: assistSources(), protocolSha256: RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST[firing], assistFiring: firing });
+
+  it.each(["openai_responses", "anthropic_messages"] as const)("on %s under forced_split: T2 is built after a second repair and carries every quote of a run whose chunk never failed, T1 is that run's; without the card the run stops before T2", async shape => {
+    const clean = await run("forced_split", shape, { admission: rates, deadlineMs: hour() });
+    const repaired = await run("forced_split", shape, { admission: rates, deadlineMs: hour(), extractFailures: 2 });
+    for (const { outcome } of [clean, repaired]) {
+      expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready", summary: { protocolSha256: RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST.forced_split, admission: { decision: "admitted" } } });
+      expect(() => gate(outcome, "forced_split")).not.toThrow();
+    }
+    // The second repair saved the chunk its first repair left invalid, and the extract row counts it.
+    expect(repaired.outcome.summary.stages.find(row => row.stage === "extract")).toMatchObject({ repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 1 });
+    const attempts = (JSON.parse(repaired.outcome.files.find(file => file.path === RESEARCH_FILES.coverage)!.bytes.toString()).chunks as { attempts?: { status: string }[] }[])
+      .map(chunk => (chunk.attempts ?? []).map(attempt => attempt.status));
+    expect(attempts.filter(statuses => statuses.length === 3)).toEqual([["invalid", "invalid", "complete"]]);
+    // T1 is built before extraction, so it is the clean run's byte for byte. T2 is built after every repair pass: it carries every quote the
+    // clean run's T2 carries, the recovered chunk's included, and its counts-only coverage and every other field are the clean run's. Only
+    // the evidence's order moves, which follows when each chunk completed: the recovered quotes come last, and the ids are renumbered.
+    expect(repaired.requests.map(request => request.purpose)).toEqual([PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE]);
+    expect(repaired.requests[0]!.body).toBe(clean.requests[0]!.body);
+    const [cleanT2, repairedT2] = [clean, repaired].map(result => assistPacketOf(result.requests[1]!.body));
+    const quotes = (packet: Record<string, any>) => (packet.evidenceText as string).split("\n").filter(line => /^- \[E\d+\] /u.test(line)).map(line => line.replace(/^- \[E\d+\] /u, "")).sort();
+    expect(quotes(repairedT2).length).toBeGreaterThan(0); expect(quotes(repairedT2)).toEqual(quotes(cleanT2));
+    expect({ ...repairedT2, evidenceText: null }).toEqual({ ...cleanT2, evidenceText: null });
+    for (const row of [repaired.plan, repaired.synthesis]) expect(row.assist).toMatchObject({ policy: "forced_split", fired: true, trigger: "forced_split", accepted: true });
+    // Without the card's rates the chunk ends after its one repair: the run stops at extraction and T2 is never built.
+    const plain = await run("forced_split", shape, { extractFailures: 2 });
+    expect(plain.outcome).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(plain.requests.map(request => request.purpose)).toEqual([PLAN_ASSIST_PURPOSE]);
+  });
+
+  it("under local_first: T1 after the rejected local plans and T2 after the refused syntheses, each recorded, under the bound hash", async () => {
+    const { outcome, requests, plan, synthesis } = await run("local_first", "anthropic_messages", { admission: rates, deadlineMs: hour(), reject: ["plan", "synthesis"] });
+    expect(outcome).toMatchObject({ status: "completed", summary: { protocolSha256: RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST.local_first, admission: { decision: "admitted" } } });
+    expect(requests.map(request => request.purpose)).toEqual([PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE]);
+    expect(plan.assist).toMatchObject({ trigger: "local_plans_rejected", accepted: true }); expect(synthesis.assist).toMatchObject({ trigger: "local_syntheses_refused", accepted: true });
+    expect(() => gate(outcome, "local_first")).not.toThrow();
+  });
+
+  it.each(["forced_split", "local_first"] as const)("under %s, a card that refuses the run on its budget or its clock sends neither T1 nor T2, and no stage runs", async firing => {
+    // Every chunk's call fits the budget, but not the repair reserve admission keeps; and a clock of one second.
+    const chunks = inventoryResearchSources(assistSources()).chunks.length;
+    const refusals = [[{ budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunks }, deadlineMs: hour() }, "refused_budget", "research_mandatory_budget_exceeded"],
+      [{ deadlineMs: performance.now() + 1_000 }, "refused_clock", "research_infeasible_in_clock"]] as const;
+    for (const [options, decision, reason] of refusals) {
+      const { outcome, requests } = await run(firing, "anthropic_messages", { admission: rates, reject: ["plan", "synthesis"], ...options });
+      expect(outcome).toMatchObject({ status: "incomplete", reason, summary: { admission: { decision } } });
+      expect(requests).toHaveLength(0); expect(outcome.summary.stages).toHaveLength(0);
+    }
+  });
+});
+
+/** 10.b's second review, nit 3: T2's scrubber knows every plan attempt's reply digest, as T1's knows its prior attempts'. */
+describe("10.b: T2's known digests hold the plan stage's attempts", () => {
+  it("scrubs a piece of a plan reply's digest that the plan carries into T2, which T2 sent before", async () => {
+    const { synthesis, outcome } = await assistRequests();
+    const attempt = outcome.summary.stages.find(row => row.stage === "plan")!.planAttempts![0]!, piece = attempt.replyContentSha256.slice(8, 24);
+    const plan = structuredClone(synthesis.plan); plan.questions[0]!.text = `${plan.questions[0]!.text} Compare run ${piece} first.`;
+    const build = (planAttempts?: (typeof attempt)[]) => buildSynthesisAssistPacket({ ...synthesis, plan, ...(planAttempts ? { planAttempts } : {}) },
+      { authoredBrief: ASSIST_AUTHORED_BRIEF, model: cloud("anthropic_messages").model });
+    const before = build(), after = build([attempt]);
+    expect(before.ok && before.user).toContain(piece);
+    expect(after).toMatchObject({ ok: true }); expect(after.ok && after.user).not.toContain(piece);
   });
 });
 

@@ -159,7 +159,8 @@ function knownDigests(request: ResearchAssistPlanRequest | ResearchAssistSynthes
   }
   for (const entry of request.sourceIndex.sources) { add(entry.sourceSha256); add(entry.modelContentSha256); add(entry.literal.opening.sha256); add(entry.literal.heading?.sha256); add(entry.literal.sourceSha256); }
   for (const unit of request.units) add(unit.sha256);
-  if ("priorAttempts" in request) for (const attempt of request.priorAttempts) { add(attempt.replyContentSha256); add(attempt.acceptedPlanSha256); }
+  // T1's prior attempts, and since 10.b's second review T2's plan attempts: the local planner saw a rejected reply's digest in its repair request.
+  for (const attempt of "priorAttempts" in request ? request.priorAttempts : request.planAttempts ?? []) { add(attempt.replyContentSha256); add(attempt.acceptedPlanSha256); }
   if ("coverage" in request) {
     const coverage = request.coverage;
     for (const value of [coverage.briefSha256, coverage.sourceManifestSha256, coverage.protocolSha256, coverage.synthesis?.argumentSha256]) add(value);

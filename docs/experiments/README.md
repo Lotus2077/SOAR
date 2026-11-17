@@ -169,6 +169,13 @@ This folder holds the committed, sanitized record of live trials (see
       after a T1 outcome that ended the stage. Under `local_first` it would only
       after every local attempt of its stage failed, and otherwise the trigger is
       null. The retry is sent only after a truncated first T2 reply.
+    - **A T2 built after a second repair,** the packet the scan most needs to
+      see, comes only from a local run read under a serving card whose
+      admission basis is `serving_card` (`SOAR_SERVING_CARD_FILE` and
+      `SOAR_SERVING_CARD_SHA256`): only then does item (ii) give a chunk its
+      second repair. `capture.json`'s `sourceRun` records the run's basis and its
+      `secondRepairCalls` and `secondRepairsComplete`, so the capture shows
+      whether its T2 followed a second repair. A run that needed none records 0.
   - **What the gates do not show.** The reader binds P10 evidence to the current
     research protocol hash: after any change to it (backlog items 7(a) part 1,
     7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and

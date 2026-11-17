@@ -9,8 +9,9 @@ import { SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-
 import { ASSIST_CACHE_MODE } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { createResearchAssists, researchAssistProtocolSha256 } from "../../src/main/private-agent/research-assist";
+import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import type { ResearchAssistFiring } from "../../src/main/private-agent/research-assist-contract";
-import { RESEARCH_PIPELINE_BUDGET, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
+import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import { ASSIST_CAPTURE_DIRECTORY, captureAssistPackets, parseAssistCaptureArguments, type AssistCaptureInput, type AssistCaptureTrigger } from "../../scripts/assist-capture";
 import { buildCloudArm, cloudArmModelConfig } from "../../scripts/private-agent-local-screen";
 import { cachingAssistModel, type AssistShape } from "../helpers/research-assist-fixture";
@@ -37,6 +38,37 @@ const SOURCES = { "alpha-notes.md": "# Alpha notes\nThe orchard recorded twelve 
   "zeta-notes.md": "# Zeta notes\nThe valley recorded eleven healthy oaks during the winter survey of the west field.\n" } as const;
 /** The stage's own answers, with every local plan and synthesis rejected: the host plan and the host skeleton follow. */
 const rejectingPlansAndSyntheses = (system: string, user: string) => system.startsWith("You plan") || system.startsWith("You write") ? "{}" : researchV4Reply(system, user);
+/**
+ * The stage's own answers, with the first attempt and the first repair of the first chunk the reader is sent invalid: under a card's
+ * admission rates item (ii)'s second repair completes it. Stateful, so each run gets its own.
+ */
+const secondRepairReply = () => { let target: string | undefined, tries = 0;
+  return (system: string, user: string) => {
+    if (system.startsWith("You extract")) {
+      const chunk = (Object.assign({}, ...user.split("\n").map(line => JSON.parse(line))) as { chunk: { id: string } }).chunk.id;
+      if (chunk === (target ??= chunk) && ++tries <= 2) return "not an extraction";
+    }
+    return researchV4Reply(system, user);
+  }; };
+/** The piece of the rejected plan reply's digest that `digestCopyingReply`'s repaired plan carries (16 hex characters). */
+const COPIED_PIECE = digest(Buffer.from("{}")).slice(8, 24);
+/**
+ * The stage's own answers, where the planner's first reply is rejected and its repaired plan copies a piece of that reply's digest,
+ * which its repair request showed it, into a question; every synthesis is rejected, so a local-first T2 fires (10.b's second review, nit 3).
+ */
+const digestCopyingReply = (system: string, user: string) => {
+  if (system.startsWith("You plan")) {
+    const input = Object.assign({}, ...user.split("\n").map(line => JSON.parse(line))) as { repair?: { previousReply: { replyContentSha256: string } } | null };
+    if (!input.repair) return "{}";
+    const plan = JSON.parse(researchV4Reply(system, user)) as { questions: { text: string }[] };
+    plan.questions[0]!.text = `${plan.questions[0]!.text} Check run ${input.repair.previousReply.replyContentSha256.slice(8, 24)} first.`;
+    return JSON.stringify(plan);
+  }
+  return system.startsWith("You write") ? "{}" : researchV4Reply(system, user);
+};
+/** A serving card's admission rates (7b.3), as the pipeline tests use them. */
+const RATES: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+  fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
 
 interface SetupOptions {
   /** Other bytes for some sources of the run, which then no longer match the task's. */
@@ -46,6 +78,8 @@ interface SetupOptions {
   count?: number; authored?: string; reply?: (system: string, user: string) => string;
   /** null: a freeze with no arm block. */
   arm?: null;
+  /** The run read under a serving card with these admission rates (its basis `serving_card`). */
+  admission?: ResearchAdmissionRates;
 }
 /** A git repository that ignores `runs/`, a prepared task, and a local research run of it under `runs/` whose freeze names the local arm. */
 async function setup(options: SetupOptions = {}) {
@@ -70,7 +104,7 @@ async function setup(options: SetupOptions = {}) {
     bytes: Buffer.from(options.sources?.[input.path.slice("corpus/".length) as keyof typeof SOURCES] ?? input.bytes.toString()) }));
   const run = join(root, "runs", "local-run"), brief = `${authored}${SUFFIX}`;
   await writeResearchSeedSource(run, { taskBinding: binding, brief, sources: runSources, jobId: "capture-source", ...(options.arm === null ? {} : { arm: "local" as const }),
-    ...(options.reply ? { reply: options.reply } : {}) });
+    ...(options.reply ? { reply: options.reply } : {}), ...(options.admission ? { admission: options.admission } : {}) });
   const input: AssistCaptureInput = { runDirectory: run, taskDirectory: task, expectedJobSha256: binding.jobSha256, expectedBriefSha256: binding.briefSha256, firing: "forced_split", cloud: ANTHROPIC };
   return { root, run, task, binding, input, runSources, brief, authored };
 }
@@ -84,7 +118,8 @@ describe("10.c: the assist capture (BL-20261117-1130-lane-decisions-second-repai
     const directory = join(f.run, ASSIST_CAPTURE_DIRECTORY);
     expect(statSync(directory).mode & 0o777).toBe(0o700);
     expect(manifest).toMatchObject({ version: 1, firing: "forced_split", assistProtocolSha256: researchAssistProtocolSha256("forced_split"), api: "anthropic_messages", model: "claude-sonnet-5-5",
-      sourceRun: { jobId: "capture-source", freezeSha256: digest(readFileSync(join(f.run, "freeze.json"))) }, authoredBriefSha256: digest(Buffer.from(AUTHORED)) });
+      sourceRun: { jobId: "capture-source", freezeSha256: digest(readFileSync(join(f.run, "freeze.json"))), admission: null, secondRepairCalls: 0, secondRepairsComplete: 0 },
+      authoredBriefSha256: digest(Buffer.from(AUTHORED)) });
     expect(manifest.touchpoints.map(t => [t.touchpoint, t.retryAfterTruncation, t.trigger, t.built, t.file])).toEqual([["T1", false, "forced_split", true, "T1.body.json"],
       ["T2", false, "forced_split", true, "T2.body.json"], ["T2", true, "forced_split", true, "T2-retry.body.json"]]);
     const bodies = manifest.touchpoints.map(t => readFileSync(join(directory, t.file!), "utf8"));
@@ -178,19 +213,28 @@ describe("10.c: a touchpoint the wrapper would refuse is recorded with its code,
 });
 
 describe("10.c: the capture equals what the pipeline and item 10's wrapper send for the same run (10.c's review, finding 3)", () => {
-  const cases: { name: string; firing: ResearchAssistFiring; shape: AssistShape; cloud: typeof ANTHROPIC; reply?: (system: string, user: string) => string;
-    triggers: [AssistCaptureTrigger, AssistCaptureTrigger]; sent: number; priorAttempts: number | undefined }[] = [
+  const cases: { name: string; firing: ResearchAssistFiring; shape: AssistShape; cloud: typeof ANTHROPIC; reply?: () => (system: string, user: string) => string;
+    admission?: ResearchAdmissionRates; triggers: [AssistCaptureTrigger, AssistCaptureTrigger]; sent: number; priorAttempts: number | undefined; absent?: string }[] = [
     { name: "forced_split on Anthropic's Messages shape: T1 and T2 come first, with no prior attempt", firing: "forced_split", shape: "anthropic_messages", cloud: ANTHROPIC,
       triggers: ["forced_split", "forced_split"], sent: 3, priorAttempts: undefined },
     { name: "local_first on the Responses shape: T1 after every local plan was rejected, with them as its prior attempts, and T2 after every synthesis",
-      firing: "local_first", shape: "openai_responses", cloud: RESPONSES, reply: rejectingPlansAndSyntheses, triggers: ["local_plans_rejected", "local_syntheses_refused"], sent: 3,
+      firing: "local_first", shape: "openai_responses", cloud: RESPONSES, reply: () => rejectingPlansAndSyntheses, triggers: ["local_plans_rejected", "local_syntheses_refused"], sent: 3,
       priorAttempts: RESEARCH_PIPELINE_BUDGET.plannerCalls },
     { name: "local_first where the local plan and synthesis were accepted: nothing is sent, and the capture's triggers are null", firing: "local_first",
       shape: "anthropic_messages", cloud: ANTHROPIC, triggers: [null, null], sent: 0, priorAttempts: 0 },
+    // 10.b's second review: the packet the scan most needs, a T2 built after item (ii)'s second repair, from a run under a serving card.
+    { name: "forced_split under a card whose admission basis is serving_card: T2 and its retry are built after a second repair saved a chunk", firing: "forced_split",
+      shape: "anthropic_messages", cloud: ANTHROPIC, reply: secondRepairReply, admission: RATES, triggers: ["forced_split", "forced_split"], sent: 3, priorAttempts: undefined },
+    // 10.b's second review, nit 3: T2's scrubber knows the plan attempts' digests in the pipeline, and so in the capture.
+    { name: "local_first where the repaired local plan copies a piece of its rejected reply's digest: T2 and its retry carry it in neither the pipeline nor the capture",
+      firing: "local_first", shape: "anthropic_messages", cloud: ANTHROPIC, reply: () => digestCopyingReply, triggers: [null, "local_syntheses_refused"], sent: 2, priorAttempts: 1,
+      absent: COPIED_PIECE },
   ];
   it.each(cases)("$name", async c => {
-    const f = await setup(c.reply ? { reply: c.reply } : {});
+    const f = await setup({ ...(c.reply ? { reply: c.reply() } : {}), ...(c.admission ? { admission: c.admission } : {}) });
     const manifest = captureAssistPackets({ ...f.input, firing: c.firing, cloud: c.cloud });
+    // The source run's basis and second repairs, as its freeze and its extract row hold them.
+    expect(manifest.sourceRun).toMatchObject(c.admission ? { admission: "serving_card", secondRepairCalls: 1, secondRepairsComplete: 1 } : { admission: null, secondRepairCalls: 0 });
     expect(manifest.touchpoints.map(t => [t.touchpoint, t.retryAfterTruncation, t.trigger, t.built])).toEqual([["T1", false, c.triggers[0], true], ["T2", false, c.triggers[1], true],
       ["T2", true, c.triggers[1], true]]);
     // T1's prior attempts: none sent under forced_split; under local_first the rejected local attempts only, so a T1 this run would not
@@ -202,11 +246,19 @@ describe("10.c: the capture equals what the pipeline and item 10's wrapper send 
     let syntheses = 0;
     const config = { ...cloudArmModelConfig(c.cloud, COORDINATOR_PROFILES.heavy).modelConfig, promptCaching: ASSIST_CACHE_MODE };
     const assist = cachingAssistModel(c.shape, (_body, purpose) => purpose === SYNTHESIS_ASSIST_PURPOSE && syntheses++ === 0 ? { content: "{", truncated: true } : new BrokerError("budget_denied"), config);
-    const local = researchSeedSourceModel({ jobId: "assisted-twin", ...(c.reply ? { reply: c.reply } : {}) });
+    const local = researchSeedSourceModel({ jobId: "assisted-twin", ...(c.reply ? { reply: c.reply() } : {}) });
     const outcome = await runResearchPipeline({ brief: f.brief, sources: f.runSources, models: { reader: local, planner: local, synthesiser: local }, signal: new AbortController().signal,
-      record() {}, deadlineMs: performance.now() + 3_600_000, assists: createResearchAssists({ firing: c.firing, model: assist.model, authoredBrief: f.authored, maxFeeMicrousd: 600_000 }) });
-    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" });
-    expect(assist.requests.map(request => request.body)).toEqual(bodies.slice(0, c.sent));
+      record() {}, deadlineMs: performance.now() + 3_600_000, assists: createResearchAssists({ firing: c.firing, model: assist.model, authoredBrief: f.authored, maxFeeMicrousd: 600_000 }),
+      ...(c.admission ? { admission: c.admission } : {}) });
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready", ...(c.admission ? { summary: { admission: { decision: "admitted" } } } : {}) });
+    if (c.admission) expect(outcome.summary.stages.find(row => row.stage === "extract")).toMatchObject({ secondRepairCalls: 1, secondRepairsComplete: 1 });
+    // Every touchpoint the twin fired, and only those, was sent with the capture's body.
+    expect(assist.requests.map(request => request.body)).toEqual(bodies.filter((_, i) => manifest.touchpoints[i]!.trigger !== null));
+    expect(assist.requests).toHaveLength(c.sent);
+    if (c.absent) {
+      expect(outcome.files.find(file => file.path === RESEARCH_FILES.plan)!.bytes.toString()).toContain(c.absent);
+      for (const body of bodies) expect(body).not.toContain(c.absent);
+    }
     // The stage records name the triggers the capture recorded.
     expect(outcome.summary.stages.find(row => row.stage === "plan")!.assist).toMatchObject({ trigger: c.triggers[0], fired: c.triggers[0] !== null });
     expect(outcome.summary.stages.find(row => row.stage === "synthesise")!.assist).toMatchObject({ trigger: c.triggers[1], fired: c.triggers[1] !== null });

@@ -789,7 +789,8 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(stageRequests.map(c => c.input.repairReason === null)).toEqual(stageRequests.map((_, i) => i === 0));
     // T2: the base fields, the host-validated plan, the packet's evidence and coverage, and no raw local reply.
     const request = h.seen.synthesis[0]!;
-    expect(Object.keys(request).sort()).toEqual(["brief", "coverage", "deadlineMs", "evidence", "plan", "retryAfterTruncation", "sourceIndex", "sourceTexts", "sources", "units"]);
+    // 10.b's second review: planAttempts goes along for T2's known digests only; the wrapper never sends it.
+    expect(Object.keys(request).sort()).toEqual(["brief", "coverage", "deadlineMs", "evidence", "plan", "planAttempts", "retryAfterTruncation", "sourceIndex", "sourceTexts", "sources", "units"]);
     expect(request).toMatchObject({ plan, evidence, retryAfterTruncation: false }); expect(JSON.stringify(request)).not.toContain("not a stage");
     expect(s.entries.filter(e => e.stage === "synthesise").map(e => [e.ordinal, e.purpose])).toEqual(slots.flatMap((slot, i) => kind === "accepted" && slot === "assist" ? [] : [[i + 1, slot === "assist" ? SYNTHESIS_ASSIST_PURPOSE : "research synthesis"]]));
     hashOnlyStageRow(stage);
@@ -986,10 +987,20 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.repairReason === null)).toEqual([true, false]);
   });
 
+  // 10.b's second review (nit 3): the synthesis hook gets the plan stage's attempts, for its scrubber's known digests only (research-assist.ts).
+  it("hands the synthesis hook every plan attempt, stage and assist, so T2's scrubber knows each reply's digest", async () => {
+    const m = models((stage, input, n, system) => stage === "plan" || stage === "synthesise" ? `not a stage ${stage} reply` : happy(stage, input, n, system));
+    const h = hook("local_first", planBy("accepted"), synthesisBy("accepted")), result = await run(m, { assists: h.assists });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const attempts = result.summary.stages[1]!.planAttempts!;
+    expect(attempts.map(attempt => [attempt.slot ?? "stage", attempt.accepted])).toEqual([["stage", false], ["stage", false], ["assist", true]]);
+    expect(h.seen.synthesis.map(request => request.planAttempts)).toEqual([attempts]);
+  });
+
   // Since #79 (10.a) merged before 7c, the contract is one file, 10.a's; this pin now guards its bytes, so a change to the hook's interface is a
   // deliberate re-pin (BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge).
   it("pins the hook contract's bytes (research-assist-contract.ts, 10.a's file): a change to the interface is a deliberate re-pin", () => {
-    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("d2aeb2f8ff5063df7327e288c3203fe29d85df5ac68f50db0d0766b13844e699");
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("2c974306d0c5d57ee6a4cc5f9fe515de90c579e5f2654c00e37eb4bd59373c87");
   });
 
   it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {

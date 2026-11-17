@@ -22,6 +22,11 @@
  * (always under forced_split, though T2 not after a T1 outcome that ended the stage; under local_first only where every local attempt
  * of that stage failed, else null). The retry is sent only after a truncated first T2 reply. The capture binds the assist protocol it
  * built under (researchAssistProtocolSha256) in its manifest.
+ *
+ * A T2 built after item (ii)'s second repair (BL-20261117-1143-research-second-repair-design), the packet the scan most needs to see,
+ * comes from a source run read under a serving card whose admission basis is `serving_card` (SOAR_SERVING_CARD_FILE and
+ * SOAR_SERVING_CARD_SHA256 on the local run): only then does a chunk its one repair left unfinished get a second. The manifest's
+ * `sourceRun` records that basis and the run's second-repair counts, so a capture shows whether its T2 followed a second repair.
  */
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -59,11 +64,12 @@ export interface AssistCaptureTouchpoint {
 }
 export interface AssistCaptureManifest {
   version: typeof ASSIST_CAPTURE_VERSION; firing: ResearchAssistFiring; assistProtocolSha256: string; api: string; model: string;
-  sourceRun: { jobId: string; freezeSha256: string; protocolSha256: string }; authoredBriefSha256: string; touchpoints: AssistCaptureTouchpoint[];
+  sourceRun: { jobId: string; freezeSha256: string; protocolSha256: string; admission: "serving_card" | null; secondRepairCalls: number; secondRepairsComplete: number };
+  authoredBriefSha256: string; touchpoints: AssistCaptureTouchpoint[];
 }
 /** A broker that refuses every request: the builders read the model's configuration and request shape only, and nothing may be sent. */
 const NO_DISPATCH = { request: () => { throw new Error("assist_capture_never_dispatches"); }, requestTimeoutMs: () => 600_000, zeroRiskDispatch: () => false } as unknown as PrivateAgentBroker;
-type StageRow = { stage: string; fallback?: string; planAttempts?: ResearchPlanAttempt[] };
+type StageRow = { stage: string; fallback?: string; planAttempts?: ResearchPlanAttempt[]; secondRepairCalls?: number; secondRepairsComplete?: number };
 
 /** Builds and writes the capture; returns its manifest. Refusals throw a fixed `assist_capture_*` code, or the loaders' and the wrapper's own. */
 export function captureAssistPackets(input: AssistCaptureInput): AssistCaptureManifest {
@@ -96,7 +102,7 @@ export function captureAssistPackets(input: AssistCaptureInput): AssistCaptureMa
     return { id: identity.id, path: identity.path, bytes: Buffer.from(file.bytes) };
   });
   const sourceTexts = sources.map((source, i) => (coverage.sources[i] as { readable: boolean }).readable ? researchSourceText(source) : undefined);
-  const stage = (name: "plan" | "synthesise") => (summary.stages as StageRow[]).find(row => row.stage === name);
+  const stage = (name: "plan" | "extract" | "synthesise") => (summary.stages as StageRow[]).find(row => row.stage === name);
   // The pipeline's order (research-pipeline.ts): under forced_split each assist comes before the stage's own attempts; under local_first
   // it comes only after every local attempt failed, which this run shows as the host plan or the host skeleton.
   const forced = input.firing === "forced_split";
@@ -107,7 +113,9 @@ export function captureAssistPackets(input: AssistCaptureInput): AssistCaptureMa
   // when T1 fires (a run whose plan was accepted would not fire T1, so its body is the request T1 would get had that attempt failed too).
   const planRequest: ResearchAssistPlanRequest = { ...base, mandatorySourceChunks: coverage.chunks.length, extractionCallBudget: summary.budget.extractionCalls,
     priorAttempts: forced ? [] : (stage("plan")?.planAttempts ?? []).filter(attempt => !attempt.accepted) };
-  const synthesisRequest = (retryAfterTruncation: boolean): ResearchAssistSynthesisRequest => ({ ...base, plan, evidence, coverage, retryAfterTruncation });
+  // T2 gets the plan stage's attempts for its scrubber's known digests, as the pipeline passes them (10.b's second review).
+  const synthesisRequest = (retryAfterTruncation: boolean): ResearchAssistSynthesisRequest => ({ ...base, plan, evidence, coverage, retryAfterTruncation,
+    planAttempts: stage("plan")?.planAttempts ?? [] });
   // The assist model the driver's assist arm would use: the cloud arm's configuration under the heavy profile, in the assist cache mode.
   const { modelConfig } = cloudArmModelConfig(input.cloud, COORDINATOR_PROFILES.heavy);
   const config: PrivateModelConfig = { ...modelConfig, promptCaching: ASSIST_CACHE_MODE };
@@ -137,7 +145,9 @@ export function captureAssistPackets(input: AssistCaptureInput): AssistCaptureMa
   write("T2", true, t2Retry, "T2-retry.body.json", SYNTHESIS_ASSIST_SYSTEM, SYNTHESIS_ASSIST_PURPOSE, ASSIST_OUTPUT_TOKENS.synthesis);
   const manifest: AssistCaptureManifest = { version: ASSIST_CAPTURE_VERSION, firing: input.firing, assistProtocolSha256: researchAssistProtocolSha256(input.firing),
     api: String(config.api ?? "chat_completions"), model: config.model,
-    sourceRun: { jobId: String(freeze.jobId), freezeSha256: digest(freezeBytes), protocolSha256: pipeline.protocolSha256 }, authoredBriefSha256: digest(Buffer.from(authored)), touchpoints };
+    sourceRun: { jobId: String(freeze.jobId), freezeSha256: digest(freezeBytes), protocolSha256: pipeline.protocolSha256, admission: pipeline.admission?.basis ?? null,
+      secondRepairCalls: stage("extract")?.secondRepairCalls ?? 0, secondRepairsComplete: stage("extract")?.secondRepairsComplete ?? 0 },
+    authoredBriefSha256: digest(Buffer.from(authored)), touchpoints };
   writeFileSync(join(directory, "capture.json"), `${canonical(manifest)}\n`, { flag: "wx", mode: 0o600 });
   return manifest;
 }

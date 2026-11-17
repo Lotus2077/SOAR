@@ -48444,3 +48444,122 @@ Paid exposure: None.
 Next gate: Pull request #134's merge, on green CI, under the session's reading in decision 5 of BL-20261117-0940-owner-direction-decisions-delegated.
 
 References: docs/PLAN.md §4; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0943-e5-card-approved; BL-20261117-0941-group-a-decided-under-delegation; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261008-1210-owner-v0-1-released; pull request #134; issue #53.
+
+### BL-20261117-1022-research-card-admission-design -- 2026-11-17 -- Item 7b.3 designed: under a card whose admission basis is `serving_card`, the reading stage reserves repair calls, estimates its time from the card's measured rates and refuses before any request only when even the expected estimate exceeds its share of the session clock
+
+Status: `Proposed`
+
+Scope or hypothesis: Topic 5 of BL-20261117-0940-owner-direction-decisions-delegated: "The incomplete-chunk rule stays. 7b.3 is built, and the rule is then re-measured." The coordinating session queued 7b.3 to lane S-pipe. It builds the last part of backlog item 7(b) that the earlier parts left: the card-derived ceilings, the reserved repair budget and the feasibility estimate (findings S1, D3 and D8's ceilings; research-admission.ts names them as part 3).
+- **What reaches 7b.3 today.** The card's `admission` field is `{basis: "none" | "serving_card"}`. The reader refuses `serving_card` with `serving_card_parameter_unconsumed`, since `SERVING_CARD_CONSUMED.admission` is false. Nothing reads the card's measured rates downstream: `LoadedServingCard.evidence` stays with the driver.
+- **What 7b.3 cannot change, decided before this design** (the coordinating session's decision, after lane S-pipe's finding of 2026-11-17).
+  - r3 has 24 chunks against 40 extraction calls, so 16 calls are left for repairs. Each unfinished chunk gets exactly one repair (research-pipeline.ts, the `repairs` list).
+  - E0's runs 1 to 4 ended `research_extraction_incomplete` on chunks whose one repair failed, never on a repair cut by the budget. Run 1 used 10 repairs, and runs 2 to 4's dispatch counts allow at most 13 each.
+  - So the reserve below fits inside r3's spare calls, and an r3 run shows only the new admission record.
+  - A second repair paid from the reserve is a separate item, designed after this one's implementation pull request.
+
+Decisions:
+(1) **Two paths.**
+- **Without a card, or under a card whose admission basis is `none`:** admission is exactly today's, and every request, summary, coverage file and hash is byte-identical. Batches must fit `indexCalls` and chunks `extractionCalls`, or the run ends `research_mandatory_budget_exceeded`. Repairs take whatever calls are left.
+- **Under a card whose basis is `serving_card`:** decisions (2) to (7) apply.
+- The summary records admission only on the second path, so a run without a card writes the summary it writes today. This departs from the lane plan's `summary.admission {basis: none}`, to keep that path byte-identical.
+
+(2) **The reserved repair budget** (D3). The run needs room for at least max(1, ceil(chunks / 4)) repair calls inside `extractionCalls`.
+- **The rule.** Chunks plus that reserve must not exceed `extractionCalls`, or the run ends `research_mandatory_budget_exceeded` before any request. With the budget's 40, that admits at most 32 chunks, against 40 today.
+- **What it does not change.** Repairs are allocated as today: every chunk that is not complete, then the held chunks, in order, while calls are left. The reserve is a floor on the spare calls that admission guarantees, not a new allocation. A corpus of 32 chunks or fewer already has at least that many spare calls, so for it the reserve changes nothing.
+- **The card-derived ceilings** are the budget's own, tightened by the reserve. They stay at or below today's 24 batches and 40 chunks (D8: raising them needs item 12's web request pool). The clock enters through decision (4), not as a separate ceiling, so one rule decides it.
+
+(3) **The rates, read from the card by the reader.** Consumers read only the resolved policy (SC's final contract, guard R10). So `ServingPolicy.admission` becomes `{basis: "none"}` or `{basis: "serving_card", rates}`. The reader derives the rates from the card's evidence, and the card's JSON is unchanged.
+- **Prefill and decode,** tokens per second: the fastest and the slowest of P11's measured sizes whose run succeeded (`prefillTokS`, `decodeTokS`; thinking off).
+- **Fan-out decode,** the rate the index and extraction loops decode at: the single-stream rate at K 1, and at K above 1 the aggregate of P11's burst at that K (`kStreams[K].aggregateTokS`), which 8.2b already requires to exist without errors.
+- **Expected output per call:** P10's mean completion tokens for plan, extract and synthesis, from the cell of the thinking mode the role's first attempt uses under the card's roles. Index has no P10 cell, so its expected output is not counted.
+- **The card's sha256,** so the record names the card the rates came from.
+- **A new refusal.** The reader refuses a `serving_card` basis whose card lacks any of these with `serving_card_admission_unmeasured` at `admission.basis`. A card that asks for card-derived admission must carry what it needs.
+
+(4) **The feasibility estimate,** computed before any request from what is known then:
+- the preview bytes of each index batch;
+- the text bytes of each chunk;
+- the counts of batches, chunks and the reserve;
+- the role policy's caps.
+
+Bytes become tokens at `bytesPerToken` 4. The two estimates:
+- **Expected (the one decision (5) reads).** Each batch's preview tokens and each chunk's text tokens, prefilled once at the fastest prefill rate. Plus each chunk's expected extraction output at the fastest fan-out rate, and one plan and one synthesis call's expected output at the fastest single-stream rate.
+  - It leaves out what is not known before the first request, such as the plan packet each extraction call repeats and the index summaries the plan carries. It also leaves out index output and every repair.
+  - So it is a lower bound in intent.
+- **Cap-bound (disclosed, never decides).** Every call the budget allows for the work (at most two per batch and per chunk, within `indexCalls` and `extractionCalls`, plus the planner's and the synthesiser's calls). Each is prefilled at the slowest rate and decodes its role's larger attempt cap at the slowest rate.
+- **Why these bounds.** The card's rates come from one-shot runs on a shared server, and its writer calls them "orders of magnitude". A refusal should need even the optimistic estimate to fail.
+
+(5) **Value 1, for the coordinating session to decide here: the refusal rule.**
+- **Proposed:** refuse with `research_infeasible_in_clock`, before any request, only when the expected estimate exceeds the stage's share of the session clock (decision (6)). Otherwise admit, and disclose both estimates.
+- Without a session deadline, which seeded runs and direct pipeline calls do not set, there is no share and never a refusal.
+- **What it guards in practice.** For r3, the expected estimate is a few minutes against a share of about 45 minutes. For a 32-chunk corpus of 64 KiB chunks, about 5 minutes. So the refusal fires on a stage started late in its session, a resume with little clock left, not on corpus size.
+
+(6) **Value 2, for the coordinating session to decide here: the stage's share of the session clock.**
+- **Proposed:** one half of the session's remaining clock at admission, `deadlineMs` less the moment of admission. The other half is left for the writer and the claims check.
+- This holds until E2, or a card, gives the Heavy writer a measured budget. E2's card bounds writer-2, not the Heavy writer.
+- Today nothing reserves the writer's time, and the reading stage may use the whole remaining clock.
+
+(7) **The record and the bindings.**
+- **summary.json** gains `admission`, on the second path only:
+  - `basis` and `policy` (`RESEARCH_ADMISSION_POLICY`);
+  - `cardSha256`;
+  - `work`: batches, chunks, the reserve and `extractionCalls`;
+  - `estimate`: expected seconds, cap-bound seconds and share seconds, the last null without a deadline;
+  - `decision`: `admitted`, `refused_reserve` or `refused_clock`.
+  On a refusal the run ends before any request with that record. No stage row is added, and `DOCUMENTED_STAGE_KEYS` is unchanged.
+- **The research protocol hash** binds `RESEARCH_ADMISSION_POLICY` on the second path only: the version, the reserve rule, the share, the token rule and the refusal rule. So the default hash stays 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. A card's rates are not protocol: they enter the session identity and the records.
+- **The session identity** binds the rates, spread only when set. A resume under another card's rates ends `session_contract_drift`.
+- **freeze.json's pipeline block** records the protocol under the policy and `admission: {basis, rates}`, spread only when set.
+- **`SERVING_CARD_CONSUMED.admission`** becomes true. The reader's tests that expected `admission` to be unconsumed are updated to the new refusal and resolution.
+
+(8) **Failed calls stay as they are.** A denied or failed call still ends the stage, so item 1's failed-counted producer rule stays unreachable for packets. The lane plan's regression, that a `request_failed` extraction call ends the stage `research_request_denied` with no packet, is added if no test holds it already.
+
+(9) **What 7b.3 shows, for the card amendment that registers its measurement.**
+- **An r3 run** under a card with basis `serving_card` shows the admission record only: a reserve of 6, an expected estimate of minutes and a share near 45 minutes, so the decision is `admitted`. No change to the incomplete-chunk rule is expected from 7b.3.
+- **The extractor fixture** never passes through admission.
+- **The rule's re-measurement on r3** runs under the adopted card and measures its extract flag (the coordinating session's decision).
+
+(10) **What is left out:**
+- a context check against P1's limit, which the token admission and the model layer guard per request;
+- reserving index repairs;
+- clock-derived call ceilings apart from decision (4);
+- anything for web-scale corpora, which item 12 owns.
+
+Changes: This entry only. The implementation follows in its own pull request, with:
+- src/main/private-agent/research-admission.ts (the policy, the reserve, the estimate and the decision);
+- research-pipeline.ts (the input, the checks, the summary record and the hash);
+- serving-card.ts and serving-card-flags.ts (the rates, the refusal and the flag);
+- session.ts (the option and the identity);
+- scripts/private-agent-local-screen.ts (the option and freeze.json);
+- docs/experiments/README.md;
+- the tests.
+
+Evidence: None yet; this is a design.
+- The r3 figures are from docs/experiments/e0-planner-fixture-v1.json (24 sources, 24 chunks, `extractionCallBudget` 40) and from the E0 rows of docs/experiments/registry.jsonl (46, 43, 47 and 39 dispatches, run 1 "after 10 repairs").
+- The rates are those of docs/experiments/serving-card-2026-11-16.json:
+  - P11 prefill 3,473.6 to 3,576.2 tokens per second, and decode 81.78 to 98.31;
+  - P10 means of 2,426.6 (plan, thinking on), 199.9 (extract, thinking off) and 2,811.3 (synthesis, thinking on) completion tokens.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **The estimate is coarse.** The rates are one-shot measurements, and the token count is a fixed 4 bytes per token.
+- **P10's means are of synthetic replies that carry `response_format`.** An unflagged role's replies may run longer or shorter.
+- **The refusal protects the clock, not quality.** It says nothing about whether the corpus's evidence can be extracted.
+
+Paid exposure: None.
+
+Next gate:
+- the coordinating session's decision of values 1 and 2, recorded in its next entry or here as a Correction;
+- the implementation, its `Implemented` entry and one light review;
+- CI and the merge;
+- then item (ii)'s `Proposed` design entry.
+
+References:
+- BL-20261117-0940-owner-direction-decisions-delegated (topic 5);
+- BL-20261109-0334-research-request-shapes-design (7b.1's admission module);
+- BL-20261115-1939-research-priority-trim-design (7b.2's incomplete-chunk rule);
+- BL-20261116-1213-local-fanout-design (8.2b's K);
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261116-1546-e0-structured-fixtures-result;
+- docs/PROJECT_REVIEW_2026-11-05.md, findings D3 and D8 and stage S1.

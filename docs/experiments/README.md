@@ -218,6 +218,10 @@ This folder holds the committed, sanitized record of live trials (see
   (Phase 4's fields, plus each task's exposure), authored by a separate session (lane S-e1)
   that holds their gold and scorer; tasks, gold and scorer stay under the ignored
   `.soar/experiments/e2-v1/`.
+- `e6-tasks-v1.json`: the hashes-only manifest of E6's three fresh planted-defect review
+  tasks (Phase 2's document-review fields, plus exposure, the planted counts by class, the
+  control count and the pinned scorer), authored by a separate session (lane S-e1) that
+  holds their gold; tasks and gold stay under the ignored `.soar/experiments/e6-v1/`.
 
 The following stay outside Git, under the ignored `.soar/experiments/`:
 

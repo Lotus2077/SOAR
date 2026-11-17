@@ -51313,3 +51313,133 @@ Paid exposure: None.
 Next gate: #141 merges, then this pull request, as the coordinating session merges each on green CI.
 
 References: BL-20261117-1158-e2-synthetic-tasks-frozen; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; pull requests #141 and #144.
+
+### BL-20261117-1200-e6-planted-defect-tasks-frozen -- 2026-11-17 -- E6's three planted-defect review tasks are written, generated in the qualified image and frozen by hash in docs/experiments/e6-tasks-v1.json; the authoring session holds their gold
+
+Status: `Implemented`
+
+Scope or hypothesis: E6's card (docs/experiments/e6-card-2026-11-17.md, items 1 and 2) has a separate session build the three planted-defect review tasks and their gold at zero fee, under the ignored `.soar/`. That session also supplies the content of the hashes-only manifest (items 1 and 2 of "What the card needs that does not exist yet"). The coordinating session assigned lane S-e1 to be that authoring session, and the gold-holding session that runs the scorer once, after the grades are filed. This entry is the card's "entry that pins the manifest". It holds ids, counts and hashes only, and no gold.
+
+Decisions:
+- **The three tasks.** All have exposure `fresh`, and each is one `.docx` with at least one table:
+  - `pd1-maintenance-contract` (job `e6-pd1-maintenance-contract`): a draft facilities maintenance services agreement, the contract the card requires. 85 body paragraphs, 38,914 bytes.
+  - `pd2-expenses-policy` (job `e6-pd2-expenses-policy`): a draft staff travel and expenses policy. 72 body paragraphs, 38,632 bytes.
+  - `pd3-programme-report` (job `e6-pd3-programme-report`): a draft annual report on a library programme. 62 body paragraphs, 38,001 bytes.
+- **The composition item 2 fixes.** Each file has eight planted defects and two control clauses: 24 defects and 6 controls in the set.
+  - The defects are two `numeric`, two `clause_contradiction`, two `table_arithmetic`, one `reference_definition` and one `missing_section`.
+  - The organisations, places, figures and dates are invented and drawn from no real record.
+  - The inputs are labelled `private`, Phase 2's label for its invented documents (d2, d3).
+- **The wording the card leaves to the authoring session** (item 2: whether a plant triggers rule N1 or C2).
+  - In each file, one numeric defect and one clause contradiction are worded so that host flag rules v1 flag them, and the other two are not. No control and no other text raises a flag.
+  - So the set holds plants the flags point at and plants they do not. Which ones are flagged is gold.
+- **The gold** is lane S-desk's E6 gold format, version 1 (docs/experiments/e6-gold-format.md on pull request #135; BL-20261117-1005-e6-planted-defect-scorer-design). There is one `gold.json` per task, under `goldRoot`, with opaque ids. Its rules, stated without the plants:
+  - **Settled plants.** Where the documents settle the right value, only a correct fix counts, and the wrong figure must be gone from the clean copy.
+  - **Unsettled plants.** Where they do not, or the brief leaves the decision to the client, any edit on the plant's sentence counts, a comment included.
+  - **Totals** are tested together with the cell they depend on.
+  - **A missing section** counts only for an edit, placed where the brief's order puts that section, whose text names the section.
+  - Every cross-reference in the sources is plain text, and no source holds a Word field or a tracked change.
+- **The generation.** Each `.docx` was written with python-docx 1.2.0 (Python 3.11.16) inside the qualified image `sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f`, already present locally as `soar-private-artifacts:20260911-v1`, with no repository digest.
+  - The coordinating session allowed this one Docker step on 2026-11-17: `--pull never`, `--network none`, no mount beyond the authoring session's own scratch directory, no model call and zero fee.
+  - The command, for each spec, was `docker run --rm --pull never --network none --cap-drop ALL --security-opt no-new-privileges --read-only --user <uid>:<gid> -v <scratch directory>:/work -w /work sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f python3 -I -B /work/gen_docx.py /work/<spec>.json /work/out/<file>.docx`.
+  - The documents hold headings, paragraphs and tables only, with clause numbers as literal text, as the repository's own fixtures write them.
+  - Each regeneration answered a review finding, with the same command and conditions: the contract was generated twice, the policy three times and the report twice. Only the final files are pinned. python-docx stamps zip times, so a further generation would differ byte for byte.
+- **The briefs and jobs.**
+  - The briefs give neutral reviewer instructions, Phase 2's lesson from when its first briefs listed the planted classes. Each names the sections its document must contain and asks for `output/review-summary.md`. None lists a defect class.
+  - `job.json` is written by `scripts/prepare-operator-task.py`.
+- **The manifest** follows the document-review entries of `phase2-tasks-v1.json`. It adds per task `exposure`, `sourceParagraphs`, the planted counts by class, the control count and the gold format, and pins the scorer by path, version and sha256.
+  - Its hash rules are those of `phase2-tasks-v1.json` and `phase4-tasks-v1.json`. Its `tasksSha256` is `fcf516dadd677b2f890bcc068809f16e7902df4b7451bc2ae6a54eba22a59a65`.
+  - The scorer pinned is version 1, `scripts/e6-score.py` at #135's head f590881, sha256 `b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e`. The card pins the merged file, so this pull request stays a draft until #135 merges. If the merged file differs, the pin is updated by a later entry; that changes no gold.
+- **Rule C1 and question 5.**
+  - By the card's own definition of the class, fixing one side of a planted contradiction flips a negation or a polarity, so rule C1 codes a correct fix as an inversion. A fix to a misused defined term can be coded the same way.
+  - The coordinating session decided, on this session's finding, that the scorer reports beside `inversionEdits` the C1-coded edits on planted defects that the same run addressed (null when the flags list is cut at 40). Question 5 reads the remainder, with the total beside it.
+  - The coordinating session will register that reading in an amendment of E6's card before run 1. It will also list two limits there: the agent and the critic read C1's codes, so a repair can undo a correct fix; and deleting a whole negated clause is coded `negation_flipped`.
+- **The light review and the skeptic.**
+  - The review (one reviewer) found no blocker and four major findings:
+    - the missing-section literals matched ordinary rationale words;
+    - the C1 confound above;
+    - one table-side fix could not be anchored;
+    - a reference defect credited a wrong fix.
+  - The skeptic confirmed the first and third resolved and the second broader than first stated (handled above). It found the fourth half fixed, so that plant was re-planted with a settled fix.
+  - The minor findings were fixed:
+    - the wrong figure must be gone for a settled fix;
+    - comment-only plants span their whole sentence;
+    - correct alternative fixes count;
+    - a dead span is now anchorable;
+    - a missing section counts where the brief places it;
+    - unintended slips in the contract and the policy were removed.
+- **Where things are.**
+  - The tasks sit under `taskRoot`, `.soar/experiments/e6-v1/tasks`.
+  - The gold sits under `goldRoot`, in the authoring session's own ignored `.soar/`, with one backup copy outside every checkout.
+  - The inputs-only task directories reached the coordinating session through the shared notes folder.
+
+Changes:
+- docs/experiments/e6-tasks-v1.json: new, hashes and counts only.
+- docs/experiments/README.md: one bullet naming the manifest.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The image.** Offline, before generation, it reported python-docx 1.2.0 and Python 3.11.16.
+- **The loader.** Each task directory loads through the driver's own loader at `main` c02366a: `prepared: true`, `executionStarted: false`, with `output/review-summary.md` the required artifact. Each `input/` holds exactly one top-level `.docx`, whose sha256 equals its gold's `source.sha256`.
+- **`--check-gold`** passes for each gold file with the scorer at f590881: planted 2, 2, 2, 1 and 1 by class (8 in all), and 2 controls.
+- **22 fake review runs,** scored with that scorer, each giving its asserted count. Each run's clean copy was made by applying its edits as text to the pinned input. The runs cover:
+  - a review that fixes or comments on every plant (8 of 8 and no control changed, in each file);
+  - correct alternative fixes and comments elsewhere in a plant's sentence;
+  - one unrelated comment (none addressed);
+  - rewriting both controls (2 changed);
+  - wrong fixes;
+  - inline notes that keep the wrong figure (none addressed).
+- **The host's flag rules** v1, run on each source with no edits (`REVIEW_FLAGS_PY` at c02366a, standard library), give one numeric flag and one clause flag per file, on planted pairs, and nothing else.
+- **No paid or networked step.** No model request was made and nothing reached a network: the container ran with `--network none`.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **The applier was not run.** The fake runs' clean copies came from text replacement, not from the pinned applier, because the Docker allowance covered generation only. Lane S-desk's Docker-gated test compares the scorer's listing with the applier's.
+- **The conditions are literal tests.** A correct fix in other words can go uncounted, and an unrelated edit that names a missing section near its place can count.
+- **The applier refuses non-unique anchors.** Some natural ones, such as a repeated defined term, are among them. That applies to both arms alike.
+- **The scorer's pin is provisional,** as above. C1's reading is as the coordinating session decided.
+- **Three files by one author,** which the card also notes. Only the authoring session and its own review agents have read the gold.
+
+Paid exposure: None. Zero model requests and zero envelope spend. The card's USD 1 for fixtures stays unspent.
+
+Next gate:
+1. #135 merges, and the manifest's scorer pin is confirmed or updated.
+2. The coordinating session copies the three task directories and checks them against the manifest.
+3. The card's other preconditions hold.
+4. After the grades are filed, the authoring session runs the scorer once and returns counts only.
+
+References: docs/experiments/e6-card-2026-11-17.md; BL-20261117-0945-e6-card-approved; BL-20261117-1005-e6-planted-defect-scorer-design; docs/experiments/phase2-tasks-v1.json; BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0933-document-review-flags-party-terms-bounded.
+
+### BL-20261117-1201-correction-e6-planted-defect-tasks-restamp -- 2026-11-17 -- Correction: E6's planted-defect freeze entry is re-stamped after #144's tail, with its original ID and authoring time; the scorer pin is confirmed against the merged scorer, and the coordinating session's decisions entry is cited
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner's re-stamp rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries, corrected by BL-20261113-0938-correction-restamp-rule-dates) moves an entry on an unmerged branch after the log's tail at merge. A Correction records the entry's original ID and time. The coordinating session chains #145 on #144, whose new head ends at BL-20261117-1159-correction-e2-synthetic-tasks-restamp, so the freeze entry now follows that tail. The entry's body is unchanged. This Correction also settles what the freeze entry left open: the scorer's merged version, and the ID of the coordinating session's decisions.
+
+Decisions:
+- **The re-stamp.** BL-20261117-1200-e6-planted-defect-tasks-frozen was authored at 11:27 UTC on 2026-11-17 as BL-20261117-1127. Only its ID changed. Its body is byte-identical.
+- **The decisions entry the freeze entry names without an ID** is BL-20261117-1130-lane-decisions-second-repair-before-reprobe.
+  - Its decision 4 covers the one Docker step that generated the `.docx` files in the qualified image, the gold's location under the authoring session's own ignored `.soar/` with one backup outside every checkout, and the handover of the inputs-only task directories.
+  - Its decision 3 covers the scorer's source, lane S-desk's `scripts/e6-score.py`, and how question 5 reads rule C1's count.
+- **The scorer pin, confirmed.**
+  - #135 is merged. `scripts/e6-score.py` on `main` (6b121eb) has sha256 `b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e`, version 1.
+  - That is the file and version that docs/experiments/e6-tasks-v1.json pins. So the manifest is unchanged, and the pin the freeze entry called provisional is final.
+  - All three gold files pass `--check-gold` with that file.
+- **This pull request is ready for review.** The draft status waited only for the pin.
+- **The research protocol hash.** The E6 manifest and entries name no research protocol hash. A document-review run has no research stage.
+
+Changes:
+- docs/BUILD_LOG.md: the re-stamp and this entry.
+- The merge of #144's head. No other file of this pull request changed, and docs/experiments/e6-tasks-v1.json is byte-identical.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref <ref>` exits 0 against #144's head and against `origin/main`, with its exit status checked directly. `pnpm typecheck` and `pnpm validate:readiness` pass. `python3 -I scripts/e6-score.py --check-gold` passes for each gold file, with the file on `main`.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. No task or gold changed.
+
+Paid exposure: None.
+
+Next gate: #141, then #144, then this pull request, as the coordinating session merges each on green CI.
+
+References: BL-20261117-1200-e6-planted-defect-tasks-frozen; BL-20261117-1159-correction-e2-synthetic-tasks-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; pull requests #135, #141, #144 and #145.

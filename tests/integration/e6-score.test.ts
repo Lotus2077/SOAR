@@ -89,15 +89,16 @@ describe.skipIf(!enabled)("E6's planted-defect scorer beside the real applier (q
       const checked = await s.sh("python3 -I e6-score.py --check-gold gold.json input/agreement.docx");
       expect(checked.exitCode, checked.stdout).toBe(0);
       expect(JSON.parse(checked.stdout)).toMatchObject({ ok: true, planted: { total: 5 }, controls: 2 });
-      // Rule C1's count and coded edits, read from the applier's own flags file. The good plan's edits on planted spans are E1, E2, E3
-      // and E4; the harm plan's only edit on a planted span is E1, a comment.
+      // Rule C1's count and coded edits, read from the applier's own flags file. Only edits on a defect the run addressed count: in the good
+      // plan, which addresses all five, E1 to E4 on spans and E5 in the missing section's region; in the harm plan, which addresses only the
+      // missing section, E4.
       const c1 = async (name: string, onPlants: string[]) => {
         const flags = JSON.parse((await s.sh(`cat runs/${name}/candidate/output/review-flags.json`)).stdout) as
           { counts: { inversionEdits: number }; edits: { flags: { id: string }[]; truncated: boolean } };
         expect(flags.edits.truncated).toBe(false);
         return { inversionEdits: flags.counts.inversionEdits, inversionEditsOnPlants: flags.edits.flags.filter(flag => onPlants.includes(flag.id)).length };
       };
-      const [good, harm] = [await c1("good", ["E1", "E2", "E3", "E4"]), await c1("harm", ["E1"])];
+      const [good, harm] = [await c1("good", ["E1", "E2", "E3", "E4", "E5"]), await c1("harm", ["E4"])];
       const scored = await s.sh("python3 -I e6-score.py --gold gold.json good=runs/good harm=runs/harm");
       expect(scored.exitCode, scored.stdout).toBe(0);
       const none = { clause_contradiction: 0, missing_section: 0, numeric: 0, reference_definition: 0, table_arithmetic: 0 };

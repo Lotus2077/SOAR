@@ -183,10 +183,19 @@ It takes the run's directory, as the driver writes it, and reads its `candidate/
     measurement.
   - **Why the coded edits.** A correct fix of a planted clause contradiction flips a
     negation or a polarity, so rule C1 codes it too, and the total is not all harm. A
-    scored run therefore also reports `inversionEditsOnPlants`: the coded edits whose
-    anchors overlap a planted defect's span. A control's span is not a planted defect's.
+    scored run therefore also reports `inversionEditsOnPlants`: the coded edits that sit
+    on a planted defect that the same run addressed.
+    - An edit sits on one when its anchor overlaps that defect's span, or when it is placed
+      in a missing section's region and meets that section's `edit` condition. An inserted
+      clause can flip its sentence's negations too.
+    - A coded edit on a defect the run did not address is not counted: a wrong flip of a
+      planted clause is harm, and it stays in the remainder.
+    - A control's span is not a planted defect's.
   - `inversionEditsOnPlants` is `null` when the file cannot say which edits were coded:
     its list was cut at the applier's cap of 40, or it does not match the count.
+  - It is `null` too when the file codes an id that is not one of the plan's placed
+    edits. The applier writes no flags for a plan it cannot place, so such a file is stale
+    against the plan, and what remains of the count is not harm.
 
 **Placing an edit.**
 - An edit's anchor is placed where it occurs in the source's paragraph texts. It must occur

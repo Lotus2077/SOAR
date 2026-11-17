@@ -91,11 +91,11 @@ describe("E6's planted-defect scorer", () => {
   it("scores each run by the card's three rules and reports counts only", () => {
     const { root, goldPath } = setup();
     // Rule C1 codes the fix of the planted contradiction (E4, on its span) in the good plan; in the harm plan it codes an edit on a
-    // control (E2) and an unplaced one (E6), neither on a planted span.
+    // control (E2), which is not a planted defect.
     const good = run(root, "r-good", { edits: GOOD, clean: GOOD_CLEAN,
       flags: { version: 1, counts: { inversionEdits: 1 }, edits: { flags: [{ codes: ["negation_removed"], id: "E4" }], truncated: false } } });
-    const harm = run(root, "r-harm", { edits: HARM, clean: HARM_CLEAN, flags: { version: 1, counts: { inversionEdits: 2 },
-      edits: { flags: [{ codes: ["negation_removed"], id: "E2" }, { codes: ["negation_added"], id: "E6" }], truncated: false } } });
+    const harm = run(root, "r-harm", { edits: HARM, clean: HARM_CLEAN, flags: { version: 1, counts: { inversionEdits: 1 },
+      edits: { flags: [{ codes: ["negation_removed"], id: "E2" }], truncated: false } } });
     const out = scorer("--gold", goldPath, `a=${good}`, `b=${harm}`);
     expect(out.status, out.stdout).toBe(0);
     expect(out.json.gold).toEqual({ sha256: sha(readFileSync(goldPath)), planted: PLANTED, controls: 2 });
@@ -107,7 +107,7 @@ describe("E6's planted-defect scorer", () => {
       // A comment on a defect that needs a fix is not enough; an edit beside a span is not on it; the rationale meets the missing
       // section's condition; a replace that keeps a control's condition changes nothing, one that breaks it changes the control.
       { label: "b", status: "scored", addressed: { ...NONE, missing_section: 1, total: 1 }, controlsChanged: 1, edits: 7, editsUnplaced: 2,
-        flags: "recorded", inversionEdits: 2, inversionEditsOnPlants: 0 },
+        flags: "recorded", inversionEdits: 1, inversionEditsOnPlants: 0 },
     ]);
     // The same inputs give the same bytes, and no word of any file reaches the output.
     expect(scorer("--gold", goldPath, `a=${good}`, `b=${harm}`).stdout).toBe(out.stdout);
@@ -187,13 +187,26 @@ describe("E6's planted-defect scorer", () => {
       // A list that disagrees with the count, or none at all, says nothing either.
       short: run(root, "r-short", { edits: GOOD, clean: GOOD_CLEAN, flags: coded(2, ["E4"]) }),
       bare: run(root, "r-bare", { edits: GOOD, clean: GOOD_CLEAN, flags: { version: 1, counts: { inversionEdits: 1 } } }),
-      // Every edit of the good plan coded: four sit on planted spans (E1, E2, E3, E4); E5 is an insertion outside every span.
+      // Every edit of the good plan coded: E1 to E4 sit on planted spans, and E5 is placed in the missing section's region and meets
+      // its condition, which is a plant too.
       all: run(root, "r-all", { edits: GOOD, clean: GOOD_CLEAN, flags: coded(5, ["E1", "E2", "E3", "E4", "E5"]) }),
+      // The missing section is addressed by a comment that meets its condition, but the coded insertion beside it in the region does not
+      // meet the condition, so it is not on the plant.
+      region: run(root, "r-region", { edits: [edit("E1", "comment", "9. Signatures.", "Governing law is missing."),
+        edit("E2", "insert_after", "Notices are given in writing.", "Typo.", " Also by email.")], flags: coded(1, ["E2"]) }),
+      // A coded id that is not a placed edit of this plan makes the file stale against it: unplaced (E6) or not in the plan at all (E9).
+      unplaced: run(root, "r-unplaced", { edits: HARM, clean: HARM_CLEAN, flags: coded(1, ["E6"]) }),
+      absent: run(root, "r-absent", { edits: GOOD, clean: GOOD_CLEAN, flags: coded(1, ["E9"]) }),
+      // A wrong flip on a planted span: the fee clause negated, its figure left wrong. The defect is not addressed, so the coded edit is
+      // harm and stays outside the count.
+      wrongFlip: run(root, "r-wrong-flip", { edits: [edit("E1", "replace", "shall pay a fee", "No fee.", "shall not pay a fee")],
+        clean: { 2: "1. Fees. The Client shall not pay a fee of 12,500 per month." }, flags: coded(1, ["E1"]) }),
     };
     const out = scorer("--gold", goldPath, ...Object.entries(runs).map(([label, dir]) => `${label}=${dir}`));
     expect(out.status, out.stdout).toBe(0);
     expect(out.json.candidates.map((c: any) => [c.label, c.inversionEdits, c.inversionEditsOnPlants])).toEqual([
-      ["cut", 41, null], ["short", 2, null], ["bare", 1, null], ["all", 5, 4]]);
+      ["cut", 41, null], ["short", 2, null], ["bare", 1, null], ["all", 5, 5], ["region", 1, 0], ["unplaced", 1, null], ["absent", 1, null],
+      ["wrongFlip", 1, 0]]);
   });
 
   it("gives a run it cannot read a status without counts, and reads C1's count only as recorded", () => {

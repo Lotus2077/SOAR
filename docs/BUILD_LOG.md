@@ -50254,3 +50254,79 @@ Next gate:
 5. The coordinating session runs tests/integration/e6-score.test.ts and records the result.
 
 References: BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1105-correction-loop-single-sample-design-restamp; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-0945-e6-card-approved.
+
+### BL-20261117-1126-correction-e6-scorer-c1-count-second-review -- 2026-11-17 -- Correction to BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp after the second review pass: rule C1's coded edits count as on a plant only on a defect the run addressed, a fixed missing section counts, and a flags file stale against the plan gives null
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects decision (8) of BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp (plan E6.12, lane S-desk, #135): the count `inversionEditsOnPlants`.
+- **The second review pass.** It ran at c45d170. It found no blocker, no major finding, and every earlier finding fixed. It found two minor ones, both on the new count.
+- **A third change.** Lane S-e1's skeptic pass raised a third point, and the coordinating session decided it.
+- **No re-stamp.** #143 merged as 25910c9, whose tree equals the head this branch had already merged (5a8f5bf). So nothing is re-stamped.
+
+Decisions:
+
+(1) **Minor A: a stale flags file gives `null`, not zero.**
+- **The problem.** A coded id that is not one of the plan's placed edits gave 0.
+- **Why that is wrong.** The applier writes no flags file for a plan with an anchor it cannot place. A file that codes such an id is therefore stale against the plan, and the remainder of its count would wrongly read as harm.
+- **The fix.** The count is now `null` unless every coded id belongs to a placed edit.
+
+(2) **Minor B: a fixed missing section now counts.**
+- **The problem.** A missing section has a region, not a span, so an edit that fixed one never counted as on a plant.
+- **Why that matters.** Rule C1 codes an insertion that flips its sentence's negator parity, such as an inserted clause with one "not".
+- **The fix**, by the coordinating session's decision: a coded edit placed in the section's region that meets the section's `edit` condition now counts too.
+
+(3) **Only defects the run addressed count** (the coordinating session's decision on lane S-e1's skeptic pass).
+- **The problem.** A wrong flip on a planted clause, such as negating the correct side of a contradiction, overlaps a planted span without addressing the defect. That edit is harm and must stay in the remainder.
+- **The fix.** The count now reads only the spans and regions of defects the same run addressed.
+- **Unchanged.** The `null` cases stand: a list cut at 40, a list that disagrees with the count, a coded id that is not a placed edit, and no flags file.
+
+(4) **Not changed here: a false positive in rule C1.**
+- Lane S-e1 also found that the applier's rule C1 codes the deletion of a whole negated clause as `negation_flipped`, though the brief allows such a deletion.
+- The coordinating session states it as a limit in E6's card amendment, and changes no host rule before E6 runs.
+
+(5) **The scorer stays version 1.** Its sha256 is now b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e. The manifest pins the merged file's.
+
+Changes: One commit on #135, from c45d170:
+- scripts/e6-score.py: the count.
+- tests/unit/e6-score.test.ts: four new cases:
+  - a stale id, both unplaced and absent from the plan;
+  - a coded insertion in an addressed section's region, which counts;
+  - a coded insertion beside it that does not meet the condition, which does not;
+  - a wrong flip on a planted span, which does not count.
+- tests/integration/e6-score.test.ts: the expected count reads only the addressed defects.
+- docs/experiments/e6-gold-format.md: the count's definition and its `null` cases.
+- docs/BUILD_LOG.md: this Correction.
+
+Evidence:
+- **Unit tests.** `pnpm exec vitest run tests/unit/e6-score.test.ts`: 15 of 15 pass.
+- **Mutants.** Seven single-edit mutants of the count were each killed:
+  - the addressed filter dropped;
+  - stale ids read as zero;
+  - missing sections never counted;
+  - the region counted without its condition;
+  - controls counted as plants;
+  - the list's agreement with the count ignored;
+  - the coded filter ignored.
+
+  The region mutant first survived. The region case now has another edit that addresses the section, and the mutant is killed.
+- **Checks.** After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Not run by lane S-desk:** the Docker-gated test.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **What the count says.** It says which coded edits sit on a defect the run addressed, by the scorer's literal rules. It does not judge whether a given flip was the right one beyond that.
+- **No guesses.** A flags list that is cut, disagrees with the count or is stale gives `null`, never a guess.
+- **Rule C1's own false positive** on a deleted negated clause, decision (4), is not corrected here.
+- **Status.** Nothing is `Verified` or `Released`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. CI.
+2. The coordinator merges #135 on green CI.
+3. Lane S-e1 re-checks its gold with this scorer and pins its sha256.
+4. Lane S-pipe merges this head into its chain.
+
+References: BL-20261117-1112-correction-e6-planted-defect-scorer-review-restamp; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1106-e6-planted-defect-scorer-design; BL-20261117-1105-correction-loop-single-sample-design-restamp.

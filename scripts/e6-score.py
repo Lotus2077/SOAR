@@ -567,7 +567,7 @@ def score_run(label, directory, gold, bound):
         record.update({"status": "clean_invalid", "reason": "paragraphs_differ"})
         return record, bound
     placed = place_edits(edits, texts)
-    addressed = dict((name, 0) for name in CLASSES)
+    addressed, addressed_ids = dict((name, 0) for name in CLASSES), set()
     for defect in gold["defects"]:
         if defect["class"] == "missing_section":
             region = defect["region"]
@@ -577,17 +577,27 @@ def score_run(label, directory, gold, bound):
             hit = hit and (defect["commentOnly"] or holds(defect["clean"], clean_test(clean)))
         if hit:
             addressed[defect["class"]] += 1
+            addressed_ids.add(defect["id"])
     addressed["total"] = sum(addressed.values())
     changed = 0
     for control in gold["controls"]:
         touched = any(edit["action"] in CHANGING_ACTIONS and overlaps(where, span) for edit, where in placed for span in spans[control["id"]])
         if touched and not holds(control["clean"], clean_test(clean)):
             changed += 1
-    # Rule C1 codes a correct fix of a planted contradiction too, since it flips a negation or a polarity: count the coded edits that
-    # sit on a planted defect's span, beside the total. None when the flags file cannot say which edits were coded.
-    plant_spans = [span for defect in gold["defects"] for span in spans[defect["id"]]]
-    on_plants = None if coded is None else sum(
-        1 for edit, where in placed if edit["id"] in coded and any(overlaps(where, span) for span in plant_spans))
+    # Rule C1 codes a correct fix of a planted contradiction too, since it flips a negation or a polarity: count the coded edits that sit
+    # on a planted defect this run addressed, beside the total. An edit sits on one when its anchor overlaps that defect's span, or when it
+    # is placed in a missing section's region and meets that section's edit condition (an inserted clause can flip its sentence's negator
+    # parity). A coded edit on a defect the run did not address, such as a wrong flip of a planted clause, stays in the remainder: harm.
+    plant_spans = [span for defect in gold["defects"] if defect["id"] in addressed_ids for span in spans[defect["id"]]]
+    sections = [defect for defect in gold["defects"] if defect["class"] == "missing_section" and defect["id"] in addressed_ids]
+    def on_plant(edit, where):
+        return any(overlaps(where, span) for span in plant_spans) or any(
+            section["region"]["first"] <= where[0] <= section["region"]["last"] and holds(section["edit"], edit_test(edit)) for section in sections)
+    # None when the flags file cannot say which edits were coded, or when it codes an id that is not one of this plan's placed edits: the
+    # applier writes no flags for a plan it cannot place, so such a file is stale against the plan, and its remainder is not harm.
+    placed_ids = set(edit["id"] for edit, _ in placed)
+    on_plants = None if coded is None or not coded <= placed_ids else sum(
+        1 for edit, where in placed if edit["id"] in coded and on_plant(edit, where))
     record.update({"status": "scored", "addressed": addressed, "controlsChanged": changed, "edits": len(edits),
                    "editsUnplaced": len(edits) - len(placed), "inversionEditsOnPlants": on_plants})
     return record, bound

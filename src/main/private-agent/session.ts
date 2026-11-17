@@ -480,7 +480,9 @@ export class GeneralAgentSession {
           if (outcome.status !== "completed") {
             // 7b.3's review (BL-20261117-1131-research-card-admission-design): a refused admission writes no file and no stage row, and the
             // session keeps no summary of an incomplete stage, so the record (the work, both estimates, the share and the decision) is its own event.
-            if (outcome.summary.admission && outcome.summary.admission.decision !== "admitted")
+            // The r3 re-measurement (BL-20261117-1326-research-admission-record-incomplete-stage): an admitted stage that ends incomplete keeps
+            // its record the same way, so a stage under a card's admission rates leaves one in summary.json when it completes, here when not.
+            if (outcome.summary.admission)
               store.append(jobId, { type: "research_admission", contextId: readerContextId, admission: outcome.summary.admission });
             // Backlog item 6 (finding A7): a pause that stopped the stage ends incomplete with the refusal the next run gives (an unresolved
             // row, or a stage that started). Every call the stage stops records a stage event, so the paused arm is defensive: no production

@@ -31,11 +31,11 @@ these places too, until it is restated:
   The source freeze has moved several times; recompute it.
 - The serving card was re-probed under E0's Amendment 5. Both binding cells passed, and
   docs/experiments/serving-card-2026-11-17.json is `proposed`
-  (BL-20261117-1352-e0-reprobe-result-plan-cap-16384). Its adoption commit is asked of the
+  (BL-20261117-1356-e0-reprobe-result-plan-cap-16384). Its adoption commit is asked of the
   owner by name (§5 step 2).
 - E5's owner build is cut as the local tag `owner-v0.2.1`, and `pnpm check` passes there
   (BL-20261117-1157-e5-owner-build-cut;
-  BL-20261117-1353-owner-build-check-scorer-docker-e2e-attempts). The rehearsal and
+  BL-20261117-1357-owner-build-check-scorer-docker-e2e-attempts). The rehearsal and
   day 1 are the owner's.
 - 10.b and its capture tool are on `main`, with E2's write bound, the loop's
   single-sample mode, E6's scorer and Amendment 1 to E6's card, and E2's and E6's
@@ -430,7 +430,7 @@ Follow the order in review §5.6. Each step is done when its condition holds.
      2. The adoption commit, in its own reviewed pull request, merged on the owner's
         own go. It edits two keys of docs/experiments/serving-card-2026-11-17.json, the
         card the re-probe of 2026-11-17 wrote: `decision`, to `adopted` with
-        BL-20261117-1352-e0-reprobe-result-plan-cap-16384 as its entry; and
+        BL-20261117-1356-e0-reprobe-result-plan-cap-16384 as its entry; and
         `admission.basis`, from `none` to `serving_card` (E0's Amendment 5, item 4).
         The 2026-11-16 card stays `proposed` and is not adopted. A reviewer checks
         that only `decision`, `roles`, `concurrency` and `admission` differ from the

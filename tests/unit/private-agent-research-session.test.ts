@@ -300,10 +300,28 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const [refusal] = f.store.events("job-refused-clock").filter(event => event.type === "research_admission") as { admission: { decision: string; estimate: { expectedSeconds: number; shareSeconds: number } } }[];
     expect(refusal!.admission.decision).toBe("refused_clock"); expect(refusal!.admission.estimate.shareSeconds).toBeLessThanOrEqual(10);
     expect(refusal!.admission.estimate.expectedSeconds).toBeGreaterThan(refusal!.admission.estimate.shareSeconds);
-    // An admitted run writes no such event: its record is in its summary.json.
+    // An admitted run whose stage completes writes no such event: its record is in its summary.json.
     const admitted = options(f, "job-admitted", runs); admitted.research = { ...admitted.research!, admission: rates };
     expect(await new GeneralAgentSession(admitted).run()).toMatchObject({ status: "submitted" });
     expect(f.store.events("job-admitted").some(event => event.type === "research_admission")).toBe(false);
+  });
+  it("the r3 re-measurement: an admitted stage that ends incomplete keeps its record as the same event (BL-20261117-1326-research-admission-record-incomplete-stage)", async () => {
+    const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+      fanOutDecodeTokensPerSecond: { fastest: 100, slowest: 50 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+    const f = await fixture({ reply: system => system.startsWith("You extract") ? "not an extraction" : undefined }), runs: Run[] = [];
+    const config = options(f, "job-admitted-incomplete", runs); config.research = { ...config.research!, admission: rates };
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    const events = f.store.events("job-admitted-incomplete"), start = events.find(event => event.type === "session_started")!;
+    // The session kept no summary of the stage (no transfer) and ran no writer; the stage rows hold the second repairs that failed.
+    expect(events.some(event => event.type === "research_transfer")).toBe(false); expect(runs).toHaveLength(0);
+    const extract = events.find(event => event.type === "research_stage" && event.stage === "extract") as { chunksPlanned: number; secondRepairCalls: number };
+    expect(extract.chunksPlanned).toBeGreaterThan(0);
+    expect(extract).toMatchObject({ chunksComplete: 0, secondRepairCalls: extract.chunksPlanned, secondRepairsComplete: 0 });
+    // Its admission record, decided before any request, is the run's one research_admission event, with the share of the session clock.
+    const records = events.filter(event => event.type === "research_admission") as { contextId: string; admission: { estimate: { shareSeconds: number } } }[];
+    expect(records).toEqual([expect.objectContaining({ contextId: start.readerContextId, admission: expect.objectContaining({ basis: "serving_card", rates,
+      decision: "admitted", work: expect.objectContaining({ chunks: extract.chunksPlanned }) }) })]);
+    expect(records[0]!.admission.estimate.shareSeconds).toBeGreaterThan(0);
   });
   it("item 9: a card's structured-output flag reaches the request bodies through the session (BL-20261116-1208-research-structured-output-design)", async () => {
     // Every cap fits the fixture's 4,096-token role models, whose own thinking is disabled: each call's effective mode is off, so the

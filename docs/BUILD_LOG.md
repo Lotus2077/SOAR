@@ -47999,3 +47999,109 @@ Paid exposure: None.
 Next gate: Green CI on this pull request's new head, then the session merges it under the go.
 
 References: docs/HANDOFF.md; BL-20261117-0530-owner-merge-go-handoff-restatements; BL-20261116-1637-correction-handoff-start-here-final-check; BL-20261116-1600-handoff-start-here-restated; BL-20261116-0814-e0-card-amendment-1; pull requests #118, #132 and #133.
+
+### BL-20261117-1000-p10-plan-cap-export-design -- 2026-11-17 -- Topic 6: the role export takes a plan cap, so P10 measures the planner at 16,384 tokens and the writer proposes it there
+
+Status: `Proposed`
+
+Scope or hypothesis: Topic 6 of BL-20261117-0940-owner-direction-decisions-delegated is answered: "The probe's plan cell is measured at 16,384 tokens, by a schema-export change and a full re-probe at zero fee. The serving card is then adopted with the planner at that cap." The coordinating session queued the export change to lane S-pipe. It runs the re-probe and writes the card itself.
+- **Why the change is needed.** The reader refuses a structured-output flag when an attempt that sends it has another cap than its P10 cell measured (`serving_card_structured_output_cap_unmeasured`). P10's plan cells send the export's plan bodies, which carry the pipeline's plan cap, 8,192. So no card can flag a planner at 16,384 today.
+- **What already follows the export.** The probe records each cell's cap from the body it sends. It copies the export's `outputTokens` into probe.json's `roles.output_tokens`. The writer proposes each role's two attempts from those caps, and copies each cell's cap into `evidence.p10`. So an export whose plan bodies and `outputTokens.plan` both say 16,384 carries the cap through to the card, with no other file changed.
+
+Decisions:
+(1) **The option.** `pnpm probe:export-schemas -- --plan-cap <tokens>` builds both plan cells, thinking on and off, at that cap.
+- The bodies are built through `buildRoleRequest`, as today. Only `maxOutputTokens` changes, and with it the body's `max_tokens`.
+- The export records the cap as `outputTokens.plan`. Index, extract and synthesis keep the pipeline's values.
+- **Why record it.** The probe copies `outputTokens` and the writer proposes from it. If the plan bodies ran at 16,384 while `outputTokens` said 8,192, the writer would propose the planner at 8,192 beside a flag measured at 16,384, and the reader would refuse that card.
+- **Why both modes.** The export has one cap per role, as the pipeline does. The plan/off cell then measures a thinking-off planner at the same cap. The planner's thinking stays "model", so only plan/on can bind a run.
+- **Without the option the export is unchanged.** `outputTokens` is the pipeline's `OUTPUT_TOKENS` itself, and the file is byte-identical to today's apart from `generatedUtc`.
+- **The summary line** the command prints gains `outputTokens`, so the operator sees the plan cap before probing.
+
+(2) **The range.** The cap is an integer from 128 to 16,384: `MIN_ROLE_OUTPUT_TOKENS` to `RESEARCH_ROLE_MAX_OUTPUT_TOKENS`, the reader's own range (`serving_card_cap_out_of_range`).
+- Above 16,384 the model layer would clamp the body to the Heavy profile's limit without saying so. The body and the recorded cap would then disagree.
+- A value outside the range, or not a plain integer, is refused with exit 2 before anything is written.
+
+(3) **Strict arguments.** The command line reads only `--out` today and ignores anything else, so a mistyped `--plan-cap` would export 8,192 without a word, and the re-probe would measure the wrong cap.
+- It now accepts only `--out <path>` and `--plan-cap <tokens>`, each at most once, after one optional leading `--`. pnpm 10 passes that `--` through, as scripts/serving-card.py already allows.
+- Anything else is refused with exit 2, and no file is written.
+
+(4) **Nothing else changes.**
+- scripts/serving-probe.py, scripts/assess-probe-replies.ts and scripts/serving-card.py are unchanged, and so is every file under src/.
+- The export's version stays 2. No field is added or removed, so a reader of version 2 reads the file as before.
+- P10 still sends 20 calls per cell, strict, with reasoning kept. Only the two plan cells' `max_tokens` differ.
+
+(5) **What the card will say for the planner,** written from a probe of that export:
+- `roles.plan.maxOutputTokens` is [16384, 16384], and `roles.plan.thinking` is ["model", "model"].
+- `roles.plan.structuredOutput` follows the 95% rule on the cells at 16,384. `thinkingOn` is true when plan/on has at least 20 assessed calls, at least 95% valid, on the requested strict variant. `thinkingOff` likewise from plan/off.
+- `evidence.p10.cells` "plan/on" and "plan/off" carry `maxTokens` 16384.
+- The Markdown's derived-bounds table states the planner's cap as 16,384 against its 300 s and 900 s ceilings. No gate reads that table.
+- Extract and synthesis are proposed as before, from their own cells. Topic 6 does not change them.
+- If plan/on falls below the rule, the card proposes no plan flag. The adoption may then keep the planner at 16,384 without the format, since the reader checks a cap without a flag only against its range. That choice is the coordinating session's when it writes the card.
+
+(6) **What does not move.**
+- `researchProtocolSha256()` stays 7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5. No protocol input changes. P10's evidence stays bound to that hash: the export records it, and the assessor and the reader check it.
+- The harness source freeze stays e4c29bf0c08d95df95f80a52b470e96596e0158ee2526fbc5e602137627a4dca on this branch, as on `main` 60aebc9. It lists src/main/private-agent/*.ts and named scripts. scripts/export-role-schemas.ts, the tests and the README are not among them.
+- **What moves under the adopted card,** by 7a.2's rule (BL-20261116-1203-research-role-policy-design): a run binds its role policy into its own protocol hash, its session identity and freeze.json's pipeline block. With the planner at 16,384 those values differ from a card with the planner at 8,192. Nothing pins either.
+
+(7) **The re-probe, as the coordinating session will run it.** E0's card and its Amendment 1 set the order, the stop rules and the records; only the export command gains the option.
+1. `pnpm probe:export-schemas -- --plan-cap 16384`, under the desktop's settings in `.env.local`. Check its printed line: `outputTokens.plan` 16384 and `protocolSha256` 7100b7a2….
+2. `python3 scripts/serving-probe.py --only P1`, checked by hand.
+3. `python3 scripts/serving-probe.py`, with no `--only`: all twelve probes in one invocation, reading the export at its default path.
+4. `pnpm probe:assess -- --probe .soar/experiments/serving-probe-<ts>/probe.json`.
+5. `pnpm --silent card:serving -- --input .soar/experiments/serving-probe-<ts>/probe.json --compare-root Qwen3.8-Flash-Next-NVFP4 --compare-version 0.33.0rc1.dev617+g821038729 --compare-context 262144 --policy-out docs/experiments/serving-card-<date>.json > docs/experiments/serving-card-<date>.md`.
+
+E0's stop rule stands: a pull request that changes `researchProtocolSha256()` and merges between step 1 and step 4 voids the run.
+
+(8) **The three points from #130's review** (decision 4 of BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution) are taken here.
+- A test pins `FIXTURE_JOB_ID`'s literal, "e0-planner-fixture". Changing it would change the fixture's salt and every salted digest that Amendment 4's item 6 fixes.
+- The other two points need no change. 1559 itself lists every remaining place of the short form "the card's call" and cites BL-20261116-1441-e0-card-amendment-4. BL-20261116-1539-correction-e0-planner-fixture-salt-pin stays as written.
+
+(9) **Tests,** with no endpoint:
+- Without the option, the export is the one built today.
+- With 16,384:
+  - `outputTokens` is {index 1536, plan 16384, extract 2048, synthesis 8192};
+  - both plan bodies are the model layer's own at 16,384, and each differs from today's only in `max_tokens`;
+  - every other part of the export is unchanged.
+- **The pipeline.** Under a role policy with the planner at [16384, 16384] and plan's thinking-on mode flagged, its first plan call is the export's plan/on body plus the `response_format` P10 adds, in every field but the user message.
+- **The probe.** P10 on a loopback server sends both plan cells at 16,384 and records that cap for each.
+- **The writer and the reader.**
+  - A probe that records the export's caps gives a proposed card with the planner at [16384, 16384] and both plan cells at 16,384.
+  - Adopted, it resolves with the plan flag.
+  - A card from today's export, adopted with the planner moved to 16,384, is refused with `serving_card_structured_output_cap_unmeasured`.
+- **The command line.**
+  - It writes the file with the option and prints `outputTokens`, and the file reproduces from the builder.
+  - It refuses with exit 2, and writes no file, each of: 127, 16385, a non-integer, a missing value, the option twice and an unknown argument.
+- **The pin** of `FIXTURE_JOB_ID`.
+
+Changes: This entry only. The implementation follows in the same pull request.
+
+Evidence: None yet; this is a design. The paths in the Scope were read on `main` 60aebc9:
+- scripts/serving-probe.py records a cell's `max_tokens` from its exported body and copies `outputTokens`;
+- scripts/serving-card.py's `proposed_roles` and its P10 evidence;
+- `resolveServingCard` in src/main/private-agent/serving-card.ts;
+- `PrivateAgentModel.requestBody`, which takes the smaller of the call's cap and the configured one.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed`. Nothing is implemented or run.
+- **P10's payloads are synthetic and small.** A plan cell at 16,384 shows how the endpoint handles the planner's request at that cap, not how a plan fares on a real index. The planner fixture's 16,384 cell measured that on run-5's index, as a post hoc observation (BL-20261116-1546-e0-structured-fixtures-result).
+- **The export's cap is for probing.** A run's caps come only from an adopted card. The pipeline's own `OUTPUT_TOKENS.plan` stays 8,192.
+
+Paid exposure: None. The re-probe, when the coordinating session runs it, is zero-fee local calls.
+
+Next gate:
+- the implementation, its entry and one light review in this pull request;
+- CI, and the coordinating session's merge;
+- the re-probe of decision (7) and the card it writes; the adoption commit itself is the owner's, by name.
+
+References:
+- BL-20261117-0940-owner-direction-decisions-delegated (topic 6 and question 13);
+- BL-20261113-1011-p10-align-design;
+- BL-20261116-1208-research-structured-output-design;
+- BL-20261116-1203-research-role-policy-design;
+- BL-20261114-2301-serving-card-request-settings-design;
+- BL-20261116-1441-e0-card-amendment-4;
+- BL-20261116-1546-e0-structured-fixtures-result;
+- BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution;
+- docs/experiments/e0-card-2026-11-13.md, Amendment 1.

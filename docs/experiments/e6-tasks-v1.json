@@ -1,0 +1,152 @@
+{
+ "schemaVersion": 1,
+ "name": "e6-tasks-v1",
+ "proposedFreezeTag": "e6-tasks-v1",
+ "createdUtc": "2026-11-17T11:28:02Z",
+ "taskRoot": ".soar/experiments/e6-v1/tasks",
+ "goldRoot": ".soar/experiments/e6-v1/gold",
+ "qualifiedImageId": "sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f",
+ "scorer": {
+  "path": "scripts/e6-score.py",
+  "name": "e6-score",
+  "version": 1,
+  "sha256": "b8e77c2febe96057b82df3272e0bad887bcf0f42ed0658b259d16b69d63d333e"
+ },
+ "totals": {
+  "tasks": 3,
+  "plantedDefects": 24,
+  "controls": 6
+ },
+ "tasks": [
+  {
+   "id": "pd1-maintenance-contract",
+   "family": "document_review",
+   "exposure": "fresh",
+   "jobId": "e6-pd1-maintenance-contract",
+   "driverModeFlags": [
+    "--document-review",
+    "true"
+   ],
+   "jobSha256": "126d0cd030b99b012ff4ace08ac4b5494c03cf99a6452560162269adb3720e7b",
+   "briefSha256": "3611cbd2163a338f6b37026ab8256c42c1bc9cd85be8f953e666500d4cdc990b",
+   "inputs": [
+    {
+     "path": "input/maintenance-services-agreement.docx",
+     "sha256": "be3d1d0ac7d2845871095a3e5b693299bb7ca1cd72b55052d2d89498747a8a6f",
+     "bytes": 38914,
+     "label": "private"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/review-summary.md"
+   ],
+   "inputLicence": "synthetic: invented for SOAR's E6 by the authoring session (lane S-e1) and generated with python-docx in the qualified image; its organisations, places, figures and dates are invented and drawn from no real record, and any likeness to a real body's name is coincidental",
+   "sourceParagraphs": 85,
+   "planted": {
+    "numeric": 2,
+    "clause_contradiction": 2,
+    "table_arithmetic": 2,
+    "reference_definition": 1,
+    "missing_section": 1,
+    "total": 8
+   },
+   "controls": 2,
+   "goldFormat": "soar-e6-gold",
+   "goldFormatVersion": 1,
+   "goldFiles": [
+    {
+     "path": "gold.json",
+     "sha256": "b22508c4a5ad54c60e5df94e693c7a914ff573be8fe83b9f1898f8f443a32c39"
+    }
+   ],
+   "goldTreeSha256": "c985514728f8fb452454d91db788d4d7b73f5bb4e32dd6ed0c14f3177ddb3a4b"
+  },
+  {
+   "id": "pd2-expenses-policy",
+   "family": "document_review",
+   "exposure": "fresh",
+   "jobId": "e6-pd2-expenses-policy",
+   "driverModeFlags": [
+    "--document-review",
+    "true"
+   ],
+   "jobSha256": "ccbd335a2e0da862405b527e15ff322c664a6c47932d5e1947f44b79873b7fda",
+   "briefSha256": "e94f83a8368c7a84f8f149dc8a8c589554fedc0af7ff15eeeaaabdb721b7a748",
+   "inputs": [
+    {
+     "path": "input/travel-and-expenses-policy.docx",
+     "sha256": "2898f6b1ccd482d1905bb5a57485197ba260da234f719abff932892ade0f6d4b",
+     "bytes": 38632,
+     "label": "private"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/review-summary.md"
+   ],
+   "inputLicence": "synthetic: invented for SOAR's E6 by the authoring session (lane S-e1) and generated with python-docx in the qualified image; its organisations, places, figures and dates are invented and drawn from no real record, and any likeness to a real body's name is coincidental",
+   "sourceParagraphs": 72,
+   "planted": {
+    "numeric": 2,
+    "clause_contradiction": 2,
+    "table_arithmetic": 2,
+    "reference_definition": 1,
+    "missing_section": 1,
+    "total": 8
+   },
+   "controls": 2,
+   "goldFormat": "soar-e6-gold",
+   "goldFormatVersion": 1,
+   "goldFiles": [
+    {
+     "path": "gold.json",
+     "sha256": "2f5d8a9b1bb88d60b42dc350701980855a4c261882e176761d42ed06e3d18d78"
+    }
+   ],
+   "goldTreeSha256": "550334fe1957bdcea74c57440e12861c34fe89cf7a930616d745576b2322e426"
+  },
+  {
+   "id": "pd3-programme-report",
+   "family": "document_review",
+   "exposure": "fresh",
+   "jobId": "e6-pd3-programme-report",
+   "driverModeFlags": [
+    "--document-review",
+    "true"
+   ],
+   "jobSha256": "fc8e25d9bb8c8f62beffdc7380d1e1ed9ff60a6b1e8b972ab8f0d03d911a0898",
+   "briefSha256": "3b1629cf8b0e68c708d04deae259ffd58adbc69015f76dfadd856b923cbbcfae",
+   "inputs": [
+    {
+     "path": "input/literacy-programme-annual-report.docx",
+     "sha256": "8986889bef28be16ddb020f7a64f58cadfac886788e9e279b3d40f3e1b6720ed",
+     "bytes": 38001,
+     "label": "private"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/review-summary.md"
+   ],
+   "inputLicence": "synthetic: invented for SOAR's E6 by the authoring session (lane S-e1) and generated with python-docx in the qualified image; its organisations, places, figures and dates are invented and drawn from no real record, and any likeness to a real body's name is coincidental",
+   "sourceParagraphs": 62,
+   "planted": {
+    "numeric": 2,
+    "clause_contradiction": 2,
+    "table_arithmetic": 2,
+    "reference_definition": 1,
+    "missing_section": 1,
+    "total": 8
+   },
+   "controls": 2,
+   "goldFormat": "soar-e6-gold",
+   "goldFormatVersion": 1,
+   "goldFiles": [
+    {
+     "path": "gold.json",
+     "sha256": "7a2c8d6b1933cb377e567c757fe73acb499dd4b83dcfc70618f5344e357758cf"
+    }
+   ],
+   "goldTreeSha256": "9a3a6a6cf8b66c628caa5ea3c73eeb3f7b19e1bb2cb3f22462181564879456c6"
+  }
+ ],
+ "tasksSha256": "fcf516dadd677b2f890bcc068809f16e7902df4b7451bc2ae6a54eba22a59a65"
+}

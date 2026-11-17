@@ -52369,7 +52369,7 @@ Next gate: CI and the coordinating session's merge, before the first r3 run. The
 
 References: BL-20261117-1131-research-card-admission-design; BL-20261117-1132-research-card-admission-implemented; BL-20261117-1142-correction-research-card-admission-review-restamp; BL-20261117-1143-research-second-repair-design; BL-20261117-1145-research-second-repair-implemented; BL-20261116-0813-e0-r3-runs-index-and-harvest; docs/experiments/README.md.
 
-### BL-20261117-1322-correction-general-task-progress-e2e-first-run -- 2026-11-17 -- Correction to BL-20261117-1048-correction-general-task-progress-e2e-review after the first gated run: the run needs a shell that can open windows, and the spec now reports its first failure instead of letting the fixture's cleanup check replace it
+### BL-20261117-1327-correction-general-task-progress-e2e-first-run -- 2026-11-17 -- Correction to BL-20261117-1048-correction-general-task-progress-e2e-review after the first gated run: the run needs a shell that can open windows, and the spec now reports its first failure instead of letting the fixture's cleanup check replace it
 
 Status: `Implemented`
 
@@ -52425,11 +52425,11 @@ Next gate:
 
 References: BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261109-0459-desktop-resume-reasons-implemented.
 
-### BL-20261117-1332-correction-general-task-progress-e2e-cause -- 2026-11-17 -- Correction to BL-20261117-1322-correction-general-task-progress-e2e-first-run: the gated runs failed on the spec's own user-data check, evaluated in the main process before its first window; not the sandboxed shell, and not the worktree's location
+### BL-20261117-1332-correction-general-task-progress-e2e-cause -- 2026-11-17 -- Correction to BL-20261117-1327-correction-general-task-progress-e2e-first-run: the gated runs failed on the spec's own user-data check, evaluated in the main process before its first window; not the sandboxed shell, and not the worktree's location
 
 Status: `Implemented`
 
-Scope or hypothesis: This corrects BL-20261117-1322-correction-general-task-progress-e2e-first-run (plan 72.E2E, lane S-desk, #150). That entry named the wrong cause.
+Scope or hypothesis: This corrects BL-20261117-1327-correction-general-task-progress-e2e-first-run (plan 72.E2E, lane S-desk, #150). That entry named the wrong cause.
 - **The second run.** The coordinating session ran the gated cases again, in the owner's Terminal panel, a normal shell, from the same worktree.
   - Both cases failed again.
   - This time the app's own start-failure box showed: "SOAR could not finish starting. ERR_FAILED (-2) loading" the built renderer page.
@@ -52454,7 +52454,7 @@ Decisions:
 
 (3) **The fix.** `launch()` now waits for the first window before it evaluates in the main process. The check itself is unchanged.
 
-(4) **What stands from BL-20261117-1322-correction-general-task-progress-e2e-first-run.**
+(4) **What stands from BL-20261117-1327-correction-general-task-progress-e2e-first-run.**
 - The first failure is reported, and the cleanup check is a soft failure beside it.
 - The command still needs a shell that can open windows, since the app needs a desktop session. That condition did not cause these failures.
 
@@ -52491,4 +52491,47 @@ Next gate:
 2. The coordinator merges #150.
 3. The coordinating session runs the gated cases in the Terminal panel, from a fresh worktree under the owner's Developer folder, with the four steps of BL-20261117-1048-correction-general-task-progress-e2e-review.
 
-References: BL-20261117-1322-correction-general-task-progress-e2e-first-run; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable.
+References: BL-20261117-1327-correction-general-task-progress-e2e-first-run; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable.
+
+### BL-20261117-1355-correction-general-task-progress-e2e-restamp -- 2026-11-17 -- Correction: plan 72.E2E's first-run entry is re-stamped after #151's entry, with its original ID and time
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1327-correction-general-task-progress-e2e-first-run (plan 72.E2E, lane S-desk, #150).
+- **Why a re-stamp.** By the coordinating session's order, lane S-pipe's #151 merged first, because a file under the source freeze cites its entry's ID. That entry, BL-20261117-1326-research-admission-record-incomplete-stage, sits after this entry's original minute.
+- **The original ID.** This entry was BL-20261117-1322, written at 13:22 UTC on 2026-11-17 and committed in 87c9075.
+
+Decisions:
+
+(1) **The re-stamp** (BL-20261113-0937-owner-decision-restamp-unmerged-entries, BL-20261113-0938-correction-restamp-rule-dates).
+- **The new ID.** The entry becomes BL-20261117-1327, a free minute between #151's entry and BL-20261117-1332-correction-general-task-progress-e2e-cause. That second entry of #150 keeps its own minute.
+- **What changed.** Only the IDs and the references to them change. The bodies are otherwise byte-identical.
+- **The references moved:**
+  - Four references (its title, its scope, its decision (4) and its References) in BL-20261117-1332-correction-general-task-progress-e2e-cause;
+  - one short-form citation in the spec's `launch()` comment.
+
+Changes:
+- docs/BUILD_LOG.md: the re-stamped entry, the references to it in BL-20261117-1332-correction-general-task-progress-e2e-cause, and this Correction.
+- tests/e2e/general-task-progress.spec.ts: the short-form citation.
+- 5692a18: the merge of `main` at e1fb030.
+
+Evidence:
+- **The merge.** Merging `main` conflicted only at the log's tail. It is resolved as `main`'s log followed by #150's two entries as committed.
+- **The re-stamp.** With the old ID mapped back, both entries are byte-identical to 6137675's, and `main`'s log is a byte prefix of this one.
+- **Checks.**
+  - After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0.
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - `pnpm exec playwright test --list` lists both cases, and without the gate both are skipped.
+
+Failures or blockers: None.
+
+Limitations and non-claims: None beyond those of the two entries. Their statuses stay as written.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. CI.
+2. The coordinator merges #150.
+3. The coordinating session runs the gated cases from a fresh worktree under the owner's Developer folder.
+
+References: BL-20261117-1327-correction-general-task-progress-e2e-first-run; BL-20261117-1332-correction-general-task-progress-e2e-cause; BL-20261117-1326-research-admission-record-incomplete-stage; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates.

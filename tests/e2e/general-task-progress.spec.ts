@@ -116,7 +116,7 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
       cwd: projectRoot, env: environment(root, model.origin), timeout: 45000 });
     // Evaluate in the main process only once the first window exists. Playwright takes its handle to the main process's electron
     // module from the first execution context it sees, and an evaluation in the instants after launch fails with "Resulting promise
-    // was garbage collected"; the fixture then closed the app mid-start (BL-20261117-1322's runs).
+    // was garbage collected"; the fixture then closed the app mid-start (BL-20261117-1327's runs).
     const page = await app.firstWindow();
     // The app also reads .env.local from its user-data directory, so that directory must be this run's own. Assert that Electron
     // honoured --user-data-dir instead of trusting it: `pnpm setup:general --write` writes the default user-data file.

@@ -101,17 +101,21 @@ describe("10.b: the ready gate reads the assist record (decision 8)", () => {
     const { outcome } = await run("local_first", "openai_responses", { reject: ["plan"] });
     const expectation = { brief: assistComposedGoal(), sources: assistSources(), protocolSha256: outcome.summary.protocolSha256 };
     expect(() => validateReadyResearchPacket(outcome.files, expectation)).not.toThrow();
-    const forgeries: [string, (summary: any) => void][] = [
-      ["a slot attempt without its record", s => { delete s.stages[1].assist; delete s.stages[3].assist; }],
-      ["one touchpoint recorded and not the other", s => { delete s.stages[3].assist; }],
-      ["a record on the index row", s => { s.stages[0].assist = s.stages[1].assist; }],
-      ["two policies", s => { s.stages[3].assist.policy = "forced_split"; }],
-      ["a settled attempt the row does not count", s => { s.stages[1].planAttempts = s.stages[1].planAttempts.filter((a: any) => a.slot === undefined); s.stages[1].calls -= 1; }],
-      ["an accepted record beside a rejected slot attempt", s => { s.stages[1].planAttempts.at(-1).accepted = false; }],
-      ["an unknown key in the record", s => { s.stages[1].assist.note = "text"; }],
-      ["a T2 record on the plan row", s => { s.stages[1].assist.touchpoint = "T2"; for (const a of s.stages[1].assist.attempts) a.touchpoint = "T2"; }],
+    // Each forgery is refused with the gate's own code; only the strict parse's refusal is the schema's (an unrecognized key).
+    const STAGE_ASSIST = "research_packet_stage_assist";
+    const forgeries: [string, (summary: any) => void, string | RegExp][] = [
+      ["a slot attempt without its record", s => { delete s.stages[1].assist; delete s.stages[3].assist; }, STAGE_ASSIST],
+      // T2 did not fire here, so only the both-or-neither rule sees its record go.
+      ["one touchpoint recorded and not the other", s => { delete s.stages[3].assist; }, STAGE_ASSIST],
+      ["a record on the index row", s => { s.stages[0].assist = s.stages[1].assist; }, "research_packet_stage_keys"],
+      ["two policies", s => { s.stages[3].assist.policy = "forced_split"; }, STAGE_ASSIST],
+      ["a settled attempt the row does not count", s => { s.stages[1].planAttempts = s.stages[1].planAttempts.filter((a: any) => a.slot === undefined); s.stages[1].calls -= 1; }, /^research_packet_/u],
+      ["an accepted record beside a rejected slot attempt", s => { s.stages[1].planAttempts.at(-1).accepted = false; }, /^research_packet_/u],
+      ["an unknown key in the record", s => { s.stages[1].assist.note = "text"; }, /note/u],
+      ["a T2 record on the plan row", s => { s.stages[1].assist.touchpoint = "T2"; for (const a of s.stages[1].assist.attempts) a.touchpoint = "T2"; }, STAGE_ASSIST],
     ];
-    for (const [name, forge] of forgeries) expect(() => validateReadyResearchPacket(edit(outcome.files, forge), expectation), name).toThrow();
+    expect(outcome.summary.stages[3]!.assist).toMatchObject({ fired: false });
+    for (const [name, forge, code] of forgeries) expect(() => validateReadyResearchPacket(edit(outcome.files, forge), expectation), name).toThrow(code);
   });
 });
 

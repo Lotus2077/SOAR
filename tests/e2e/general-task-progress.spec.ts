@@ -114,13 +114,17 @@ async function runCase(scenario: ProgressScenario, testInfo: TestInfo) {
     app = await electron.launch({ ...(process.env.SOAR_E2E_EXECUTABLE ? { executablePath: process.env.SOAR_E2E_EXECUTABLE } : {}),
       args: [`--user-data-dir=${path.join(root, "browser-data")}`, ...(process.env.SOAR_E2E_EXECUTABLE ? [] : [projectRoot])],
       cwd: projectRoot, env: environment(root, model.origin), timeout: 45000 });
+    // Evaluate in the main process only once the first window exists. Playwright takes its handle to the main process's electron
+    // module from the first execution context it sees, and an evaluation in the instants after launch fails with "Resulting promise
+    // was garbage collected"; the fixture then closed the app mid-start (BL-20261117-1322's runs).
+    const page = await app.firstWindow();
     // The app also reads .env.local from its user-data directory, so that directory must be this run's own. Assert that Electron
     // honoured --user-data-dir instead of trusting it: `pnpm setup:general --write` writes the default user-data file.
     const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath("userData"));
     if (path.basename(userData) !== "browser-data" || realpathSync(path.dirname(userData)) !== realpathSync(root)) {
       throw new Error("fixture_requires_temporary_user_data");
     }
-    return app.firstWindow();
+    return page;
   };
   let bodyFailed = false, bodyError: unknown;
   try {

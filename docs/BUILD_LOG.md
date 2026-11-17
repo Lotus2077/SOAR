@@ -52355,3 +52355,71 @@ Next gate:
 3. The coordinating session reruns the gated cases in the Terminal panel.
 
 References: BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261109-0459-desktop-resume-reasons-implemented.
+
+### BL-20261117-1332-correction-general-task-progress-e2e-cause -- 2026-11-17 -- Correction to BL-20261117-1322-correction-general-task-progress-e2e-first-run: the gated runs failed on the spec's own user-data check, evaluated in the main process before its first window; not the sandboxed shell, and not the worktree's location
+
+Status: `Implemented`
+
+Scope or hypothesis: This corrects BL-20261117-1322-correction-general-task-progress-e2e-first-run (plan 72.E2E, lane S-desk, #150). That entry named the wrong cause.
+- **The second run.** The coordinating session ran the gated cases again, in the owner's Terminal panel, a normal shell, from the same worktree.
+  - Both cases failed again.
+  - This time the app's own start-failure box showed: "SOAR could not finish starting. ERR_FAILED (-2) loading" the built renderer page.
+- **The probe.** It loads the built page in a hidden Electron window, without the SOAR app. It printed PROBE_OK both in that worktree and in E5's build worktree. So neither the sandboxed shell nor the worktree's location explains the failure.
+- **The traces.** The four Playwright traces, two runs and two cases each, show one sequence:
+  1. Electron's launch succeeds, in 0.2 to 2.8 s.
+  2. About 30 ms later, the spec's user-data check fails with "electronApplication.evaluate: Resulting promise was garbage collected."
+  3. The fixture's close of the app then takes 35 to 45 s.
+
+Decisions:
+
+(1) **The cause: the spec's own user-data check.**
+- **What it is.** BL-20261117-1048-correction-general-task-progress-e2e-review added it, to assert that Electron honours `--user-data-dir`.
+- **What went wrong.** It called `app.evaluate` right after `electron.launch`, before `firstWindow()`.
+- **Why that fails.** Playwright takes its handle to the main process's `electron` module from the first execution context it sees. An evaluation in the instants after launch fails as above.
+- **The precedent.** Before that entry, this spec evaluated in the main process only after `firstWindow()`. So does the CI-run electron.spec.ts, which passes on every pull request.
+
+(2) **The start-failure box is a consequence, not a cause.**
+- **What happened.** The check's error made the fixture close the app while it was still starting. That close destroyed the first window mid-load.
+- **What that produced.** Bootstrap's `loadURL` rejected with `ERR_FAILED (-2)`, and index.ts's startup catch showed "SOAR could not finish starting".
+- **Why the close hung.** That box is a synchronous modal, so the close waited until the fixture's 45-second kill. Where someone dismissed the box, the close finished.
+
+(3) **The fix.** `launch()` now waits for the first window before it evaluates in the main process. The check itself is unchanged.
+
+(4) **What stands from BL-20261117-1322-correction-general-task-progress-e2e-first-run.**
+- The first failure is reported, and the cleanup check is a soft failure beside it.
+- The command still needs a shell that can open windows, since the app needs a desktop session. That condition did not cause these failures.
+
+(5) **The owner build.**
+- **No risk to a normal start.** A normal start has no Playwright evaluation and nothing that closes the window mid-load. The probe also loaded the page in E5's build worktree.
+- **The one path to the box.** Quitting within about a second of launch, before the window loads, gives the same box, which then wrongly says the app could not start. That is a small product fault, left for its own item after E5.
+
+Changes:
+- tests/e2e/general-task-progress.spec.ts: `launch()` evaluates after `firstWindow()`.
+- docs/BUILD_LOG.md: this Correction.
+
+Evidence:
+- **The traces.** Lane S-desk read the four Playwright traces, read-only, in the coordinating session's retained output. They show the step timings and the evaluation error above.
+- **The probe's result** is the coordinating session's.
+- **CI's precedent.** In the CI-run electron.spec.ts, `electronApp.evaluate` is called only after `firstWindow()`.
+- **Checks.**
+  - `pnpm typecheck` passes.
+  - After `git fetch`, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0.
+  - `pnpm validate:readiness` passes.
+  - `pnpm exec playwright test --list` lists both cases. Without the gate, both are skipped and no app is launched.
+- **Not run:** either gated case.
+
+Failures or blockers: The runs above failed on the spec's own check. Nothing else is blocked.
+
+Limitations and non-claims:
+- **The handle's behaviour is inferred,** from Playwright's source and the four traces. Playwright's ElectronApplication resolves its electron-module handle once, on the first default execution context. The behaviour has not been reproduced in isolation.
+- **Whether the two cases now pass** is shown only by the next gated run.
+- **Not `Verified`.** Nothing about #72's assertion is `Verified`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. One light review, then CI.
+2. The coordinator merges #150.
+3. The coordinating session runs the gated cases in the Terminal panel, from a fresh worktree under the owner's Developer folder, with the four steps of BL-20261117-1048-correction-general-task-progress-e2e-review.
+
+References: BL-20261117-1322-correction-general-task-progress-e2e-first-run; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1030-general-task-progress-e2e-runnable.

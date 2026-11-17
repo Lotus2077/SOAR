@@ -14,9 +14,9 @@ role.
   exists for E5, E2, E6, E3 or E4, and each waits for an owner answer (§4).
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5
   origin/main` and the log's tail (`grep -n '^### BL-' docs/BUILD_LOG.md | tail -5`).
-  Ask the owner which of the fifteen questions (§4: the twelve topics and questions 13
-  to 15) now has an answer. Record each answer in an `Approved` entry, quoted, before
-  acting on it.
+  Ask the owner which of the fourteen open questions (§4: the twelve topics and
+  questions 13 and 14) now has an answer. Question 15 is answered (§3). Record each
+  answer in an `Approved` entry, quoted, before acting on it.
 - **Second,** ask the owner for the serving card's two answers: whether it is adopted,
   and with which planner settings. Both were put on 2026-11-16 with Amendment 4's two
   results, as questions 6 and 13 of the summary, and neither is answered (§5 step 2).
@@ -39,7 +39,7 @@ owner's checkout.
 
 ### 1. Get the work
 
-`main` is at 7ef19ea, the merge of #131; work from it. Select Node
+`main` is at d14ad42, the merge of #132; work from it. Select Node
 22.22.2 and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
 `engine-strict=true`, so another Node major fails the install.
 
@@ -76,6 +76,7 @@ approves pushing reviewed work to public `main`).
 | 2026-11-16 | #123 (2e2d75c), #125 (7e75a47) | The serving probe connects directly and classes an early-ended P10 stream; E0 fixture cells that send `response_format` (v2 manifests) |
 | 2026-11-16 | #127 (100e00a), #126 (a7a21f3) | 8.2b's follow-ups from #110's skeptic check; E0's extractor result and its closing `Verified` entry |
 | 2026-11-16 | #128 (da30c9d), #129 (daab44e, carried by #130's merge), #130 (b2e1d1e), #131 (7ef19ea) | Run rows record the protocol hash, the loaded card and K, and the doctor checks a card through the driver's own loader; E0 card Amendment 4; tests that pin the planner fixture's `--cache-salt`; the two `response_format` fixture runs' rows and result |
+| 2026-11-17 | #132 (d14ad42) | This section, restated for `main` at 7ef19ea, with Amendment 4's two runs verified |
 
 `researchProtocolSha256()` last changed with #102 (7b.2). Its default is
 `7100b7a2584b8afaea9ea8b79a31d676204448a1a203a4d9ef7206cda3c24aa5`, pinned in
@@ -202,6 +203,14 @@ tests/helpers/research-protocol-pin.ts.
   - Neither direction lifts: anything paid beyond an approved cap, any new egress
     destination, any real private data, #105's residues, the review's decisions with no
     default, or any change to a rule the owner approved.
+- **The merge go for handoff restatements** (2026-11-17;
+  BL-20261117-0530-owner-merge-go-handoff-restatements). After merging #132 the
+  owner wrote: "you may merge a handoff restatement myself on a clean review and green
+  CI".
+  - It covers a pull request that restates this section, with the entries that record
+    the restatement, once its light review is clean and CI is green.
+  - It does not cover an experiment's card, the serving card's adoption commit, or any
+    other pull request that is not a lane PR or an E0 record (§6).
 - **What E0's runs settle under its card's rules** (the Decisions of
   BL-20261116-1357-e0-verified). The readings are the session's, not the owner's.
   `Verified` covers only that the thirteen rowed runs happened and gave the measurements
@@ -298,9 +307,10 @@ summary, and not answered; BL-20261116-1637-correction-handoff-start-here-final-
 records that they were put); whether the reader should refuse a flagged card at K above
 1 until a burst is measured with `response_format`, the choice lane S-assist left open
 (BL-20261116-1331-correction-local-fanout-skeptic-followups); and whether the session
-may merge a handoff restatement on a clean review and green CI. The first blocks the
-adoption commit. Not put to the owner yet: whether E0 shows a role-level gap (Next
-gate, step 7, of BL-20261116-1357-e0-verified).
+may merge a handoff restatement on a clean review and green CI, which the owner
+answered on 2026-11-17 (§3). The first blocks the adoption commit. Not put to the
+owner yet: whether E0 shows a role-level gap (Next gate, step 7, of
+BL-20261116-1357-e0-verified).
 
 - **Docker-gated runs.** One of four has run: E1-L's sandbox suite (#74) passed 18 of
   18 on the owner's Mac at d92a3af and is recorded `Verified`
@@ -505,6 +515,8 @@ the session's choice, and no entry records it.
   - Merging E0 record PRs (2026-11-16; decision 3 of
     BL-20261116-0814-e0-card-amendment-1): on the same two conditions.
   - The two directions of 2026-11-16 (§3).
+  - Merging a handoff restatement (2026-11-17;
+    BL-20261117-0530-owner-merge-go-handoff-restatements): on the same two conditions.
 - **The session's practice of 2026-11-13 and 2026-11-14,** not an owner decision:
   - The owner's permission settings refuse a force-push, so bring `main` into a branch
     with a merge, never a rebase that needs one.
@@ -515,8 +527,8 @@ the session's choice, and no entry records it.
     the previous PR's head instead of `main`, so their CI runs at once; they then
     merge strictly in that order.
 - **The session's practice of 2026-11-16,** not an owner decision:
-  - The session asks the owner before it merges a PR that is neither a lane PR nor an
-    E0 record PR.
+  - The session asks the owner before it merges a PR that is not a lane PR, an E0
+    record PR or a handoff restatement.
   - Review a card amendment and a result entry before the run or the commit, so fixes
     go in place, as Amendment 3's did (Scope of
     BL-20261116-1159-correction-e0-amendment-3-pre-run-review). Amendments 1 and 2

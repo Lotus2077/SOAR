@@ -47927,3 +47927,43 @@ Paid exposure: None.
 Next gate: The owner's go for pull request #132.
 
 References: docs/HANDOFF.md; docs/README.md; docs/PLAN.md; BL-20261116-1600-handoff-start-here-restated; BL-20261116-1559-correction-e0-planner-fixture-salt-pin-run-attribution; BL-20261116-1546-e0-structured-fixtures-result; BL-20261116-1441-e0-card-amendment-4; BL-20261116-1357-e0-verified; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1636-e0-amendment-4-runs-verified; pull requests #129, #130 and #132.
+
+### BL-20261117-0530-owner-merge-go-handoff-restatements -- 2026-11-17 -- The owner's merge go for handoff restatements: the session may merge one once its review is clean and CI is green
+
+Status: `Approved`
+
+Scope or hypothesis: On 2026-11-17 the owner answered the fifteenth of the questions put on 2026-11-16: whether the orchestrating session may merge a handoff restatement itself. This entry records the owner's words, what they cover and what they do not. `Approved` covers the quoted words only. The reading in decisions 2 and 3 is the session's, and the owner may replace it.
+
+Decisions:
+1. **The owner's words.** The owner merged pull request #132, the handoff restatement, as d14ad42 at 05:25:29 UTC. At 05:28:37 UTC the owner wrote in the session's chat: "you may merge a handoff restatement myself on a clean review and green CI".
+   - The question had been put as question 15 of the session's owner-facing summary: "May I merge the handoff restatement when its review is clean and CI is green?" (decision 1 of BL-20261116-1637-correction-handoff-start-here-final-check).
+   - The session had then told the owner it was treating the question as still unanswered for next time, since the owner had merged #132 without answering it. The owner's sentence replied to that.
+2. **What it covers.** A pull request that restates the "Start here" section of docs/HANDOFF.md, with the entries that record the restatement, once its light review is clean and CI is green. "Clean" is as for lane pull requests: no unresolved blocker or major finding.
+3. **What it does not cover.**
+   - An experiment's card, or the serving card's adoption commit.
+   - Any other pull request that is not a lane pull request, an E0 record or a handoff restatement. The session still asks before merging those.
+   - Anything paid, any new egress destination, any real private data, or any change to a rule the owner approved.
+   - The other fourteen questions, which stay open.
+4. **This pull request** updates the section for this answer and for #132's merge, and changes nothing else. The session merges it under this go, as #118 merged under the go its own entry recorded (decision 3 of BL-20261116-0814-e0-card-amendment-1).
+
+Changes:
+- docs/HANDOFF.md, "Start here": `main` is at d14ad42 and the merge table gains #132; §3 gains this go; §4 and "In brief" say that question 15 is answered; §6 lists the go among the owner's process choices.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **#132's merge** is on GitHub: merged by the owner's account at 05:25:29 UTC as d14ad42, at head e7fa47a, with both CI jobs green.
+- **The owner's sentence** is in the session's chat, at 05:28:37 UTC by the session's record. It is quoted as written.
+- **Checks on this branch:** `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **The chat is not a committed record.** This entry is the durable record of the owner's words.
+- **"myself" is read as the session.** The owner's sentence echoes the session's own wording of the question.
+- **A restatement that also changes something else** is not covered for that other change. The session asks.
+
+Paid exposure: None.
+
+Next gate: None. The other fourteen questions stand as docs/HANDOFF.md "Start here" §4 lists them.
+
+References: docs/HANDOFF.md; BL-20261116-1600-handoff-start-here-restated; BL-20261116-1637-correction-handoff-start-here-final-check; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1131-owner-directions-merge-and-continue; pull requests #118 and #132.

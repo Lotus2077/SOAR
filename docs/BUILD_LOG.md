@@ -52299,3 +52299,226 @@ Paid exposure: None.
 Next gate: The rest of E6's preconditions, then its first run.
 
 References: docs/experiments/e6-card-2026-11-17.md (Amendment 1); BL-20261117-1311-e6-card-amendment-1; BL-20261117-1303-correction-assist-capture-restamp-second-repair; pull requests #147, #148 and #149.
+
+### BL-20261117-1352-e0-reprobe-result-plan-cap-16384 -- 2026-11-17 -- E0's re-probe under Amendment 5: all twelve probes with P10's plan cells at 16,384 tokens; plan/on and extract/off are 20 valid of 20, synthesis misses the rule in both modes, and P8 was cut at 121.3 s; the serving card of 2026-11-17 is proposed, and the adoption commit goes to the owner
+
+Status: `Implemented`
+
+Scope or hypothesis: The one run that Amendment 5 of E0's card registers (BL-20261117-1155-e0-card-amendment-5, as BL-20261117-1156-correction-e0-card-amendment-5-second-repair-restamp revises it). It is the full re-probe that the owner's answer to topic 6 asks for (decision 2 of BL-20261117-0940-owner-direction-decisions-delegated), made after the second repair reached `main` (decision 1 of BL-20261117-1130-lane-decisions-second-repair-before-reprobe). The amendment's steps, in order:
+1. `pnpm probe:export-schemas -- --plan-cap 16384`.
+2. P1 alone, checked by hand.
+3. All twelve probes in one invocation.
+4. `pnpm probe:assess`.
+5. The card writer, with the three `--compare-*` values.
+6. The export once more, without the option.
+
+Hypothesis, as the amendment's entry states it: at a cap of 16,384 tokens the endpoint returns a valid plan for P10's planner request in at least 19 of 20 calls, and extraction's cell meets the same rule again.
+
+`Implemented` covers the run, the card's two files and the two rows. The card is `proposed`. Nothing is adopted, and nothing here is `Verified`.
+
+Decisions:
+1. **The run stands as the amendment's one run.** No stop rule applied, step 3's check held, and the card writer and the row writer accepted the run. No pull request merged on `main` between step 1 and step 4, so the run is not void. No second run was needed.
+2. **Both binding cells meet the rule.** plan/on at 16,384 and extract/off at 2,048 are each 20 valid of 20 assessed. By the amendment's item 4 the session asks the owner by name for the adoption commit, with this result (decision 5 of BL-20261117-0940-owner-direction-decisions-delegated). The owner had not been asked when this entry was written.
+3. **No third edit.** synthesis/on is 18 valid of 20 and does not meet the rule. The card carries no synthesis flag, so the adoption has none to set to false.
+4. **Two flags differ from the 2026-11-16 card, and neither binds a run.** Extraction gains its thinking-on flag, and synthesis loses its thinking-off flag. Both are reported as findings (Evidence, "Flags") and change no outcome, as the amendment's item 4 fixes for the cells that bind no run.
+5. **P8's cut-off is a finding, not a stop.** The probe recorded a result for P8, so `probes_failed` is empty and step 3's check held. The card's JSON holds no P8 evidence, and the row writer lists a P8 transport failure only for `URLError`.
+6. **Both rows are `accepted`, with verdict `agent_diagnostic`.** The full run is the amendment's finished, assessed run whose card was written. The P1 check is rowed as on 2026-11-16: the amendment's condition for `accepted` describes a full invocation, and this entry reads "as on 2026-11-16" as the rule for the P1 row.
+7. **The card stays `proposed`.** The 2026-11-16 card's two files are unchanged.
+
+Changes:
+- docs/experiments/serving-card-2026-11-17.json: new, the writer's output byte for byte, sha256 f228bd744c85692a7f534a942043ca03105d6508335f3dd7345a84d6347d111c.
+- docs/experiments/serving-card-2026-11-17.md: new, the writer's output byte for byte, sha256 c30305c366dc227d4f22172e4cbd229834c7a7c62ff6c0749b846fc0a8e86695. Nothing in it was written by hand: its "Consequences for the plan" section holds the writer's placeholder line.
+- docs/experiments/registry.jsonl: two rows, batch `e0-2026-11-17`.
+- docs/HANDOFF.md: the adoption step names docs/experiments/serving-card-2026-11-17.json, its two edits and this entry as `decision.entry`; the note at the head of "Start here" gains the day's later state.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **Sources.** The figures below were recomputed from the two retained probe records and the two cards. The 2026-11-16 figures are those of docs/experiments/serving-card-2026-11-16.json and .md. No reply text was read: each call's record holds its class, counts, times and digests. What rests on the session's account alone is marked as such.
+- **The conditions** (the amendment's item 2).
+  - **The checkout.** The main checkout's reflog holds HEAD at 3ade65b from 12:25:56 to 13:11:38 UTC, which spans the doctor and all six steps. 3ade65b contains #136 (9673bb9), #137 (6e59bd5), #142 (6b121eb) and Amendment 5 (#141, 7eae508). The session's log of step 3 names 3ade65b. That the tracked tree was clean at each step is the session's account, and no retained record states it.
+  - **Nothing merged inside the window.** By the merge commits' times, `main` did not move between 12:25:53 UTC (3ade65b) and 13:11:04 UTC (#147). #147, #149 and #148 merged after step 6.
+  - **The doctor,** at 12:26:38 UTC, without `--write`: `modelsOk`, `modelListed` and `completionOk` are true, and it wrote nothing. Its `model.identity` equals the 2026-11-16 card's identity in all four fields: the served alias, model root Qwen3.8-Flash-Next-NVFP4, engine 0.33.0rc1.dev617+g821038729 and context 262,144. It reports no serving card configured.
+  - **The window.** Both probe records read 0 running and 0 waiting, before and after. That the lanes were told to send nothing is the session's account.
+- **The steps.**
+  - **Step 1,** 12:26:56 UTC. The printed line shows `outputTokens.plan` 16384 and `protocolSha256` e3e08871227d0b467f27d02344443f15c72386c479d41a2553bda88c59838c4c. Its `requestSettings` equal the 2026-11-16 card's `evidence.p10.requestSettings`, field by field. Its three role-schema digests equal that card's too.
+  - **Step 2,** 12:27:10 to 12:27:31 UTC, P1 alone. `/v1/models` answered 200 with one model. Its alias, root, context and engine equal the 2026-11-16 card's Identity table. The stop rule did not apply.
+  - **Step 3,** 12:27:43 to 13:08:49 UTC, 2,466 s. The session's log records exit 0.
+    - The check before step 4 held: `roles.output_tokens.plan` 16384; `max_tokens` 16384 on both plan cells; `probes_failed` empty; all twelve probes in `probes_run`, and none skipped.
+    - Each of the six cells' `request_body_sha256` equals the digest step 1 printed for it.
+    - 120 replies are retained, 20 per cell. By their file times P10's calls ran from about 12:34 to 13:05 UTC. In the probe's order, P1 to P9 came before them and P11 and the adapter after.
+  - **Step 4,** 13:09:26 UTC: `schemasProtocolMatch` true, assessed under e3e08871…, with no reply unassessed.
+  - **Step 5,** 13:09:50 UTC. The writer wrote both files.
+    - The JSON's `probe.sha256` is e44e9bdde8c0cc68a1e41722f9bcbf1f4d073db9862d2dfc2fae5a3efc87eb89, the sha256 of step 3's probe.json as assessed.
+    - `decision` is `proposed` with no entry, `admission.basis` is `none`, and `concurrency.localStreams` is 1. The card's date is 2026-11-17, the UTC date on which step 3 started.
+    - The session then moved both files out of the main checkout, so they reach the repository through this pull request only. When this entry was drafted the main checkout held neither file and no uncommitted change.
+  - **Step 6,** 13:10:07 UTC: `outputTokens.plan` 8192. The plan cells' body digests differ from step 1's, and the extract and synthesis digests are equal.
+  - **Times and exits.** The times of the doctor and of steps 1, 5 and 6 are the creation times of the session's step outputs. Those of steps 2 to 4 are in the probe records. The exits of every step but step 3 are the session's account. Each step's error output is empty.
+- **P10,** from the 120 call records.
+  - **All cells.** Every call answered 200, and every stream ended at `[DONE]`. No call was classed request-rejected, ended early, invalid JSON, schema-invalid, binding-invalid or unassessed. The strict and non-strict acceptance checks of all three roles were accepted. Every thinking-on reply reported reasoning tokens above 0, and no thinking-off reply reported any.
+  - **Medians** of 20 values are the mean of the 10th and 11th. The probe's own record truncates the token medians to whole tokens and rounds the time medians to 0.01 s. Means are as the card rounds them.
+  - **plan/on,** cap 16,384, prompt 1,744 tokens: 20 valid.
+    - Call time: median 26.845 s, longest 64.06 s.
+    - Completion tokens: median 2,539, mean 2,980.8, largest 5,532.
+    - Reasoning tokens: median 1,848.5, mean 2,420.4, from 675 to 5,204.
+  - **plan/off,** cap 16,384, prompt 1,746 tokens: 20 valid.
+    - Call time: median 5.365 s, longest 6.51 s.
+    - Completion tokens: median 487, mean 478.3, largest 599.
+  - **extract/on,** cap 2,048, prompt 833 tokens: 20 valid.
+    - Call time: median 8.845 s, longest 13.21 s.
+    - Completion tokens: median 818.5, mean 841.1, largest 1,257.
+    - Reasoning tokens: median 693, mean 689.1, from 418 to 1,036.
+  - **extract/off,** cap 2,048, prompt 835 tokens: 20 valid.
+    - Call time: median 2.675 s, longest 4.37 s.
+    - Completion tokens: median 197.5, mean 206.6, largest 366.
+  - **synthesis/on,** cap 8,192, prompt 2,264 tokens: 18 valid and 2 truncated.
+    - Call time: median 18.455 s, longest 184.98 s. The longest valid reply took 28.05 s.
+    - Completion tokens: median 1,709, mean 2,302.6. The largest valid reply used 2,734.
+    - Reasoning tokens: median 798, mean 894.8, from 474 to 2,044.
+    - The two truncated replies finished `length` at 8,192 tokens, after 184.98 s and 130.93 s. They spent 814 and 880 tokens on reasoning and returned 69,562 and 7,387 content bytes.
+  - **synthesis/off,** cap 8,192, prompt 2,266 tokens: 17 valid and 3 truncated.
+    - Call time: median 6.330 s, longest 56.73 s. The longest valid reply took 16.51 s.
+    - Completion tokens: median 474.5, mean 1,667.5. The largest valid reply used 1,228.
+    - The three truncated replies finished `length` at 8,192 tokens, after 56.73 s, 53.68 s and 54.79 s, with no reasoning. They returned 26,442, 9,571 and 42,175 content bytes.
+  - **Every reply that is not valid was truncated at its cap.** The five are all synthesis replies, and none ran out on reasoning. The records do not show why they ran to the cap.
+- **The reading,** by the amendment's item 3: the writer's 95% rule and nothing else.
+  - **plan/on at 16,384 meets it:** 20 assessed and none unassessed; 20 valid, which is 100%; the strict variant, as requested; assessed under e3e08871…, the protocol the export sent; and P10's request settings recorded. The card flags the planner with thinking on at [16384, 16384].
+  - **extract/off at 2,048 meets it** on the same five points, with 20 valid of 20. The card flags extraction with thinking off.
+  - **synthesis/on does not:** 18 of 20 is 90%, and two replies that are not valid fail the rule.
+- **plan/on beside the 2026-11-16 card's plan/on cell at 8,192: descriptive and post hoc.** No test reads it.
+  - Valid: 20 of 20 on both days, with the same prompt size of 1,744 tokens.
+  - Mean completion tokens: 2,980.8, against 2,426.6. Mean reasoning tokens: 2,420.4, against 1,858.0.
+  - Call time: median 26.8 s against 22.8 s, and longest 64.1 s against 58.0 s, as the two cards print them.
+  - The largest reply of this run used 5,532 completion tokens. So no reply reached 8,192 either, and the cap of 16,384 did not bind on this payload.
+  - The 2026-11-16 card records no median completion tokens for its cell.
+- **Flags.** What differs between the two cards' `roles`, and what each means for a run:
+  - **`roles.plan.maxOutputTokens`,** from [8192, 8192] to [16384, 16384]. This is the change the run was registered for, not a flag. Plan's flags are unchanged: the strict variant, with thinking off and thinking on both true. Under this card, once adopted, both plan attempts send the format at 16,384, the cap plan/on measured. plan/on is one of the two binding cells.
+  - **`roles.extract.structuredOutput.thinkingOn`,** from false to true. extract/on is 20 valid of 20, against 18 of 20 on 2026-11-16. No run reads this flag: extraction's thinking is `disabled` on both attempts, so every extraction call reads `thinkingOff`, which is true on both cards. extract/off is the other binding cell.
+  - **`roles.synthesis.structuredOutput`,** from the strict variant with `thinkingOff` true and `thinkingOn` false to null. synthesis/off is 17 valid of 20, against 19 of 20. synthesis/on is 18 of 20, against 17 of 20, and misses the rule on both days. No run reads the lost flag: synthesis's thinking is `model` on both attempts, so every synthesis call reads `thinkingOn`, which is false on the 2026-11-16 card and absent here. Under either card no synthesis call sends the format.
+  - **Everything else is equal:** the index role, extraction's and synthesis's caps, every thinking value, `concurrency` and `admission`.
+  - The synthesis cells were measured on new request bodies, as the amendment says, so their counts on the two days are not counts of one request.
+- **P11, descriptive only.** This run's figure comes first, and the 2026-11-16 card's follows in brackets. Rates are tokens per second.
+  - **Sizes.** All three are `ok`, and none was refused. Prefill is the prompt's tokens over the time to the first token.
+    - 20,000 target: prompt 19,980 (20,003); first token 8.198 s (5.593); prefill 2,437.2 (3,576.2); decode 125.04 (95.11).
+    - 60,000 target: prompt 60,080 (59,894); first token 19.731 s (16.913); prefill 3,044.9 (3,541.3); decode 105.63 (98.31).
+    - 120,000 target: prompt 119,990 (119,980); first token 37.122 s (34.540); prefill 3,232.4 (3,473.6); decode 97.85 (81.78).
+  - **K streams.** No error and no transport error at any K, and the server's running count reached K each time.
+    - K = 1: aggregate 70.70 (84.51); median stream decode 80.70 (85.39); longest first token 1.584 s (0.125).
+    - K = 2: aggregate 134.73 (141.40); median stream decode 72.84 (71.83); longest first token 1.047 s (0.202).
+    - K = 4: aggregate 153.91 (158.31); median stream decode 40.70 (40.27); longest first token 1.043 s (0.204).
+    - K = 8: aggregate 278.21 (295.93); median stream decode 38.45 (37.94); longest first token 2.140 s (0.343).
+  - **Cache layouts.** The second request of each layout reused 0 cached tokens, as on 2026-11-16, with `cache_salt` accepted. First tokens came at 5.60 to 6.66 s (4.01 to 4.12).
+  - **Worth an operator's attention, with no cause shown:**
+    - **The first token came later in every P11 request:** by 2.6 to 2.8 s at the three sizes, and by 0.8 to 1.8 s in the K bursts. The short prompts of P2, P3 and P6 show the same: 0.90 to 1.02 s, against 0.10 to 0.19 s.
+    - **Prefill at 20,000 tokens** reads 2,437 against 3,576, which is that later first token. It is the slowest prefill an admission estimate under this card would read.
+    - **The single-stream aggregate** reads 70.7 against 84.5. The aggregate divides the tokens by the burst's whole time, the wait for the first token included. The stream's own decode rate is 80.7 against 85.4.
+    - **Decode at the three sizes** is higher than on 2026-11-16, so the derived ceilings rise: 36,486 and 111,510 tokens under the 300 s and 900 s clocks for index and extract (28,001 and 85,067), and 29,604 and 92,982 for plan and synthesis (27,830 and 86,816). Every cap fits inside both clocks. They are proposals, as on 2026-11-16.
+    - **The longest P10 reply,** a truncated synthesis/on reply, reached 8,192 tokens in 184.98 s: 44.3 tokens per second, under half the 105.63 its ceiling assumes. On 2026-11-16 the longest took 170.9 s.
+    - **The Mac's own load.** The session read this Mac's one-minute load average as about 25 when step 3 started and about 5 when it ended. That is the session's reading. This entry does not relate it to any figure.
+- **The other probes,** as the card's Markdown records them:
+  - **P1,** inside the full run: the same identity as step 2. No key was required, and the transport is plain HTTP to an address that is not loopback, as on 2026-11-16.
+  - **P2:** all five thinking settings finished `stop`. Reasoning was 550 to 773 tokens with thinking on and 0 with it disabled. Decode was 110.3 to 145.6.
+  - **P3:** decode 84.9 on prose and 143.4 on code. The long prompt of 47,255 tokens got its first token at 16.42 s (13.33).
+  - **P4:** the repeated long prompt reused 44,800 cached tokens, as on 2026-11-16. Its first token came at 2.65 s (0.97).
+  - **P5:** one tool call, with its arguments parsed and its 11,124-byte content exact, in 32.8 s (30.9).
+  - **P6:** aborted after 4.0 s, with no request left running afterwards.
+  - **P7:** single stream 79.1; two streams 73.6 and 69.3.
+  - **P8 differs.** The long request that does not stream was cut after 121.31 s: status -1, `RemoteDisconnected`, no completion tokens. On 2026-11-16 the card's run completed it in 137.8 s with 20,000 tokens.
+    - Across the four full runs of the two days, P8 was cut twice, at 120.9 s and 121.3 s, and completed twice, in 135.2 s and 137.8 s (BL-20261116-1017-correction-e0-probes-serving-card-review).
+    - This run's probe connected directly (BL-20261116-1218-serving-probe-direct-transport-implemented). The run cut on 2026-11-16 went through this Mac's loopback proxy.
+    - In this run two streamed P10 calls ran longer and ended normally, after 130.93 s and 184.98 s.
+    - The app's research requests stream: the card's request settings record streaming on.
+    - The records do not show what cut the request.
+  - **P9:** a request for 262,144 output tokens was answered 200 and not rejected, as on 2026-11-16. It took 6.5 s (0.3), directly after P8's cut; the records do not show why.
+  - **The adapter:** as on 2026-11-16. `/openapi.json` answered 200 with schema digest `ec22d0f4…`, the one BL-20261116-0939-e0-probes-serving-card records. `/tokenize` parity held at 19 tokens. One reasoning field, `reasoning`. No reasoning bytes with thinking off, and no leading think tag. `preserve_thinking` and `cache_salt` were accepted. The legacy shape and `flash_next_v1` were both consistent.
+  - **Speculative decoding:** 51% of drafted tokens were accepted over the run (54%). It is one server-wide count.
+- **The check before asking** (the amendment's item 4).
+  - `evidence.p11.sizes` holds 20000, 60000 and 120000. Each is `ok`, with `prefillTokS` 2,437.2, 3,044.9 and 3,232.4 and `decodeTokS` 125.04, 105.63 and 97.85.
+  - `meanCompletionTokens` is 2,980.8 in plan/on, 206.6 in extract/off and 2,302.6 in synthesis/on.
+  - All are above 0, so the reader would not refuse the adopted card as `serving_card_admission_unmeasured`.
+  - **The reader's own function agrees.** `resolveServingCard` at this branch's head was run on copies of the card held in memory, with the card's own alias and request settings as the run's. No file was written.
+    - As written, it refuses `serving_card_not_adopted`.
+    - With `decision` adopted, it resolves with basis `none`.
+    - With `decision` adopted and `admission.basis` `serving_card`, it resolves. Its rates are prefill 2,437.2 to 3,232.4, decode 97.85 to 125.04, and expected output of 2,980.8, 206.6 and 2,302.6 tokens for plan, extract and synthesis.
+    - So the card's protocol digest, and the schema digests of its two flagged roles, still equal the defaults at this head, after #147, #149 and #148.
+- **The card files.**
+  - **Recomputed.** The writer's own functions, at this branch's head, give both files byte for byte from the retained probe.json. scripts/serving-card.py, scripts/serving-probe.py, scripts/registry-row.py, scripts/assess-probe-replies.ts and scripts/export-role-schemas.ts are identical at 3ade65b and at this head.
+  - **Scanned.** Neither file holds a URL, an IP address, a host with a port or a local path. Both name the served alias, as the 2026-11-16 card does.
+- **The rows,** written by `scripts/registry-row.py --probe-dir` from this branch. Each regenerates byte for byte.
+  - **`e0-probe-2026-11-17-p1`:** `accepted`, `agent_diagnostic`; 21 s; no model call; probe sha256 2f7e971930e429d2c11d2e5adc3ba9df811e7ca0e5633c465c840fed81161bd3.
+  - **`e0-probe-2026-11-17-run1`:** `accepted`, `agent_diagnostic`; 2,466 s; 171 model calls, with the same count for each probe as the 2026-11-16 card's run; assessed, with `schemasProtocolMatch` true; `transportFailures` empty; probe sha256 e44e9bdd…, the card's.
+  - **`git`.** Each row's `git` is 08f0b2a08685, with `gitSource` `row_written`. That is this branch's head when the rows were written: #148's head, whose tree `main` holds at 7c761e5. It is not the run's commit. Each lesson names 3ade65b.
+  - Both record USD 0 and hold no alias, address or path.
+- **Checks on this branch,** made before this entry was appended:
+  - `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` exit 0.
+  - The E0 registry-row suite and the four serving-card writer and reader suites: 5 files, 166 tests passed.
+
+Failures or blockers: None stops the work. Two results are recorded as findings: P8's request was cut at 121.31 s, and synthesis misses the 95% rule in both modes, with five replies truncated at the cap.
+
+Limitations and non-claims:
+- **One run, on one day.** Its latencies and throughputs are one-shot readings.
+- **Not shown by this run** (the amendment's item 6): product quality; plan validity on r3's index; anything at K above 1; and a difference between 8,192 and 16,384, which no test here reads.
+- **P10's payload is small and synthetic.** The plan cells send 1,744 and 1,746 prompt tokens. A pass shows that the endpoint takes the planner's flagged request at a cap of 16,384 tokens. It does not show how plans fare on a real index.
+- **Every comparison with 2026-11-16 is post hoc and descriptive.** The synthesis cells ran on new bodies. No cause is shown for the later first tokens, for P8's cut or for the truncated synthesis replies.
+- **Proposed, not adopted.** No run reads the card, and the doctor reports none configured.
+- **What the adoption would turn on is not exercised here.** 7b.3's admission and the second repair have unit tests only (BL-20261117-1156-correction-e0-card-amendment-5-second-repair-restamp).
+- **The card's Markdown has no author's section.** This entry carries the reading of its tables.
+- **The session's account, not retained evidence:** the clean tracked tree, the word to the lanes, the exits of the steps other than step 3, that P1 was checked by hand before step 3, that step 3's check preceded step 4, the move of the card files, and the Mac's load readings.
+- **The rows' `git`** names the commit they were written at, not the commit that ran.
+- **Not shown:** identical weights, and anything about a cloud route.
+
+Paid exposure: None. Both probe records carry the cost policy `local_zero_cost` and no configured key. Every request was synthetic and went to the owned endpoint, at zero fee. Both rows record USD 0.
+
+Next gate:
+1. This entry's review, before its commit.
+2. The session asks the owner by name for the adoption commit, with this result.
+3. The adoption commit, on the owner's go and once this entry's ID is final on `main`. It is a reviewed commit that edits two keys of docs/experiments/serving-card-2026-11-17.json and nothing else in that file:
+   - `decision`, from `proposed` with no entry to `adopted` with this entry's ID as it stands on `main`;
+   - `admission.basis`, from `none` to `serving_card`.
+
+   There is no third edit, since the card carries no synthesis flag.
+4. The owner then points the two serving-card lines of the ignored `.env.local` at the edited file. Its digest is that of the file after the edit.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendments 1 and 5); docs/experiments/serving-card-2026-11-17.md; docs/experiments/serving-card-2026-11-17.json; docs/experiments/serving-card-2026-11-16.md; docs/experiments/serving-card-2026-11-16.json; docs/experiments/README.md; BL-20261117-1155-e0-card-amendment-5; BL-20261117-1156-correction-e0-card-amendment-5-second-repair-restamp; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261116-0939-e0-probes-serving-card; BL-20261116-1017-correction-e0-probes-serving-card-review; BL-20261116-0814-e0-card-amendment-1; BL-20261116-1218-serving-probe-direct-transport-implemented; BL-20261116-1357-e0-verified; pull requests #136, #137, #141, #142, #147, #148 and #149.
+
+### BL-20261117-1353-owner-build-check-scorer-docker-e2e-attempts -- 2026-11-17 -- Three checks on the owner's Mac: `pnpm check` passes in E5's owner build, the scorer's Docker-gated test passes, and #72's desktop e2e case did not run in two attempts, by the lane's diagnosis because of a fault in its own spec
+
+Status: `Verified`
+
+Scope or hypothesis: This entry records three runs the orchestrating session owed, all on the owner's Mac on 2026-11-17, with no model endpoint in any of them. `Verified` covers the first two, which passed. The third was started twice and neither attempt reached the case, by lane S-desk's diagnosis because of a fault in the spec, so it shows nothing about the product. The owner's direction of 2026-11-17 lets the session run the Docker-gated suites that call no model (decision 2 of BL-20261117-0940-owner-direction-decisions-delegated).
+
+Decisions: None of its own.
+- **E5's build now meets the card's condition.** BL-20261117-1157-e5-owner-build-cut recorded that `pnpm check` had not passed in the build's worktree and named its passing there as the next gate before the rehearsal. It has now passed.
+- **#72's e2e assertion stays `Implemented`.** The case has still not run. By lane S-desk's diagnosis the cause is in the spec itself and does not bear on a normal start of E5's build. The fix has not run.
+
+Changes: docs/BUILD_LOG.md, this entry.
+
+Evidence:
+- **`pnpm check` in E5's owner build.** In the worktree of the local tag `owner-v0.2.1`, at c02366a with a clean tracked tree, from 13:13:50 to 13:15:03 UTC: exit 0. The readiness validator, the build-log validator, the typecheck, the tests and the build all ran in the one command. 193 test files passed and 13 were skipped; 3,868 tests passed and 86 were skipped; none failed. The machine's load average was about 4 at the start and 11 at the end, against 24 to 86 during the three earlier attempts.
+- **The scorer's Docker-gated test.** `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/e6-score.test.ts --maxWorkers=1 --testTimeout=120000 --reporter=verbose`, from the main checkout at c4b8ee6 with a clean tracked tree, from 13:15:27 to 13:15:32 UTC, with Docker Engine 29.8.2: 1 file and 2 tests passed, none failed.
+  - "lists every fixture document exactly as the applier lists it";
+  - "scores the files the applier wrote, with C1's count from the applier's own flags file".
+  - The containers labelled `soar.private-job-id` were the same four before and after.
+- **#72's e2e case, two attempts.** By the four steps of pull request #138: a fresh detached worktree at c4b8ee6 with no `.env.local`, placed under the session's scratch directory; `pnpm install --frozen-lockfile`, exit 0; `pnpm build`, exit 0; then `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=<the qualified image's id> pnpm test:e2e tests/e2e/general-task-progress.spec.ts`, with `SOAR_E2E_EXECUTABLE` unset.
+  - **First attempt,** from the session's sandboxed shell, 13:16:10 to 13:17:46 UTC: "2 failed". Both cases ended at the fixture's own teardown check, spec line 207, after 47.9 s and 45.3 s: each close of the app ran to the fixture's 45-second bound and was killed.
+  - **Second attempt,** in the owner's Terminal panel, outside any sandbox, 13:20:31 to 13:21:53 UTC: "2 failed" again. The app's own start-failure dialog showed on the owner's screen: the main process could not load the renderer's page from the worktree, with the code ERR_FAILED (-2). The owner sent the session a picture of it. Its second case differs from the others: it took 35.6 s, the close finished, the fixture's cleanup was confirmed, and it failed on the request count, 0 of 3.
+  - **What the fixture recorded** both times: no model request, no response and no decision. So no step of either case ran, and #72's assertion was not reached.
+  - **The cause, as lane S-desk infers it from the four traces and Playwright's source; not reproduced, and the fix has not run.** The app launched each time, in under 3 seconds. About 30 ms later a check that pull request #138 added to the spec, which asks the main process for its user-data path, failed, because it runs before the first window exists. The fixture then closed the app while its page was still loading. That close made the page load fail with ERR_FAILED (-2), and the app's start-up handler showed its dialog. The dialog is modal, so three of the four closes ran to the fixture's kill.
+  - **What it is not.** Not the sandboxed shell and not the worktree's location. That it is no start fault of the product is the lane's reading; no run here shows it. A probe of the lane's, run in the owner's Terminal panel at 13:27 UTC, loaded the page in a hidden window with no SOAR process, in the scratch worktree and in E5's build worktree alike. Nothing in the app restricts where it lives.
+  - **Where the check came from.** It was a finding of the session's own reviewer on #138, applied without a run, since the case is Docker-gated. The fix moves it after the first window, on pull request #150.
+  - No fixture refusal fired, so #138's output directory, profile and environment-file guard held. No process from that worktree was left running, and the containers labelled `soar.private-job-id` were the same four before and after each attempt.
+
+Failures or blockers: #72's e2e case did not run in either attempt, as Evidence says. By the lane's diagnosis the fault is the spec's. The second attempt put an error dialog on the owner's screen without warning.
+
+Limitations and non-claims:
+- **`pnpm check` passing says the build's tests pass.** It does not show that the app opens the owner's existing data or records a verdict. The rehearsal shows that.
+- **The scorer's test** shows that the scorer's listing equals the applier's on the fixture documents and that it scores what the real applier wrote. It reads no gold of E6.
+- **The two attempts show nothing about #72's assertion or about the product's cleanup.** The first attempt's failing line is the fixture's teardown check, which hid the first failure, the user-data check's error.
+- **E5's build has not been launched by the session,** since that would open the owner's data. The lane's reading is that a normal start cannot meet this failure: it has no early check and nothing closes its window while it loads. The probe shows that its page loads. The rehearsal is the first real start.
+- **One small product wart** follows from the lane's reading: quitting the app within about a second of its start would show the same dialog, wrongly. It is not fixed here.
+- **One machine, one Docker version, outside CI.**
+
+Paid exposure: None. No model request of any kind.
+
+Next gate: Pull request #150's fix, then #72's case again from a fresh worktree in an ordinary folder, with the owner told before a window opens. E5's rehearsal, which is the owner's.
+
+References: docs/experiments/e5-card-2026-11-17.md ("How a build is cut"); docs/experiments/e6-card-2026-11-17.md; BL-20261117-1157-e5-owner-build-cut; BL-20261117-0942-document-review-and-runtime-suites-docker-verified; BL-20261117-1107-e6-planted-defect-scorer-implemented; BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261117-0940-owner-direction-decisions-delegated; pull requests #135, #138 and #150.

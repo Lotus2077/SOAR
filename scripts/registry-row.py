@@ -1203,7 +1203,7 @@ def loop_row(args) -> dict:
         sys.exit("the loop record's task is malformed")
     if loop.get("pipeline") not in ("research", None):
         sys.exit("the loop record's pipeline is neither research nor null")
-    # BL-20261117-1027-loop-single-sample-design: the samples the loop planned (`--samples`); a record saved before it planned two.
+    # BL-20261117-1055-loop-single-sample-design: the samples the loop planned (`--samples`); a record saved before it planned two.
     planned = loop.get("samplesPlanned", 2)
     if type(planned) is not int or planned not in (1, 2):
         sys.exit("the loop record's samplesPlanned is neither 1 nor 2")

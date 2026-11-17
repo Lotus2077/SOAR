@@ -94,11 +94,11 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
       loop: { version: 2, closed: false, selected: "a", step: "tie", critiqued: true, resumes: [{ stage: "a", cause: "model_unavailable", as: "seeded_writer" }, { stage: "critique", cause: "request_failed", as: "rerun" }],
         seeded: { a: true, b: true, repair: true, snapshotSha256: h("f") }, candidates: { a: { status: "submitted", runClass: task("submitted") }, repair: { runClass: task("submitted") } } } });
     expect(loopRow).not.toHaveProperty("loop.stopped");
-    // BL-20261117-1027-loop-single-sample-design: a record saved before the planned count holds none, and planned two samples.
+    // BL-20261117-1055-loop-single-sample-design: a record saved before the planned count holds none, and planned two samples.
     expect(loopRow).toMatchObject({ loop: { samples: 2, samplesPlanned: 2 } });
   });
 
-  it("records the samples a loop planned: a single-sample loop's row, an older record's 2, and refuses a malformed count or a contradiction (BL-20261117-1027-loop-single-sample-design)", () => {
+  it("records the samples a loop planned: a single-sample loop's row, an older record's 2, and refuses a malformed count or a contradiction (BL-20261117-1055-loop-single-sample-design)", () => {
     const loop = scratch();
     runDirectory(loop, "a", { calls: 2, start: 0, end: 4 });
     mkdirSync(join(loop, "critique")); writeFileSync(join(loop, "critique", "critique.json"), `${canonical({ critiqueSha256: h("e"), usage: { inputTokens: 700, outputTokens: 60 }, feeMicrousd: 0, finishReason: "stop" })}\n`);

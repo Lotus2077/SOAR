@@ -136,10 +136,10 @@ describe("H4 select-and-repair loop", () => {
     expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final a (tie)");
     expect(existsSync(join(dir, "errors.txt"))).toBe(false);  // backlog item 4: the error side file exists only when something was caught
     expect(loopExitCode(record)).toBe(0);
-    // BL-20261117-1027-loop-single-sample-design: the default planned two samples, and its record says so.
+    // BL-20261117-1055-loop-single-sample-design: the default planned two samples, and its record says so.
     expect(saved.samplesPlanned).toBe(2);
   });
-  it("runs one sample under --samples 1: a, the critique of a and the repair of a, never b; stage 1 records a with the step single_sample (BL-20261117-1027-loop-single-sample-design)", async () => {
+  it("runs one sample under --samples 1: a, the critique of a and the repair of a, never b; stage 1 records a with the step single_sample (BL-20261117-1055-loop-single-sample-design)", async () => {
     const dir = loopDir(), entailment = { supported: 9, partial: 1, unsupported: 1, contradicted: 0, not_judged: 2, truncated: false };
     const { deps, calls } = fakes({ summaries: candidates(false, { a: { entailment }, repair: { modelCalls: 7 } }) });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir, samples: 1 }, deps);
@@ -169,7 +169,7 @@ describe("H4 select-and-repair loop", () => {
     expect((await runSelectionLoop({ base: base(), loopDirectory: empty, samples: 1 }, bare.deps)).selected.final).toEqual({ candidate: "a", step: "no_draft" });
     expect(bare.calls.runs).toHaveLength(1); expect(bare.calls.critiques).toHaveLength(0);
   });
-  it("resumes a loop only under the sample count it started with; a record saved before the count planned two; a stray b refuses a single-sample loop (BL-20261117-1027-loop-single-sample-design)", async () => {
+  it("resumes a loop only under the sample count it started with; a record saved before the count planned two; a stray b refuses a single-sample loop (BL-20261117-1055-loop-single-sample-design)", async () => {
     const stopAt = (stage: string) => (run: DriverInput) => { if (run.outputDirectory.endsWith(`/${stage}`)) throw new Error("loop_test_stop"); };
     // A two-sample loop stopped at b resumes under two samples, never one.
     const two = loopDir(), summaries = candidates(false);
@@ -583,7 +583,7 @@ describe("H4 select-and-repair loop", () => {
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: { ...candidates(false), a: partial as CandidateSummary } }).deps)).rejects.toThrow("loop_stage_mismatch");
     expect(read(dir)).toMatchObject({ failure: "loop_stage_mismatch", finishedAt: expect.any(String) });
   });
-  it("parses --samples 1 or 2 as the loop's own flag, which never reaches the driver, and refuses any other value (BL-20261117-1027-loop-single-sample-design)", () => {
+  it("parses --samples 1 or 2 as the loop's own flag, which never reaches the driver, and refuses any other value (BL-20261117-1055-loop-single-sample-design)", () => {
     const driver = ["--task-directory", "t", "--job-sha256", h("1"), "--brief-sha256", h("2"), "--authority-sha256", h("3"), "--image-id", `sha256:${h("4")}`, "--runtime-sha256", h("5"), "--profile", "heavy", "--claims-ledger", "true"];
     const one = parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, "--samples", "1"]);
     expect(one).toMatchObject({ loopDirectory: "L", samples: 1, base: { taskDirectory: "t", profile: "heavy" } }); expect(one.base).not.toHaveProperty("samples");

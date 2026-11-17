@@ -13,7 +13,7 @@
  * (--research-from), so the loop makes at most one stage's planner and synthesiser calls under sample a's own fee cap. When
  * a's stage leaves no packet the loop ends there: no second stage is ever paid for.
  *
- * Single-sample mode (`--samples 1`, BL-20261117-1027-loop-single-sample-design; E3's standing default): sample a, the critique of a
+ * Single-sample mode (`--samples 1`, BL-20261117-1055-loop-single-sample-design; E3's standing default): sample a, the critique of a
  * and the repair of a, never b; stage 1 records a with the step `single_sample`, and loop.json records `samplesPlanned`. The default
  * is two samples (E6's review-2 arm), and a loop is resumed only under the sample count it started with.
  *
@@ -48,7 +48,7 @@ export type DriverInput = Parameters<typeof runLocalArtifactScreen>[0];
 export type LoopCandidate = "a" | "b" | "repair";
 export type LoopStage = LoopCandidate | "critique";
 const STAGES: readonly LoopStage[] = ["a", "b", "critique", "repair"];
-/** BL-20261117-1027-loop-single-sample-design: the samples a loop draws before its critique, two unless `--samples 1`. */
+/** BL-20261117-1055-loop-single-sample-design: the samples a loop draws before its critique, two unless `--samples 1`. */
 export type LoopSamples = 1 | 2;
 export interface LoopInput {
   /** The driver's input for one sample; its output directory, repair and seed are set per stage by the loop. */
@@ -106,7 +106,7 @@ type FinalStep = SelectionStep | "stage_failed" | "no_draft" | "critique_failed"
 export interface LoopRecord {
   version: typeof LOOP_VERSION; selectionRule: typeof SELECTION_PROTOCOL_VERSION; startedAt: string; finishedAt: string | null;
   task: { jobSha256: string; briefSha256: string }; runtimeSha256: string; arm: "local" | "cloud"; pipeline: "research" | null;
-  /** BL-20261117-1027-loop-single-sample-design: the samples the loop planned; a record saved before it holds none and planned two. */
+  /** BL-20261117-1055-loop-single-sample-design: the samples the loop planned; a record saved before it holds none and planned two. */
   samplesPlanned: LoopSamples;
   stages: LoopStageRecord[];
   begun: BegunEntry[]; resumes: ResumeEntry[]; voids: VoidEntry[];
@@ -329,7 +329,7 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
   // it reuses, its begun stages and its moves, and only under the version, selection rule, runtime, task, arm, pipeline and sample count
   // it started with (its record is left as it was).
   let prior: LoopRecord | undefined;
-  // BL-20261117-1027-loop-single-sample-design: two samples unless `--samples 1`.
+  // BL-20261117-1055-loop-single-sample-design: two samples unless `--samples 1`.
   const samples: LoopSamples = input.samples ?? 2;
   if (existsSync(join(loop, "loop.json"))) {
     prior = JSON.parse(readFileSync(join(loop, "loop.json"), "utf8")) as LoopRecord;
@@ -597,7 +597,7 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
     const lineage = (): Expectation => research ? { seededFrom: sourceJob, packet, sourceFreeze } : { seededFrom: null };
     let chosen: "a" | "b" = "a";
     if (samples === 1) {
-      // BL-20261117-1027-loop-single-sample-design: one sample and no comparison; a's entailment rate is evidence only, as a comparison's is.
+      // BL-20261117-1055-loop-single-sample-design: one sample and no comparison; a's entailment rate is evidence only, as a comparison's is.
       record.selected.stage1 = { candidate: "a", step: "single_sample", entailmentRates: [entailmentRate(a.entailment), null] }; save();
       log("stage1 a (single_sample)");
     } else {
@@ -794,7 +794,7 @@ export function parseLoopArguments(args: string[]): LoopInput {
   const at = args.indexOf("--loop-directory"), loopDirectory = args[at + 1]!;
   if (!loopDirectory) throw new Error("loop_cli_invalid");
   const rest = [...args.slice(1, at), ...args.slice(at + 2)];
-  // BL-20261117-1027-loop-single-sample-design: `--samples 1` or `--samples 2` is the loop's own flag, taken out before the driver parses the rest.
+  // BL-20261117-1055-loop-single-sample-design: `--samples 1` or `--samples 2` is the loop's own flag, taken out before the driver parses the rest.
   const samplesAt = rest.indexOf("--samples");
   if (samplesAt >= 0 && (samplesAt % 2 !== 0 || !["1", "2"].includes(rest[samplesAt + 1] ?? "") || rest.indexOf("--samples", samplesAt + 1) >= 0)) throw new Error("loop_cli_invalid");
   const samples = samplesAt >= 0 ? Number(rest.splice(samplesAt, 2)[1]) as LoopSamples : undefined;

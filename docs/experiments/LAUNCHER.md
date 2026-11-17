@@ -77,7 +77,7 @@ The operator writes the queue from the card. Unknown keys are refused.
 - **`argv`.** The script's arguments. They are checked by the script's own parser when the queue is read, so a run the script would
   refuse is refused before the batch starts:
   - a loop's go through `parseLoopArguments`: `--select-and-repair` first, `--loop-directory` once, `--samples` 1 or 2 at most once (E3's
-    loops draw one sample, BL-20261117-1027-loop-single-sample-design), and a cloud arm only on a research loop;
+    loops draw one sample, BL-20261117-1055-loop-single-sample-design), and a cloud arm only on a research loop;
   - a run's go through the driver's parser: `--execute-synthetic-local` first, and `--output-directory` once.
 
   Directories are relative to the repository root, and two runs may not share one.

@@ -49420,7 +49420,7 @@ Next gate:
 
 References: BL-20261117-1030-general-task-progress-e2e-runnable; BL-20261117-1010-p10-plan-cap-export-implemented; BL-20261117-0942-document-review-and-runtime-suites-docker-verified.
 
-### BL-20261117-1027-loop-single-sample-design -- 2026-11-17 -- The select-and-repair loop's single-sample mode: `--samples 1` runs one sample, one critique and one repair, loop.json records the sample count the loop planned, a loop resumes only under the count it started with, and the registry row records it
+### BL-20261117-1055-loop-single-sample-design -- 2026-11-17 -- The select-and-repair loop's single-sample mode: `--samples 1` runs one sample, one critique and one repair, loop.json records the sample count the loop planned, a loop resumes only under the count it started with, and the registry row records it
 
 Status: `Proposed`
 
@@ -49495,3 +49495,137 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: the implementation with its tests, one light review with privacy checked, the `Implemented` entry with the new source-freeze digest, then the pull request and the coordinator's merge.
 
 References: BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-0941-group-a-decided-under-delegation (decision 4); BL-20261109-0331-loop-selection-protocol-2-design (open question (b)); BL-20261113-0836-infra-resume-design; docs/experiments/e6-card-2026-11-17.md (item 7).
+
+### BL-20261117-1104-loop-single-sample-implemented -- 2026-11-17 -- The select-and-repair loop's single-sample mode: implemented as designed, with the light review's fixes; the source-freeze digest moves to `285f2703…`
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements BL-20261117-1055-loop-single-sample-design, the single-sample mode that decision 4 of BL-20261117-0941-group-a-decided-under-delegation makes E3's standing default. Nothing here runs a model, an endpoint, Docker or a paid call.
+
+Decisions:
+- **(1) The flag, as designed.**
+  - **Parsing.** `parseLoopArguments` takes `--samples 1` or `--samples 2` out of the loop's command line before the driver's parser sees the rest, so no single run takes it.
+  - **Refused:** another value, the flag twice, or the flag in a value's place, with `loop_cli_invalid`. The driver's own parser refuses it too.
+  - **The launcher** reads queued loops through the same parser.
+- **(2) The run, as designed.** Under `--samples 1` the loop runs sample `a`, the critique of `a` and the repair of `a`, and never `b`.
+  - **Stage 1** is `{candidate: "a", step: "single_sample", entailmentRates: [entailmentRate(a's pass), null]}`. The final selection is protocol 2's comparison of `a` with its repair, unchanged.
+  - **Research loops.** The repair writes from `a`'s packet; with no packet the loop ends at `stage_failed`. A draft with nothing to repair ends at `no_draft`.
+  - **The record.** `candidates.b` is null, `seeded.b` false and `writeIdentityEqual` null. selection.ts and `SELECTION_PROTOCOL_VERSION` are unchanged.
+- **(3) The record, as designed.**
+  - **The field.** loop.json writes `samplesPlanned`, 1 or 2. A record without it reads as 2.
+  - **Resumes.** A resume under another count is refused with `loop_record_mismatch`. A `b` directory in a single-sample loop is refused by reconciliation (`loop_resume_mismatch`).
+  - **What stays.** `LOOP_VERSION` stays 2, and `--close` keeps the field.
+- **(4) The row, as designed.** `registry-row.py --loop-dir` adds `loop.samplesPlanned`: 2 when the record has none, and refused unless 1 or 2. Two contradictions are refused as well: a single-sample record with a second sample, and a stage-1 step that does not match the count. The README's loop row documents the field.
+- **(5) The light review's fixes** (ed3dcd2). The review approved, with one minor process item and four nits.
+  - **Process: merge `main` first.** Done at efe1842 (e8ad1d5, after #105, #136 and #138). The source-freeze digest below is the merged tree's.
+  - **A tighter row** (nit 2). A single-sample record is refused for any trace of a second sample:
+    - a candidate `b`, or stage 1 choosing `b`;
+    - `seeded.b` true, or a non-null `writeIdentityEqual`;
+    - a second stage-1 rate, or `b` among the begun stages.
+
+    Only a hand-edited record could hold one; the loop never writes it.
+  - **One reading of the recorded count** (nit 3). The loop read a recorded `samplesPlanned: null` as 2, where the row refuses it. Now only a record without the field planned two. A present value must equal the invocation's count, so `null`, `"1"` or 3 refuse the resume.
+  - **Tests** (nit 4):
+    - **The flag's position check is isolated.** Without it, `--task-directory --samples 2 t ...` would parse as two samples.
+    - **A resume with a malformed recorded count** is refused.
+    - **`--close` after stage 1 of a single-sample loop** ends it with `a` at `repair_failed`, and keeps the count.
+  - **Docs** (nit 5).
+    - The loop's header and its resume comment name the sample count among a resume's bindings.
+    - docs/experiments/LAUNCHER.md's E3 example loop draws one sample (`--samples 1`), and its argument rules name the flag.
+- **(6) The tests.**
+  - **tests/unit/phase4-loop.test.ts, the runs.**
+    - **Plain task:** the single-sample run of `a`, the critique of `a` and the repair. It checks the calls, the stage-1 record with `a`'s rate (8/11), the totals, the record and the log.
+    - **Research task:** `a` reads and the repair is seeded from `a`'s packet; without a packet the loop ends at `stage_failed`.
+    - **No draft:** a draft with nothing to repair ends at `no_draft`.
+    - **The default** records 2.
+  - **tests/unit/phase4-loop.test.ts, resumes and parsing.**
+    - **Resumes:** a count that differs in either direction, a record without the field, and a stray `b` directory are refused.
+    - **Parsing:** `--samples 1` and `2` in any position; eight malformed forms refused, the flag in a value's place among them; the driver's parser refusing the flag.
+    - **Close and malformed counts:** `--close` after a single-sample loop's stage 1; resumes with a recorded count of `null`, `"1"`, `"2"`, 3 or 0, under either count.
+  - **tests/unit/registry-row-resume.test.ts:**
+    - **The rows:** a single-sample loop's row; an older record's 2; and a stopped single-sample loop's row.
+    - **Refused:** six malformed counts, and each trace of a second sample in a single-sample record: candidate `b`, stage 1 `b`, `seeded.b`, compared writes, a second rate, and `b` begun. Also refused: a stage-1 step that does not match the count.
+
+Changes:
+- scripts/phase4-loop.ts and scripts/registry-row.py;
+- docs/experiments/README.md and docs/experiments/LAUNCHER.md;
+- tests/unit/phase4-loop.test.ts and tests/unit/registry-row-resume.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (745 entries). `pnpm typecheck` and `pnpm validate:readiness` exit 0.
+- **Tests.** On Node 22.22.2 and pnpm 10.12.4: 
+  - **On the merged tree** (`main` e8ad1d5, merged at efe1842), these suites pass 341 of 341 in 18 files: loop, registry-row, launcher, driver, research-assist, role-schema-export, planner-fixture and serving-probe-helpers.
+  - **The full suite** (a full `pnpm exec vitest run` on this tree passed 3,877 tests, skipped 86 and failed 1. The failure was tests/unit/with-claude-key.test.ts, which timed out under the full suite's load. That file is unchanged, and it passes alone (3 of 3).).
+- **Mutants.** 24 single-edit mutants of the code all fail the tests that cover them.
+  - **At e01da30, 17 mutants.** They cover:
+    - the mode itself, the default, the resume check and the older record's reading;
+    - the recorded count, the stage-1 step and its rates, `seeded.b`, and the log line;
+    - the parser's value check, and its returned count;
+    - the row writer's default, value, type, second-sample, step and field.
+  - **After the review, 7 more:** the strict recorded count, the position check, and the five new traces of a second sample.
+- **The source freeze.** `localScreenSourceFreeze()` over 61 files is `285f2703de26b5dc1ed06bbada4c254571b26f257fade9db1966dd7239c125f8` at this entry's commit, on the tree merged with `main` e8ad1d5. Main's digest there is `19beba427465d4537ca62350f6f0e52fbd43ebcf7f2da86fd91cb7d8f474aa48`, and it was `e4c29bf0…` at c02366a. #140, which merges first, moves both scripts/private-agent-local-screen.ts and scripts/phase4-loop.ts, so this branch merges `main` again then, and the digest after both is computed then.
+- **The light review.** One reviewer, with privacy checked. Its verdict: approve, with one minor process item and four nits, and no blocker or major. Privacy was clean. All five are addressed in decision (5).
+  - **Its probes,** under `--samples 1`, all behaved as specified:
+    - `a`'s infrastructure resume;
+    - a cloud research `a` resumed as a seeded writer;
+    - the critique's and the repair's infrastructure resumes;
+    - `--close` after stage 1;
+    - a default-count resume, which is refused and leaves loop.json byte-identical.
+  - **Its other checks.** Keeping `LOOP_VERSION` at 2 is safe, since an older loop script cannot pass the runtime freeze. Nothing else reads the row's `loop.samples`, and nothing assumes a `b` after stage 1.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Not `Verified`.** Implemented and tested with the loop's fakes. No real loop has run with one sample.
+- **Not shown:** that one sample is as good as two. That is what E6 compares.
+- **Old records and rows.** Records and rows written before this change lack `samplesPlanned`, and read as 2.
+- **The digest moves again** if another pull request that changes a frozen file lands first.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the pull request, then the coordinator's merge under the standing go-ahead.
+
+References: BL-20261117-1055-loop-single-sample-design; BL-20261117-0941-group-a-decided-under-delegation (decision 4); BL-20261109-0331-loop-selection-protocol-2-design.
+
+### BL-20261117-1105-correction-loop-single-sample-design-restamp -- 2026-11-17 -- Correction: the single-sample loop's design entry is re-stamped after the entries that merge before it; its original ID and authoring time
+
+Status: `Implemented`
+
+Scope or hypothesis: The design entry was authored at 10:27 UTC on 2026-11-17 as BL-20261117-1027. Two sets of entries now come before it:
+- **On `main`:** #105, #136 and #138 reached `main` after it was authored, ending at BL-20261117-1048-correction-general-task-progress-e2e-review.
+- **Merging first:** #140's entries (1049 to 1053) and the coordinator's E0 amendment (#141, 1054) are to merge before this pull request.
+
+The entry would sit before all of them, so it moves after them under the owner's rule (BL-20261113-0937-owner-decision-restamp-unmerged-entries; for dates, BL-20261113-0938-correction-restamp-rule-dates). It is now BL-20261117-1055-loop-single-sample-design. This branch merged `main` (e8ad1d5) at efe1842, with no force-push and rerere off.
+
+Decisions:
+- **(1) The re-stamp.**
+  - **What changes.** Only the design entry's heading ID changes, with the references to it. There are 15, in comments, test titles and the docs, across 6 files: scripts/phase4-loop.ts, scripts/registry-row.py, docs/experiments/README.md, docs/experiments/LAUNCHER.md and two test files.
+  - **The log.** No entry on `main` cites the original ID. `main`'s log is kept whole, as a byte prefix of this branch's.
+- **(2) The minute.** 1055 sits after #141's 1054, which is not on `main` yet. The coordinator's order is #140, then #141, then this pull request. If that order changes, or other entries land first, this branch merges `main` again and re-stamps under the same rule.
+- **(3) The merge.**
+  - **The conflict.** Only docs/BUILD_LOG.md conflicted. It was resolved by appending: `main`'s log whole, then this branch's entries.
+  - **The README.** docs/experiments/README.md merged without conflict.
+  - **The merged tree** differs from `main` only in this branch's 7 files. Compared line by line, each carries exactly this branch's edits.
+
+Changes:
+- docs/BUILD_LOG.md: the heading, and this entry.
+- The 6 files that cite the entry.
+
+No behaviour changes. The references sit in comments of a frozen file (scripts/phase4-loop.ts), so the source-freeze digest the `Implemented` entry states is the re-stamped tree's.
+
+Evidence:
+- **Repo checks.** At this entry's commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0 (745 entries, append-only against `main` at e8ad1d5).
+- **The re-stamp.** With the new ID mapped back, every changed file is byte-identical to the merge commit's. `git grep` finds the original ID only in this entry, in short form.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only; nothing is implemented, verified or released by it.
+- Commit messages keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on the pull request, then the coordinator's merge in its order.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261117-1048-correction-general-task-progress-e2e-review; BL-20261117-1055-loop-single-sample-design; BL-20261117-1104-loop-single-sample-implemented; pull requests #105, #136, #138, #140 and #141.

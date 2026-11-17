@@ -49084,3 +49084,159 @@ Next gate:
 - Then 10.b, within decision 1's scope.
 
 References: BL-20261117-0954-scrub-policy-5-design; BL-20261117-0955-correction-scrub-policy-5-restamp; BL-20261117-0956-scrub-policy-5-implemented; BL-20261117-0957-correction-scrub-policy-5-review; BL-20261117-0958-correction-scrub-policy-5-residues; BL-20261117-0953-correction-owner-direction-second-pass; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261115-1937-owner-adopts-standing-defaults; BL-20261116-1131-owner-directions-merge-and-continue; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261114-1345-experiment-launcher-implemented.
+
+### BL-20261117-1036-assist-wiring-design -- 2026-11-17 -- Item 10's PR 10.b decided: the assist wrapper wired into the reading stage through 7(c)'s hook, with its stage record, its protocol binding, the session's and driver's plumbing, and the legacy split arm switched to the forced split
+
+Status: `Proposed`
+
+Scope or hypothesis:
+- **What 10.b is.** BL-20261113-0920-assist-wrapper-design set its scope: "both firing policies through item 7(c)'s hook, the stage record, the protocol binding, the session and driver plumbing, the legacy split arm and the end-to-end tests." 10.a (#79) built the wrapper with no caller.
+- **Its dependencies are met.** 7(c) and 7b.2 have merged. Scrub policy 5 (#105) has merged.
+- **The gate is met within one scope.** 10.b's dispatch gate, the Next gate of BL-20261113-0925-correction-assist-core-rereview, is met within the scope of decision 1 of BL-20261117-0941-group-a-decided-under-delegation, by the reading recorded in BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.
+- **What this entry adds.** It decides what 0920 left to 10.b, and how 10.b meets the obligations that later entries gave it.
+- **The hypothesis.** Each decision below can be built and tested offline with loopback fixtures, and a run without an assist sends, records and hashes exactly what it does today.
+
+Decisions:
+1. **Where an assist runs.** 10.b wires the assists only in the headless driver, the harness.
+   - **The desktop.** It gets none until item 13.
+   - **The cloud destination** stays the driver's `cloud_coordinator`: `syntheticOnly` and `grantFreeSynthetic`.
+     - So the broker refuses it for any lineage that is not wholly synthetic.
+     - The session still refuses a cloud arm without a synthetic or public input approval.
+   - **What this enforces in code.** Decision 1 of 0941 covers T1 and T2 packets on public and synthetic tasks in E3's and E4's harness arms only. These rules enforce the harness and the synthetic lineage.
+   - **What stays procedure.** That no packet leaves before E3's card is on `main`, and the pre-run packet scan.
+2. **The firing policies and the legacy split arm.**
+   - **`--arm cloud` under `--pipeline research`** becomes the assist arm. This switches the legacy split arm to the forced split, as 0920's default says, and BL-20261107-0839 anticipated it.
+     - The planner and the synthesiser run on the local model at zero fee.
+     - The cloud model serves only T1 and T2, through `createResearchAssists`.
+   - **A new flag, `--assist-firing`,** takes `forced_split` or `local_first`. Absent, it is `forced_split`, the switch.
+     - In E3's terms, arm C is `forced_split` and arm B is `local_first`.
+     - The flag is refused without `--pipeline research` and `--arm cloud`.
+   - **Earlier freezes and registry rows** keep `planner: "cloud"` as history.
+   - **Arm D, E3's all-cloud ceiling, is launched as before,** and 10.b does not change it.
+     - It is `--arm cloud` without `--pipeline research`, where the cloud model is the coordinator and writes.
+     - Its fee cap is at most `CLOUD_ARM_MAX_FEE_USD` (USD 8).
+     - `--assist-firing` is refused there.
+3. **The assist model.** It is the cloud arm's model configuration with `promptCaching: assist_no_cache_write_v1`, the only mode the wrapper and `PrivateAgentModel` admit for an assist.
+   - It keeps the endpoint's shape: Responses, or Anthropic Messages.
+   - It keeps the heavy profile's medium thinking and its output and body caps, which meet the wrapper's floors of 8,192 tokens and 98,304 bytes.
+   - The fee cap is the cloud arm's, as before: at most USD 0.60 (`RESEARCH_SPLIT_MAX_FEE_USD`).
+   - The model, prices and endpoint stay the run's flags (0920's provider-agnostic default). Decision 2 of 0941 (`claude-sonnet-5-5`) therefore goes in E3's card and its flags, not in code.
+4. **The authored brief.** It is the prepared task's `brief.md` text, as `exactText` gives it, from the same bytes `task.binding.briefSha256` binds (0920 decision (4)). It is never `task.phase.contract.goal`.
+   - The composed goal still begins with it.
+   - The wrapper stops a call whose request brief does not (`assist_brief_not_prefix`).
+5. **The session.** A new research option, `assist`, holds the firing, a model factory per reader context, and the authored brief.
+   - **The wrapper.** The session builds one wrapper per reading stage, from the cloud arm's fee cap (0920 decision (10)).
+   - **Refused before any dispatch** (0920 decision (14)), as `session_research_assist_invalid`:
+     - an assist without a cloud arm, which means without `cloud_help` mode and a fee cap;
+     - an assist whose planner or synthesiser is not a zero-fee local model;
+     - an assist whose model is not on the cloud arm's destination;
+     - an assist the wrapper refuses to build (`research_assist_config_invalid`).
+   - **The request pool.** Its check adds the assists' worst case of nine rows: three calls, each with up to three attempts.
+   - **The pipeline** gets the hook with the session's deadline, which it already passes.
+   - **A producer refusal at the transfer.** It ends the session incomplete with its code, instead of an uncaught throw (BL-20261113-0927 decision (5)).
+6. **The protocol binding** (0920 decision (13)). `researchProtocolSha256(budget, roles, assist?)` binds `assist: researchAssistProtocol(firing)` only when a firing is given.
+   - **The default** stays 7100b7a2….
+   - **The signature.** It stays positional, as 7a.2 left it, and is not the options object 0920 named. The third argument is the only change, and every caller without an assist stays as it is.
+   - **Every site that recomputes the hash passes the firing:**
+     - the pipeline's own call, from the hook's firing;
+     - the session identity;
+     - the driver's freeze;
+     - the seed loader.
+7. **The stage record** (0920 decision (12)). With a hook configured:
+   - The plan row carries `assist` for T1, and the synthesise row carries it for T2. They do so even when the touchpoint did not fire: `fired` false, `trigger` null, no attempts and `usage` null.
+   - **Its values:**
+     - `policy` is the firing;
+     - `trigger` is `forced_split`, `local_plans_rejected` or `local_syntheses_refused`;
+     - `attempts` are the outcomes' attempt records, each parsed with `ResearchAssistAttemptRecordSchema`;
+     - `outcome` is the last attempt's;
+     - `accepted` is the host's verdict on the reply;
+     - `code` is the last attempt's code when it did not settle, or a fixed host code (`assist_reply_rejected`) when it settled and was rejected;
+     - `usage` is the settled attempts' sum.
+   - **A fired touchpoint without a valid record** ends the stage as `research_assist_record_invalid`. A hook that reports no record therefore cannot leave a slot attempt unrecorded (BL-20261113-0927 Limitations).
+   - **Without a hook,** no row gains a key, and every row is byte-identical to today's.
+   - **Accounting.** `calls` still counts replies, and the stage's `usage` stays the authoritative total. The record's usage is never added to it again (BL-20261113-0927 decision (5)).
+8. **The ready gate.**
+   - `validateReadyResearchPacket` parses each stage's `assist` strictly with `ResearchAssistStageRecordSchema`.
+   - It refuses an `assist` key on the index or extract row.
+   - It refuses a plan or synthesise row that has an attempt with slot `assist` or `assist_retry` but no fired record.
+9. **The wrapper's three additions.** Each moves both assist protocol hashes, which are re-pinned.
+   - **(a) The served model** (the Rayline carry-over (d) on draft #86, item 10.b's part). A settled attempt record gains `servedModel`, the provider's reported model string.
+     - It is exact text of at most 200 characters, and it is omitted when the reply has none or it fails those rules.
+     - The cloud `model_finished` field and the registry column are item 11's.
+   - **(b) A length cap on every string the scrubber reads** (C8 of 0925). Each string is held to its caller's own cap:
+     - a gist, 600 characters;
+     - a plan question's text, 300;
+     - a `lookFor` item, 120;
+     - a `conflictsToCheck` item, 200;
+     - `deliverableNotes`, 1,000;
+     - a quote, 600;
+     - a unit, the brief's bound.
+
+     A packet with a longer string is refused, as `assist_packet_field_too_long`, with no request, and the stage goes on as after any refused assist. PACKET_POLICY lists the caps.
+   - **(c) T2's local trim counts** (decision (10) of BL-20261115-1939). T2's counts-only coverage gains two counts, and PACKET_POLICY names them:
+     - `quotesTrimmedLocally`, the evidence count `leftByCap`;
+     - per question, `chunksWithTrimmedEvidence`, the chunks whose status is `evidence_trimmed`.
+10. **The freeze and the seed loader.**
+    - **The driver's freeze.** A run with an assist records `pipeline.planner: "local"` and an `assist` block: `{ version: 1, firing, protocolSha256 }`. Here `protocolSha256` is `researchAssistProtocolSha256(firing)`. The pipeline block's `protocolSha256` binds the firing.
+    - **The seed loader** admits the optional block and recomputes the hash with its firing. A seeded run writes without an assist of its own.
+    - **The loop.** phase4-loop's `DRIVER_INPUT_SPEND` classifies the new driver key (`assistFiring`) as spend-free, since only the cloud arm spends. `seeded()` strips it with `cloudArm`.
+11. **What the driver shows** (0920 decision (3)). It shows the stage record and nothing else:
+    - each attempt's packet record (its field bytes and substitution counts);
+    - its request bytes and reserved fee;
+    - its usage, cache-write flag, fee and served model.
+
+    No packet text is written to the run directory. A zero-fee capture of the exact packets, for the scan that decision 1 of 0941 requires before the first paid assisted run, is proposed as a follow-up (Next gate).
+12. **Tests**, all on loopback fixtures, with no live, paid, cloud or Docker-dependent call.
+    - **E1 clause 3, re-proved end to end** under its describe name, "E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)" (E1-2). It runs the real wrapper through the session and the real broker:
+      - the cloud never answers, so T1's row stays unknown and is skipped, and the wrapper latches;
+      - the local planner and synthesiser go on, T2 is suppressed, and the writer is reached.
+    - **The pins named after 10.b flip.** The legacy split arm's tests in the research-session test become assist-arm tests, and the recoverability test's copy of the split wiring follows the driver.
+    - **A malformed provider reply on the real broker** ends `transport_or_settlement_unknown`, a skip that latches (0921).
+    - **Attempt ordinals above 2, the assist slot and mixed sequences** (0920 decision (6)).
+    - **Both cloud shapes.**
+    - **The rest:**
+      - the configuration refusals and the pool's nine rows;
+      - the hash with and without an assist, in the pipeline, the identity, the freeze and the seed loader;
+      - the ready gate;
+      - the three wrapper additions;
+      - the producer refusal.
+13. **What 10.b does not do:**
+    - RA's registry columns, which go with 11.6;
+    - the served-model registry column and cloud event field (item 11);
+    - passing the deadline to the broker, which 0920 decision (10) left optional;
+    - the desktop's toggle, badge, preview and `reportedIssues` (item 13);
+    - concurrency for assists, which stay serial and at most once;
+    - any cloud claim verification, which decision 5 of 0941 rules out.
+
+Changes: Planned, with the Implemented entry:
+- src/main/private-agent/research-pipeline.ts: the hash's third argument, the stage records, `research_assist_record_invalid`.
+- src/main/private-agent/research-coverage.ts: the ready gate's record checks.
+- src/main/private-agent/research-assist.ts and research-assist-contract.ts: the three additions.
+- src/main/private-agent/session.ts: the `assist` option, its refusals, the pool, the identity and the producer refusal.
+- src/main/private-agent/research-seed.ts: the optional assist block.
+- scripts/private-agent-local-screen.ts: the assist arm, `--assist-firing`, the authored brief and the freeze.
+- scripts/phase4-loop.ts: the spend table and `seeded()`.
+- Tests and helpers, as decision 12 lists.
+- docs/BUILD_LOG.md: this entry, then the `Implemented` entry.
+
+Evidence: The decisions rest on these sources, read on `main` at b359613:
+- the entries BL-20261113-0920 to 0929, BL-20261115-1939 and BL-20261117-0941;
+- the wrapper, the pipeline's hook, the session, the driver, the seed loader, the ready gate and the loop.
+
+A read-only agent mapped every obligation the log gives 10.b, with its source. This entry cites each one it meets.
+
+Failures or blockers: None yet.
+
+Limitations and non-claims:
+- **`Proposed` only.** Nothing is built by this entry.
+- **The protocol hash's signature** departs from 0920's "options object" (decision 6).
+- **The served model** follows the Rayline carry-over (d) on draft #86, which `main` does not hold. BL-20261114-1523 said the served-model pieces wait for #86. The coordinating session listed the field among 10.b's items on 2026-11-17.
+- **No owner loop or E-run may span 10.b's merge.** It changes src/main/private-agent, so it moves the harness source-freeze digest. With an assist configured, it also moves the protocol hash of that run, never the default.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. No packet is sent by 10.b's tests, and none leaves under decision 1 of 0941 before E3's card is on `main`.
+
+Next gate:
+- The `Implemented` entry with the code and tests, one light review, and then the pull request.
+- **A follow-up for E3:** a zero-fee capture mode that builds T1 and T2 packets from a local run and writes them for the pre-run scan in decision 1 of 0941, without dispatching.
+
+References: BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0925-correction-assist-core-rereview; BL-20261113-0927-research-v5-design; BL-20261113-0928-research-v5-implemented; BL-20261113-0929-correction-research-v5-assist-order-deadline; BL-20261115-1939-research-priority-trim-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261114-2306-e1-recoverability-gate-ci-verified; BL-20261113-0836-infra-resume-design; BL-20261114-1523-registry-columns-design; BL-20261117-0941-group-a-decided-under-delegation; BL-20261117-0959-correction-scrub-policy-5-restamp-residues-accepted.

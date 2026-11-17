@@ -13,6 +13,7 @@ import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { FIXTURE_JOB_ID, JudgeFixtureManifestSchema, buildJudgeBody, buildJudgeMessages, commandArguments, flipRate, harvestClaims, meetsAgreementLevel, originSidecarPath, parseJudgeReply, reversedSystemPrompt,
   runJudgeFixture, scoreVerdicts, verifyJudgeFixtureInputs, type FixtureClaim, type JudgeCondition } from "../../scripts/judge-fixture";
+import { loopbackAddressForms } from "../helpers/loopback-address";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
@@ -212,7 +213,7 @@ describe("judge fixture runs", () => {
     }
     expect(statSync(join(out, "summary.json")).mode & 0o777).toBe(0o600);
     const serialized = JSON.stringify(summary);
-    for (const secret of ["127.0.0.1", String(server.port), "test-key", "hidden thoughts", "orchard", "drip", "PLANTED-NOTE"]) expect(serialized).not.toContain(secret);
+    for (const secret of ["127.0.0.1", ...loopbackAddressForms(server.baseUrl), "test-key", "hidden thoughts", "orchard", "drip", "PLANTED-NOTE"]) expect(serialized).not.toContain(secret);
     // A second run into the same directory is refused before any request: the first result stays.
     const before = readFileSync(join(out, "summary.json"));
     await expect(runJudgeFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: f, out })).rejects.toThrow("judge_fixture_out_exists");

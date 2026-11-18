@@ -1,5 +1,8 @@
+import { mkdirSync } from "node:fs";
 import { app, BrowserWindow, dialog } from "electron";
+import { loadEnvironmentFiles } from "./config";
 import { startQuit } from "./liveness";
+import { decideUserDataFolder, type UserDataFolder } from "./user-data-folder";
 
 import type { BootstrapController } from "./bootstrap";
 
@@ -14,11 +17,40 @@ function startupErrorMessage(error: unknown): string {
   return `SOAR could not finish starting.\n\n${redacted}\n\nCheck the app configuration and try again.`;
 }
 
-// This is the first mutable app decision. The bootstrap module (and therefore
+/**
+ * Backlog item 13a, requirement A: the user-data folder is the first decision. Electron keeps the single-instance lock in it, so it
+ * is chosen before that lock and before any setting or database there is opened, from the settings readable without it
+ * (user-data-folder.ts). A refusal takes no lock and starts nothing.
+ */
+function chooseUserDataFolder(): UserDataFolder {
+  let folder: UserDataFolder;
+  try {
+    folder = decideUserDataFolder(loadEnvironmentFiles({ appPath: app.getAppPath() }).SOAR_ENABLE_LOCAL_RESEARCH_BETA, app.getPath("userData"));
+  } catch {
+    return { kind: "refused", reason: "SOAR could not read the settings that choose its user-data folder." };
+  }
+  if (folder.kind !== "beta") return folder;
+  const unmoved: UserDataFolder = { kind: "refused", reason: "The local research beta could not move to its own user-data folder." };
+  // Electron's setPath throws for a folder that does not exist, so the folder is made first; any failure here is a refusal.
+  try {
+    mkdirSync(folder.path, { recursive: true });
+    app.setPath("userData", folder.path);
+    app.setPath("sessionData", folder.path);
+  } catch {
+    return unmoved;
+  }
+  return app.getPath("userData") === folder.path && app.getPath("sessionData") === folder.path ? folder : unmoved;
+}
+const userDataFolder = chooseUserDataFolder();
+
+// After the folder's own move, the lock is the first mutable app decision. The bootstrap module (and therefore
 // SQLite and every credential/native module) is imported only after the
 // primary process owns Electron's single-instance lock.
-const primaryInstance = app.requestSingleInstanceLock();
-if (!primaryInstance) {
+const primaryInstance = userDataFolder.kind !== "refused" && app.requestSingleInstanceLock();
+if (userDataFolder.kind === "refused") {
+  dialog.showErrorBox("SOAR could not start", startupErrorMessage(new Error(userDataFolder.reason)));
+  app.quit();
+} else if (!primaryInstance) {
   app.quit();
 } else {
   app.on("second-instance", () => {
@@ -33,7 +65,7 @@ if (!primaryInstance) {
     .whenReady()
     .then(async () => {
       const { bootstrap } = await import("./bootstrap");
-      controller = await bootstrap();
+      controller = await bootstrap({ userDataFolder });
     })
     .catch((error: unknown) => {
       console.error("SOAR failed to start", error);

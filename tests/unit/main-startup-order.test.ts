@@ -19,6 +19,21 @@ describe("main startup ordering", () => {
       /^import .*from ["']\.\/(?:database|credentials\/|cloud-credential-service)/mu,
     );
     expect(entry).toContain("if (!primaryInstance)");
+    // Backlog item 13a, requirement A: the user-data folder is chosen first, since Electron keeps the lock in it.
+    const folder = entry.indexOf("const userDataFolder = chooseUserDataFolder();");
+    expect(folder).toBeGreaterThanOrEqual(0);
+    expect(folder).toBeLessThan(lock);
+    expect(entry).toContain('const primaryInstance = userDataFolder.kind !== "refused" && app.requestSingleInstanceLock();');
+    expect(entry).toContain("controller = await bootstrap({ userDataFolder });");
+  });
+
+  it("refuses the research beta outside its folder before the database opens, and keeps its flag off there at run time (backlog item 13a)", () => {
+    const bootstrap = readFileSync(path.join(projectRoot, "src/main/bootstrap.ts"), "utf8");
+    const config = bootstrap.indexOf("const config = loadConfig({"), issue = bootstrap.indexOf("if (folderIssue !== undefined) throw new Error(folderIssue);");
+    const database = bootstrap.indexOf("database = createSoarDatabase(databasePath);");
+    expect(config).toBeGreaterThanOrEqual(0); expect(issue).toBeGreaterThan(config); expect(database).toBeGreaterThan(issue);
+    expect(bootstrap).toContain("config: () => withResearchBetaFolder(loadConfig({ appPath: app.getAppPath(), userDataPath }), userDataFolder),");
+    expect(bootstrap.match(/\bloadConfig\(/gu)).toHaveLength(3);
   });
 
   it("creates the renderer shell, installs required IPC authority, then loads", () => {

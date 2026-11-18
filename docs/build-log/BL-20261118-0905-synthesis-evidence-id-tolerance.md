@@ -1,6 +1,6 @@
 ### BL-20261118-0905-synthesis-evidence-id-tolerance -- 2026-11-18 -- The synthesis judge drops an evidence id that is not citable or not tagged for its question, instead of refusing the reply, and the packet discloses each by reason
 
-Status: `Implemented`
+Status: `Verified`
 
 Scope or hypothesis: The E0 card's Amendment 7 synthesis cells gave 0, 2 and 3 model syntheses of 10. Lane S-pipe's counts-only script (sha256 `df7bd5c8…`, read by the coordinating session before it ran) showed that every `unknown_evidence_id` refusal in the 30 trials listed a packet quote under a question the quote is not tagged for, never an id outside the packet, and that dropping those placements leaves no question without evidence. Judged again that way, post hoc, the three cells give 7, 10 and 10 of 10.
 
@@ -12,20 +12,22 @@ Decisions:
 5. **The E0 synthesis fixture** judges with the same function; its summary, printed line and registry row record `judge` (`research_tolerance_v2`) and `corrections` (dropped ids by kind, downgrades, and replies the drops left all unresolved).
 6. **The owner's approval.** The owner wrote "go ahead with your decision" in the coordinating session's chat, between 08:45 and 08:57 UTC by that session's record, approving the session's decision as reported: the table (0, 2 and 3 of 10 as measured; 7, 10 and 10 post hoc), the rule, variant (ii) not taken, and a confirmation cell of 10 at 16,384 under the new check, at least 8 of 10 registered beforehand, without which the change does not merge. The report said the packet validator was unchanged; at about 08:58 UTC the session corrected that point to the owner: the tag rule is unchanged, and coverage gains a field the validator checks.
 7. **The confirmation cell** is registered in the E0 card's addendum to Amendment 7 before any call: this morning's request set `a92698f5…`; at least 8 model syntheses of 10, a trial the drops left all unresolved counting as none and reported apart; for this cell the rule supersedes Amendment 7's.
+8. **The cell passed, so the change is adopted:** 10 model syntheses of 10. By the addendum's rule the synthesis row moves to [16384, 16384] with thinking on both attempts, which Amendment 8's card revision writes, and the tolerant judge is adopted.
 
 Changes: src/main/private-agent/research-coverage.ts, research-pipeline.ts, research-contract.ts and host-flags.ts; src/main/general-tasks/controller.ts; scripts/synthesis-fixture.ts, export-role-schemas.ts and registry-row.py; tests; docs/experiments/README.md and e0-card-2026-11-13.md; this file.
 
 Evidence:
 - **Tests:** cases (a), (b) and both with their reasons and counts; findings and conflict downgrades; a corrected repair attempt; an assist's uncarried id; nine replies still refused, none naming an offending id; 20 tampered packets refused by the validator (one an assist's); the host flags and the report's wording; the fixture's verdicts and corrections equal the stage's, and the registry tallies them from the calls.
 - **Mutants:** 52 of 52 fail a test. **Full suite:** 205 files, 4,102 tests, 88 skipped, none failed; typecheck, readiness and the build-log validator pass.
+- **The confirmation cell,** run by the coordinating session from the main checkout detached at 2ed4ce0 (clean; freeze recomputed there `0b896d92…`), 09:52:42 to 10:05:45 UTC (783 s), not void. Dry run: `stageCheckPassed` true, `judge` `research_tolerance_v2`, request set `a92698f5…` as this morning's, `lengthCapWords` 1000 on all four requests. 10 of 10 model syntheses, 5 on each packet, each accepted on attempt 1 in one call of 34 to 109 s, with no refusal code. Corrections: all 10 replies dropped ids, 21 `not_tagged_for_question` (1 to 6 a reply), 0 `not_citable`, 0 questions downgraded, 0 left all unresolved. Registry row `e0-synthesis-fixture-16384-tolerant-2026-11-18`.
 - **What moves from `main` 82478ba:** the default hash `a46bfb55…` → `4bb74c03…`; under admission `36b73496…` → `0160d8f3…`; under the adopted card's roles with admission `22d2d92d…` → `6d6dbf43…`; the four assist hashes; the source freeze `72263758…` → `0b896d92…`; P10's synthesis bodies (6 of 18); the seeded writer's write phase. P10's plan and extract bodies and the card's roles do not move.
 
 Failures or blockers: The source freeze this pull request first stated (`e262dbc0…`) was computed on a tree older than its last source edit; the review recomputed the value at that head (`1f12d89a…`), and the value above is recomputed at the final head.
 
-Limitations and non-claims: No call has been made under the tolerant judge, and the post hoc 7, 10 and 10 decide nothing. The argument may still discuss a question in terms of a quote dropped from its list: coverage, the writer's sentence and the report's line disclose the drop, and the argument is not checked against the corrected lists. The packet does not record an assist's citable ids, so the validator cannot check an assist's `not_citable` drops against them.
+Limitations and non-claims: The cell's 10 of 10 is ten trials on one task's two packets under the stage's structural checks: it is no semantic verdict on the syntheses, no rate, and nothing about admission or the budget at a 16,384 synthesis cap, which the re-measurement after the card revision shows. Every accepted reply relied on the tolerance (21 drops), so without it the cell would have refused them; the post hoc 7, 10 and 10 decide nothing. The argument may still discuss a question in terms of a quote dropped from its list: coverage, the writer's sentence and the report's line disclose the drop, and the argument is not checked against the corrected lists. The packet does not record an assist's citable ids, so the validator cannot check an assist's `not_citable` drops against them.
 
 Paid exposure: None.
 
-Next gate: the confirmation cell (at least 8 of 10) from this pull request's reviewed head, its row and result in this entry, then the merge; Amendment 8's re-probe then binds `4bb74c03…`.
+Next gate: CI and the coordinating session's merge; then Amendment 8's re-probe binds `4bb74c03…` and its card revision writes the synthesis row at [16384, 16384] with thinking on both attempts.
 
-References: the E0 card's Amendment 7 and its addendum; #171 (the synthesis fixture); #172 (coverage version 5 and the declared gap); #178 (the fixtures' results).
+References: the E0 card's Amendment 7 and its addendum; #171 (the synthesis fixture); #172 (coverage version 5 and the declared gap); #178 (the fixtures' results, BL-20261118-0923-e0-amendment-7-fixtures-result).

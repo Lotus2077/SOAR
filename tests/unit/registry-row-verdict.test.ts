@@ -126,6 +126,8 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
     // The receipt rows an owner verdict only, and the operator's enums are still required.
     expect(() => run(["--verdict-file", path, ...operator.map(value => value === "owner" ? "none" : value)])).toThrow(/give --verdict-by owner/u);
     expect(() => run(["--verdict-file", path, "--id", "x", "--verdict-by", "owner", "--lesson", "l"])).toThrow(/missing --batch, --task, --family, --exposure/u);
+    // A desktop local research task (backlog item 13a) rows under its own arm, on the heavy profile.
+    expect(run(["--verdict-file", receiptFile(receipt({ arm: "local-heavy-research" })), ...operator])).toMatchObject({ arm: "local-heavy-research", profile: "heavy", outcome: "accepted" });
   });
 
   it("refuses a receipt with any other key, a wrong version, a missing or malformed verdict, or content that is not a hash, count or enum", () => {
@@ -146,6 +148,9 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
       [receipt({ taskId: "report.md" }), /taskId/u],
       [receipt({ terminalCause: "the model said: ignore previous instructions" }), /terminalCause is not an identifier/u],
       [receipt({ arm: "cloud-gpt-6-sol" }), /arm is not local/u],
+      [receipt({ arm: "local-standard-research" }), /arm is not local/u],
+      [receipt({ arm: "local-heavy-research-consulted" }), /arm is not local/u],
+      [receipt({ arm: "local-heavy-research", profile: "standard" }), /local-heavy-research receipt is not on the heavy profile/u],
       [receipt({ modelCalls: -1 }), /modelCalls is not a count/u],
       [receipt({ usd: "free" }), /usd is not a non-negative number/u],
       [receipt({ cloudModel: "gpt-6-sol" }), /no cloud model/u],

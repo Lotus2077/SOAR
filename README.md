@@ -23,7 +23,8 @@ day-to-day administration, and (at lower priority) coding.
 | [docs/plans/PRIVATE_WORK_DESIGN_V1.md](docs/plans/PRIVATE_WORK_DESIGN_V1.md) | Strict privacy profile, draft-only admin assistant, research and document-review design, device notes |
 | [docs/PROJECT_REVIEW_2026-09-28.md](docs/PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review: what is right and wrong |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | Start here: the current state, the decisions in force and the next actions (2026-11-07), then the September code map |
-| [docs/BUILD_LOG.md](docs/BUILD_LOG.md) | Append-only record of decisions, results and failures |
+| [docs/build-log/](docs/build-log/) | The record of decisions, results and failures: one file per entry since 2026-11-18 |
+| [docs/BUILD_LOG.md](docs/BUILD_LOG.md) | The frozen archive of every entry to 2026-11-18 |
 | [docs/README.md](docs/README.md) | Index of current and historical documents |
 
 ## Status
@@ -168,8 +169,9 @@ the ignored `.soar/`, and no address is printed or stored):
 See [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md) and the process
 section of [docs/PLAN.md](docs/PLAN.md).
 
-- **Build log.** Record decisions, failures and results in the build log. Never
-  rewrite an earlier entry.
+- **Build log.** Record decisions, failures and results in one entry file a pull
+  request under `docs/build-log/`. Never change an entry once it is on `main`, and
+  never edit the archive `docs/BUILD_LOG.md`.
 - **Evidence standard.** Keep submitted and accepted separate. File existence, test
   totals and mechanics are not acceptance.
 - **What never goes into Git or cloud tools:** credentials, private endpoints, raw

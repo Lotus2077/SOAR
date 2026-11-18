@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,6 +17,13 @@ import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixtu
 import { workspaceListing } from "../helpers/workspace-listing";
 import { retainPublicSource } from "../../src/main/private-agent/public-sources";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import type { GeneralTaskCreateInput } from "../../src/shared/general-task-contracts";
+import { readDesktopResearchCard } from "../../src/main/general-tasks/research-route";
+import type { ServingCardV1 } from "../../src/main/private-agent/serving-card";
+import { adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
+import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
+import { RESEARCH_COVERAGE_POLICY, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
+import { researchRepairReserve } from "../../src/main/private-agent/research-admission";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -1473,5 +1480,132 @@ describe("desktop general-task host controller", () => {
     expect(before.status).toBe("submitted");
     rmSync(blobPath(g, submitted.id, digest(done)));
     expect(g.controller.get(submitted.id)).toMatchObject({ status: "submitted", reason: before.reason, canResume: false, sources: [] });
+  });
+});
+
+// Backlog item 13a, PR (1): the desktop's local research route on files. The stage itself is wired by a later change.
+let researchWriterCard: ServingCardV1 | undefined;
+/** The fixture with the beta on and an adopted card the desktop accepts: the synthetic P10's model alias with streaming on. */
+function researchFixture() {
+  const f = fixture(), card = adopt(structuredClone(researchWriterCard ??= proposedServingCard())), written = writeCard(f.root, card);
+  f.config.vllm.model = SYNTHETIC_P10_REQUEST_SETTINGS.model; f.config.streamingEnabled = true; f.config.localResearchBeta = true; f.config.vllm.servingCard = written;
+  const goal = "Summarize what the notes say about the river.";
+  /** A new selection of the fixture's input unless `overrides` names one (a refused create keeps its selection). */
+  const createResearch = (overrides: Partial<GeneralTaskCreateInput> = {}) => f.controller.create({ goal, outputName: "report.md", publicOrSynthetic: true, research: "local_beta", ...overrides,
+    inputSelectionId: "inputSelectionId" in overrides ? overrides.inputSelectionId : f.controller.selectInputs([f.input]).id });
+  const createHeavy = () => f.controller.create({ goal, inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true, profile: "heavy" });
+  const stored = (id: string) => JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(id) as { value: string }).value);
+  const write = (id: string, record: unknown) => { f.db.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical(record), id); };
+  return { f, card, written, createResearch, createHeavy, stored, write };
+}
+
+describe("desktop local research tasks (backlog item 13a)", () => {
+  it("creates a heavy version-4 task bound to the accepted card, salted and with a claims ledger, and does not start it until the stage is wired", () => {
+    const { f, card, written, createResearch, createHeavy, stored } = researchFixture(), task = createResearch();
+    expect(task).toMatchObject({ status: "queued", profile: "heavy" });
+    const record = stored(task.id);
+    expect(record).toMatchObject({ version: 4, profile: "heavy", research: { route: "local_beta", cardSha256: written.sha256, cardDate: card.date } });
+    for (const key of ["publicSources", "routing", "consultantIdentity"]) expect(record).not.toHaveProperty(key);
+    // The claims ledger is in the phase from creation: the same goal and input as a plain heavy task make another phase.
+    const heavy = createHeavy();
+    expect(stored(heavy.id).phaseIdentity).not.toBe(record.phaseIdentity);
+    // The identity binds the salted heavy profile, whatever the configured salt, and the card the task was created on.
+    f.config.promptCacheSalt = true; const salted = createHeavy(); f.config.promptCacheSalt = false;
+    expect(stored(salted.id).configurationIdentity).not.toBe(stored(heavy.id).configurationIdentity);
+    expect(record.configurationIdentity).toBe(digest(canonical({ version: 4, local: stored(salted.id).configurationIdentity, research: record.research })));
+    // Until the stage is wired, it never starts, and never runs as a plain task.
+    expect(() => f.controller.start(task.id)).toThrow("general_task_research_unwired");
+    expect(f.executions).toHaveLength(0); expect(f.controller.get(task.id).status).toBe("queued");
+  });
+
+  it("advertises the beta with its card only while the flag is on, whether or not local execution is ready", async () => {
+    const { f, written, card } = researchFixture();
+    expect((await f.controller.availability()).research).toEqual({ available: true, reason: expect.any(String), card: { date: card.date, sha256: written.sha256 } });
+    f.config.vllm.servingCard = { path: written.path, sha256: "0".repeat(64) };
+    expect((await f.controller.availability()).research).toMatchObject({ available: false, code: "serving_card_pin_drift" });
+    f.removeImage();
+    expect(await f.controller.availability()).toMatchObject({ executionMode: "unavailable", research: { available: false, code: "serving_card_pin_drift" } });
+    f.config.localResearchBeta = false;
+    expect(await f.controller.availability()).not.toHaveProperty("research");
+  });
+
+  it("ends a research task's start when the beta is turned off or the card's bytes change", () => {
+    const { f, card, written, createResearch } = researchFixture(), task = createResearch();
+    f.config.localResearchBeta = false;
+    expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
+    f.config.localResearchBeta = true;
+    // The creation card refused in place: its file's bytes change under the same pair, and the pinned read refuses it.
+    const bytes = readFileSync(written.path); writeFileSync(written.path, Buffer.from(`${JSON.stringify(card)}\n`));
+    expect(readDesktopResearchCard(f.config)).toEqual({ accepted: false, code: "serving_card_pin_drift" });
+    expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
+    writeFileSync(written.path, bytes);
+    // The same card in other bytes is another card: the task runs only on the very card it was created on.
+    f.config.vllm.servingCard = writeCard(f.root, Buffer.from(`${JSON.stringify(card)}\n`), "compact.json");
+    expect(readDesktopResearchCard(f.config)).toMatchObject({ accepted: true, card: { date: card.date } });
+    expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
+    f.config.vllm.servingCard = written;
+    expect(() => f.controller.start(task.id)).toThrow("general_task_research_unwired");
+    expect(f.executions).toHaveLength(0);
+  });
+
+  it("refuses a research task without the beta or an accepted card, with consultation or typed URLs, on the standard profile, for a non-document deliverable, or without readable inputs, and stores nothing", () => {
+    const { f, written, createResearch } = researchFixture(), pdf = join(f.root, "paper.pdf"); writeFileSync(pdf, "%PDF-1.7\n");
+    const refuse = (overrides: Partial<GeneralTaskCreateInput> = {}) => createResearch({ inputSelectionId: selection, ...overrides }), selection = f.controller.selectInputs([f.input]).id;
+    expect(() => refuse({ routing: "ask_before_consulting" })).toThrow("general_task_research_consultation_denied");
+    expect(() => refuse({ publicSources: { urls: ["https://public.example.test/facts"], allowPublicRetrieval: true, dnsResolver: "system" } })).toThrow("general_task_research_sources_unsupported");
+    expect(() => refuse({ profile: "standard" })).toThrow("general_task_research_profile_heavy");
+    expect(() => refuse({ outputName: "deck.pptx" })).toThrow("general_task_research_output_unsupported");
+    expect(() => refuse({ inputSelectionId: undefined })).toThrow("general_task_research_inputs_required");
+    expect(() => refuse({ inputSelectionId: f.controller.selectInputs([f.input, pdf]).id })).toThrow("general_task_research_source_unreadable");
+    f.config.vllm.servingCard = { path: written.path, sha256: "0".repeat(64) };
+    expect(() => refuse()).toThrow("general_task_research_unavailable");
+    delete f.config.vllm.servingCard;
+    expect(() => refuse()).toThrow("general_task_research_unavailable");
+    f.config.vllm.servingCard = written; f.config.localResearchBeta = false;
+    expect(() => refuse()).toThrow("general_task_research_unavailable");
+    expect(f.controller.list()).toEqual([]);
+    f.config.localResearchBeta = true;
+    expect(createResearch({ profile: "heavy" })).toMatchObject({ status: "queued", profile: "heavy" });
+  });
+
+  it("keeps room at create for the stage's repair reserve under a card whose admission basis is serving_card", () => {
+    const { f, createResearch } = researchFixture(), card = adopt(structuredClone(researchWriterCard!), undefined, { defaults: true });
+    (card as { admission: { basis: string } }).admission.basis = "serving_card";
+    f.config.vllm.servingCard = writeCard(f.root, card, "admission.json");
+    expect(readDesktopResearchCard(f.config)).toMatchObject({ accepted: true, card: { policy: { admission: { basis: "serving_card" } } } });
+    const { chunkBytes, overlapBytes } = RESEARCH_COVERAGE_POLICY, calls = RESEARCH_PIPELINE_BUDGET.extractionCalls, long = join(f.root, "long.txt");
+    let reserved = calls; while (reserved + researchRepairReserve(reserved) > calls) reserved--;
+    const select = (chunks: number) => { writeFileSync(long, Buffer.alloc(chunkBytes + (chunks - 1) * (chunkBytes - overlapBytes), 0x61)); return f.controller.selectInputs([long]).id; };
+    expect(() => createResearch({ inputSelectionId: select(reserved + 1) })).toThrow("general_task_research_mandatory_budget_exceeded");
+    expect(createResearch({ inputSelectionId: select(reserved) })).toMatchObject({ status: "queued", profile: "heavy" });
+  });
+
+  it("reads a version-4 record only with the exact route, the heavy profile and no typed URLs, and no other version with a route", () => {
+    const { f, createResearch, stored, write } = researchFixture(), task = createResearch(), plain = f.create(), original = stored(task.id);
+    const edits: ((record: Record<string, any>) => void)[] = [record => { delete record.research; }, record => { record.profile = "standard"; }, record => { delete record.profile; },
+      record => { record.research.cardPath = "card.json"; }, record => { record.research.route = "cloud"; }, record => { record.research.cardSha256 = "0".repeat(63); },
+      record => { record.publicSources = { urls: ["https://public.example.test/facts"], allowPublicRetrieval: true, dnsResolver: "system" }; },
+      record => { record.version = 3; record.routing = "ask_before_consulting"; record.consultantIdentity = "a".repeat(64); }];
+    for (const edit of edits) {
+      const record = structuredClone(original); edit(record); write(task.id, record);
+      expect(() => f.controller.get(task.id), String(edit)).toThrow("general_task_record_invalid");
+    }
+    write(task.id, original); expect(f.controller.get(task.id).status).toBe("queued");
+    write(plain.id, { ...stored(plain.id), research: original.research });
+    expect(() => f.controller.get(plain.id)).toThrow("general_task_record_invalid");
+  });
+
+  it("exports a research task's verdict receipt under its own arm, which registry-row.py rows", async () => {
+    // A submitted research task is simulated by rewriting a submitted heavy task's record, since the stage is wired by a later change.
+    const { f, card, written, createHeavy, stored, write } = researchFixture(), task = createHeavy();
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    f.controller.recordVerdict({ id: task.id, decision: "accept", ownerMinutes: 5, interventions: 0, exportedThroughApp: true });
+    write(task.id, { ...stored(task.id), version: 4, research: { route: "local_beta", cardSha256: written.sha256, cardDate: card.date } });
+    const receipt = f.controller.verdictReceipt(task.id);
+    expect(JSON.parse(receipt.bytes.toString("utf8"))).toMatchObject({ profile: "heavy", arm: "local-heavy-research" });
+    const path = join(f.root, "receipt.json"); writeFileSync(path, receipt.bytes);
+    const row = JSON.parse(execFileSync("python3", ["-I", resolve(__dirname, "..", "..", "scripts", "registry-row.py"), "--verdict-file", path, "--id", "oaj-unit-research", "--batch", "owner-real-jobs",
+      "--task", `owner-${task.id.slice(0, 8)}`, "--family", "research", "--exposure", "fresh", "--verdict-by", "owner", "--lesson", "unit"], { cwd: resolve(__dirname, "..", ".."), encoding: "utf8" }));
+    expect(row).toMatchObject({ arm: "local-heavy-research", profile: "heavy", outcome: "accepted" });
   });
 });

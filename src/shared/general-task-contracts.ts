@@ -46,6 +46,8 @@ export const GeneralTaskCreateInputSchema = z.object({
   publicOrSynthetic: z.literal(true),
   /** Coordinator profile for this task; absent means the configured default. Bound into the task identity. */
   profile: z.enum(["standard", "heavy"]).optional(),
+  /** Backlog item 13a: run the local research pipeline before the writer (beta). Offered only while the flag is on and the serving card is accepted. */
+  research: z.literal("local_beta").optional(),
 }).strict();
 export type GeneralTaskCreateInput = z.infer<typeof GeneralTaskCreateInputSchema>;
 
@@ -95,6 +97,8 @@ export interface GeneralTaskAvailability {
   publicOrSyntheticOnly: true;
   executionMode: "local" | "scripted" | "unavailable";
   consultation?: { available: boolean; reason: string; model?: string };
+  /** Backlog item 13a: absent while the beta flag is off; otherwise whether the local research route is offered, with the reader's code or the card's date and sha256. */
+  research?: { available: boolean; reason: string; code?: string; card?: { date: string; sha256: string } };
 }
 export type GeneralTaskEntailmentVerdict = "supported" | "partial" | "unsupported" | "contradicted" | "not_judged";
 export interface GeneralTaskEntailment {

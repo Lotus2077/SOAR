@@ -53082,41 +53082,39 @@ Next gate: The doctor with the pair in its environment, then the dry run, then t
 
 References: docs/experiments/e0-card-2026-11-13.md (Amendment 6, item 2); BL-20261117-1701-e0-card-amendment-6-r3-remeasurement; BL-20261117-1616-serving-card-2026-11-17-adopted; BL-20261117-0940-owner-direction-decisions-delegated.
 
-### BL-20261118-0438-source-comments-cite-pull-requests -- 2026-11-18 -- Source comments cite pull requests instead of build-log entry IDs
+### BL-20261118-0438-desktop-local-research-13a-design -- 2026-11-18 -- 13a designed: local research in the desktop as an opt-in beta route for files and typed URLs, run only on an adopted serving card, with no cloud and a badge that says what ran
 
-Status: `Implemented`
+Status: `Approved`
 
-Scope or hypothesis: The owner's change of plan in BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout moves the log to one file per entry and puts no entry IDs in source files. This change replaces every entry ID cited in a comment or docstring under src/ and scripts/ with the number of the pull request that added the entry to `main`. It changes comments only.
+Scope or hypothesis: This designs backlog item 13a (decision 2 of BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout). Only the headless driver passes `research` to a session or reads a serving card, so none of the pipeline reaches the owner's build. The coordinating session read this design on 2026-11-18, before any code was written. The pull request's description holds the detail, the file references and lane S-pipe's answers.
 
 Decisions:
-1. **The mapping.** An ID names the pull request of the first first-parent commit on `main` that added its heading. Totals:
-   - 85 distinct IDs and 270 citations in 57 files, naming 47 pull requests;
-   - three date-only references, naming #28 and #12.
+1. **Code path.** A research task's session gets what the driver passes: `research.models` (reader, planner, synthesiser) on the task's local model, and the adopted card's roles, admission rates and `localStreams`. It never gets `diagnostics` or an assist. It needs the heavy profile (200 requests cover 68 for the stage, 80 for the writer, and a public phase), the claims ledger and the driver's brief. Typed URLs run as a public phase before the private one, never under `publicInputApproval` (lane S-pipe).
+2. **The card.** The desktop reads the card pair from its own settings, with the driver's pinned reader and expectation and with cache salt on for research tasks only. Without an accepted card the beta is unavailable and the form shows the reader's code; plain tasks are unaffected. The task stores the card's sha256 and date, so a resume after a card or protocol change ends `session_contract_drift`, which is terminal.
+3. **What the owner sees.** A settings flag makes the beta available, and a checkbox on each task turns it on; the choice is stored on the record. A badge names the route, the card and how the stage ended. Each research stop code gets a sentence, Resume is hidden for the terminal ones, and the pause and quit offers warn that a stage in progress cannot resume.
+4. **Must not.** No cloud destination, assist or consultation on a research task (refused at create). The public-or-synthetic attestation stays as today. Text inputs only, with other inputs refused before start. No diagnostics sink, seeds or labelled data.
+5. **Tests.** Unit tests without Docker or a window cover the contract, the create checks, the session's options, a stage driven by a scripted broker, the badge and the sentences. The card-reader guard test changes to admit the desktop's one reader. One gated Playwright case needs Docker and a window. Typed URLs over real HTTPS keep their own gated spec.
+6. **The build.** A second, beta build is rowed apart from E5's jobs (E5 card, O9). It has its own tag, worktree, `pnpm check` and user-data folder, so it never opens E5's database. The card pair and the flag go in its own settings, and the rows need a research value for `arm` (lane S-harn). It reaches the owner only after the r3 re-measurement and E2's graded runs.
+7. **Size.** About 5 to 6 days: 13a.1, files only, about 3.5 to 4, then 13a.2, typed URLs, about 1.5 to 2. The largest risks:
+   - the desktop's public phase;
+   - the heavy pool, since a research run with fetches can use about 193 of its 200 requests;
+   - a beta build launched without its own folder, which would share E5's database.
+8. **Confirmed on 2026-11-18.** The coordinating session confirmed three of the decisions: an accepted card is required, 13a.1 comes before 13a.2, and the beta build has its own user-data folder. It added three requirements:
+   - (A) the folder separation fails closed, so a beta build started the plain way never touches the default folder's database, settings or lock;
+   - (B) the writer's bound on research tasks is one named setting;
+   - (C) 13a.1 is text only, with PDF and DOCX conversion a later item.
+   The owner may replace each of them. Nothing is built or measured.
 
-   One ID that wrapped across two lines, and eight phrasings, were fixed by hand.
-2. **What stays.** Eight IDs in scripts/validate-build-log.ts are data the validator reads, not citations. Test titles are out of scope.
-3. **Held.** The source freeze moves, so the change merges only after the r3 re-measurement's last run.
+Changes: docs/BUILD_LOG.md, this entry. No code.
 
-Changes:
-- 57 files under src/ and scripts/: comments and Python docstrings only.
-- tests/unit/private-agent-research-pipeline.test.ts: the hook contract's byte pin, re-pinned to d8ba77a0…. That file's comments changed; its interface did not.
-- docs/BUILD_LOG.md.
-
-Evidence:
-- **The code is unchanged.**
-  - The 51 TypeScript files minify to identical code here and on `main`.
-  - The 5 Python files parse to identical trees once docstrings are set aside.
-  - The shell script differs in one comment.
-- **The hashes are unchanged.** `researchProtocolSha256()` is e3e08871… by default and f157570b… under admission. The adopted card still binds af4715a1…. P10's 18 request bodies are byte-identical to `main`'s.
-- **The source freeze moves** from c39a5ccb5ec086d52b774be12d486ccf95cbe3a6bd2ac8ab60fe8e8076132462 to 1e083cd2e80bd20ccf79dc90b3817b065e85731bb1bd5bcf3160db841d045d04.
-- **Checks:** typecheck, readiness and the validator pass. The full suite passes: 198 files and 3,975 tests, 88 skipped, none failed.
+Evidence: Three read-only agents and this lane read the code at `main` 8c7011a and 5140f5d. Lane S-pipe answered on 2026-11-18. Nothing was run.
 
 Failures or blockers: None.
 
-Limitations and non-claims: A pull request is coarser than an entry: a comment that cites "decision 5" now points to the pull request, whose entry holds that decision.
+Limitations and non-claims: The design is approved. Nothing is built or measured. The estimates are this lane's, and the pool figure is read from the code, not from a run.
 
-Paid exposure: None.
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
-Next gate: the r3 runs' last run, then CI and the coordinating session's merge. A run after the merge names the new freeze.
+Next gate: 13a.1's first pull request, with its entry and one light review.
 
-References: BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout; BL-20261117-1701-e0-card-amendment-6-r3-remeasurement.
+References: BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout; BL-20261117-1616-serving-card-2026-11-17-adopted; BL-20261109-0336-desktop-resume-reasons-design; docs/experiments/e5-card-2026-11-17.md.

@@ -59,6 +59,8 @@ const environmentSchema = z.object({
   SOAR_ENABLE_HYBRID_SIMULATION: booleanString,
   /** Shows the legacy tracks (investigator, change review, coding pilot, hybrid simulation); off by default since PR-F. */
   SOAR_ENABLE_LABS: booleanString,
+  /** Backlog item 13a: offers the local research route (beta) on new general tasks, and only with an accepted serving card. Off by default. */
+  SOAR_ENABLE_LOCAL_RESEARCH_BETA: booleanString,
   SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO: z
     .enum(["success", "provider_error"])
     .default("success"),
@@ -118,6 +120,8 @@ export interface SoarConfig {
   /** Main-process-only authority. Valid only with the deterministic fake catalog. */
   hybridSimulationEnabled: boolean;
   labsEnabled?: boolean;
+  /** Backlog item 13a: the local research route (beta) is offered on new general tasks. */
+  localResearchBeta?: boolean;
   fakeCloudScenario: "success" | "provider_error";
   fakeDelayMs: number;
   vllm: {
@@ -129,7 +133,10 @@ export interface SoarConfig {
     localReplyContract?: "flash_next_v1";
     localContextTokens?: number;
     localTokenAdmission?: FlashNextAdmissionDescriptor;
-    /** SC: present only when both SOAR_SERVING_CARD_FILE and SOAR_SERVING_CARD_SHA256 are set; only the headless driver reads it. */
+    /**
+     * SC: present only when both SOAR_SERVING_CARD_FILE and SOAR_SERVING_CARD_SHA256 are set. Two functions read it: the headless driver's
+     * card builder, and the desktop's research card read (general-tasks/research-route.ts).
+     */
     servingCard?: ServingCardDescriptor;
     costPolicy: "local_zero_cost";
     maxOutputTokens: number;
@@ -246,6 +253,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     providerMode: env.SOAR_PROVIDER_MODE,
     hybridSimulationEnabled: env.SOAR_ENABLE_HYBRID_SIMULATION,
     labsEnabled: env.SOAR_ENABLE_LABS,
+    localResearchBeta: env.SOAR_ENABLE_LOCAL_RESEARCH_BETA,
     fakeCloudScenario:
       env.SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO,
     fakeDelayMs: env.SOAR_FAKE_DELAY_MS,

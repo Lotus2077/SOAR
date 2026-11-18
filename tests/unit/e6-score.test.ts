@@ -83,7 +83,8 @@ function setup(mutate: (g: Record<string, any>) => void = () => {}) {
 const NONE = { clause_contradiction: 0, missing_section: 0, numeric: 0, reference_definition: 0, table_arithmetic: 0, total: 0 };
 const PLANTED = { clause_contradiction: 1, missing_section: 1, numeric: 1, reference_definition: 1, table_arithmetic: 1, total: 5 };
 
-describe("E6's planted-defect scorer", () => {
+// Each test spawns python3 many times; under load (about 6 s alone at a load average near 13) the default 5 s is too short, as for the registry-row suites.
+describe("E6's planted-defect scorer", { timeout: 60_000 }, () => {
   it("states its version", () => {
     expect(scorer("--version")).toMatchObject({ status: 0, stdout: "e6-score 1\n" });
   });

@@ -777,8 +777,11 @@ def load_receipt(path: str) -> dict:
     for key in ("profile", "thinking", "runStatus", "terminalCause"):
         if not isinstance(receipt[key], str) or not IDENTIFIER.fullmatch(receipt[key]):
             fail_receipt(f"{key} is not an identifier")
-    if not isinstance(receipt["arm"], str) or not re.fullmatch(r"local-(standard|heavy)(-consulted)?", receipt["arm"]):
-        fail_receipt("arm is not local-<profile> or local-<profile>-consulted")
+    if not isinstance(receipt["arm"], str) or not re.fullmatch(r"local-(standard|heavy)(-consulted)?|local-heavy-research", receipt["arm"]):
+        fail_receipt("arm is not local-<profile>, local-<profile>-consulted or local-heavy-research")
+    # A desktop local research task (backlog item 13a) runs the heavy profile only, and never consults.
+    if receipt["arm"] == "local-heavy-research" and receipt["profile"] != "heavy":
+        fail_receipt("a local-heavy-research receipt is not on the heavy profile")
     for key in RECEIPT_COUNTS:
         if not is_count(receipt[key]):
             fail_receipt(f"{key} is not a count")

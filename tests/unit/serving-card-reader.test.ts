@@ -377,17 +377,23 @@ describe("serving-card reader (SC)", () => {
   });
 
   it("R10: outside the reader, no production module parses a card or reads the pair's descriptor, so every value passes the fail-closed load", () => {
-    const root = resolve(__dirname, "..", ".."), reader = join("src", "main", "private-agent", "serving-card.ts"), driver = join("scripts", "private-agent-local-screen.ts");
+    const root = resolve(__dirname, "..", ".."), reader = join("src", "main", "private-agent", "serving-card.ts");
+    // The descriptor's two readers, each confined to one function that hands it straight to the pinned load: the headless driver's card
+    // builder, and the desktop's research card read (backlog item 13a).
+    const readers = new Map([[join("scripts", "private-agent-local-screen.ts"), "buildLocalScreenServingCard"],
+      [join("src", "main", "general-tasks", "research-route.ts"), "readDesktopResearchCard"]]);
     const files = ["src", "scripts"].flatMap(top => readdirSync(join(root, top), { recursive: true, encoding: "utf8" })
       .filter(name => /\.(?:[cm]?[jt]s|tsx)$/u.test(name)).map(name => join(top, name)));
-    expect(files).toContain(reader); expect(files).toContain(driver);
+    expect(files).toContain(reader); for (const file of readers.keys()) expect(files).toContain(file);
     for (const file of files.filter(name => name !== reader)) {
       const text = readFileSync(join(root, file), "utf8"), reads = text.match(/\bvllm\??\.servingCard\b/gu) ?? [];
       // The raw parse and the schema return values no adoption, pin or consumed-flag check has seen.
       expect(text.match(/\b(?:parseServingCard|ServingCardV1Schema)\b/gu) ?? [], file).toEqual([]);
-      if (file !== driver) { expect(reads, file).toEqual([]); continue; }
-      const builder = /\nexport function buildLocalScreenServingCard\b[\s\S]*?\n\}\n/u.exec(text)?.[0] ?? "";
-      expect(reads.length).toBeGreaterThan(0); expect(builder.match(/\bvllm\??\.servingCard\b/gu)?.length).toBe(reads.length);
+      const owner = readers.get(file);
+      if (!owner) { expect(reads, file).toEqual([]); continue; }
+      const body = new RegExp(`\\nexport function ${owner}\\b[\\s\\S]*?\\n\\}\\n`, "u").exec(text)?.[0] ?? "";
+      expect(reads.length, file).toBeGreaterThan(0); expect(body.match(/\bvllm\??\.servingCard\b/gu)?.length, file).toBe(reads.length);
+      expect(body, file).toMatch(/\bloadServingCard\(\s*\w+(?:\.vllm\??\.servingCard)?\s*,\s*servingCardExpectation\(/u);
     }
   });
 });

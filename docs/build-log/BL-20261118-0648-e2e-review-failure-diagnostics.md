@@ -2,19 +2,13 @@
 
 Status: `Implemented`
 
-Scope or hypothesis:
-- **The failure.** tests/e2e/electron.spec.ts:510 failed nine times since 2026-11-14, always at its wait for a completed review, about 5 s after the review started.
-- **The only 5 s limit on that path** is the per-command git deadline: DEFAULT_GIT_TIMEOUT_MS in src/main/tools/git-command-policy.ts.
-- **The CI logs cannot show** which command ran past it. The pull request has the detail.
+Scope or hypothesis: tests/e2e/electron.spec.ts:510 failed nine times since 2026-11-14, always at its wait for a completed review and about 5 s after the review started. The only 5 s limit on that path is the per-command git deadline: DEFAULT_GIT_TIMEOUT_MS in src/main/tools/git-command-policy.ts. The CI logs cannot show which command ran past it. The pull request has the detail.
 
-Decisions:
-- **A diagnostic, not a fix.** The review waits in the 510, 680 and 797 cases append the review-safe event summary to a failed wait: each tool call's name, outcome and duration, and error and reason codes.
-- **CI keeps the results.** The electron-e2e job uploads .soar/test-results on failure, kept for 7 days.
-- **No product change** until a failure confirms the command.
+Decisions: This is a diagnostic, not a fix. The review waits in the 510, 680 and 797 cases append the review-safe event summary to a failed wait: each tool call's name, outcome and duration, and the error and reason codes. The electron-e2e job uploads .soar/test-results on failure and keeps it for 7 days. No product change until a failure confirms the command.
 
 Changes: tests/e2e/electron.spec.ts; .github/workflows/ci.yml; this entry.
 
-Evidence: @@PROBE@@
+Evidence: A temporary probe (733caaa, reverted in 90818d0) made the 510 case's wait fail in CI run 44254180745. The summary printed every event of the completed review; `inspect_git_changes` succeeded in 1,170 ms. The job uploaded a 173 KB artifact holding the page snapshot, the screenshot, the trace and `.last-run.json`; its only paths are the runner's checkout. `pnpm validate:build-log -- --base-ref 7873a35` (the branch point) and `pnpm typecheck` exit 0.
 
 Failures or blockers: None.
 

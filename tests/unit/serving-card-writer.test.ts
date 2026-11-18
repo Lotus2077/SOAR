@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { digest } from "../../src/main/private-agent/contracts";
-import { PYTHON_TIMEOUT_MS, runCardWriter } from "../helpers/serving-card-fixture";
+import { PYTHON_TIMEOUT_MS, adopt, currentSyntheticProbe, runCardWriter } from "../helpers/serving-card-fixture";
+import { parseServingCard, resolveServingCard } from "../../src/main/private-agent/serving-card";
 import { SYNTHETIC_P10_REQUEST_SETTINGS, syntheticProbe } from "../helpers/serving-probe-fixture";
 
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-card.py");
@@ -345,5 +346,47 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
     // Only one leading `--` is dropped: a second one still leaves argparse without --input.
     const twice = run(["--", "--", "--input", input, "--env-file", envFile]);
     expect(twice.status).toBe(2); expect(twice.stdout).toBe(""); expect(twice.stderr).toContain("the following arguments are required: --input");
+  });
+});
+
+// The E0 card's Amendment 8: the thinking of a P10 role's two attempts, written by the writer so that no hand edit sets a role.
+describe("serving-card writer: --attempt-thinking (the E0 card's Amendment 8)", () => {
+  const expectation = { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } };
+  const written = (extra: string[]) => { const run = runCardWriter(currentSyntheticProbe(), extra); expect(run.status, run.stderr).toBe(0); return parseServingCard(run.policy!); };
+
+  it("writes each named role's pair, leaves every other role as the export's, and keeps the Markdown byte for byte; the reader resolves the card", () => {
+    const today = written([]), paired = written(["--attempt-thinking", "synthesis=model,disabled", "--attempt-thinking", "extract=disabled,model"]);
+    expect([paired.roles.synthesis.thinking, paired.roles.extract.thinking]).toEqual([["model", "disabled"], ["disabled", "model"]]);
+    expect({ ...paired.roles, synthesis: null, extract: null }).toEqual({ ...today.roles, synthesis: null, extract: null });
+    expect({ ...paired.roles.synthesis, thinking: null }).toEqual({ ...today.roles.synthesis, thinking: null });
+    const markdown = (extra: string[]) => runCardWriter(currentSyntheticProbe(), extra).stdout;
+    expect(markdown(["--attempt-thinking", "synthesis=model,disabled"])).toBe(markdown([]));
+    expect(resolveServingCard(adopt(paired), expectation).roles).toEqual(paired.roles);
+  });
+
+  it("refuses an attempt moved to a thinking mode its role's structured-output flag does not name, so that attempt would lose the format", () => {
+    // The synthetic probe flags plan's thinking-on mode only (its plan/off cell is below the rule).
+    const run = runCardWriter(currentSyntheticProbe(), ["--attempt-thinking", "plan=model,disabled"]);
+    expect(run.status).toBe(2); expect(run.policy).toBeUndefined();
+    expect(run.stderr).toContain("moves plan attempt 2 to thinking disabled, whose structured output P10's plan/off cell does not flag");
+  });
+
+  it("refuses a flagged attempt at a cap its P10 cell did not measure, as the reader would", () => {
+    const probe = currentSyntheticProbe(); probe.P10.cells["plan/on"].max_tokens = 4096;
+    const run = runCardWriter(probe, ["--attempt-thinking", "plan=model,model"]);
+    expect(run.status).toBe(2); expect(run.policy).toBeUndefined();
+    expect(run.stderr).toContain("plan attempt 1 would send the format at 8192 tokens, but P10's plan/on cell measured 4096");
+  });
+
+  it("refuses a role without a P10 cell, a mode it does not know, a malformed pair, a repeated role, and the option without --policy-out", () => {
+    for (const value of ["index=disabled,disabled", "plan=model", "plan=on,off", "plan=model,disabled,model", "plan:model,model", "Plan=model,model", ""]) {
+      const run = runCardWriter(currentSyntheticProbe(), ["--attempt-thinking", value]);
+      expect({ value, status: run.status, wrote: run.policy !== undefined }).toEqual({ value, status: 2, wrote: false });
+      expect(run.stderr).toContain("--attempt-thinking takes ROLE=FIRST,SECOND once per role");
+    }
+    const twice = runCardWriter(currentSyntheticProbe(), ["--attempt-thinking", "extract=disabled,disabled", "--attempt-thinking", "extract=disabled,model"]);
+    expect([twice.status, twice.policy]).toEqual([2, undefined]);
+    const alone = card(currentSyntheticProbe(), ["--attempt-thinking", "extract=disabled,model"]);
+    expect(alone.status).toBe(2); expect(alone.stdout).toBe(""); expect(alone.stderr).toContain("--attempt-thinking sets the machine-readable card's roles, so it needs --policy-out");
   });
 });

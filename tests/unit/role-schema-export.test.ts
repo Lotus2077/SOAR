@@ -13,7 +13,7 @@ import { ResearchSynthesisSchema, deriveBriefUnits } from "../../src/main/privat
 import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research-plan";
 import { EXTRACT_SYSTEM, ExtractReplySchema, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, RESEARCH_ROLE_SCHEMAS, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, runResearchPipeline, synthesisLengthCap } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
-import { DEFAULT_ROLE_SCHEMAS_PATH, P10_JOB_ID, P10_ROLES, P10_THINKING_MODES, SYNTHETIC_REQUEST_SETTINGS, buildRoleSchemaExport, parseRoleSchemaExportArguments, syntheticRoleCorpus,
+import { DEFAULT_ROLE_SCHEMAS_PATH, P10_JOB_ID, P10_ROLES, P10_THINKING_MODES, SYNTHETIC_REQUEST_SETTINGS, buildRoleSchemaExport, isRoleSchemaExportSynthesisCap, parseRoleSchemaExportArguments, syntheticRoleCorpus,
   type RequestSettings, type RoleSchemaExport } from "../../scripts/export-role-schemas";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_ROLE_MAX_OUTPUT_TOKENS, parseServingCard, resolveServingCard, servingCardRequestSettings, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
@@ -274,5 +274,64 @@ describe("role schema export with a plan cap (topic 6)", () => {
       const target = join(root, `refused-${args[0]}.json`), refused = run(["--out", target, ...args]);
       expect(refused.status).toBe(2); expect(refused.stdout).toBe(""); expect(refused.stderr).toContain("role_export_arguments_invalid"); expect(existsSync(target)).toBe(false);
     }
+  });
+});
+
+// The E0 card's Amendment 8: a synthesis cap for the re-probe, so a revised card can carry the synthesis caps the fixtures choose.
+describe("role schema export with a synthesis cap (the E0 card's Amendment 8)", () => {
+  const settings: RequestSettings = { vllm: { model: "Synthetic" }, streamingEnabled: true };
+
+  it("builds both synthesis cells at the cap with the word cap the stage would send there, records the cap, and changes nothing else", () => {
+    const today = buildRoleSchemaExport("2026-11-18T00:00:00.000Z", settings), capped = buildRoleSchemaExport("2026-11-18T00:00:00.000Z", settings, { synthesisCap: 16384 });
+    expect(capped.outputTokens).toEqual({ index: 1536, plan: 8192, extract: 2048, synthesis: 16384 });
+    const model = new PrivateAgentModel({} as PrivateAgentBroker, buildLocalScreenModelConfig(settings as never, COORDINATOR_PROFILES.heavy, true), P10_JOB_ID, "p10");
+    const { brief } = syntheticRoleCorpus();
+    for (const mode of P10_THINKING_MODES) {
+      const cell = capped.requests.synthesis[mode], messages = cell.body.messages as { role: "system" | "user"; content: string }[];
+      const expected = model.requestBody(messages, [], { maxOutputTokens: 16384, ...(mode === "off" ? { thinking: "disabled" as const } : {}) }).body;
+      expect(canonical(cell.body)).toBe(expected); expect(cell.body.max_tokens).toBe(16384);
+      // The payload's word cap is the stage's at this cap and thinking: the thinking ceiling on, the cap's own fit off.
+      expect(JSON.parse(messages[1]!.content).lengthCap).toEqual({ words: researchSynthesisLengthCap(brief, { maxOutputTokens: 16384, thinking: mode === "on" ? "model" : "disabled" }).words });
+    }
+    expect(JSON.parse((capped.requests.synthesis.off.body.messages as { content: string }[])[1]!.content).lengthCap.words)
+      .not.toBe(JSON.parse((today.requests.synthesis.off.body.messages as { content: string }[])[1]!.content).lengthCap.words);
+    const rest = ({ outputTokens: _caps, payloads: { synthesis: _p, ...payloads }, requests: { synthesis: _s, ...requests }, ...other }: RoleSchemaExport) => ({ payloads, requests, other });
+    expect(rest(capped)).toEqual(rest(today));
+    // Both caps together, and the default export unchanged by the new option.
+    expect(buildRoleSchemaExport(undefined, settings, { planCap: 16384, synthesisCap: 16384 }).outputTokens).toEqual({ index: 1536, plan: 16384, extract: 2048, synthesis: 16384 });
+    expect(canonical(buildRoleSchemaExport("2026-11-18T00:00:00.000Z", settings, {}))).toBe(canonical(today)); expect(today.outputTokens).toBe(OUTPUT_TOKENS);
+  });
+
+  it("refuses a cap outside the reader's range or whose synthesis length ceiling falls below the pipeline's floor", () => {
+    // floor((1148 - 1024) / 1.245) = 99 words, below the 100-word floor; 1149 gives 100.
+    for (const synthesisCap of [127, 1148, RESEARCH_ROLE_MAX_OUTPUT_TOKENS + 1, 8192.5, Number.NaN]) {
+      expect(isRoleSchemaExportSynthesisCap(synthesisCap)).toBe(false);
+      expect(() => buildRoleSchemaExport(undefined, settings, { synthesisCap })).toThrow("role_export_synthesis_cap_invalid");
+    }
+    expect([1149, 8192, 16384].map(isRoleSchemaExportSynthesisCap)).toEqual([true, true, true]);
+    expect(parseRoleSchemaExportArguments(["--", "--synthesis-cap", "16384", "--plan-cap", "16384"])).toEqual({ out: DEFAULT_ROLE_SCHEMAS_PATH, planCap: 16384, synthesisCap: 16384 });
+    for (const args of [["--synthesis-cap", "1148"], ["--synthesis-cap", "16385"], ["--synthesis-cap", "8192", "--synthesis-cap", "16384"], ["--synthesis-caps", "16384"], ["--synthesis-cap"]])
+      expect(() => parseRoleSchemaExportArguments(args)).toThrow("role_export_arguments_invalid");
+  });
+
+  it("reaches the card through the probe's record: the writer proposes synthesis at the cap beside P10's synthesis cells at it, and the reader resolves the card", () => {
+    const data = buildRoleSchemaExport(undefined, SYNTHETIC_REQUEST_SETTINGS, { planCap: 16384, synthesisCap: 16384 }), probe = currentSyntheticProbe();
+    probe.roles.output_tokens = { ...data.outputTokens };
+    for (const role of P10_ROLES) for (const mode of P10_THINKING_MODES) probe.P10.cells[`${role}/${mode}`].max_tokens = data.requests[role][mode].body.max_tokens;
+    const run = runCardWriter(probe, ["--attempt-thinking", "synthesis=model,disabled"]);
+    expect(run.status, run.stderr).toBe(0);
+    const card = parseServingCard(run.policy!);
+    expect(card.roles.synthesis).toMatchObject({ maxOutputTokens: [16384, 16384], thinking: ["model", "disabled"] });
+    expect([card.evidence.p10!.cells["synthesis/on"]!.maxTokens, card.evidence.p10!.cells["synthesis/off"]!.maxTokens]).toEqual([16384, 16384]);
+    expect(resolveServingCard(adopt(card), { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } }).roles.synthesis).toEqual(card.roles.synthesis);
+  });
+
+  it("takes --synthesis-cap from the command line and prints the caps it wrote", () => {
+    const root = mkdtempSync(join(tmpdir(), "soar-role-schemas-synthesis-cap-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const out = join(root, "capped.json"), written = spawnSync(process.execPath, ["--import", "tsx", "scripts/export-role-schemas.ts", "--", "--out", out, "--synthesis-cap", "16384"],
+      { cwd: ROOT, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } });
+    expect(written.status, written.stderr).toBe(0);
+    expect(JSON.parse(written.stdout).outputTokens).toEqual({ index: 1536, plan: 8192, extract: 2048, synthesis: 16384 });
+    expect(P10_THINKING_MODES.map(mode => JSON.parse(readFileSync(out, "utf8")).requests.synthesis[mode].body.max_tokens)).toEqual([16384, 16384]);
   });
 });

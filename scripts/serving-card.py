@@ -17,8 +17,10 @@ error detail fields. The output is deterministic for a given input.
 With --policy-out the writer also writes the machine-readable card (kind soar_serving_card, version 1) from the same probe
 result, after running the same address refusal over it: the identity, the probe's sha256 and probe names, the role policy
 research code may read, the concurrency K, the admission basis and the evidence behind them, never an address, a path, a
-key or reply text. Its decision is always {status: proposed, entry: null}. It proposes today's caps and thinking on both
-attempts, K 1 and admission none, and structured output for a role and thinking mode only from a P10 cell that was assessed
+key or reply text. Its decision is always {status: proposed, entry: null}. It proposes the role export's caps and thinking on both
+attempts, or with --attempt-thinking ROLE=FIRST,SECOND (the E0 card's Amendment 8) a P10 role's own pair, refused where an attempt
+would send the format at a cap its P10 cell did not measure or where the option moves an attempt to a thinking mode the role's
+structured-output flag does not name. It proposes K 1 and admission none, and structured output for a role and thinking mode only from a P10 cell that was assessed
 under the protocol the export sent, ran the requested variant, has no unassessed reply, at least 20 calls and at least 95%
 valid, and only when P10 recorded the request settings the export built its bodies under, which the card copies so the reader
 can compare them with a run's (#111). An existing file is refused, and nothing is printed or left behind on any refusal. One card is one probe run: run
@@ -807,8 +809,44 @@ def proposed_structured_output(role: str, p10: Optional[Dict[str, Any]]) -> Opti
     return {"variant": requested, "thinkingOff": meets["off"], "thinkingOn": meets["on"]}
 
 
-def proposed_roles(probe: Dict[str, Any], p10: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """The role export's caps and thinking on both attempts; structured output by the 95% rule."""
+ATTEMPT_THINKING = re.compile(r"(plan|extract|synthesis)=(model|disabled),(model|disabled)")
+
+
+def attempt_thinking_pairs(values: Sequence[str]) -> Dict[str, List[str]]:
+    """--attempt-thinking ROLE=FIRST,SECOND (the E0 card's Amendment 8), each role at most once: the thinking of a P10 role's two attempts,
+    in place of the role export's one mode on both."""
+    pairs: Dict[str, List[str]] = {}
+    for value in values:
+        match = ATTEMPT_THINKING.fullmatch(value)
+        if match is None or match.group(1) in pairs:
+            raise Refusal("refused: --attempt-thinking takes ROLE=FIRST,SECOND once per role, the role plan, extract or synthesis and each mode model "
+                          "or disabled; the card was not written")
+        pairs[match.group(1)] = [match.group(2), match.group(3)]
+    return pairs
+
+
+def check_attempt_thinking(role: str, entry: Dict[str, Any], default: str, p10: Optional[Dict[str, Any]]) -> None:
+    """What the reader checks of a role's attempts (serving-card.ts, resolveServingCard): an attempt whose thinking mode the structured-output
+    flag names sends the format at the cap that mode's P10 cell measured (`serving_card_structured_output_cap_unmeasured`). And one rule more: an
+    attempt the option moves to a mode the flag does not name would go without the format; the reader accepts that, but no cell measured it."""
+    flag = entry.get("structuredOutput")
+    if flag is None:
+        return
+    for attempt, thinking in enumerate(entry["thinking"]):
+        mode = "off" if thinking == "disabled" else "on"
+        if not flag["thinkingOff" if mode == "off" else "thinkingOn"]:
+            if thinking != default:
+                raise Refusal(f"refused: --attempt-thinking moves {role} attempt {attempt + 1} to thinking {thinking}, whose structured output P10's "
+                              f"{role}/{mode} cell does not flag, so that attempt would go without the format; the card was not written")
+            continue
+        cell = ((p10 or {}).get("cells") or {}).get(f"{role}/{mode}") or {}
+        if entry["maxOutputTokens"][attempt] != cell.get("maxTokens"):
+            raise Refusal(f"refused: {role} attempt {attempt + 1} would send the format at {entry['maxOutputTokens'][attempt]} tokens, but P10's "
+                          f"{role}/{mode} cell measured {cell.get('maxTokens')}; the card was not written")
+
+
+def proposed_roles(probe: Dict[str, Any], p10: Optional[Dict[str, Any]], pairs: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+    """The role export's caps and thinking on both attempts, or a role's --attempt-thinking pair; structured output by the 95% rule."""
     roles = probe.get("roles")
     caps = roles.get("output_tokens") if isinstance(roles, dict) else None
     thinking = roles.get("thinking") if isinstance(roles, dict) else None
@@ -817,14 +855,16 @@ def proposed_roles(probe: Dict[str, Any], p10: Optional[Dict[str, Any]]) -> Dict
                       "(pnpm probe:export-schemas before the probe); the card was not written")
     proposal: Dict[str, Any] = {}
     for role in CARD_ROLES:
-        entry: Dict[str, Any] = {"maxOutputTokens": [caps[role], caps[role]], "thinking": [thinking[role], thinking[role]]}
+        entry: Dict[str, Any] = {"maxOutputTokens": [caps[role], caps[role]], "thinking": list((pairs or {}).get(role) or [thinking[role], thinking[role]])}
         if role in SCHEMA_ROLES:
             entry["structuredOutput"] = proposed_structured_output(role, p10)
+            if role in (pairs or {}):
+                check_attempt_thinking(role, entry, thinking[role], p10)
         proposal[role] = entry
     return proposal
 
 
-def build_policy(probe: Dict[str, Any], date: Optional[str], probe_sha256: str) -> Dict[str, Any]:
+def build_policy(probe: Dict[str, Any], date: Optional[str], probe_sha256: str, pairs: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
     """The machine-readable card (ServingCardV1), keys in the documented order; the decision is always proposed."""
     if not is_sha256(probe_sha256):
         raise Refusal("refused: the probe digest is not a sha256; the card was not written")
@@ -837,7 +877,7 @@ def build_policy(probe: Dict[str, Any], date: Optional[str], probe_sha256: str) 
     return {"kind": CARD_KIND, "version": CARD_VERSION, "date": day, "decision": {"status": "proposed", "entry": None}, "identity": identity,
             "probe": {"probeVersion": 2, "sha256": probe_sha256, "probesRun": probe_names(probe.get("probes_run") or [], "$.probes_run"),
                       "probesSkipped": probe_names(probe.get("probes_skipped") or [], "$.probes_skipped"), "probesFailed": probe_names(list(failed), "$.probes_failed")},
-            "roles": proposed_roles(probe, p10), "concurrency": {"localStreams": 1}, "admission": {"basis": "none"},
+            "roles": proposed_roles(probe, p10, pairs), "concurrency": {"localStreams": 1}, "admission": {"basis": "none"},
             "evidence": {"p10": p10, "p11": p11_evidence(probe), "bounds": bounds_evidence(probe), "adapter": adapter_evidence(probe)}}
 
 
@@ -903,6 +943,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--env-file", default=None, help="env file whose SOAR_VLLM_BASE_URL host is also refused (default: the repository's .env.local)")
     parser.add_argument("--policy-out", default=None,
                         help="also write the machine-readable card (kind soar_serving_card, version 1, status proposed); an existing file is refused")
+    parser.add_argument("--attempt-thinking", action="append", default=[], metavar="ROLE=FIRST,SECOND",
+                        help="with --policy-out: the thinking of a P10 role's two attempts (plan, extract or synthesis; model or disabled), once per role")
     arguments = list(argv) if argv is not None else sys.argv[1:]
     # pnpm 10 passes the `--` of `pnpm card:serving -- --input ...` through, and argparse would read every flag after it as a
     # positional; the parser has no positional, so dropping one leading `--` changes no invocation that worked before.
@@ -911,6 +953,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(arguments)
     written: Optional[str] = None
     try:
+        pairs = attempt_thinking_pairs(args.attempt_thinking)
+        if pairs and args.policy_out is None:
+            raise Refusal("refused: --attempt-thinking sets the machine-readable card's roles, so it needs --policy-out; the card was not written")
         with open(args.input, "rb") as handle:
             raw = handle.read()
         probe_sha256 = hashlib.sha256(raw).hexdigest()
@@ -926,7 +971,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         refuse_addresses({"card": card}, hosts)
         encode_card(card)
         if args.policy_out is not None:
-            policy = build_policy(probe, args.date, probe_sha256)
+            policy = build_policy(probe, args.date, probe_sha256, pairs)
             refuse_addresses(policy, hosts)
             data = encode_policy(policy)
             write_policy(args.policy_out, data)

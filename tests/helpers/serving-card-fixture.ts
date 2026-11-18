@@ -13,7 +13,8 @@ import { DEFAULT_RESEARCH_ROLE_POLICY } from "../../src/main/private-agent/resea
 import { currentRoleSchemaSha256, parseServingCard, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { syntheticProbe } from "./serving-probe-fixture";
 
-export const SERVING_CARD_WRITER = resolve(__dirname, "..", "..", "scripts", "serving-card.py");
+// import.meta.dirname, not __dirname: Playwright loads this helper as an ES module (the local research e2e, backlog item 13a).
+export const SERVING_CARD_WRITER = resolve(import.meta.dirname, "..", "..", "scripts", "serving-card.py");
 /** A stalled child fails its test instead of hanging the suite. */
 export const PYTHON_TIMEOUT_MS = 60_000;
 /** A well-formed adopting entry ID; the reader checks the format, not the ledger. */

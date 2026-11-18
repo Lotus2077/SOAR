@@ -641,7 +641,7 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
     const section = await screen.findByRole("region", { name: "Research stage" });
     expect(within(section).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Index: 1 call.",
       "Plan: 2 attempts, 2 cut at the output limit; none was accepted, so the host's plan was used.",
-      "Extraction: 6 of 7 source passages read; 3 repairs (1 second, 1 completing their passage); 1 passage not resolved after its repairs, disclosed with the packet.",
+      "Extraction: 6 of 7 source passages resolved; 3 repairs (1 second, 1 completing their passage); 1 passage not resolved after its repairs, disclosed with the packet.",
       "6 of 7 passages held for a repair kept their first reading: the budget had no room for the optional repair.",
       "Evidence packet: 120 of 240 verified quotes kept; 120 left out at the packet's caps (4 by the presentation guard); 2 questions left without a quote in the packet.",
       "Conflicts: 1 of 3 noted conflicts in the packet.", "Synthesis: 2 attempts; none was accepted, so the writer gets the evidence skeleton."]);
@@ -654,7 +654,7 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
     const { api } = fixture([task({ status: "running", profile: "heavy", research: research({ stages: [{ stage: "extract", calls: 2, chunksPlanned: 2, chunksComplete: 2 }], requests: 1 }) })]);
     render(<GeneralTaskWorkspace api={api} />);
     const section = await screen.findByRole("region", { name: "Research stage" });
-    expect(within(section).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Extraction: 2 of 2 source passages read."]);
+    expect(within(section).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Extraction: 2 of 2 source passages resolved."]);
     expect(section).toHaveTextContent("1 research request to the local model");
     expect(screen.queryByText(/Pausing now ends this task/u)).toBeNull();
   });
@@ -671,7 +671,28 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
       const { api } = fixture([task({ status: "submitted", profile: "heavy", research: research({ stages: [{ stage: "extract", calls: 4, chunksPlanned: 4, chunksComplete: 4, ...counts }] }) })]);
       const view = render(<GeneralTaskWorkspace api={api} />);
       const lines = within(await screen.findByRole("region", { name: "Research stage" })).getAllByRole("listitem").map(item => item.textContent);
-      expect(lines).toEqual([`Extraction: 4 of 4 source passages read${counts.declaredGaps ? `; ${counts.declaredGaps} passages not resolved after their repairs, disclosed with the packet` : ""}.`, ...held]);
+      expect(lines).toEqual([`Extraction: 4 of 4 source passages resolved${counts.declaredGaps ? `; ${counts.declaredGaps} passages not resolved after their repairs, disclosed with the packet` : ""}.`, ...held]);
+      view.unmount();
+    }
+  });
+
+  // The coordinating session's check: a passage read and declared unresolved is never worded as unread, in the badge, the lines or the stop.
+  it("never words a passage that was read and left unresolved as unread: a packet with a gap and held passages, and a stage stopped unresolved", async () => {
+    const stop = "The research stage could not resolve every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were resolved.";
+    const cases: [Partial<GeneralTaskSnapshot>, string, string[]][] = [
+      [{ status: "submitted", research: research({ stage: "transferred", gap: { chunks: 1, source: "input/02-beta.md", questions: 1 },
+        stages: [{ stage: "extract", calls: 9, chunksPlanned: 7, chunksComplete: 6, repairCalls: 3, heldChunks: 2, heldKeptUnrepaired: 1, declaredGaps: 1 }] }) },
+        "packet ready, with a disclosed gap (1 passage not resolved)",
+        ["Extraction: 6 of 7 source passages resolved; 3 repairs; 1 passage not resolved after its repairs, disclosed with the packet.",
+          "1 of 2 passages held for a repair kept its first reading: the budget had no room for the optional repair."]],
+      [{ status: "incomplete", reason: stop, research: research({ stage: "stopped", stages: [{ stage: "extract", calls: 4, chunksPlanned: 2, chunksComplete: 0, repairCalls: 2 }] }) },
+        "stopped before the writer", ["Extraction: 0 of 2 source passages resolved; 2 repairs."]]];
+    for (const [overrides, badge, lines] of cases) {
+      const { api } = fixture([task({ profile: "heavy", ...overrides })]), view = render(<GeneralTaskWorkspace api={api} />);
+      const article = await screen.findByRole("article", { name: "Selected general task" });
+      expect(within(article).getByLabelText("Research route")).toHaveTextContent(new RegExp(`· ${badge.replace(/[()]/gu, "\\$&")}$`, "u"));
+      expect(within(within(article).getByRole("region", { name: "Research stage" })).getAllByRole("listitem").map(item => item.textContent)).toEqual(lines);
+      expect(article.textContent).not.toMatch(/\bnot read\b|\bunread\b|\bpassages? read\b|could not read/iu);
       view.unmount();
     }
   });

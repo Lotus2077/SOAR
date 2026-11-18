@@ -78,7 +78,7 @@ test("a local research task reads its files on the card, writes from the packet,
     // The badge, the stage's counts, and the stage before the writer.
     await expect(page.getByLabel("Research route")).toHaveText("Local research (beta) · serving card of " + JSON.parse(readFileSync(written.path, "utf8")).date + " · packet ready");
     const section = page.getByRole("region", { name: "Research stage" });
-    await expect(section).toContainText("Extraction: 2 of 2 source passages read.");
+    await expect(section).toContainText("Extraction: 2 of 2 source passages resolved.");
     const first = (prefix: string) => server.requests.findIndex(request => request.system.startsWith(prefix));
     expect(["You index", "You plan", "You extract", "You write"].every(prefix => first(prefix) >= 0)).toBe(true);
     expect(writer).toHaveLength(2);

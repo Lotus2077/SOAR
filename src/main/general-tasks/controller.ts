@@ -85,7 +85,8 @@ const fixedReasons: Record<string, string> = {
   // uncertain() skips another context's unknown assist rows, and an uncertain request shows its own text first.
   research_stage_not_replayed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume.",
   // Backlog item 13a: a local research task's stops, each terminal (run-reasons.ts); the task's research section shows the stage's own counts.
-  research_extraction_incomplete: "The research stage could not read every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were read.",
+  // A passage may have been read and still declared unresolved (needs_followup), so the stop and the counts speak of resolving, not reading.
+  research_extraction_incomplete: "The research stage could not resolve every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were resolved.",
   research_mandatory_budget_exceeded: "The input files need more reading calls than the research stage allows, so it sent nothing. This task cannot resume; fewer or shorter text files may fit.",
   research_infeasible_in_clock: "By the serving card's measured speeds, the research stage could not finish within this task's time, so it sent nothing. This task cannot resume.",
   research_source_unreadable: "An input file is not readable text, and the research stage reads every input in full, so it sent nothing. This task cannot resume; use text files.",

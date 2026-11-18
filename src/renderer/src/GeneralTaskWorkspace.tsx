@@ -56,7 +56,7 @@ function researchStageLines(row: GeneralTaskResearchStage): string[] {
   if (row.stage === "index") return [`Index: ${plural(row.calls, "call")}${cut}.`];
   if (row.stage === "plan") return [`Plan: ${plural(row.calls, "attempt")}${cut}${row.fallback === "host_plan" ? "; none was accepted, so the host's plan was used" : ""}.`];
   if (row.stage === "synthesise") return [`Synthesis: ${plural(row.calls, "attempt")}${cut}${row.fallback === "skeleton" ? "; none was accepted, so the writer gets the evidence skeleton" : ""}.`];
-  const read = row.chunksPlanned !== undefined && row.chunksComplete !== undefined ? `${row.chunksComplete} of ${plural(row.chunksPlanned, "source passage")} read` : plural(row.calls, "call");
+  const read = row.chunksPlanned !== undefined && row.chunksComplete !== undefined ? `${row.chunksComplete} of ${plural(row.chunksPlanned, "source passage")} resolved` : plural(row.calls, "call");
   const gap = row.declaredGaps ? `; ${plural(row.declaredGaps, "passage")} not resolved after ${row.declaredGaps === 1 ? "its" : "their"} repairs, disclosed with the packet` : "";
   const lines = [`Extraction: ${read}${cut}${repairs}${gap}.`];
   // A held passage's first reply lost every quote of a question it marked answered; its repair is optional and comes last.

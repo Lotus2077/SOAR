@@ -130,9 +130,9 @@ Recompute both before any run.
    and extract rows and moves synthesis to [16384, 16384] with thinking on both attempts; its
    synthesis flag is for thinking off only, so no format is sent and #181 was closed unmerged.
    Amendment 5's check holds, and the session asked the owner for the adoption commit at about
-   12:15 UTC. The adopted file's sha256 will be `9cd65c4e…`, and the run hash under it
+   12:05 UTC. The adopted file's sha256 will be `9cd65c4e…`, and the run hash under it
    `99bbc0e6…` (BL-20261118-1206-e0-amendment-8-reprobe-result, #183).
-2. **The owner's adoption go** was asked by name at about 12:15 UTC. The adoption commit edits
+2. **The owner's adoption go** was asked by name at about 12:05 UTC. The adoption commit edits
    only the revised card's `decision` and `admission.basis` (Amendment 8, item 5).
 3. **#181,** E0's `synthesis-16384-structured` fixture cell, is closed unmerged: the revised
    card sends synthesis no format (Amendment 8, item 4).
@@ -144,7 +144,7 @@ Recompute both before any run.
    notes) are ready. How a grader is started is not chosen (the brief, Part A, "Graders"); it
    blocks the grading, not the runs.
 6. **Waiting on the owner:**
-   - the adoption go, asked at about 12:15 UTC;
+   - the adoption go, asked at about 12:05 UTC;
    - how many real jobs a week the owner can run in the desktop build (BL-20261118-0418,
      decision 6);
    - the push of the local tag `owner-v0.2.1` (BL-20261117-1157-e5-owner-build-cut);
@@ -160,7 +160,7 @@ Recompute both before any run.
 ### 5. Act next, in this order
 
 1. **The adoption.** #183 holds the re-probe's result and the revised card. On the owner's go,
-   asked at about 12:15 UTC, the adoption commit follows (§4, item 2; Amendment 8, item 5).
+   asked at about 12:05 UTC, the adoption commit follows (§4, item 2; Amendment 8, item 5).
 2. **After the adoption,** run the three r3 runs under the revised card, one at a time, by the
    endpoint rules below. Write their result entry with the gap, held-chunk and
    synthesis-correction counts (Amendment 8, item 6).

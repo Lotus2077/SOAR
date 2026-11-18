@@ -6,7 +6,7 @@
  * length constraints (the schema's bound; the server's request validator is stricter, 128 characters and no `@`, `/`,
  * `\` or NUL). It never prints the endpoint and sends no prompt. Exit 0 when the field is listed, 1 otherwise, 2 when the
  * schema could not be read. Host-side metadata only, but the Phase 4 track treats every request to the box as a box use and
- * runs it only in an owner-declared idle window or after Oct 27 (BL-20261025-0939).
+ * runs it only in an owner-declared idle window or after Oct 27 (#23).
  *
  *   pnpm check:vllm-schema
  */

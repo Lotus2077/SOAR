@@ -30,7 +30,7 @@ function selected(files: File[]): File[] {
   });
 }
 /**
- * 7b.2 (BL-20261115-1939-research-priority-trim-design): the rendered bytes of the presentation these files would make, without the
+ * 7b.2 (#102): the rendered bytes of the presentation these files would make, without the
  * ready gate, so that the pipeline can measure candidates before synthesis. buildResearchPresentation renders the same way.
  */
 export function researchPresentationBytes(files: File[]): number { return Buffer.byteLength(render(selected(files))); }

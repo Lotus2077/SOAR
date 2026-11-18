@@ -11,7 +11,7 @@ or an existing registry row.
 Counts come from the run's own state.sqlite and result.json. The row holds hashes,
 counts and enums only: no paths, endpoints, prompts or outputs.
 
-`git`, `gitSource` and `gitDirty` (backlog item 11, BL-20261109-0422): a run row takes the commit from the run's own
+`git`, `gitSource` and `gitDirty` (backlog item 11, #85): a run row takes the commit from the run's own
 freeze.json (`gitSource` run), a loop row from the selected run's (`run`, or `runs_differ` when the loop's stage freezes do
 not all record that commit), and a row whose run recorded none, a --verdict-file row and a --supersedes row of a row
 without a run-sourced commit take the commit the row is written at (`row_written`, `gitDirty` null).
@@ -19,11 +19,11 @@ without a run-sourced commit take the commit the row is written at (`row_written
 H4: `--loop-dir LOOP` instead of `--run-dir` rows a select-and-repair loop (scripts/phase4-loop.ts): the per-run
 counts of the loop's runs are summed with the same logic, status, cause and binding come from the selected run,
 wall seconds from the loop's own clock, and a `loop` field records the choice. From backlog item 11's part 3b
-(BL-20261113-0836), loop versions 1 and 2: the counts sum every run the loop made, moved-aside runs included, the
+(#89), loop versions 1 and 2: the counts sum every run the loop made, moved-aside runs included, the
 writer waits for no loop (a held loop.lock refuses), and a loop that ended without a selection is rowed by its
 stop's class, never as accepted.
 
-Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
+Owner verdicts (#40):
 
     `--verdict-file RECEIPT.json` rows a desktop task from the app's verdict receipt ("Export verdict receipt"). The
     receipt holds hashes, counts, enums and the verdict only; any other key is refused. It supplies the measurements,
@@ -36,7 +36,7 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
     runs_differ), git, gitSource and gitDirty (the commit the row is written at). It refuses an unknown id, an id
     another row already supersedes, and a new id that already exists.
 
-E0 (BL-20261116-0839-e0-registry-modes-design): `--probe-dir DIR` rows a scripts/serving-probe.py run from its probe.json,
+E0 (#117): `--probe-dir DIR` rows a scripts/serving-probe.py run from its probe.json,
 `--fixture-dir DIR --fixture planner|judge|extractor` a role-fixture run from its summary.json (or, for a planner or judge run that
 died without one, from its replies/ listing), and `--labelling-file FILE` the summary of one scripts/judge-labeller.ts invocation.
 Each row holds digests, bounded counts and USD amounts, booleans and closed codes only; the served alias, paths, file names, model
@@ -211,7 +211,7 @@ def is_zero_fee(item: dict) -> bool:
             and is_zero(item.get("reservedFeeMicrousd")) and ("feeMicrousd" not in item or is_zero(item["feeMicrousd"])) and "approval" not in item)
 
 
-# Backlog item 11, part 3a (BL-20261109-0515-infra-classification-design): whether a run that did not submit ended on infrastructure,
+# Backlog item 11, part 3a (#85): whether a run that did not submit ended on infrastructure,
 # labelled `infra_invalid`, from recorded codes only. src/main/private-agent/run-classification.ts holds the same lists and function,
 # and tests/unit/run-classification.test.ts keeps them equal.
 RUN_CLASSIFICATION_VERSION = 1
@@ -329,7 +329,7 @@ def run_end_evidence(run_dir: str, stop_signalled: bool) -> dict:
             "stopSignalled": stop_signalled}
 
 
-# Backlog item 11, part 3b (BL-20261113-0836-infra-resume-design, decisions (4) and (10)): why a loop stage stopped, for the row of a
+# Backlog item 11, part 3b (#89, decisions (4) and (10)): why a loop stage stopped, for the row of a
 # loop that ends without a selection. run-classification.ts holds the same lists and functions (ledgerStop, classifyLoopStop and the
 # amended classifyCritiqueEnd), and tests/unit/run-classification.test.ts keeps them equal. Version 1's run-end lists do not change.
 RUN_UNFINISHED_CAUSE = "run_unfinished"
@@ -497,7 +497,7 @@ def counts_of(events: list, dispatches: list) -> dict:
         "toolCalls": sum(1 for event in events if event.get("type") == "tool_finished"),
         "inputTokens": summed("inputTokens"),
         "outputTokens": summed("outputTokens"),
-        # H1 (BL-20261022-0834): prompt tokens the provider reported as served from its cache; 0 when unreported.
+        # H1 (#20): prompt tokens the provider reported as served from its cache; 0 when unreported.
         "cachedTokens": summed("cacheReadTokens"),
         # H1 completion: prompt tokens the provider reported as newly written to its cache (billed at the write rate); 0 when unreported.
         "cacheWriteTokens": summed("cacheWriteTokens"),
@@ -522,20 +522,20 @@ def safe_integer(value):
     return value if abs(value) <= 2 ** 53 - 1 else None
 
 
-# Plan 11.4 (BL-20261114-1523-registry-columns-design): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
+# Plan 11.4 (#104): reserved and pinned USD, cloud calls, disclosure, retrieval and action counts,
 # and 7(c)'s fallback markers. Every value is a count, a USD amount, a fixed host enum or null: a retained source's URL is read only
 # to count it and its hostname, and never leaves this process.
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 DISPATCH_STATUSES = ("committed", "settled", "unknown", "superseded", "failed")
 HOST_TOKEN = re.compile(r"^[a-z][a-z0-9 _-]{0,63}$")
-# BL-20261114-1526, decision (1): the runner's closed set of tool names, runner.ts's tools with every option on and observations.ts's
+# #104, decision (1): the runner's closed set of tool names, runner.ts's tools with every option on and observations.ts's
 # read_observation. tests/unit/registry-row-columns.test.ts checks this mirror against the runner's own definitions. A tool_started
 # event records the name the model chose before the runner checks it, so any other name counts as `other` and never reaches a row.
 RUNNER_TOOLS = ("append_file", "check_claims", "execute", "fetch_public", "finish", "read_observation", "remember_plan", "request_consultation", "str_replace", "write_file")
 
 
 def source_key(url: str) -> str:
-    """A retained source's URL as `urls` counts it (BL-20261114-1526, decision (2)). Each run's snapshot receiver listens on its own
+    """A retained source's URL as `urls` counts it (#104, decision (2)). Each run's snapshot receiver listens on its own
     loopback port, so a loopback URL is counted without its port, and one source read by two runs of a loop counts once."""
     try:
         parts = urllib.parse.urlsplit(url)
@@ -563,7 +563,7 @@ def depth_parts(events: list, dispatches: list) -> dict:
         if kind == "cloud_model" or (kind is None and item.get("destinationId") == "cloud_coordinator"):
             purpose, status = item.get("purpose"), item.get("status")
             # Kept with its commit time for the row's commit order. Only the store's settle records a fee, so a call that did not
-            # settle has none (BL-20261114-1526, decisions (3) and (4)).
+            # settle has none (#104, decisions (3) and (4)).
             cloud.append((safe_integer(item.get("committedAt")), {
                 "purpose": purpose if isinstance(purpose, str) and HOST_TOKEN.fullmatch(purpose) else "other",
                 "status": status if status in DISPATCH_STATUSES else "other",
@@ -593,7 +593,7 @@ def depth_parts(events: list, dispatches: list) -> dict:
         "retainedBytes": sum(count(event.get("bytes")) for event in retained),
         "tools": tools, "fetchReceipts": len(retained),
         # "Read" on a closed corpus (HARN-27): the sources the reading stage indexed, and null unless it recorded the count, which a
-        # denied index stage does not (BL-20261114-1526, decision (3)); item 12 revises it.
+        # denied index stage does not (#104, decision (3)); item 12 revises it.
         "sourcesRead": index["sourcesIndexed"] if index is not None and is_count(index.get("sourcesIndexed")) else None,
         "fallback": {"plan": "host_plan" if (plan or {}).get("fallback") == "host_plan" else "none",
                      "synthesis": "skeleton" if (synthesis or {}).get("fallback") == "skeleton" else "none"} if stages else None,
@@ -624,7 +624,7 @@ def depth_columns(parts: list, fallback) -> dict:
         "reservedUsd": sum(part["reserved"] for part in parts) / 1_000_000,
         "pinnedUsd": sum(part["pinned"] for part in parts) / 1_000_000,
         "committedDispatches": sum(part["committed"] for part in parts),
-        # BL-20261114-1526, decision (4): commit order across the runs; a call without a commit time keeps the scan's order, after the others.
+        # #104, decision (4): commit order across the runs; a call without a commit time keeps the scan's order, after the others.
         "cloudCalls": [call for _, call in sorted((entry for part in parts for entry in part["cloud"]), key=lambda entry: (entry[0] is None, entry[0] or 0))],
         "disclosedBytes": sum(packets.values()) if all(part["complete"] for part in parts) else None,
         "urls": len(urls), "domains": len(hosts),
@@ -839,14 +839,14 @@ def receipt_row(args) -> dict:
 
 
 def cloud_fields(freeze: dict) -> dict:
-    """The cloud model and request shape a run's cloud arm was frozen with (BL-20261030-0620); null on local runs or when absent."""
+    """The cloud model and request shape a run's cloud arm was frozen with (#31); null on local runs or when absent."""
     arm = freeze.get("arm")
     config = arm.get("modelConfig") if isinstance(arm, dict) and arm.get("arm") == "cloud" else None
     config = config if isinstance(config, dict) else {}
     return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
 
 
-# BL-20261116-1358-run-row-card-and-doctor-sources-design (1): the freeze records of SC and 8.2b (servingCardFreeze, src/main/private-agent/serving-card.ts)
+# #128 (1): the freeze records of SC and 8.2b (servingCardFreeze, src/main/private-agent/serving-card.ts)
 # and of 7a.2's pipeline block (researchPipelineFreeze, scripts/private-agent-local-screen.ts). The card reader's entry pattern, in ASCII
 # digits, and its MAX_LOCAL_STREAMS.
 CARD_ENTRY = re.compile(r"BL-[0-9]{8}-[0-9]{4}-[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -854,7 +854,7 @@ MAX_LOCAL_STREAMS = 8
 
 
 def card_fields(freeze: dict) -> dict:
-    """The run's research protocol hash, the serving card the driver loaded, and its K (BL-20261116-1358-run-row-card-and-doctor-sources-design,
+    """The run's research protocol hash, the serving card the driver loaded, and its K (#128,
     decision (1)). researchProtocolSha256 is freeze.pipeline.protocolSha256, the protocol under the card's role policy (null without a
     research pipeline). servingCard is {sha256, entry} from freeze.servingCard (null without a card). localStreams, ASSIST-M2's K, is the
     card's localStreams, or 1 when the freeze records none, since the driver gives a session K only from a card. A present value of
@@ -874,13 +874,13 @@ def card_fields(freeze: dict) -> dict:
     return {"researchProtocolSha256": protocol, "servingCard": {"sha256": card["sha256"], "entry": card["entry"]}, "localStreams": streams}
 
 
-# BL-20261117-1049-e2-write-bound-and-dry-run-design (5): the name of a write bound in LOCAL_SCREEN_WRITE_BOUNDS
+# #140 (5): the name of a write bound in LOCAL_SCREEN_WRITE_BOUNDS
 # (scripts/private-agent-local-screen.ts), as freeze.json's limits.writeBound records it.
 WRITE_BOUND = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
 def limit_fields(freeze: dict) -> dict:
-    """The write phase's bound as freeze.json's `limits` records it (BL-20261117-1049-e2-write-bound-and-dry-run-design, decision (5)):
+    """The write phase's bound as freeze.json's `limits` records it (#140, decision (5)):
     writeLimits is {bound, modelCalls, toolCalls, elapsedMs}. `bound` is limits.writeBound, the named bound the driver set, or null for
     the profile's own limits; the three numbers are the write phase's, a number the freeze lacks reading null. Null when the freeze
     records no limits, or none of the three and no bound. A present value of another shape refuses the row, naming the field, never
@@ -930,7 +930,7 @@ def writing_commit() -> str:
 def freeze_git(run_dir: str):
     """A run's own {commit, dirty} from its freeze.json (scripts/private-agent-local-screen.ts localScreenGitState), or None
     when the freeze is absent or records no valid one: a malformed value is never guessed at, and a truncated or non-object freeze
-    counts as no record (part 3b, BL-20261110-0723 (f)) instead of stopping the row."""
+    counts as no record (part 3b, #85 (f)) instead of stopping the row."""
     freeze = read_freeze(run_dir)
     if freeze is None:
         return None
@@ -982,7 +982,7 @@ def row_provenance(args, row: dict) -> dict:
 
 
 
-# Backlog item 11, part 3b (BL-20261113-0836-infra-resume-design, decisions (9) and (10)): a loop row of version 1 or 2.
+# Backlog item 11, part 3b (#89, decisions (9) and (10)): a loop row of version 1 or 2.
 LOOP_STAGES = ("a", "b", "critique", "repair")
 LOOP_RUN_STAGES = ("a", "b", "repair")
 LOOP_FAILURE = re.compile(r"^[a-z0-9_]{1,80}$")
@@ -1239,7 +1239,7 @@ def loop_row(args) -> dict:
         sys.exit("the loop record's task is malformed")
     if loop.get("pipeline") not in ("research", None):
         sys.exit("the loop record's pipeline is neither research nor null")
-    # BL-20261117-1055-loop-single-sample-design: the samples the loop planned (`--samples`); a record saved before it planned two.
+    # #143: the samples the loop planned (`--samples`); a record saved before it planned two.
     planned = loop.get("samplesPlanned", 2)
     if type(planned) is not int or planned not in (1, 2):
         sys.exit("the loop record's samplesPlanned is neither 1 nor 2")
@@ -1334,7 +1334,7 @@ def loop_row(args) -> dict:
                 cause = "critique_" + failure
             elif step not in ("stage_failed", "no_draft", "critique_failed", "repair_failed") and final["candidate"] != "repair" and isinstance(candidates.get("repair", {}).get("runClass"), dict) \
                     and candidates["repair"]["runClass"]["infra"] is True:
-                # A repair that ended on infrastructure and lost the comparison left the draft unrepaired (BL-20261110-0723 (c)).
+                # A repair that ended on infrastructure and lost the comparison left the draft unrepaired (#85 (c)).
                 cause = "repair_" + candidates["repair"]["runClass"]["cause"]
             if cause is not None:
                 row["runClass"] = run_class(True, cause)
@@ -1346,9 +1346,9 @@ def loop_row(args) -> dict:
         path = os.path.join(loop_dir, stage) if stage else None
         fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": task["jobSha256"], "profile": None, "maxOutputTokens": None,
                   "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None,
-                  # BL-20261116-1358-run-row-card-and-doctor-sources-design: without a stage freeze, the protocol hash, the card and K are unknown.
+                  # #128: without a stage freeze, the protocol hash, the card and K are unknown.
                   "hostFlags": None, "researchProtocolSha256": None, "servingCard": None, "localStreams": None,
-                  # BL-20261117-1049-e2-write-bound-and-dry-run-design: nor is the write phase's bound.
+                  # #140: nor is the write phase's bound.
                   "writeLimits": None}
         evidence = {"kind": "none"}
         if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):
@@ -1381,7 +1381,7 @@ HOST_FLAG_SECTIONS = ("report_failed", "argument_failed", "misses_failed", "revi
 HOST_FLAG_COUNTS = ("reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded", "briefSingleUnit",
                     "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
                     "numericUnaddressed")
-# 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap; an older event's
+# 7d.D (#119) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap; an older event's
 # misses lack them, which means not recorded, never zero.
 HOST_FLAG_MISSES = ("briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries", "droppedQuotes",
                     "quotesLeftByCap", "conflictsLeftByCap", "fetchFailures", "fetchLimitRefusals")
@@ -1395,7 +1395,7 @@ HOST_FLAG_ERROR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 
 def host_flags(events, run_dir: str) -> dict | None:
-    """Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the run's host_flags event (7d.B) without its positions,
+    """Backlog item 7(d), part C (#99): the run's host_flags event (7d.B) without its positions,
     or None when the run recorded none, which means "not recorded", never "no flags". It keeps the event's version, the rule sets that ran
     and its counts, and, when present, the run's misses, the sections that failed, and the report's, the argument's and the review's states.
     It drops every hit line, flag position and edit id. Every value it keeps must lie in the event schema's closed sets (names, enums,
@@ -1495,7 +1495,7 @@ def run_counts(run_dir: str) -> dict:
     }
 
 
-# E0's producers (BL-20261116-0839-e0-registry-modes-design): a serving-probe run, a role-fixture run and the labelling call, each
+# E0's producers (#117): a serving-probe run, a role-fixture run and the labelling call, each
 # rowed from the producer's own output. A row copies only 64-hex digests, counts, USD amounts, booleans, closed enums, exception
 # class names and the labelling model's id: the served alias, the request settings, paths, file names, model or claim text, labels
 # and error bodies never reach it, and the producers' free-text manifest fields are only compared.
@@ -1513,7 +1513,7 @@ PROBE_FAILURE_CLASSES = frozenset((
     "ValueError", "Warning", "ZeroDivisionError",
     # The probe's own library classes: urllib's errors, http.client's, json's and the probe's ConfigError (socket.timeout's name before 3.10).
     "URLError", "HTTPError", "RemoteDisconnected", "IncompleteRead", "JSONDecodeError", "ConfigError", "timeout"))
-# The labelling models the owner approved (BL-20261115-1937-owner-adopts-standing-defaults, (b)).
+# The labelling models the owner approved (#114, (b)).
 LABELLING_MODELS = ("gpt-6-sol",)
 # The request shape the labelling tool sends (its schema's cloudApi literal).
 LABELLING_APIS = ("openai_responses",)
@@ -1708,7 +1708,7 @@ def counted(value) -> bool:
 
 
 def transport_failed(value) -> bool:
-    """Whether a probe record shows a transport failure anywhere in it (BL-20261116-1217-serving-probe-direct-transport-design, decision (5), as
+    """Whether a probe record shows a transport failure anywhere in it (#123, decision (5), as
     implemented). It decides from what each record holds, so a record written before this change is read conservatively:
     - a POST's transport_error (status -1), or a stream's error naming an exception class (an HTTP error code is the server's answer);
     - a status of -1, or one naming an exception class: a GET's, the adapter's chat_status, a P11 cache-layout row's;

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Backlog item 7(d) (BL-20261109-0354-document-review-flags-design): the document-review applier's host flags for the owner's attention,
+ * Backlog item 7(d) (#85): the document-review applier's host flags for the owner's attention,
  * `output/review-flags.json`. A leaf module (zod only), so the host-flags pass (7d.B) and the surfaces (7d.C) read the file without the
  * applier. Rules v1: N1, a table against the prose; C1, an edit that turns its clause around; C2, clauses of one document that
  * contradict each other. A flag never passes or fails a check, decides a status, feeds selection or acceptance, calls a model or writes

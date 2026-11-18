@@ -8,11 +8,11 @@ import { isAssistDispatch } from "./dispatch-purposes";
 import type { RunEndEvidence } from "./run-classification";
 
 /**
- * H4 select-and-repair loop (design BL-20261026 H4 entry): the host-checked, deterministic selection between two
+ * H4 select-and-repair loop (design #28): the host-checked, deterministic selection between two
  * candidate runs. A candidate is a complete headless run summarised into counts from its own `result.json`,
  * `freeze.json` and event ledger; nothing here reads a prompt, an output or any model text.
  *
- * Selection protocol 2 (backlog item 11, BL-20261109-0331-loop-selection-protocol-2-design) supersedes step (4) and the
+ * Selection protocol 2 (backlog item 11, #85) supersedes step (4) and the
  * repair half of step (5) of the H4 design for new loops: the entailment balance rate decides nothing (finding E10) and the
  * caller passes the original first, so a tie keeps it (finding E9). Protocol 1 records keep their meaning.
  */

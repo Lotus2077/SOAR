@@ -1583,13 +1583,16 @@ describe("desktop local research tasks (backlog item 13a)", () => {
     const edits: ((record: Record<string, any>) => void)[] = [record => { delete record.research; }, record => { record.profile = "standard"; }, record => { delete record.profile; },
       record => { record.research.cardPath = "card.json"; }, record => { record.research.route = "cloud"; }, record => { record.research.cardSha256 = "0".repeat(63); },
       record => { record.publicSources = { urls: ["https://public.example.test/facts"], allowPublicRetrieval: true, dnsResolver: "system" }; },
-      record => { record.version = 3; record.routing = "ask_before_consulting"; record.consultantIdentity = "a".repeat(64); }];
+      record => { record.version = 3; record.routing = "ask_before_consulting"; record.consultantIdentity = "a".repeat(64); },
+      record => { record.wallMs = -1; }, record => { record.wallMs = 1.5; }];
     for (const edit of edits) {
       const record = structuredClone(original); edit(record); write(task.id, record);
       expect(() => f.controller.get(task.id), String(edit)).toThrow("general_task_record_invalid");
     }
     write(task.id, original); expect(f.controller.get(task.id).status).toBe("queued");
     write(plain.id, { ...stored(plain.id), research: original.research });
+    expect(() => f.controller.get(plain.id)).toThrow("general_task_record_invalid");
+    const { research: _route, ...plainRecord } = stored(plain.id); write(plain.id, { ...plainRecord, wallMs: 5 });
     expect(() => f.controller.get(plain.id)).toThrow("general_task_record_invalid");
   });
 
@@ -1627,7 +1630,8 @@ async function stageFixture(reply: Parameters<typeof researchModelServer>[0], ed
   const task = f.controller.create({ goal: RESEARCH_V4_TEST_BRIEF, inputSelectionId: f.controller.selectInputs(files).id, outputName: "report.md", publicOrSynthetic: true, research: "local_beta" });
   const run = async () => { f.controller.start(task.id); await f.controller.wait(task.id); return f.controller.get(task.id); };
   const stored = () => JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
-  return { f, server, task, run, stored };
+  const write = (record: unknown) => { f.db.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical(record), task.id); };
+  return { f, server, task, run, stored, write };
 }
 const STAGE_PROMPTS = ["You index", "You plan", "You extract", "You write"];
 const stageRequests = (requests: { system: string }[]) => requests.filter(request => STAGE_PROMPTS.some(prefix => request.system.startsWith(prefix)));
@@ -1682,6 +1686,95 @@ describe("desktop local research stage (backlog item 13a, part 2)", () => {
     const plain = f.controller.create({ goal: "Make a small report.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true, profile: "heavy" });
     f.controller.start(plain.id); await f.controller.wait(plain.id);
     expect(f.executions[1]!.contract).toMatchObject({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 });
+  });
+
+  it("sends each role's cap from the card, without a response format under default structured output", async () => {
+    const { f, server, run } = await stageFixture(researchV4Reply, card => { card.roles.extract.maxOutputTokens = [1024, 2048]; });
+    expect((await run()).status).toBe("submitted");
+    const read = readDesktopResearchCard(f.config);
+    if (!read.accepted) throw new Error("card refused");
+    const roles = read.card.policy.roles, first = (prefix: string) => server.requests.find(request => request.system.startsWith(prefix))!;
+    expect(roles.extract.maxOutputTokens[0]).toBe(1024);
+    expect(first("You index")).toMatchObject({ maxTokens: roles.index.maxOutputTokens[0], responseFormat: false });
+    expect(first("You plan")).toMatchObject({ maxTokens: roles.plan.maxOutputTokens[0], responseFormat: false });
+    expect(first("You extract")).toMatchObject({ maxTokens: 1024, responseFormat: false });
+    expect(first("You write")).toMatchObject({ maxTokens: roles.synthesis.maxOutputTokens[0], responseFormat: false });
+  });
+
+  it("counts the stage's calls, tokens, cut replies and time in the verdict receipt, as registry-row.py's counts_of counts a driver row", async () => {
+    const { f, task, run, stored } = await stageFixture((system, user) => system.startsWith("You plan") ? { content: "{", finishReason: "length" } : researchV4Reply(system, user));
+    const done = await run();
+    expect(done.status).toBe("submitted");
+    f.controller.recordVerdict({ id: task.id, decision: "accept", ownerMinutes: 5, interventions: 0, exportedThroughApp: true });
+    const receipt = JSON.parse(f.controller.verdictReceipt(task.id).bytes.toString("utf8"));
+    const args = f.executions[0]!, events = args.store.events(task.id), dispatches = args.store.dispatches(task.id);
+    const counts = JSON.parse(execFileSync("python3", ["-I", "-c", ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('registry_row', sys.argv[1])",
+      "module = importlib.util.module_from_spec(spec)", "spec.loader.exec_module(module)", "print(json.dumps(module.counts_of(*json.load(sys.stdin))))"].join("\n"),
+      resolve(__dirname, "..", "..", "scripts", "registry-row.py")], { input: JSON.stringify([events, dispatches]), encoding: "utf8" }));
+    for (const key of ["modelCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops"]) expect(receipt[key], key).toBe(counts[key]);
+    const stageCalls = events.filter(event => event.type === "research_stage").reduce((total, row) => total + Number(row.calls), 0);
+    expect(stageCalls).toBeGreaterThan(0); expect(receipt.modelCalls).toBe(done.modelCalls + stageCalls);
+    expect(receipt.lengthStops).toBe(2);
+    expect(stored().wallMs).toBeGreaterThan(0); expect(receipt.wallSeconds).toBe(Math.round(stored().wallMs / 100) / 10);
+    expect(done.elapsedMs).toBe(stored().wallMs);
+  });
+
+  it("ends a task paused mid-stage, and its unfinished stage alone keeps Resume closed on a record left resumable", async () => {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const { f, server, task, stored, write } = await stageFixture(async (system, user) => { if (system.startsWith("You index")) await held; return researchV4Reply(system, user); });
+    f.controller.start(task.id);
+    await vi.waitFor(() => expect(server.requests.length).toBeGreaterThan(0));
+    f.controller.pause(task.id); release(); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, research: { stage: "stopped" } });
+    expect(f.executions).toHaveLength(0);
+    // A record a crash left paused: only the unfinished-stage guard can keep Resume closed, and it names the stop.
+    write({ ...stored(), status: "paused", reason: "paused" });
+    expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: expect.stringContaining("A partly run research stage cannot continue") });
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
+  });
+
+  it("keeps a run's wall time when the writer's run fails after the stage", async () => {
+    const { f, run, stored } = await stageFixture(researchV4Reply);
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() { f.executions.push(args); throw new Error("fixture_runner_failure"); } });
+    const done = await run();
+    expect(done).toMatchObject({ status: "incomplete", research: { stage: "transferred" } });
+    expect(stored().wallMs).toBeGreaterThan(0); expect(done.elapsedMs).toBe(stored().wallMs);
+  });
+
+  it("reads a missing writer context as none yet only for a research session the writer never touched", async () => {
+    /** Removes the writer's context and, as asked, every dispatch row and event that carries its id: what a stop before the write phase leaves. */
+    const lose = (f: { db: Database.Database }, jobId: string, writer: string, rows: { events: boolean; dispatches: boolean }) => {
+      f.db.pragma("foreign_keys = OFF");
+      f.db.prepare("DELETE FROM private_agent_run_claims WHERE context_id=?").run(writer);
+      f.db.prepare("DELETE FROM private_agent_contexts WHERE id=?").run(writer);
+      if (rows.dispatches) f.db.prepare("DELETE FROM private_agent_dispatches WHERE job_id=? AND json_extract(value, '$.contextId')=?").run(jobId, writer);
+      if (rows.events) f.db.prepare("DELETE FROM private_agent_events WHERE job_id=? AND json_extract(value, '$.contextId')=?").run(jobId, writer);
+    };
+    // A research task's writer context lost after the write phase: its events still name it, so the snapshot still fails, as before.
+    const research = await stageFixture(researchV4Reply);
+    expect((await research.run()).status).toBe("submitted");
+    lose(research.f, research.task.id, research.f.executions[0]!.contextId, { events: false, dispatches: true });
+    expect(() => research.f.controller.get(research.task.id)).toThrow("private_agent_context_missing");
+    // With no event and no dispatch naming it, a research session's writer never began: the task reads as having no writer context yet.
+    lose(research.f, research.task.id, research.f.executions[0]!.contextId, { events: true, dispatches: true });
+    expect(research.f.controller.get(research.task.id).research).toMatchObject({ route: "local_beta" });
+    // A plain task in the same state still fails: only a research session starts before its writer context exists.
+    const plain = fixture(), task = plain.create(); plain.controller.start(task.id); await plain.controller.wait(task.id);
+    lose(plain, task.id, plain.executions[0]!.contextId, { events: true, dispatches: true });
+    expect(() => plain.controller.get(task.id)).toThrow("private_agent_context_missing");
+  });
+
+  it("pauses in the writer and resumes from the transferred packet, with no second stage request", async () => {
+    const { f, server, task } = await stageFixture(researchV4Reply);
+    f.hold(); f.controller.start(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    const stageCount = stageRequests(server.requests).length;
+    f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, research: { stage: "transferred" } });
+    f.resetPaused(); f.controller.resume(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id).status).toBe("submitted");
+    expect(stageRequests(server.requests)).toHaveLength(stageCount); expect(f.executions).toHaveLength(2);
   });
 
   it("passes the card's admission rates under a serving_card basis to the stage, which records its admission", async () => {

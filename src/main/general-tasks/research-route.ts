@@ -4,7 +4,8 @@ import { loadServingCard, servingCardExpectation, servingCardRefusal, type Loade
 import { inventoryResearchSources } from "../private-agent/research-coverage";
 import { planResearchIndexBatches, researchMandatoryWorkFits, researchRepairReserve } from "../private-agent/research-admission";
 import { RESEARCH_PIPELINE_BUDGET } from "../private-agent/research-contract";
-import type { ResearchModels } from "../private-agent/research-pipeline";
+import { researchSynthesisBelowFloor, type ResearchModels } from "../private-agent/research-pipeline";
+import { nonDefaultRoleParameters } from "../private-agent/research-roles";
 import { researchStageUnfinished, type GeneralSessionOptions } from "../private-agent/session";
 
 /**
@@ -86,13 +87,18 @@ export type DesktopResearchCard = { accepted: true; card: LoadedServingCard } | 
 /**
  * The desktop's only read of the configured card pair: the driver's pinned reader and expectation, always with cache salt on. Research
  * tasks run salted, as the card's P10 request settings require; plain tasks keep their own setting. This never throws, and it reports a
- * refusal by its code only, never the path or the card's text.
+ * refusal by its code only, never the path or the card's text. A card whose synthesis ceiling is under the floor is refused here too.
  */
 export function readDesktopResearchCard(config: Pick<SoarConfig, "vllm" | "streamingEnabled">): DesktopResearchCard {
   const descriptor = config.vllm.servingCard;
   if (!descriptor) return { accepted: false, code: "serving_card_unconfigured" };
-  try { return { accepted: true, card: loadServingCard(descriptor, servingCardExpectation(config, true)) }; }
+  let card: LoadedServingCard;
+  try { card = loadServingCard(descriptor, servingCardExpectation(config, true)); }
   catch (error) { return { accepted: false, code: servingCardRefusal(error)?.code ?? "serving_card_unreadable" }; }
+  // As the headless driver refuses before a run: a card whose synthesis attempts cannot hold the 100-word floor would end every task at start.
+  const roles = card.policy.roles;
+  if (nonDefaultRoleParameters(roles).length && researchSynthesisBelowFloor(roles.synthesis)) return { accepted: false, code: "research_role_policy_invalid" };
+  return { accepted: true, card };
 }
 
 export type ResearchInputsCheck = "fit" | "research_inputs_required" | "research_input_invalid" | "research_source_unreadable" | "research_mandatory_budget_exceeded";

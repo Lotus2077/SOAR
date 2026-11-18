@@ -72,7 +72,7 @@ export interface BrokerDestination {
   requireExactGrant?: boolean;
   approvalPriceProfileSha256?: string;
   /**
-   * Anthropic's Messages API (BL-20261030-0620): the key goes in `x-api-key` with this fixed `anthropic-version` instead
+   * Anthropic's Messages API (#31): the key goes in `x-api-key` with this fixed `anthropic-version` instead
    * of a bearer token, the version header is bound into the packet text, the socket keeps alive, a rejected request
    * records its error type and request id, and a 429 or 529 is retried at most twice. Cloud destinations only; absent
    * keeps every fingerprint, packet, header and failure path identical to before.
@@ -213,7 +213,7 @@ export const ANTHROPIC_MAX_RETRY_AFTER_SECONDS = 120;
 /**
  * The broker code for a cancel or deadline that arrived while the Anthropic destination waited to retry (the caller's signal, `cancelJob`
  * or the job's recorded cancel), or that was found when the retry's own commit was refused; every row is resolved. A D4 retry that a
- * cancel stops ends `request_failed` instead (BL-20261030-0850).
+ * cancel stops ends `request_failed` instead (#31).
  */
 export const RETRY_WAIT_CANCELLED = "retry_wait_cancelled";
 /** A rejection's error body is read only this far and this long, outside the request timer, so it can never relabel the rejection. */
@@ -247,7 +247,7 @@ function isLoopback(host: string): boolean {
 }
 
 /**
- * Plan 11.4 (BL-20261114-1523-registry-columns-design): what a dispatch row records about its request, beside its identity: the
+ * Plan 11.4 (#104): what a dispatch row records about its request, beside its identity: the
  * destination's kind, the body's UTF-8 bytes (0 for a GET), and the bytes it disclosed by HARN-27's default: none to a local model
  * or a loopback URL, else a POST's body or a GET's URL.
  */
@@ -523,7 +523,7 @@ export class PrivateAgentBroker {
     };
     for (let attempt = 1; ; attempt++) {
       // A cancel seen here follows an attempt whose row was committed, so the request counts as dispatched: the path's cancel code, which the
-      // runner records as a failed request (`dispatched: true`), never the pre-dispatch refusal (BL-20261107-1006, 7). No await separates
+      // runner records as a failed request (`dispatched: true`), never the pre-dispatch refusal (#43, 7). No await separates
       // this check from the post-wait one, so it is a guard only.
       if (attempt > 1 && frozen.signal?.aborted) abandon(() => cancelCode);
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
@@ -543,7 +543,7 @@ export class PrivateAgentBroker {
                 this.store.dispatches(frozen.jobId).some(row => row.status === "unknown" && isAssistDispatch(row))) deny("cloud_after_assist_unknown");
             if (frozen.signal?.aborted) {
               if (admission) throw new LocalTokenAdmissionError("local_token_admission_cancelled");
-              // On a retry attempt an earlier attempt's row was committed (BL-20261107-1041, 13); a guard only, like the top-of-attempt check.
+              // On a retry attempt an earlier attempt's row was committed (#43, 13); a guard only, like the top-of-attempt check.
               deny(attempt > 1 ? cancelCode : "request_cancelled");
             }
             if (admission) admission.validateAtCommit(localTokenAdmissionEvidence!, frozen.body!, packet.url.href,

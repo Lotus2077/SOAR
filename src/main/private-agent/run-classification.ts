@@ -2,7 +2,7 @@ import { isAssistDispatch } from "./dispatch-purposes";
 import { isZeroFeeDispatch, isZeroFeeFailedDispatch } from "./selection";
 
 /**
- * Backlog item 11, part 3a (BL-20261109-0515-infra-classification-design): whether a run that did not submit ended on
+ * Backlog item 11, part 3a (#85): whether a run that did not submit ended on
  * infrastructure, which the registry labels `infra_invalid`, decided from recorded codes only. The lists are frozen for E3 and E4
  * once E3's card or the owner records them; scripts/registry-row.py mirrors them byte for byte (tests/unit/run-classification.test.ts).
  */
@@ -109,7 +109,7 @@ export function classifyRunEnd(end: RunEndEvidence): RunClass {
 
 /**
  * Classifies a critique's end (part 3b resumes on it): its failure code, null when its directory holds no record. Part 3b
- * (BL-20261113-0836, decision (1)) amends part 3a's helper: the loop's interrupt counts as the operator's stop only when the
+ * (#89, decision (1)) amends part 3a's helper: the loop's interrupt counts as the operator's stop only when the
  * failure is infrastructure, a cancellation the interrupt caused (CRITIQUE_CANCEL_CODES), or there is no record, so a failure in
  * the model's output stays the task's. The mark must be exactly true.
  */
@@ -127,7 +127,7 @@ export function lastCall(dispatches: readonly Record<string, unknown>[], status:
 }
 
 /**
- * Backlog item 11, part 3b (BL-20261113-0836-infra-resume-design, decisions (4) and (10)): why a loop stage stopped, for the
+ * Backlog item 11, part 3b (#89, decisions (4) and (10)): why a loop stage stopped, for the
  * loop's own stop rules and for the registry's row of a loop that ends without a selection. These lists are separate from
  * version 1's run-end lists, which do not change; scripts/registry-row.py mirrors them and tests/unit/run-classification.test.ts
  * keeps the two equal.

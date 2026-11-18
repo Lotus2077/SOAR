@@ -1,7 +1,7 @@
 /**
  * Role-schema export for probe P10 (backlog item 5, experiment E0): the planner, extractor and synthesis JSON schemas,
  * their system prompts, the role output caps and thinking policy, one synthetic user payload per role and, since P10-align
- * (BL-20261113-1011-p10-align-design), the whole request body the pipeline sends for each role and thinking mode, written
+ * (#95), the whole request body the pipeline sends for each role and thinking mode, written
  * to the ignored `.soar/experiments/role-schemas.json` so `scripts/serving-probe.py` sends the pipeline's own role requests
  * without duplicating any TypeScript value. The bodies are built by the model layer's own `requestBody` under the headless
  * driver's local configuration, read from the desktop's settings by `loadConfig()`. The index role has no JSON schema and is
@@ -10,7 +10,7 @@
  *
  *   pnpm probe:export-schemas [-- [--out <path>] [--plan-cap <tokens>]]
  *
- * `--plan-cap` (topic 6, BL-20261117-1000-p10-plan-cap-export-design) builds both plan cells at that cap, from 128 to 16,384 tokens,
+ * `--plan-cap` (topic 6, #136) builds both plan cells at that cap, from 128 to 16,384 tokens,
  * and records it as `outputTokens.plan`. The probe copies those caps and the card writer proposes the planner's attempts from them,
  * so the planner a card proposes and its P10 plan cells name one cap. Any other argument is refused before anything is written.
  */
@@ -80,11 +80,11 @@ export function requestSettingsOf(config: Pick<SoarConfig, "vllm" | "streamingEn
 const ROLE_SYSTEMS: Readonly<Record<RoleWithSchema, string>> = Object.freeze({ plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM });
 
 /**
- * P10-align (BL-20261113-1011-p10-align-design): one role call's body exactly as `PrivateAgentModel.requestBody` builds it for a pipeline call,
+ * P10-align (#95): one role call's body exactly as `PrivateAgentModel.requestBody` builds it for a pipeline call,
  * under the configuration the headless driver gives every local research role (`buildLocalScreenModelConfig`), with the heavy profile, whose
  * thinking is on, and the cache salt on, salted for `jobId`. Without overrides the call takes the model's thinking and the role's pipeline cap;
  * `thinking: "disabled"` is the override the pipeline's call() sends for a role whose thinking is disabled. P10's cells (buildP10Requests) and
- * E0's extractor fixture (scripts/extractor-fixture.ts, BL-20261116-1123-e0-extractor-fixture-design) build their bodies here. The broker is
+ * E0's extractor fixture (scripts/extractor-fixture.ts, #116) build their bodies here. The broker is
  * never called: requestBody only builds, and it never reads the model's context id.
  */
 export function buildRoleRequest(settings: RequestSettings, jobId: string, role: RoleWithSchema, userContent: string,
@@ -93,7 +93,7 @@ export function buildRoleRequest(settings: RequestSettings, jobId: string, role:
   const model = new PrivateAgentModel({} as PrivateAgentBroker, config, jobId, jobId);
   const { body } = model.requestBody([{ role: "system", content: ROLE_SYSTEMS[role] }, { role: "user", content: userContent }], [],
     { maxOutputTokens: overrides.maxOutputTokens ?? OUTPUT_TOKENS[role], ...(overrides.thinking ? { thinking: overrides.thinking } : {}),
-      // The serving card's call adds item 9's response_format (E0's fixtures, BL-20261116-1256-e0-extractor-structured-condition-design);
+      // The serving card's call adds item 9's response_format (E0's fixtures, #125);
       // P10's own cells never pass it, so their bodies are unchanged.
       ...(overrides.responseFormat ? { responseFormat: overrides.responseFormat } : {}) });
   return { body: JSON.parse(body) as Record<string, unknown>, bodySha256: digest(body) };
@@ -153,7 +153,7 @@ export function syntheticRoleCorpus() {
 export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), settings: RequestSettings = SYNTHETIC_REQUEST_SETTINGS,
   options: RoleSchemaExportOptions = {}): RoleSchemaExport {
   if (options.planCap !== undefined && !isRoleSchemaExportPlanCap(options.planCap)) throw new RangeError("role_export_plan_cap_invalid");
-  // Topic 6 (BL-20261117-1000-p10-plan-cap-export-design): a plan cap reaches both plan bodies and the recorded caps, which the probe copies
+  // Topic 6 (#136): a plan cap reaches both plan bodies and the recorded caps, which the probe copies
   // and the card writer proposes the planner's attempts from. Without one the caps are the pipeline's own object, so the file is today's.
   const outputTokens: RoleSchemaExport["outputTokens"] = options.planCap === undefined ? OUTPUT_TOKENS : Object.freeze({ ...OUTPUT_TOKENS, plan: options.planCap });
   const { brief, sources } = syntheticRoleCorpus();
@@ -177,7 +177,7 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
   // The pipeline's own builder (7b.1): the stable packet line, a newline, then the chunk line, exactly as every extraction call sends it.
   const extractPayload = { brief, units, plan, source: { id: chunkSource.id, sha256: chunk.sourceSha256 }, chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: null };
   const synthesisPayload = { brief, units, plan, evidence, coverage, lengthCap: { words: synthesisLengthCap(brief).words }, repairReason: null };
-  // A thinking-off synthesis role gets the cap that fits its reply, not the thinking ceiling (BL-20261109-0334-research-request-shapes-design).
+  // A thinking-off synthesis role gets the cap that fits its reply, not the thinking ceiling (#85).
   const offCap = researchSynthesisLengthCap(brief, { maxOutputTokens: OUTPUT_TOKENS.synthesis, thinking: "disabled" });
   const planUser = canonical(planPayload), extractUser = researchExtractionUserContent(extractPayload);
   const userContent = { plan: { on: planUser, off: planUser }, extract: { on: extractUser, off: extractUser },

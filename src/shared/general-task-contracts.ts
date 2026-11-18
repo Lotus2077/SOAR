@@ -166,10 +166,12 @@ export interface GeneralTaskResearch {
   stages: GeneralTaskResearchStage[];
   requests: number;
   /**
-   * Reserved, never set yet: a packet the stage handed over ready with a disclosed gap (the chunks it could not read), for the
-   * research protocol's revision now before the owner. The view already shows it; the stage's records will set it once adopted.
+   * A packet the stage handed over ready with a disclosed gap (the owner's answer of 2026-11-18, #166): the passages whose last reply still
+   * declared questions unresolved after every repair. It is read from the transferred coverage.json's `gaps`, the disclosure the writer is
+   * told to state as an unresolved limitation: the source of the first and the number of questions it names. When that file cannot be read,
+   * the extraction row's `declaredGaps` count stands in, without a source.
    */
-  gap?: { chunks: number };
+  gap?: { chunks: number; source?: string; questions?: number };
 }
 /**
  * One stage's latest recorded counts, only those the stage recorded. The extraction row also carries its repairs (and, under a card's
@@ -186,8 +188,13 @@ export interface GeneralTaskResearchStage {
   chunksPlanned?: number; chunksComplete?: number; repairCalls?: number; secondRepairCalls?: number; secondRepairsComplete?: number;
   quotesVerified?: number; quotesInPacket?: number; quotesLeftByCap?: number; quotesLeftByPresentation?: number; questionsTrimmed?: number;
   conflictsNoted?: number; conflictsInPacket?: number;
-  /** Shown once the stage records them (a proposed extract count): first replies held for a repair, and those that kept their first reading. */
+  /**
+   * Under a card's admission rates only: the passages whose complete first reply was held for an optional repair, and those of them left
+   * without it, which keep that first reply.
+   */
   heldChunks?: number; heldKeptUnrepaired?: number;
+  /** The passages left unresolved after every repair and disclosed as the packet's gap (at most 1). */
+  declaredGaps?: number;
 }
 export interface GeneralTaskArtifactPreview extends GeneralTaskArtifactRef {
   bytes: number;

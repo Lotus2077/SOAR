@@ -1,9 +1,10 @@
 import type { SoarConfig } from "../config";
 import type { GeneralTaskAvailability, GeneralTaskResearch } from "../../shared/general-task-contracts";
 import { loadServingCard, servingCardExpectation, servingCardRefusal, type LoadedServingCard } from "../private-agent/serving-card";
-import { inventoryResearchSources } from "../private-agent/research-coverage";
+import { inventoryResearchSources, ResearchCoverageSchema } from "../private-agent/research-coverage";
+import type { WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { planResearchIndexBatches, researchMandatoryWorkFits, researchRepairReserve } from "../private-agent/research-admission";
-import { RESEARCH_PIPELINE_BUDGET } from "../private-agent/research-contract";
+import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../private-agent/research-contract";
 import { researchSynthesisBelowFloor, type ResearchModels } from "../private-agent/research-pipeline";
 import { nonDefaultRoleParameters } from "../private-agent/research-roles";
 import { researchStageUnfinished, type GeneralSessionOptions } from "../private-agent/session";
@@ -40,7 +41,7 @@ export function desktopResearchSession(card: LoadedServingCard, models: (context
 const STAGES = ["index", "plan", "extract", "synthesise"] as const;
 /** The stage counts the view shows when a stage recorded them: chunks, repairs and the packet's trim (research-pipeline.ts, ResearchStageCounts). */
 const STAGE_COUNTS = ["chunksPlanned", "chunksComplete", "repairCalls", "secondRepairCalls", "secondRepairsComplete", "quotesVerified", "quotesInPacket",
-  "quotesLeftByCap", "quotesLeftByPresentation", "questionsTrimmed", "conflictsNoted", "conflictsInPacket", "heldChunks", "heldKeptUnrepaired"] as const;
+  "quotesLeftByCap", "quotesLeftByPresentation", "questionsTrimmed", "conflictsNoted", "conflictsInPacket", "heldChunks", "heldKeptUnrepaired", "declaredGaps"] as const;
 const count = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 /** The reader context the stage runs in, from its `research_input`, and that context's stage rows, oldest first. */
 function stageRows(events: readonly Record<string, unknown>[]): { reader?: string; rows: Record<string, unknown>[] } {
@@ -55,7 +56,8 @@ function stageRows(events: readonly Record<string, unknown>[]): { reader?: strin
  * records the input just before the pipeline starts, and a pause or quit from then on ends the task, even before the first request
  * has a row.
  */
-export function researchStageView(record: DesktopResearchRecord, events: readonly Record<string, unknown>[], dispatches: readonly { contextId: string }[], active: boolean): GeneralTaskResearch {
+export function researchStageView(record: DesktopResearchRecord, events: readonly Record<string, unknown>[], dispatches: readonly { contextId: string }[], active: boolean,
+  transferGaps?: ResearchTransferGaps): GeneralTaskResearch {
   const { reader, rows } = stageRows(events);
   const transferred = events.some(event => event.type === "research_transfer");
   const started = transferred || researchStageUnfinished(events, dispatches) || rows.length > 0 || events.some(event => event.type === "research_admission" && event.contextId === reader);
@@ -68,9 +70,30 @@ export function researchStageView(record: DesktopResearchRecord, events: readonl
     stages.push({ stage, calls, ...(truncated ? { truncatedReplies: truncated } : {}), ...(typeof row.denied === "string" ? { denied: true as const } : {}),
       ...(row.fallback === "host_plan" || row.fallback === "skeleton" ? { fallback: row.fallback } : {}), ...counts });
   }
+  // A transferred packet's gap is its own coverage.json's disclosure; when that file cannot be read, the extraction row's count keeps a
+  // declared gap from reading as a plain ready packet.
+  const declared = stages.find(row => row.stage === "extract")?.declaredGaps, first = transferGaps?.[0];
+  const gap = !transferred ? undefined : first ? { chunks: transferGaps!.length, source: first.sourceId, questions: first.questionIds.length }
+    : transferGaps === undefined && declared ? { chunks: declared } : undefined;
   return { route: record.route, card: { date: record.cardDate, sha256: record.cardSha256 },
     stage: transferred ? "transferred" : active && reader !== undefined ? "running" : started ? "stopped" : "not_started", stages,
-    requests: reader === undefined ? 0 : dispatches.filter(row => row.contextId === reader).length };
+    requests: reader === undefined ? 0 : dispatches.filter(row => row.contextId === reader).length, ...(gap ? { gap } : {}) };
+}
+
+/** The gaps a transferred packet discloses: every entry, none ([]), or undefined when nothing was transferred or its coverage.json cannot be read. */
+export type ResearchTransferGaps = readonly { sourceId: string; questionIds: readonly string[] }[];
+/**
+ * Reads the transferred packet's coverage.json from the task's checkpoint store (`load` checks its size and digest) and returns its `gaps`,
+ * the disclosure the writer is told to state. It never throws: a missing, damaged or unparsable file is undefined.
+ */
+export function researchTransferGaps(events: readonly Record<string, unknown>[], load: (snapshot: WorkspaceSnapshot) => { bytes: Buffer }[]): ResearchTransferGaps | undefined {
+  const snapshot = (events.find(event => event.type === "research_transfer")?.binding as { snapshot?: unknown } | undefined)?.snapshot;
+  const entry = Array.isArray(snapshot) ? snapshot.find(item => (item as { path?: unknown } | null)?.path === RESEARCH_FILES.coverage) : undefined;
+  if (entry === undefined) return undefined;
+  try {
+    const gaps = ResearchCoverageSchema.shape.gaps.safeParse((JSON.parse(load([entry] as WorkspaceSnapshot)[0]!.bytes.toString("utf8")) as { gaps?: unknown }).gaps);
+    return gaps.success ? gaps.data ?? [] : undefined;
+  } catch { return undefined; }
 }
 
 /**

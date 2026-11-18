@@ -36,6 +36,19 @@ This folder holds the committed, sanitized record of live trials (see
     mistyped option cannot export the pipeline's 8,192 for a re-probe meant for
     another cap. Neither the research protocol hash nor the source freeze depends on
     the option.
+  - **A synthesis cap and attempt thinking for a card revision** (the E0 card's
+    Amendment 8). `--synthesis-cap <tokens>` does for both synthesis cells what
+    `--plan-cap` does for the plan's, with each cell's word cap the one the stage
+    would send at that cap. It refuses a cap whose synthesis length ceiling falls
+    below the pipeline's floor. The writer's `--attempt-thinking ROLE=FIRST,SECOND`
+    (plan, extract or synthesis; `model` or `disabled`), once per role and only with
+    `--policy-out`, writes that role's two attempts' thinking. It refuses an attempt
+    that would send the format at a cap its P10 cell did not measure, as the reader
+    does. It also refuses an attempt the option moves to a thinking mode the role's
+    structured-output flag does not name, since that attempt would lose the format.
+    A role with no structured-output flag (the adopted card's synthesis today) sends
+    the format on no attempt, so its pair is written as given, and the reader accepts
+    it. Without either option the export and the card are unchanged.
   - **P10's request settings**
     (BL-20261114-2301-serving-card-request-settings-design). The card copies the
     settings the role export built P10's bodies under (`evidence.p10.requestSettings`:

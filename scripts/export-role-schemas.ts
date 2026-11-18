@@ -8,11 +8,14 @@
  * not exported. Nothing here reads the endpoint or sends a request; the payloads are invented text with no owner data, and
  * neither the bodies nor the recorded settings carry an address or a key.
  *
- *   pnpm probe:export-schemas [-- [--out <path>] [--plan-cap <tokens>]]
+ *   pnpm probe:export-schemas [-- [--out <path>] [--plan-cap <tokens>] [--synthesis-cap <tokens>]]
  *
  * `--plan-cap` (topic 6, #136) builds both plan cells at that cap, from 128 to 16,384 tokens,
  * and records it as `outputTokens.plan`. The probe copies those caps and the card writer proposes the planner's attempts from them,
- * so the planner a card proposes and its P10 plan cells name one cap. Any other argument is refused before anything is written.
+ * so the planner a card proposes and its P10 plan cells name one cap. `--synthesis-cap` (the E0 card's Amendment 8) does the same for
+ * both synthesis cells, whose payloads then carry the word cap the stage would send at that cap, and refuses a cap whose synthesis
+ * length ceiling falls below the floor, which the pipeline refuses (researchSynthesisBelowFloor). Any other argument is refused before
+ * anything is written.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -26,7 +29,7 @@ import { researchSynthesisLengthCap } from "../src/main/private-agent/research-a
 import { ResearchCoverageSchema, ResearchEvidenceSchema, deriveBriefUnits, inventoryResearchSources } from "../src/main/private-agent/research-coverage";
 import { assembleIndexEntry, buildLiteralSourceCard } from "../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanSchema } from "../src/main/private-agent/research-plan";
-import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_SCHEMAS, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_PIPELINE_BUDGET, RESEARCH_ROLE_SCHEMAS, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, researchSynthesisBelowFloor, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
 import { MIN_ROLE_OUTPUT_TOKENS } from "../src/main/private-agent/research-roles";
 import { RESEARCH_ROLE_MAX_OUTPUT_TOKENS, servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
 import { buildLocalScreenModelConfig } from "./private-agent-local-screen";
@@ -34,7 +37,7 @@ import { buildLocalScreenModelConfig } from "./private-agent-local-screen";
 export const ROLE_SCHEMA_EXPORT_VERSION = 2;
 export const DEFAULT_ROLE_SCHEMAS_PATH = ".soar/experiments/role-schemas.json";
 /** Topic 6: the plan cap P10's plan cells are built at, when it is not the pipeline's own. */
-export interface RoleSchemaExportOptions { planCap?: number }
+export interface RoleSchemaExportOptions { planCap?: number; synthesisCap?: number }
 /** The command line's values: the file it writes and the export's options. */
 export interface RoleSchemaExportArguments extends RoleSchemaExportOptions { out: string }
 /** The roles with a reply JSON schema; the index role is validated structurally and has none. */
@@ -117,6 +120,10 @@ export function buildP10Requests(settings: RequestSettings, userContent: Record<
 export function isRoleSchemaExportPlanCap(value: number): boolean {
   return Number.isSafeInteger(value) && value >= MIN_ROLE_OUTPUT_TOKENS && value <= RESEARCH_ROLE_MAX_OUTPUT_TOKENS;
 }
+/** A synthesis cap the reader and the pipeline accept: a plan cap's range, and a length ceiling at or above the floor in either thinking mode. */
+export function isRoleSchemaExportSynthesisCap(value: number): boolean {
+  return isRoleSchemaExportPlanCap(value) && !researchSynthesisBelowFloor({ maxOutputTokens: [value, value], thinking: ["model", "disabled"] });
+}
 
 /**
  * The command line: `--out <path>` and `--plan-cap <tokens>`, each at most once, after one optional leading `--`, which pnpm 10 passes
@@ -125,19 +132,25 @@ export function isRoleSchemaExportPlanCap(value: number): boolean {
  */
 export function parseRoleSchemaExportArguments(argv: readonly string[]): RoleSchemaExportArguments {
   const args = argv[0] === "--" ? argv.slice(1) : argv, seen = new Set<string>(), invalid = (why: string) => new Error(`role_export_arguments_invalid: ${why}`);
-  let out = DEFAULT_ROLE_SCHEMAS_PATH, planCap: number | undefined;
+  let out = DEFAULT_ROLE_SCHEMAS_PATH, planCap: number | undefined, synthesisCap: number | undefined;
   for (let i = 0; i < args.length; i += 2) {
     const option = args[i]!, value = args[i + 1];
-    if (option !== "--out" && option !== "--plan-cap") throw invalid(`unknown argument ${JSON.stringify(option)}; the options are --out <path> and --plan-cap <tokens>`);
+    if (option !== "--out" && option !== "--plan-cap" && option !== "--synthesis-cap")
+      throw invalid(`unknown argument ${JSON.stringify(option)}; the options are --out <path>, --plan-cap <tokens> and --synthesis-cap <tokens>`);
     if (seen.has(option)) throw invalid(`${option} given twice`);
     seen.add(option);
     if (value === undefined || value === "" || value.startsWith("--")) throw invalid(`${option} needs a value`);
     if (option === "--out") { out = value; continue; }
-    if (!/^[1-9][0-9]{0,5}$/u.test(value) || !isRoleSchemaExportPlanCap(Number(value)))
-      throw invalid(`--plan-cap takes an integer from ${MIN_ROLE_OUTPUT_TOKENS} to ${RESEARCH_ROLE_MAX_OUTPUT_TOKENS}`);
-    planCap = Number(value);
+    if (option === "--plan-cap") {
+      if (!/^[1-9][0-9]{0,5}$/u.test(value) || !isRoleSchemaExportPlanCap(Number(value)))
+        throw invalid(`--plan-cap takes an integer from ${MIN_ROLE_OUTPUT_TOKENS} to ${RESEARCH_ROLE_MAX_OUTPUT_TOKENS}`);
+      planCap = Number(value); continue;
+    }
+    if (!/^[1-9][0-9]{0,5}$/u.test(value) || !isRoleSchemaExportSynthesisCap(Number(value)))
+      throw invalid(`--synthesis-cap takes an integer up to ${RESEARCH_ROLE_MAX_OUTPUT_TOKENS} whose synthesis length ceiling is at least the floor`);
+    synthesisCap = Number(value);
   }
-  return { out, ...(planCap === undefined ? {} : { planCap }) };
+  return { out, ...(planCap === undefined ? {} : { planCap }), ...(synthesisCap === undefined ? {} : { synthesisCap }) };
 }
 
 /** Synthetic corpus for the P10 payloads: invented public text, two short sources, three numbered requirements. */
@@ -153,9 +166,12 @@ export function syntheticRoleCorpus() {
 export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), settings: RequestSettings = SYNTHETIC_REQUEST_SETTINGS,
   options: RoleSchemaExportOptions = {}): RoleSchemaExport {
   if (options.planCap !== undefined && !isRoleSchemaExportPlanCap(options.planCap)) throw new RangeError("role_export_plan_cap_invalid");
+  if (options.synthesisCap !== undefined && !isRoleSchemaExportSynthesisCap(options.synthesisCap)) throw new RangeError("role_export_synthesis_cap_invalid");
   // Topic 6 (#136): a plan cap reaches both plan bodies and the recorded caps, which the probe copies
-  // and the card writer proposes the planner's attempts from. Without one the caps are the pipeline's own object, so the file is today's.
-  const outputTokens: RoleSchemaExport["outputTokens"] = options.planCap === undefined ? OUTPUT_TOKENS : Object.freeze({ ...OUTPUT_TOKENS, plan: options.planCap });
+  // and the card writer proposes the planner's attempts from; Amendment 8's synthesis cap does the same for synthesis. Without either
+  // the caps are the pipeline's own object, so the file is today's.
+  const outputTokens: RoleSchemaExport["outputTokens"] = options.planCap === undefined && options.synthesisCap === undefined ? OUTPUT_TOKENS
+    : Object.freeze({ ...OUTPUT_TOKENS, ...(options.planCap === undefined ? {} : { plan: options.planCap }), ...(options.synthesisCap === undefined ? {} : { synthesis: options.synthesisCap }) });
   const { brief, sources } = syntheticRoleCorpus();
   const units = deriveBriefUnits(brief), inventory = inventoryResearchSources(sources);
   const ordered = inventory.sources.map(s => sources.find(item => item.id === s.id)!);
@@ -176,9 +192,11 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString(), s
   const planPayload = { authoritativeSchema: RESEARCH_PLAN_JSON_SCHEMA, brief, units, sourceIndex, mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: RESEARCH_PIPELINE_BUDGET.extractionCalls, repair: null };
   // The pipeline's own builder (7b.1): the stable packet line, a newline, then the chunk line, exactly as every extraction call sends it.
   const extractPayload = { brief, units, plan, source: { id: chunkSource.id, sha256: chunk.sourceSha256 }, chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: null };
-  const synthesisPayload = { brief, units, plan, evidence, coverage, lengthCap: { words: synthesisLengthCap(brief).words }, repairReason: null };
-  // A thinking-off synthesis role gets the cap that fits its reply, not the thinking ceiling (#85).
-  const offCap = researchSynthesisLengthCap(brief, { maxOutputTokens: OUTPUT_TOKENS.synthesis, thinking: "disabled" });
+  // Each synthesis cell's word cap is the one the stage would send at the cell's cap and thinking (research-admission.ts): at the pipeline's
+  // own cap and thinking, synthesisLengthCap's; a thinking-off synthesis role gets the cap that fits its reply, not the thinking ceiling (#85).
+  const onCap = options.synthesisCap === undefined ? synthesisLengthCap(brief) : researchSynthesisLengthCap(brief, { maxOutputTokens: outputTokens.synthesis, thinking: "model" });
+  const synthesisPayload = { brief, units, plan, evidence, coverage, lengthCap: { words: onCap.words }, repairReason: null };
+  const offCap = researchSynthesisLengthCap(brief, { maxOutputTokens: outputTokens.synthesis, thinking: "disabled" });
   const planUser = canonical(planPayload), extractUser = researchExtractionUserContent(extractPayload);
   const userContent = { plan: { on: planUser, off: planUser }, extract: { on: extractUser, off: extractUser },
     synthesis: { on: canonical(synthesisPayload), off: canonical({ ...synthesisPayload, lengthCap: { words: offCap.words } }) } };
@@ -203,7 +221,8 @@ function main(): number {
   }
   const out = resolve(args.out);
   // The desktop's own settings: the same parser, environment and env files the app reads.
-  const data = buildRoleSchemaExport(undefined, requestSettingsOf(loadConfig()), args.planCap === undefined ? {} : { planCap: args.planCap });
+  const data = buildRoleSchemaExport(undefined, requestSettingsOf(loadConfig()), { ...(args.planCap === undefined ? {} : { planCap: args.planCap }),
+    ...(args.synthesisCap === undefined ? {} : { synthesisCap: args.synthesisCap }) });
   mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
   writeFileSync(out, `${JSON.stringify(data, null, 1)}\n`, { mode: 0o600 });
   // The caps the bodies were built at come first after the hash, so the operator sees the plan cap before probing.

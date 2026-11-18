@@ -14,7 +14,7 @@ import type { ResearchDiagnostic, ResearchDiagnosticsSink } from "./research-pip
 
 export const DIAGNOSTICS_DIRECTORY = "diagnostics";
 export const DIAGNOSTICS_MANIFEST = "manifest.json";
-/** 2 since 7a.1 (BL-20261109-0447-research-tolerance-design): a row may carry `disposition: "accepted_with_drops"`. */
+/** 2 since 7a.1 (#85): a row may carry `disposition: "accepted_with_drops"`. */
 export const DIAGNOSTICS_MANIFEST_VERSION = 2;
 /** One manifest row: the entry without its content. */
 export type DiagnosticsManifestEntry = Omit<ResearchDiagnostic, "content">;

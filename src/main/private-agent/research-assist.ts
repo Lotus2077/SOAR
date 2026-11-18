@@ -1,6 +1,6 @@
 /**
  * Backlog item 10: the assist wrapper for T1, the plan assist (S3c), and T2, the synthesis assist (S6c), of
- * docs/PROJECT_REVIEW_2026-11-05.md §5.2 (BL-20261113-0920-assist-wrapper-design). It turns a hook request (host data that
+ * docs/PROJECT_REVIEW_2026-11-05.md §5.2 (#79). It turns a hook request (host data that
  * holds real source ids, paths, texts and hashes) into a sealed one-shot cloud packet that holds none of them, sends it
  * through the assist model under the no-write cache mode, and maps every failure to the hook's outcomes.
  *
@@ -37,13 +37,13 @@ export const ASSIST_HOST_MARKERS: readonly string[] = Object.freeze(["Claims led
   "A separately isolated public retrieval phase supplied", "A host-run research stage supplied"]);
 export const ASSIST_SYNTHESIS_REPAIR_REASON = "previous_reply_truncated; evidence trimmed; return a complete concise structure with both sections";
 /**
- * 10.b (BL-20261117-1202-assist-wiring-design, decision 5; BL-20261113-0920-assist-wrapper-design, decision (14)): the most ledger rows
+ * 10.b (#147, decision 5; #79, decision (14)): the most ledger rows
  * one reading stage's assists can commit, which the session's request-pool check adds: three calls (T1, T2 and its one retry), each
  * with up to the broker's attempts (the Anthropic retries).
  */
 export const ASSIST_WORST_CASE_ROWS = 3 * BROKER_MAX_ATTEMPTS;
 /**
- * 10.b (BL-20261117-1202-assist-wiring-design, decision 9b; C8 of BL-20261113-0925-correction-assist-core-rereview): the longest
+ * 10.b (#147, decision 9b; C8 of #79): the longest
  * string, in UTF-16 code units, that the scrubber reads in each model-written or quoted field. Each is its caller's own cap: the
  * index's gist, the plan schema's fields and the evidence schema's quote. A longer one is refused before any scrub, so the
  * scrubber's cost stays bounded whatever a caller lets through. The brief is held to ASSIST_BOUNDS.briefBytes at both touchpoints.

@@ -1,5 +1,5 @@
 /** Versioned, model-independent contracts shared by the pipeline and writer presentation. */
-/** 5 since backlog item 7(c) (BL-20261113-0927-research-v5-design): slot schedules, host fallbacks, coverage v2. */
+/** 5 since backlog item 7(c) (#93): slot schedules, host fallbacks, coverage v2. */
 export const RESEARCH_PIPELINE_VERSION = 5;
 export const RESEARCH_CONTEXT_DIR = "context/research";
 export const RESEARCH_FILES = Object.freeze({ index: `${RESEARCH_CONTEXT_DIR}/index.json`, plan: `${RESEARCH_CONTEXT_DIR}/plan.json`,
@@ -16,7 +16,7 @@ export const RESEARCH_SLOT_POLICY = Object.freeze({ version: 1, plan: Object.fre
   assistPosition: "first_under_forced_split_else_after_every_stage_attempt", stageAfterAssist: "fresh_without_repair_context" });
 export interface ResearchSourceIdentity { id: string; path: string; sha256: string; bytes: number }
 /**
- * Version 2 since item 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): a packet the priority trim cut is ready
+ * Version 2 since item 7b.2 (#102, finding D4): a packet the priority trim cut is ready
  * when every quote and conflict note it left out is disclosed in coverage.json, counted in evidence.json and bound to its chunks and
  * questions (research-coverage.ts); research-trim.ts says which ones it keeps.
  */
@@ -27,7 +27,7 @@ export const RESEARCH_COVERAGE_POLICY = Object.freeze({ version: 2, briefSegment
 export const RESEARCH_PRESENTATION_POLICY = Object.freeze({ version: 1, maxBytes: 196608, policy: "complete_untrusted_packet_once", encoding: "json_string_complete_utf8",
   files: [RESEARCH_FILES.argument, RESEARCH_FILES.evidenceText, RESEARCH_FILES.plan, RESEARCH_FILES.coverage], sourceInstructions: "data_only", oversize: "refuse_without_trimming" });
 /**
- * Backlog item 7(a), part 1 (BL-20261109-0447-research-tolerance-design): what a settled reply may lose and still be accepted,
+ * Backlog item 7(a), part 1 (#85): what a settled reply may lose and still be accepted,
  * and how the synthesis argument's section headings are normalised. Bound into researchProtocolSha256; the diagnostics sink is
  * no part of it. The heading rule is claims.ts's section_present over the lines claims.ts keeps: Python's whitespace class
  * (str.isspace), lines ending at CRLF, CR or LF (universal newlines) with their separators kept, fenced code removed before
@@ -41,7 +41,7 @@ export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
     /** canonical()'s exactText (contracts.ts): text holding a NUL or a lone surrogate cannot be encoded. */
     unencodable: "exact_text_refuses_nul_or_lone_surrogate",
     questionOutcome: "from_verified_quotes_except_needs_followup",
-    /** BL-20261110-0726 (owner question 3's corner): a first attempt that lost every quote of a question it marked evidence_found. */
+    /** #85 (owner question 3's corner): a first attempt that lost every quote of a question it marked evidence_found. */
     allQuotesOfAFoundQuestionDropped: "first_attempt_held_repaired_after_other_repairs_while_budget_lasts_else_kept" }),
   /** 7(c): a model-written index field canonical() cannot encode makes its row schema-invalid (literal card or repair). */
   index: Object.freeze({ unencodableField: "row_schema_invalid" }),

@@ -21,12 +21,12 @@ export type BriefUnit = z.infer<typeof BriefUnitSchema>;
 const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "evidence_trimmed", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
 const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["findings", "conflict", "unresolved"]), evidenceIds: z.array(eid).max(480) }).strict();
 /**
- * Version 2 since 7(c) (BL-20261113-0927-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`.
- * Version 3 since 7b.2 (BL-20261115-1939-research-priority-trim-design): an omission names its quote's chunks and locator, so (sourceId,
+ * Version 2 since 7(c) (#93): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`.
+ * Version 3 since 7b.2 (#102): an omission names its quote's chunks and locator, so (sourceId,
  * locator, quoteSha256) is the pipeline's own identity of one verified quote; `presentation_cap` marks a quote only the presentation
  * guard left out; a chunk question may be `evidence_trimmed`. Omissions no longer make a packet incomplete.
  */
-/** Item (ii) (BL-20261117-1143-research-second-repair-design): version 4, whose chunks may hold a third attempt, a second repair. */
+/** Item (ii) (#139): version 4, whose chunks may hold a third attempt, a second repair. */
 export const ResearchCoverageSchema = z.object({ version: z.literal(4), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
@@ -71,7 +71,7 @@ function validateSynthesisAttempts(stage: { calls: number; invalidReplies: numbe
 export type ResearchPacketFile = { path: string; bytes: Buffer };
 export interface ResearchPacketExpectation { brief?: string; sources?: readonly { id: string; path: string; bytes: Buffer }[]; sourceManifest?: readonly ResearchSourceIdentity[]; protocolSha256?: string; budget?: ResearchBudget;
   /**
-   * 10.b (BL-20261117-1202-assist-wiring-design, decision 8): the firing the packet's stage ran under, where the caller knows it (the
+   * 10.b (#147, decision 8): the firing the packet's stage ran under, where the caller knows it (the
    * pipeline's own check, the seed loader): a firing requires both touchpoints' records under it, null forbids any; absent, no tie.
    */
   assistFiring?: "local_first" | "forced_split" | null }
@@ -161,9 +161,9 @@ export function renderResearchEvidence(evidence: ResearchEvidence, plan: Researc
 const budgetSchema = z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict();
 const summarySchema = z.object({ version: z.literal(RESEARCH_PIPELINE_VERSION), protocolSha256: sha256Schema, budget: budgetSchema,
   stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional(),
-    // 10.b (BL-20261117-1202-assist-wiring-design, decision 8): a stage's assist record is parsed strictly; every other key passes as before.
+    // 10.b (#147, decision 8): a stage's assist record is parsed strictly; every other key passes as before.
     assist: ResearchAssistStageRecordSchema.optional() }).passthrough()).length(4),
-  // 7b.3 (BL-20261117-1131-research-card-admission-design): a run under a card's admission rates records them; a ready packet's was admitted.
+  // 7b.3 (#137): a run under a card's admission rates records them; a ready packet's was admitted.
   admission: ResearchAdmissionRecordSchema.refine(record => record.decision === "admitted").optional() }).strict();
 export function validateReadyResearchPacket(files: readonly ResearchPacketFile[], expected: ResearchPacketExpectation = {}) {
   const names = Object.values(RESEARCH_FILES).sort();
@@ -178,7 +178,7 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   // writer text the gate never saw (and the host plan's check below would not be byte for byte).
   for (const path of [RESEARCH_FILES.index, RESEARCH_FILES.plan, RESEARCH_FILES.evidence, RESEARCH_FILES.summary, RESEARCH_FILES.coverage])
     if (read(path) !== `${canonical(parse(path))}\n`) fail("json_form");
-  // 7b.2 (BL-20261115-1939-research-priority-trim-design): omissions and conflict omissions no longer make a packet incomplete; the
+  // 7b.2 (#102): omissions and conflict omissions no longer make a packet incomplete; the
   // counts, identity and binding checks below accept only disclosed ones.
   if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
     coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");
@@ -201,7 +201,7 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   validateSynthesisAttempts(summary.stages[3]!, summary.budget.synthesisCalls);
   // 10.b (decision 8), after the attempt records are validated: a configured hook records both touchpoints, under one policy. A record matches its own row's slot attempts: each
   // settled assist reply is one slot attempt, the record is accepted exactly when a slot attempt was, and no slot attempt appears
-  // without a fired record (BL-20261113-0927-research-v5-design, Limitations).
+  // without a fired record (#93, Limitations).
   const touchpoints = summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise");
   if (touchpoints.some(s => s.assist !== undefined) && (touchpoints.some(s => s.assist === undefined) || new Set(touchpoints.map(s => s.assist!.policy)).size !== 1)) fail("stage_assist");
   // A fired record's trigger is its policy's for its touchpoint; and where the caller knows the firing, the records are exactly its.

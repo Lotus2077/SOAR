@@ -111,7 +111,9 @@ async function setup(options: SetupOptions = {}) {
 const flags = (f: Awaited<ReturnType<typeof setup>>) => ["--run-directory", f.run, "--task-directory", f.task, "--job-sha256", f.binding.jobSha256, "--brief-sha256", f.binding.briefSha256,
   "--firing", "forced_split", "--cloud-model", ANTHROPIC.model, "--cloud-endpoint", ANTHROPIC.endpoint, "--cloud-prices", "2,10,0.1,2.5"];
 
-describe("10.c: the assist capture (BL-20261117-1130-lane-decisions-second-repair-before-reprobe, decision 5)", () => {
+// Its refusals test builds nine fixture runs, each with a git repository and a seed-source pipeline run (about 1 s alone at a load average
+// near 7); under a full suite's load the default 5 s is too short, as for the e6-score suite.
+describe("10.c: the assist capture (BL-20261117-1130-lane-decisions-second-repair-before-reprobe, decision 5)", { timeout: 60_000 }, () => {
   it("writes T1, T2 and T2's retry as request bodies, with each touchpoint's trigger and a counts-only manifest, and dispatches nothing", async () => {
     const f = await setup();
     const manifest = captureAssistPackets(f.input);

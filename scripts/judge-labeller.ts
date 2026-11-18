@@ -1,8 +1,8 @@
 /**
- * E0's judge labelling tool (BL-20261115-1956-e0-judge-labeller-design): the one paid step of
+ * E0's judge labelling tool (#115): the one paid step of
  * docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md. It sends the protocol's steps 2 and 3 word for word, the per-class minimum that the
  * E0 card's amendment fixes, and the harvested claims.json to the owner's labeller (`gpt-6-sol` on OpenAI's Responses endpoint,
- * BL-20261115-1937-owner-adopts-standing-defaults decision 2(b)), under the USD 1.00 total of BL-20261113-1003-e0-card-owner-answers.
+ * #114 decision 2(b)), under the USD 1.00 total of #87.
  * One request labels and plants. A second request, only when a class is still short, carries the counts still to plant and no label.
  * The tool, not the model, copies each planted claim's quote and context from the local claim set, gives it the next free id, marks
  * it planted, and writes claims.json and labels.json beside the claim set.
@@ -29,7 +29,7 @@ import { canonical, digest } from "../src/main/private-agent/contracts";
 import { responsesInput } from "../src/main/private-agent/model";
 import { ClaimsFileSchema, FixtureClaimSchema, LABELLING_PROTOCOL, LabelsFileSchema, commandArguments, originSidecarPath, type FixtureClaim } from "./judge-fixture";
 
-/** The owner's labeller (BL-20261115-1937-owner-adopts-standing-defaults, decision 2(b)); no flag or variable changes these. */
+/** The owner's labeller (#114, decision 2(b)); no flag or variable changes these. */
 export const LABELLER_MODEL = "gpt-6-sol";
 /** `labeller` in labels.json: the provider and the model, for the card's amendment to name as written. */
 export const LABELLER_NAME = "openai/gpt-6-sol";
@@ -37,10 +37,10 @@ export const LABELLER_NAME = "openai/gpt-6-sol";
 export const LABELLER_ENDPOINT = "https://api.openai.com/v1/responses";
 /** scripts/with-cloud-key.sh exports the key under this name at launch (CLOUD_ARM_KEY_VARIABLE in private-agent-local-screen.ts). */
 export const LABELLER_KEY_VARIABLE = "SOAR_PHASE2_CLOUD_API_KEY";
-/** The USD 1.00 total of BL-20261113-1003-e0-card-owner-answers, across every invocation and relabelling, in micro-USD. */
+/** The USD 1.00 total of #87, across every invocation and relabelling, in micro-USD. */
 export const LABELLING_CAP_MICROUSD = 1_000_000;
 /**
- * `gpt-6-sol`, USD per million tokens, as OpenAI published them on 2026-10-22 (BL-20261022-1157-cloud-cache-write-price-correction):
+ * `gpt-6-sol`, USD per million tokens, as OpenAI published them on 2026-10-22 (#22):
  * input, cached input, the 30-minute cache write and output, and the tier above 272K input tokens. They equal H5's pinned flags
  * (tests/unit/private-agent-identity-golden.fixture.ts); the Phase 2 cloud arm takes its prices from `--cloud-prices`, not a constant.
  */
@@ -78,7 +78,7 @@ export const LABELLING_FAILURES = Object.freeze(["labeller_interrupted", "labell
   "labeller_http_status", "labeller_reply_undecodable", "labeller_usage_outside_projection", "labeller_reply_cut_at_output_cap", "labeller_reply_incomplete",
   "labeller_reply_refused", "labeller_served_model_mismatch", "labeller_reply_invalid", "labeller_labels_incomplete", "labeller_output_invalid", "labeller_claims_changed",
   "labeller_labels_unwritable", "labeller_claims_unwritable"] as const);
-/** PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)", which BL-20261115-1937 decision 2(b) charges the labelling to. */
+/** PLAN.md §4's line "Synthetic personas, mailboxes and documents (no owner seed)", which #114 decision 2(b) charges the labelling to. */
 export const ENVELOPE_LINE = "synthetic_data";
 export type LabellingOutcomeName = (typeof LABELLING_OUTCOMES)[number];
 export type CallKind = (typeof CALL_KINDS)[number];
@@ -284,7 +284,7 @@ export interface DecodedReply { model: string | null; serviceTier: string | null
   /** False when the reply gave no `cache_write_tokens`: the usage then counts every uncached input token as written. */
   cacheWriteReported: boolean;
   /**
-   * The reported writes are all at the 30-minute tier the prices hold. 12-hour writes (USD 5.00 per million, BL-20261022-1157), or tier
+   * The reported writes are all at the 30-minute tier the prices hold. 12-hour writes (USD 5.00 per million, #22), or tier
    * parts that do not add up to the total, leave the projection, so the request fails closed.
    */
   writesPriced: boolean }

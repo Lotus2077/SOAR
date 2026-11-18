@@ -3,8 +3,8 @@
   "version": 1,
   "date": "2026-11-18",
   "decision": {
-    "status": "proposed",
-    "entry": null
+    "status": "adopted",
+    "entry": "BL-20261118-1206-e0-amendment-8-reprobe-result"
   },
   "identity": {
     "servedModel": "RM-01 VLM",
@@ -93,7 +93,7 @@
     "localStreams": 1
   },
   "admission": {
-    "basis": "none"
+    "basis": "serving_card"
   },
   "evidence": {
     "p10": {

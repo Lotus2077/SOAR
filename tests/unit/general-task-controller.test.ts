@@ -1129,10 +1129,11 @@ describe("desktop general-task host controller", () => {
     // Backlog item 6 (A7): a stage that cannot continue has its own text.
     ["public_source_retention_or_text_failed", GENERIC_INCOMPLETE], ["research_stage_not_replayed", "research stage stopped before its evidence was handed to the writer"],
     // Backlog item 13a: any other research stop names its fixed code and says the task cannot resume.
-    ["research_request_denied", "The research stage stopped (research_request_denied), so this task cannot resume."], ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],
+    ["research_request_denied", "the task's request allowance was spent, or a broker rule refused it"], ["research_admission_invalid", "The research stage stopped (research_admission_invalid), so this task cannot resume."],
+    ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],
     ["cancelled_before_completion", GENERIC_INCOMPLETE], ["deadline_before_completion", GENERIC_INCOMPLETE], ["public_session_stopped", GENERIC_INCOMPLETE],
     ["a_reason_no_pull_request_classified", GENERIC_INCOMPLETE], ["constructor", GENERIC_INCOMPLETE],
-    ["deadline_before_request", "The time left was shorter"], ["model_request_denied", "The broker refused"],
+    ["deadline_before_request", "The time left was shorter"], ["model_request_denied", "The broker refused the next model request before it was sent (a destination, packet or ledger rule, or the task's request allowance spent)"],
   ] as const)("backlog item 6: keeps the terminal %s and refuses to resume it after reopening", async (reason, text) => {
     const f = fixture(); stopOnce(f, reason);
     const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);

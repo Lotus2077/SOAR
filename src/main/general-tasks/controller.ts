@@ -68,7 +68,7 @@ const fixedReasons: Record<string, string> = {
   model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   packet_scan_unavailable: "The scanner that checks an outbound request was unavailable, so the next model request was not sent. Nothing is uncertain; resume when the scanner is available.",
-  model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
+  model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule, or the task's request allowance spent), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
   // Backlog item 6 (finding A6, #85): an incomplete record keeps its run's own reason. A reason's text is shown only when no
   // request or action is uncertain; none promises a resume, which the allowance, the deadline or a closing app can still withhold.
   runtime_failure_progress_preserved: "The execution runtime failed during the run; progress up to the last saved checkpoint is retained and no request or action is uncertain. A resume starts again from that checkpoint.",
@@ -88,6 +88,7 @@ const fixedReasons: Record<string, string> = {
   research_infeasible_in_clock: "By the serving card's measured speeds, the research stage could not finish within this task's time, so it sent nothing. This task cannot resume.",
   research_source_unreadable: "An input file is not readable text, and the research stage reads every input in full, so it sent nothing. This task cannot resume; use text files.",
   research_no_evidence: "The research stage verified no quote in the sources for its questions, so nothing was handed to the writer. This task cannot resume.",
+  research_request_denied: "The research stage's next request was refused before it was sent: the task's request allowance was spent, or a broker rule refused it. Nothing is uncertain, and this task cannot resume.",
   task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
   consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
   // Backlog item 6 follow-up (6.4, #100): terminal for Resume, which repeats it; a Revoke removes its cause and re-opens the task.

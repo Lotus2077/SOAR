@@ -1,14 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
+import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
+import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH } from "../../src/main/private-agent/claims";
+import { hostFlagsEvent } from "../../src/main/private-agent/host-flags";
+import type { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { inventoryResearchSources, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
-import { runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
+import { researchProtocolSha256, researchWriteInstructions, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import { buildResearchPresentation } from "../../src/main/private-agent/research-presentation";
 import { hostFlagIssues } from "../../src/main/general-tasks/controller";
 import { parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
+import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
+
+const cleanups: (() => void)[] = [];
+afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 
 /**
  * The owner's answer of 2026-11-18 (#166): a research packet may stand with ONE disclosed chunk whose last reply, after every repair,
@@ -139,6 +151,68 @@ describe("one declared gap: the owner's answer of 2026-11-18", () => {
       bytes: Buffer.from(`${canonical((v => { v.stages[2].declaredGaps = 1; return v; })(JSON.parse(f.bytes.toString("utf8"))))}\n`) }))).toBe("research_packet_gap");
   });
 
+  it("(4) declares no gap for a chunk whose repair the budget cut: it stays fatal, with and without a card's rates", async () => {
+    const plain = await run(gapOnFirst, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunkIds.length } });
+    expect([plain.outcome.status, plain.outcome.reason, plain.file(RESEARCH_FILES.coverage).gaps]).toEqual(["incomplete", "research_extraction_incomplete", undefined]);
+    // Under a card's rates the one reserved repair is spent, and the second repair has no slot: two attempts, not three.
+    const carded = await run(gapOnFirst, { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunkIds.length + 1 } });
+    expect(carded.calls.filter(c => c.stage === "extract" && c.chunk === chunkIds[0]).length).toBe(2);
+    expect([carded.outcome.status, carded.outcome.reason, carded.file(RESEARCH_FILES.coverage).gaps]).toEqual(["incomplete", "research_extraction_incomplete", undefined]);
+  });
+
+  it("(3) reads the last reply only: a chunk whose first reply declared a question unresolved and whose last is invalid still ends the stage", async () => {
+    const r = await run(scripted((chunk, n, input) => chunk === 0 ? (n === 0 ? unresolved(input) : "not json") : answered(input)));
+    expect([r.outcome.status, r.outcome.reason, r.file(RESEARCH_FILES.coverage).gaps]).toEqual(["incomplete", "research_extraction_incomplete", undefined]);
+  });
+
+  it("(2) guards the writer's presentation for a packet with a gap: the guard trims it, and synthesis is not refused for its size", async () => {
+    // As 7b.2's guard test builds it: long non-ASCII source paths fill coverage.json, so the 64 KiB packet no longer fits the presentation.
+    const corpus = Array.from({ length: 24 }, (_, i) => ({ id: `input/t-${String(i).padStart(2, "0")}.md`, path: `input/${String.fromCharCode(0x4e2d).repeat(1500)}-${i}.md`,
+      bytes: Buffer.from(Array.from({ length: 8 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+    const first = inventoryResearchSources(corpus).chunks[0]!.id;
+    const script: Script = (stage, input, _n, system) => stage !== "extract" ? researchV4Reply(system, JSON.stringify(input)) : input.chunk.id === first
+      ? JSON.stringify({ questions: input.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "needs_followup" })), quotes: [], conflicts: [] })
+      : JSON.stringify({ questions: input.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "evidence_found" })), conflicts: [],
+        quotes: String(input.chunk.text).split("\n").map((quote: string) => ({ quote, questionIds: input.plan.questions.map((q: { id: string }) => q.id), note: "n".repeat(200) })) });
+    const r = await run(script, { sources: corpus });
+    expect([r.outcome.status, r.outcome.reason]).toEqual(["completed", "research_packet_ready"]);
+    expect(r.file(RESEARCH_FILES.coverage).gaps).toEqual([expect.objectContaining({ chunkId: first, attempts: 2 })]);
+    expect(r.extractRow.quotesLeftByPresentation as number).toBeGreaterThan(0);
+    const synthesis = r.outcome.summary.stages.find(row => row.stage === "synthesise")!;
+    expect([synthesis.calls, synthesis.invalidReplies]).toEqual([1, 0]);
+    expect(() => validateReadyResearchPacket(r.outcome.files, { brief: RESEARCH_V4_TEST_BRIEF, sources: corpus })).not.toThrow();
+  });
+
+  it("(2) tells the writer what a gap is: a stated limitation of the reading, never absence of evidence", () => {
+    expect(researchWriteInstructions()).toContain(`A chunk ${RESEARCH_FILES.coverage} lists under gaps stayed unresolved after its repairs: the packet holds no evidence from it, so state its source and the questions it names as an unresolved limitation of this reading, never as absence of evidence.`);
+  });
+
+  it("(2) counts the gap in the host flags of a real gap packet, and its refused chunk's outcomes as the gap's, not as no-evidence outcomes", async () => {
+    const r = await run(gapOnFirst), root = mkdtempSync(join(tmpdir(), "soar-gap-flags-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const checkpoints = new PrivateCheckpointStore(root, "job-1");
+    const store = { events: () => [], dispatches: () => [], atomic: <T>(fn: () => T) => fn(), append: () => 1 } as unknown as PrivateAgentStore;
+    const phase = { contract: { requiredChecks: [CLAIMS_LEDGER_CHECK_ID], requiredArtifacts: [{ path: "output/report.md" }, { path: CLAIMS_LEDGER_PATH }] }, files: r.outcome.files };
+    const event = hostFlagsEvent({ store, jobId: "job-1", contextId: "private", checkpoints, phase,
+      finalSnapshot: checkpoints.save([{ path: "output/report.md", bytes: Buffer.from("x") }, { path: CLAIMS_LEDGER_PATH, bytes: Buffer.from("[]") }]) } as never)!;
+    // The answered chunk's two outcomes hold evidence, and the gap chunk's no_verified_evidence for Q2 is the gap's, so none counts here.
+    expect(event.misses).toMatchObject({ declaredGaps: 1, gapQuestions: 1, noEvidenceOutcomes: 0 });
+    expect(hostFlagIssues([event], true)).toContain("One passage of the sources stayed unresolved after its repairs: the reader declared 1 research question unresolved there, and the packet holds no evidence from it.");
+  });
+
+  it("refuses at the ready gate a gap whose source is not its chunk's", async () => {
+    const r = await run(gapOnFirst);
+    const files = r.outcome.files.map(f => f.path !== RESEARCH_FILES.coverage ? f : { path: f.path,
+      bytes: Buffer.from(`${canonical((v => { v.gaps[0].sourceId = sources[1]!.id; return v; })(JSON.parse(f.bytes.toString("utf8"))))}\n`) });
+    expect(() => validateReadyResearchPacket(files)).toThrow("research_packet_gap");
+  });
+
+  it("pins the protocol hashes the change sets: the default, under admission, and under the adopted card's roles with admission", () => {
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true)).toBe("36b734964c1b7e68622c70a482a2e3cabffc57689a554841124507e96368a3d4");
+    const card = JSON.parse(readFileSync(join(__dirname, "..", "..", "docs", "experiments", "serving-card-2026-11-17.json"), "utf8")) as { roles: ResearchRolePolicy };
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, card.roles, true)).toBe("22d2d92d5ac67ce3733c3a2a31189c3060c2c73d50ff6d8bd46da8e22ab8b076");
+  });
+
   it("records, under a card's rates, the held chunks and those left without their optional repair", async () => {
     // A held chunk: a complete first reply that marks Q1 evidence_found but quotes nothing locatable for it.
     const lost = (input: any) => JSON.stringify({ questions: [{ questionId: "Q1", status: "evidence_found" }, { questionId: "Q2", status: "evidence_found" }],
@@ -150,6 +224,9 @@ describe("one declared gap: the owner's answer of 2026-11-18", () => {
       { admission: rates, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: chunkIds.length + 1 } });
     expect(tight.outcome.status).toBe("completed");
     expect(tight.extractRow).toMatchObject({ heldChunks: 1, heldKeptUnrepaired: 1, repairCalls: 1 });
+    // A repair call the stage is denied ends the row, which still counts the held chunk the initial pass left.
+    const denied = await run(scripted((chunk, n, input) => n === 0 ? (chunk === 0 ? lost(input) : "not json") : chunk === 1 ? new Error("network_down") : answered(input)), { admission: rates });
+    expect(denied.extractRow).toMatchObject({ heldChunks: 1, denied: expect.any(String) });
     // Without a card's rates the row carries neither count, as it carries no second repairs.
     const plain = await run(scripted((chunk, n, input) => chunk === 0 && n === 0 ? lost(input) : answered(input)));
     expect([plain.extractRow.heldChunks, plain.extractRow.heldKeptUnrepaired]).toEqual([undefined, undefined]);

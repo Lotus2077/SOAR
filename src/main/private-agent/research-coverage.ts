@@ -26,8 +26,11 @@ const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["find
  * locator, quoteSha256) is the pipeline's own identity of one verified quote; `presentation_cap` marks a quote only the presentation
  * guard left out; a chunk question may be `evidence_trimmed`. Omissions no longer make a packet incomplete.
  */
-/** Item (ii) (#139): version 4, whose chunks may hold a third attempt, a second repair. */
-export const ResearchCoverageSchema = z.object({ version: z.literal(4), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
+/**
+ * Item (ii) (#139): version 4, whose chunks may hold a third attempt, a second repair. The owner's answer of 2026-11-18 (#166): version 5,
+ * which may hold one declared gap; the stage writes 5, and a version 4 record, which holds none, still reads.
+ */
+export const ResearchCoverageSchema = z.object({ version: z.union([z.literal(4), z.literal(5)]), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
   chunks: z.array(z.object({ id: z.string().min(1).max(80), sourceId: id, sourceSha256: sha256Schema, startByte: integer, endByte: integer, sha256: sha256Schema,
@@ -184,9 +187,10 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   // counts, identity and binding checks below accept only disclosed ones.
   // The owner's answer of 2026-11-18 (#166): one disclosed gap, the chunk whose last reply declared questions unresolved, is the one
   // chunk a ready packet may hold that is not complete. Its record must be the chunk's own: its source, its status and its attempts.
+  // The gap is left only after every repair: a second one under a card's admission rates (the summary records them), else one.
   const gap = coverage.gaps?.[0], gapChunk = gap ? coverage.chunks.find(c => c.id === gap.chunkId) : undefined;
-  if (gap && (!gapChunk || gapChunk.sourceId !== gap.sourceId || gapChunk.status !== "needs_followup" || gapChunk.attempts.length !== gap.attempts ||
-    gapChunk.attempts.at(-1)?.status !== "needs_followup")) fail("gap");
+  if (gap && (coverage.version !== 5 || !gapChunk || gapChunk.sourceId !== gap.sourceId || gapChunk.status !== "needs_followup" || gapChunk.attempts.length !== gap.attempts ||
+    gap.attempts !== (summary.admission ? 3 : 2) || gapChunk.attempts.at(-1)?.status !== "needs_followup")) fail("gap");
   if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) ||
     coverage.chunks.some(c => c !== gapChunk && (c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete")) ||
     coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");

@@ -226,7 +226,9 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
         // of the packet, and the packet's omissions. Computed whenever coverage is read, so an older event's missing count reads "not recorded".
         misses.questionsTrimmed = coverage.synthesis.questions.filter(question => !retained.has(question.questionId) && trimmed.has(question.questionId)).length;
         misses.unresolvedQuestions = coverage.synthesis.questions.filter(question => question.disposition === "unresolved").length;
-        misses.noEvidenceOutcomes = coverage.chunks.reduce((sum, chunk) => sum + chunk.questions.filter(question => question.status === "no_verified_evidence").length, 0);
+        // A declared gap's chunk was never read as empty (its replies were refused), so its outcomes are the gap's counts below, not these.
+        misses.noEvidenceOutcomes = coverage.chunks.reduce((sum, chunk) => chunk.id === coverage.gaps?.[0]?.chunkId ? sum
+          : sum + chunk.questions.filter(question => question.status === "no_verified_evidence").length, 0);
         misses.extractionRetries = coverage.chunks.reduce((sum, chunk) => sum + Math.max(0, chunk.attempts.length - 1), 0);
         misses.quotesLeftByCap = coverage.omissions.length;
         misses.conflictsLeftByCap = coverage.conflictOmissions.length;

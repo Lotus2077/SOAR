@@ -744,7 +744,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // A settled assist is one of the stage's calls, its usage summed with the stage's; a no_reply outcome is counted nowhere.
     expect(stage.usage.inputTokens).toBe(stageCount * 100 + (settledAssist ? usage.inputTokens : 0));
     const coverage = parsed(result, RESEARCH_FILES.coverage), plan = parsed(result, RESEARCH_FILES.plan);
-    expect(coverage.version).toBe(4); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
+    expect(coverage.version).toBe(5); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
     // An accepted assist plan is kept with its aliases translated to the real ids; otherwise the host fallback plan.
     if (kind === "accepted") expect(plan.questions[0].sourceIds).toEqual(["input/corpus/beta.md", "input/corpus/alpha.md"]);
     else expect(plan).toEqual(hostFallbackPlan(coverage.units));
@@ -844,7 +844,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // Synthesis requests differ from 7a.1's only by coverage: its version, `fallbacks` and the protocol hash.
     const clean = models(); await run(clean); const synthesis = clean.calls.find(c => c.stage === "synthesise")!.input;
     expect(Object.keys(synthesis)).toEqual(["brief", "coverage", "evidence", "lengthCap", "plan", "repairReason", "units"]);
-    expect(synthesis.coverage).toMatchObject({ version: 4, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
+    expect(synthesis.coverage).toMatchObject({ version: 5, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
     // With coverage put back in 7a.1's shape (version 1, no fallbacks, 7a.1's protocol), the request is 7a.1's byte for byte
     // (captured at #76's head 2fe1ec8, whose protocol is 05f342b2...).
     const v4 = JSON.parse(clean.calls.find(c => c.stage === "synthesise")!.body.messages[1].content as string);

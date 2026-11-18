@@ -11,8 +11,9 @@
  * in result.json: bodyBytes, and packetSha256 over the configured endpoint. Replies are judged by the stage's own checks, copied below from
  * the synthesis stage's judge (research-pipeline.ts keeps them in a closure; a test pins the copy to the stage on the same replies). POSTs
  * go directly to the owner's endpoint outside the broker (zero fee, no dispatch rows), streamed as the stage streams. Raw replies stay under
- * the ignored out directory (mode 0o600); summary.json holds codes, hashes, counts, times and token usage only, written before the first
- * request and after every call. The endpoint comes from loadConfig, and its address is never printed or written.
+ * the ignored out directory (mode 0o600); summary.json, beside them, holds codes, hashes, counts, times and token usage, plus the model
+ * alias and the packets' run directory names, written before the first request and after every call. The printed line names neither the
+ * alias nor a run. The endpoint comes from loadConfig, and its address is never printed or written.
  *
  *   pnpm fixture:synthesis -- --batch <r3 batch directory> --brief <stage brief> --cell <cell> [--manifest <json>] [--out <dir>] [--dry-run]
  */
@@ -160,6 +161,8 @@ export function checkStageReceipts(fixture: VerifiedSynthesisFixture, settings: 
   });
 }
 export const stageCheckPassed = (checks: readonly StageCheck[]) => checks.every(check => [...check.bodyBytes, ...check.packetSha256].every(Boolean));
+/** Amendment 7's void rule: a cell with any trial that settled no reply is void, and is run again once in a new out directory. */
+export const synthesisCellVoid = (summary: Pick<SynthesisFixtureSummary, "outcomes">) => summary.outcomes.no_outcome > 0;
 
 // The synthesis stage's judge (research-pipeline.ts, runResearchPipeline's `judge`), copied: its helpers are not exported, and the fixture
 // adds no export to the pipeline. tests/unit/synthesis-fixture.test.ts runs the stage on the same replies and compares every verdict.
@@ -358,9 +361,13 @@ async function main(): Promise<number> {
     settings: requestSettingsOf(config), cell: args.cell, out, dryRun: args.dryRun,
     inputs: { manifest: JSON.parse(readFileSync(args.manifest ?? DEFAULT_MANIFEST, "utf8")), brief: readFileSync(args.brief),
       read: (run, file) => readFileSync(join(args.batch, run, RUN_FILES[file])) } });
-  process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, cell: args.cell, attempts: summary.attempts, trials: summary.repeats, packets: summary.manifest.packets.map(p => p.run),
-    stageCheck: summary.stageCheck, stageCheckPassed: stageCheckPassed(summary.stageCheck), requestSettings: summary.requestSettings, requests: summary.requests,
-    outcomes: summary.outcomes, byPacket: summary.byPacket, counts: summary.counts, codes: summary.codes, retained: summary.dryRun ? null : `${basename(out)}/replies` })}\n`);
+  // No model alias and no run name: packets are listed in the manifest's order.
+  const cellRequests = summary.requests[args.cell]!;
+  process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, cell: args.cell, attempts: summary.attempts, trials: summary.repeats, packetCount: summary.manifest.packetCount,
+    stageCheckPassed: stageCheckPassed(summary.stageCheck), stageCheck: summary.stageCheck.map(({ run: _run, ...check }) => check),
+    requests: { requestSetSha256: cellRequests.requestSetSha256, requests: cellRequests.requests, packets: Object.values(cellRequests.packets) },
+    void: synthesisCellVoid(summary), outcomes: summary.outcomes, byPacket: Object.values(summary.byPacket), counts: summary.counts, codes: summary.codes,
+    retained: summary.dryRun ? null : `${basename(out)}/replies` })}\n`);
   return stageCheckPassed(summary.stageCheck) ? 0 : 2;
 }
 

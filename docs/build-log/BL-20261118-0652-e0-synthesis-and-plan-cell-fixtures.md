@@ -8,12 +8,12 @@ Decisions:
 1. **A synthesis fixture** (scripts/synthesis-fixture.ts, manifest e0-synthesis-fixture-v1.json) replays the stage's two-attempt sequence on runs 2 and 3's packets. Its unit is a trial, and the outcome is what the owner would get: a model synthesis or the skeleton. It runs three cells: 8,192 (the card's row), 16,384, and 8,192 with thinking off on the repair only.
 2. **Planner cells B and C** join cell A in scripts/planner-fixture.ts, on run 2's index (manifest v3): B is A streamed, as the stage sends it, and C is B with thinking off.
 3. **Both fixtures are checked against the stage's own receipts before any call.** Each dry run rebuilds the stage's bodies from the packet or index and compares them with result.json's sizes and packet digests.
-4. **Amendment 7** registers the six invocations, their dry runs and the reading rules. Nothing is adopted by the fixtures alone.
+4. **Amendment 7** registers the six invocations, their dry runs, the reading rules and a void rule: a cell whose call settled no reply is run again once, and not read if void twice. Nothing is adopted by the fixtures alone.
 
 Changes: scripts/synthesis-fixture.ts; scripts/planner-fixture.ts; scripts/registry-row.py (the planner's two cells and a synthesis kind); package.json; docs/experiments/e0-synthesis-fixture-v1.json and e0-planner-fixture-v3.json; Amendment 7 of docs/experiments/e0-card-2026-11-13.md; their tests; this file.
 
 Evidence:
-- The stage itself is the reference. The pipeline runs with a scripted synthesiser, and the fixture rebuilds its synthesis bodies byte for byte in all three cells. On 13 replies its judge returns the stage's verdict and reasons; 2 are accepted.
+- The stage itself is the reference. The pipeline runs with a scripted synthesiser, and the fixture rebuilds its synthesis bodies byte for byte in all three cells. On 14 replies its judge returns the stage's verdict and reasons; 2 are accepted.
 - On the real records, read-only, the rebuilt bodies match all four synthesis receipts' sizes and run 2's first plan receipt (69,073 bytes). Only the dry run can check the digests, because they bind the endpoint.
 - Mutants that drop a judge check, break the repair context or pick the wrong plan receipt each fail a test.
 

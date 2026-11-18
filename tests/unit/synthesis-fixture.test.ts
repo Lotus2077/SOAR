@@ -13,7 +13,7 @@ import { runResearchPipeline, type ResearchDiagnostic } from "../../src/main/pri
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { CELL_CALLS, RUN_FILES, STAGE_CELL, SYNTHESIS_CELLS, SYNTHESIS_REPAIR_REASON, buildSynthesisRequest, checkStageReceipts, judgeSynthesisReply, parseSynthesisArguments,
-  runSynthesisFixture, stageCheckPassed, synthesisPacketSha256, verifySynthesisInputs, type RunFile, type SynthesisCell, type SynthesisPacket } from "../../scripts/synthesis-fixture";
+  runSynthesisFixture, stageCheckPassed, synthesisCellVoid, synthesisPacketSha256, verifySynthesisInputs, type RunFile, type SynthesisCell, type SynthesisPacket } from "../../scripts/synthesis-fixture";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
 
 /**
@@ -116,6 +116,7 @@ describe("E0 synthesis fixture: the stage's judge", () => {
       unknownEvidenceId: { content: answer(`A finding [${ids[0]}].${sections}`, questions.map(q => ({ questionId: q, disposition: "findings", evidenceIds: ["E999"] }))), truncated: false },
       unknownCitation: { content: answer(`A finding [E77].${sections}`), truncated: false },
       headingMissing: { content: answer(`A finding [${ids[0]}].\n\n## Unanswered questions\nNone.`), truncated: false },
+      unansweredHeadingMissing: { content: answer(`A finding [${ids[0]}].\n\n## Conflicting evidence\nNone.`), truncated: false },
       questionSetMismatch: { content: answer(`A finding [${ids[0]}].${sections}`, []), truncated: false },
       duplicateEvidenceId: { content: answer(`A finding [${ids[0]}].${sections}`, questions.map(q => ({ questionId: q, disposition: "findings", evidenceIds: [ids[0]!, ids[0]!] }))), truncated: false },
       dispositionWithoutEvidence: { content: answer(`A finding.${sections}`, questions.map(q => ({ questionId: q, disposition: "findings", evidenceIds: [] }))), truncated: false },
@@ -189,6 +190,8 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
       { trial: 3, packet: "run-2", outcome: "skeleton", acceptedAttempt: null, calls: 2 },
       { trial: 4, packet: "run-3", outcome: "no_outcome", acceptedAttempt: null, calls: 1 }]);
     expect(summary.outcomes).toEqual({ model_synthesis: 2, skeleton: 1, no_outcome: 1 });
+    // A trial that settled no reply voids the cell (Amendment 7, item 5): it is run again whole once.
+    expect(synthesisCellVoid(summary)).toBe(true);
     expect(summary.byPacket).toEqual({ "run-2": { model_synthesis: 1, skeleton: 1, no_outcome: 0 }, "run-3": { model_synthesis: 1, skeleton: 0, no_outcome: 1 } });
     expect(summary.counts).toEqual({ [STAGE_CELL]: { accepted: 2, invalid: 2, truncated: 1, request_rejected: 1 } });
     expect(summary.codes).toEqual({ 1: { truncated: 1, unknown_citation: 1, unknown_evidence_id: 1 }, 2: { unknown_citation: 1, unknown_evidence_id: 1 } });
@@ -225,6 +228,7 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
     const summary = await runSynthesisFixture({ endpoint: { baseUrl: server.baseUrl }, settings: SETTINGS, inputs: inputsFor(root, manifestFor(packets, { trialsPerPacket: 1 })),
       cell: "synthesis-8192-repair-thinking-off", out: join(scratch(), "out") });
     expect(summary.outcomes).toEqual({ model_synthesis: 0, skeleton: 2, no_outcome: 0 });
+    expect(synthesisCellVoid(summary)).toBe(false);
     expect(server.requests.map(r => [r.body.reasoning_effort ?? null, r.body.chat_template_kwargs ?? null])).toEqual([["medium", null], [null, { enable_thinking: false }],
       ["medium", null], [null, { enable_thinking: false }]]);
   }, 60_000);
@@ -279,6 +283,22 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
 });
 
 describe("E0 synthesis fixture: the command line and the committed manifest", () => {
+  it("dry-runs from the command line through loadConfig: the stage check and each attempt's word cap, and no alias, run name or address", async () => {
+    const root = scratch(), packets = [];
+    for (const [run, job] of [["run-2", "e0-synthesis-cli-job-2"], ["run-3", "e0-synthesis-cli-job-3"]] as const) packets.push(runDirectory(root, run, job, await stage(job, refused), OTHER_BASE));
+    writeFileSync(join(root, "brief.md"), RESEARCH_V4_TEST_BRIEF); writeFileSync(join(root, "manifest.json"), JSON.stringify(manifestFor(packets)));
+    const env = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SOAR_VLLM_BASE_URL: OTHER_BASE, SOAR_VLLM_MODEL: "Synthetic", SOAR_ENV_FILE: join(root, "none.env") };
+    const stdout = execFileSync(process.execPath, ["--import", "tsx", "scripts/synthesis-fixture.ts", "--batch", root, "--brief", join(root, "brief.md"), "--manifest", join(root, "manifest.json"),
+      "--cell", "synthesis-8192-repair-thinking-off", "--dry-run"], { cwd: join(__dirname, "..", ".."), encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
+    const line = JSON.parse(stdout);
+    expect(line).toMatchObject({ dryRun: true, cell: "synthesis-8192-repair-thinking-off", trials: 4, packetCount: 2, stageCheckPassed: true, void: false,
+      stageCheck: [{ bodyBytes: [true, true], packetSha256: [true, true] }, { bodyBytes: [true, true], packetSha256: [true, true] }] });
+    // Attempt 2's word cap is printed beside attempt 1's: with thinking off its ceiling rises, unless the brief states a lower limit.
+    expect(line.requests.packets.map((pair: { lengthCapWords: number; thinking: string }[]) => pair.map(r => [r.thinking, r.lengthCapWords])))
+      .toEqual([0, 1].map(() => [["model", expect.any(Number)], ["disabled", expect.any(Number)]]));
+    for (const needle of ["Synthetic", "run-2", "run-3", "127.0.0.1", root]) expect(stdout).not.toContain(needle);
+  }, 60_000);
+
   it("reads its arguments strictly", () => {
     expect(parseSynthesisArguments(["--batch", "b", "--brief", "f", "--cell", "synthesis-16384", "--dry-run"])).toEqual({ batch: "b", brief: "f", cell: "synthesis-16384", dryRun: true });
     for (const argv of [[], ["--batch", "b", "--brief", "f"], ["--batch", "b", "--brief", "f", "--cell", "synthesis-32768"], ["--batch", "b", "--batch", "c", "--brief", "f", "--cell", STAGE_CELL],

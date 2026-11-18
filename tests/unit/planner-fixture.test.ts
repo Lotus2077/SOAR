@@ -13,7 +13,7 @@ import { assembleIndexEntry, buildLiteralSourceCard } from "../../src/main/priva
 import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research-plan";
 import { OUTPUT_TOKENS, PLAN_SYSTEM, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, FIXTURE_JOB_ID, PLAN_RESPONSE_FORMAT, PlannerFixtureManifestSchema, STAGE_CONDITION, buildPlannerBody, buildPlannerMessages, checkPlannerStage, plannerConditionCap,
-  plannerConditionStreamed, plannerPacketSha256, runPlannerFixture, verifyFixtureInputs,
+  parsePlannerArguments, plannerCellsVoid, plannerConditionStreamed, plannerPacketSha256, runPlannerFixture, verifyFixtureInputs,
   type FixtureCondition } from "../../scripts/planner-fixture";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { buildRoleRequest } from "../../scripts/export-role-schemas";
@@ -361,9 +361,9 @@ describe("planner fixture: Amendment 7's cells A, B and C, and the stage check (
   it("checks cell B against the stage run's first plan receipt before any request, and refuses another job, receipt, endpoint or a missing run", async () => {
     const f = fixtureInputs(), server = await streamServer(() => ({ sse: stream(plan(["input/corpus/alpha.md"])) }));
     const messages = buildPlannerMessages(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest: f.manifest }));
-    const { result, stage } = stageResult(messages, "e0-plan-stage-job", server.baseUrl), manifest = { ...f.manifest, stage };
+    const { result, stage } = stageResult(messages, "e0-plan-stage-job", server.baseUrl), manifest = { ...f.manifest, conditions: [A, B, C], repeats: 1, stage };
     const run = (over: Record<string, unknown> = {}, inputs: Record<string, unknown> = {}) => runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" },
-      inputs: { index: f.index, brief: f.briefBytes, manifest, stageResult: result, ...inputs }, out: join(outDir(), "stage"), repeats: 1, conditions: [B], ...over });
+      inputs: { index: f.index, brief: f.briefBytes, manifest, stageResult: result, ...inputs }, out: join(outDir(), "stage"), repeats: 1, conditions: [B], cacheSalt: true, ...over });
     expect(checkPlannerStage(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest }), result, "Synthetic", server.baseUrl))
       .toEqual({ run: "run-2", condition: B, bodyBytes: true, packetSha256: true });
     expect((await run({ dryRun: true })).stageCheck).toEqual({ run: "run-2", condition: B, bodyBytes: true, packetSha256: true });
@@ -380,6 +380,25 @@ describe("planner fixture: Amendment 7's cells A, B and C, and the stage check (
     // A manifest without `stage` (v1, v2) checks nothing and needs no run.
     expect((await run({ dryRun: true }, { manifest: f.manifest, stageResult: undefined })).stageCheck).toBeUndefined();
     expect((await run()).calls.map(c => c.classification)).toEqual(["valid"]);
+    // Under v3, one of its cells per invocation, at its repeat count, with the salt; and never into an existing out directory.
+    for (const over of [{ conditions: [B, C] }, { conditions: ["legacy-thinking"] }, { repeats: 2 }, { cacheSalt: false }])
+      await expect(run(over)).rejects.toThrow("planner_fixture_v3_design_invalid");
+    await expect(run({ out: outDir() })).rejects.toThrow("planner_fixture_out_exists");
+    expect(server.requests).toHaveLength(1);
+  });
+
+  it("calls cell B or C void after a transport failure, and never cell A", () => {
+    const counts = { [A]: { transport_failed: 2 }, [B]: { valid: 9, transport_failed: 1 }, [C]: { valid: 10 } };
+    expect(plannerCellsVoid({ conditions: [A, B, C], counts })).toEqual({ [A]: false, [B]: true, [C]: false });
+  });
+
+  it("reads its command line strictly: an unknown or repeated flag, a missing value or a repeat count outside 1 to 100 is refused", () => {
+    expect(parsePlannerArguments(["--index", "i", "--brief", "b", "--conditions", B, "--stage-run", "r", "--cache-salt", "--dry-run"]))
+      .toEqual({ index: "i", brief: "b", conditions: [B], stageRun: "r", cacheSalt: true, dryRun: true });
+    expect(parsePlannerArguments(["--index", "i", "--brief", "b", "--repeats", "100"])).toMatchObject({ repeats: 100, cacheSalt: false, dryRun: false });
+    for (const argv of [["--index", "i", "--brief", "b", "--dry_run"], ["--index", "i", "--brief", "b", "--dryrun"], ["--index", "i", "--brief", "b", "--repeats", "101"],
+      ["--index", "i", "--brief", "b", "--repeats", "0"], ["--index", "i", "--index", "j", "--brief", "b"], ["--index", "--brief", "b"], ["--brief", "b"],
+      ["--index", "i", "--brief", "b", "--conditions", ","], ["--index", "i", "--brief", "b", "--cache-salt", "--cache-salt"]]) expect(parsePlannerArguments(argv)).toBeUndefined();
   });
 
   it("pins manifest v3: run 2's index and the stage brief, cells A, B and C ten times each, and run 2's first plan receipt", () => {

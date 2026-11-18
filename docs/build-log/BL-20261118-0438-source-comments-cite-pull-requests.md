@@ -15,7 +15,7 @@ Evidence:
 - **The code is unchanged against `main` 468fdca.** The 51 TypeScript files minify to identical code, the 5 Python files parse to identical trees once docstrings are set aside, and the shell script differs in one comment.
 - **The hashes are unchanged.** `researchProtocolSha256()` is e3e08871… by default and f157570b… under admission, the adopted card binds af4715a1…, and P10's 18 request bodies are byte-identical.
 - **The source freeze moves** from `main`'s 15aca2ead08f68c782f17f522697631b7250971f1fb189c25b0e3af75d8dfc6e (since #160) to e8d78bd859beddb043e91386ac705da46495a702e182ee522a8367df7c68c12b.
-- **Checks:** typecheck, readiness and the validator pass. The full suite passes with a 30 s test timeout: 202 files and 4,012 tests, 88 skipped, none failed. At the default 5 s, two runs under a load average near 30 each timed out two tests, different ones each time; each of the three passes alone.
+- **Checks:** typecheck, readiness and the validator pass. The full suite passes with a 30 s test timeout: 202 files and 4,012 tests, 88 skipped, none failed. At the default 5 s, two runs under a load average near 30 each timed out two tests: the validator's command-line test both times, and an assist-capture and a sandbox-capture test once each. Each passes alone.
 
 Failures or blockers: None.
 

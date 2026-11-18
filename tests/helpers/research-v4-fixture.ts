@@ -48,3 +48,22 @@ export function researchV4Reply(system: string, user: string): string {
 export const RESEARCH_V4_TEST_BRIEF = "Describe the supplied synthetic observations and their limitations.";
 export function researchV4Sources() { return [{ id: "input/corpus/alpha.md", path: "input/corpus/alpha.md", bytes: Buffer.from("# Synthetic alpha\nThe orchard recorded twelve healthy trees during the autumn survey.\n") },
   { id: "input/corpus/beta.md", path: "input/corpus/beta.md", bytes: Buffer.from("# Synthetic beta\nThe meadow recorded seven healthy trees during the spring survey.\n") }]; }
+
+/**
+ * A packet 7b.2's priority trim cuts (#102), for researchV4TrimmedSources(): every extraction reply quotes each line of its chunk for
+ * every question with a 200-character note, so the stage verifies 240 quotes that overflow the 64 KiB packet. Its ready packet then
+ * holds `quotesLeftByCap` above 0, coverage omissions and `evidence_trimmed` outcomes. Every other stage answers as researchV4Reply.
+ */
+export function researchV4TrimmedReply(system: string, user: string): string {
+  if (!system.startsWith("You extract")) return researchV4Reply(system, user);
+  const input = parseResearchUserContent(user), questionIds = input.plan.questions.map((q: { id: string }) => q.id);
+  return JSON.stringify({ questions: questionIds.map((questionId: string) => ({ questionId, status: "evidence_found" })), conflicts: [],
+    quotes: String(input.chunk.text).split("\n").map((quote: string) => ({ quote, questionIds, note: "n".repeat(200) })) });
+}
+/** Twenty sources of twelve quotable lines each (one chunk a source), the corpus researchV4TrimmedReply overflows the packet with. */
+export function researchV4TrimmedSources(): { id: string; path: string; bytes: Buffer }[] {
+  return Array.from({ length: 20 }, (_, i) => {
+    const path = `input/corpus/trim-${String(i).padStart(2, "0")}.md`;
+    return { id: path, path, bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) };
+  });
+}

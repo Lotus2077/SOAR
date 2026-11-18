@@ -37,8 +37,8 @@ import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from ".
 import { caughtRunReason, isResumableRunReason, storedRunReason } from "./run-reasons";
 import { storageIntegrityFailed } from "./storage-integrity";
 import { HostFlagsEventSchema } from "../private-agent/host-flags";
-import { DESKTOP_RESEARCH_ROUTE, desktopResearchAvailability, isDesktopResearchRecord, readDesktopResearchCard, researchInputsCheck,
-  type DesktopResearchRecord } from "./research-route";
+import { DESKTOP_RESEARCH_ROUTE, DESKTOP_RESEARCH_WRITE_BOUND, desktopResearchAvailability, desktopResearchSession, isDesktopResearchRecord, readDesktopResearchCard,
+  researchInputsCheck, researchStageView, researchWriteLimits, type DesktopResearchRecord, type DesktopResearchWriteBound } from "./research-route";
 
 /** Cap on one assembled local model reply. */
 const LOCAL_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -256,6 +256,8 @@ interface TaskRecord {
   consultantIdentity?: string;
   /** Version 4 only (backlog item 13a): the local research route and the serving card the task was created on. */
   research?: DesktopResearchRecord;
+  /** Version 4 only (backlog item 13a): the summed wall time of the task's runs (stage, writer and evidence pass), which the stage's events do not record. */
+  wallMs?: number;
   /** The owner's verdict on a submitted task (#40); absent until recorded, never rewritten. */
   verdict?: GeneralTaskVerdict;
 }
@@ -264,7 +266,9 @@ export const VERDICT_RECEIPT_KEYS = Object.freeze(["version", "taskId", "taskJob
   "modelCalls", "toolCalls", "wallSeconds", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd",
   "unknownDispatches", "retriedDispatches", "failedDispatches", "entailment", "arm", "verdict", "cloudModel", "cloudApi"] as const);
 export type VerdictReceipt = Record<typeof VERDICT_RECEIPT_KEYS[number], unknown>;
-interface Active { promise: Promise<void>; session?: GeneralAgentSession; consultation?: GeneralConsultation; abort: AbortController; pauseRequested: boolean; cancelRequested: boolean }
+interface Active { promise: Promise<void>; session?: GeneralAgentSession; consultation?: GeneralConsultation; abort: AbortController; pauseRequested: boolean; cancelRequested: boolean;
+  /** When the current session run began; a research task adds each run's wall time to its record (wallMs). */
+  runStartedAt?: number }
 export interface GeneralTaskControllerOptions {
   database: Database.Database;
   dataRoot: string;
@@ -276,7 +280,9 @@ export interface GeneralTaskControllerOptions {
   /** PR-B: fires with true when the first task becomes active and false when the last one ends (the shell keeps the machine awake). */
   onActivity?: (active: boolean) => void;
   /** Host-only test dependencies. Never accepted through IPC. */
-  testing?: { readiness?: (imageId: string) => Promise<void>; runnerFactory?: GeneralSessionOptions["trustedHostRunnerFactory"] };
+  testing?: { readiness?: (imageId: string) => Promise<void>; runnerFactory?: GeneralSessionOptions["trustedHostRunnerFactory"];
+    /** Tests only: the research write bound E2 may choose, in place of the shipped DESKTOP_RESEARCH_WRITE_BOUND (requirement B). */
+    researchWriteBound?: DesktopResearchWriteBound };
 }
 
 /** App adapter only: the existing session and runner remain the execution authority. */
@@ -342,8 +348,9 @@ export class GeneralTaskController {
         record.version === 3 && (record.routing !== "ask_before_consulting" || !/^[a-f0-9]{64}$/u.test(record.consultantIdentity ?? "")) ||
         record.version !== 3 && (record.routing !== undefined || record.consultantIdentity !== undefined) ||
         // A research task (version 4) runs the heavy profile on its input files alone, with no consultation and no typed URLs yet.
-        (record.version === 4 ? !isDesktopResearchRecord(record.research) || record.profile !== "heavy" || record.publicSources !== undefined
-          : record.research !== undefined)) throw new Error("general_task_record_invalid");
+        (record.version === 4 ? !isDesktopResearchRecord(record.research) || record.profile !== "heavy" || record.publicSources !== undefined ||
+            record.wallMs !== undefined && !(Number.isSafeInteger(record.wallMs) && record.wallMs >= 0)
+          : record.research !== undefined || record.wallMs !== undefined)) throw new Error("general_task_record_invalid");
     if (record.publicSources !== undefined) GeneralTaskPublicSourcesSchema.parse(record.publicSources);
     if (record.verdict !== undefined && !GeneralTaskVerdictSchema.safeParse(record.verdict).success) throw new Error("general_task_record_invalid");
     return record;
@@ -363,6 +370,10 @@ export class GeneralTaskController {
   /** The task's own profile when it recorded one (PR-F), otherwise the configured default. */
   private profileName(record?: { profile?: CoordinatorProfileName }): CoordinatorProfileName { return record?.profile ?? this.options.config().generalTaskProfile ?? DEFAULT_COORDINATOR_PROFILE; }
   private budget(record?: { profile?: CoordinatorProfileName }) { return GENERAL_TASK_BUDGETS[this.profileName(record)]; }
+  /** The write phase's limits: the profile's own, or for a research task the named write bound (requirement B, research-route.ts). */
+  private writeLimits(record: { profile?: CoordinatorProfileName; research?: DesktopResearchRecord }) {
+    return record.research ? researchWriteLimits(this.options.testing?.researchWriteBound ?? DESKTOP_RESEARCH_WRITE_BOUND, this.budget(record)) : this.budget(record);
+  }
   private publish(id: string): void { try { this.options.onUpdate?.(this.get(id)); } catch { /* Closing windows do not interrupt execution. */ } }
   private profile(record?: { profile?: CoordinatorProfileName; research?: DesktopResearchRecord }) {
     const config = this.options.config(), imageId = this.options.imageId(), runtimeIdentity = this.options.runtimeIdentity();
@@ -389,14 +400,15 @@ export class GeneralTaskController {
     if (!profile || record && (record.version !== 3 || record.consultantIdentity !== profile.identity)) throw new Error("general_task_configuration_changed");
     return profile;
   }
+  /** The beta flag and the very card a research task was created on: a later card, or the flag turned off, ends any start or resume of the task. */
+  private researchCard(record: Pick<TaskRecord, "research">) {
+    const config = this.options.config(), read = readDesktopResearchCard(config);
+    if (config.localResearchBeta !== true || !read.accepted || read.card.sha256 !== record.research?.cardSha256) throw new Error("general_task_configuration_changed");
+    return read.card;
+  }
   private configurationIdentity(record: Pick<TaskRecord, "version" | "consultantIdentity" | "profile" | "research">): string {
     const local = this.profile(record).identity;
-    if (record.version === 4) {
-      // The beta flag and the very card the task was created on: a later card, or the flag turned off, ends any start or resume of the task.
-      const config = this.options.config(), read = readDesktopResearchCard(config);
-      if (config.localResearchBeta !== true || !read.accepted || read.card.sha256 !== record.research?.cardSha256) throw new Error("general_task_configuration_changed");
-      return digest(canonical({ version: 4, local, research: record.research }));
-    }
+    if (record.version === 4) { this.researchCard(record); return digest(canonical({ version: 4, local, research: record.research })); }
     if (record.version !== 3) return local;
     const consultant = this.consultant();
     if (record.consultantIdentity !== consultant.identity) throw new Error("general_task_configuration_changed");
@@ -483,7 +495,7 @@ export class GeneralTaskController {
     return { contract: { version: 1, goal: `${record.goal}\nPreserve every provided input file byte-for-byte. Write the required deliverable to ${JSON.stringify(target)}.${publicInstructions}${ledger?.instructions ?? ""}`,
       requiredArtifacts: [{ path: target, description: "The user's requested deliverable." }, ...(ledger ? [{ path: CLAIMS_LEDGER_PATH, description: "Claims ledger: one verbatim source quote per material claim." }] : [])],
       requiredChecks: ["desktop_artifact_structure", ...(ledger ? [CLAIMS_LEDGER_CHECK_ID] : [])],
-      maxModelCalls: this.budget(record).modelCalls, maxToolCalls: this.budget(record).toolCalls, maxElapsedMs: this.budget(record).elapsedMs }, files,
+      maxModelCalls: this.writeLimits(record).modelCalls, maxToolCalls: this.writeLimits(record).toolCalls, maxElapsedMs: this.writeLimits(record).elapsedMs }, files,
     checks: [...(ledger ? [ledger.check] : []), { id: "desktop_artifact_structure", python: `import base64, hashlib, json\nfrom pathlib import Path\nspec=json.loads(base64.b64decode('${expected}'))\nfor item in spec['inputs']:\n    p=Path(item['path'])\n    assert p.is_file() and not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256']\np=Path(spec['target'])\nassert p.is_file() and not p.is_symlink() and p.stat().st_size>0` }] };
   }
   private attestation(record: Pick<TaskRecord, "version" | "goal" | "phaseIdentity" | "inputSnapshot" | "publicSources" | "routing" | "consultantIdentity" | "research">): string {
@@ -583,10 +595,18 @@ export class GeneralTaskController {
     } catch { return; }
   }
   private contextId(id: string): string | undefined {
-    const start = this.runtime.events(id).find(event => event.type === "session_started");
+    const events = this.runtime.events(id), start = events.find(event => event.type === "session_started");
     if (!start) return;
     const contextId = String(start.privateContextId);
-    if (this.runtime.context(contextId).jobId !== id) throw new Error("general_task_context_changed");
+    let jobId: string;
+    try { jobId = this.runtime.context(contextId).jobId; } catch (error) {
+      // Backlog item 13a: a research session (its start names a reader context) whose write phase never began has no writer context yet:
+      // no event and no dispatch carries the writer's id. A writer context missing after the write phase still fails, as before.
+      if (error instanceof Error && error.message === "private_agent_context_missing" && typeof start.readerContextId === "string" &&
+        !events.some(event => event.contextId === contextId) && !this.runtime.dispatches(id).some(row => row.contextId === contextId)) return undefined;
+      throw error;
+    }
+    if (jobId !== id) throw new Error("general_task_context_changed");
     return contextId;
   }
   /** The writer's context for the blocking predicate; a context that cannot be resolved keeps every unknown row blocking. */
@@ -651,7 +671,7 @@ export class GeneralTaskController {
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
     // Backlog item 6 (finding A6): the run-reasons table decides for an incomplete record; every guard after it still applies.
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && isResumableRunReason(record.reason)) && !consultationFailed &&
-      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !sourcesDamaged && !stageUnfinished && consultation?.status !== "pending" &&
+      (finalising || models < this.writeLimits(record).modelCalls && tools < this.writeLimits(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !sourcesDamaged && !stageUnfinished && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
     const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : consultationFailed ? "consultation_failed" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : sourcesDamaged ? "task_integrity_failed" :
       // Backlog item 6 (finding A7): an unfinished research stage is a permanent stop, named before the time limit, both for a record that
@@ -685,7 +705,9 @@ export class GeneralTaskController {
         sources,
         publicFetches: this.runtime.dispatches(id).filter(receipt => receipt.purpose === "public source retrieval").length } : {}),
       artifacts, ...(bundle ? { bundle } : {}), ...(bundleUnavailableReason ? { bundleUnavailableReason } : {}), modelCalls: models, toolCalls: tools,
-      elapsedMs: Math.min(this.budget(record).elapsedMs, record.startedAt === null ? 0 : record.version === 3 ?
+      elapsedMs: Math.min(this.budget(record).elapsedMs, record.startedAt === null ? 0 : record.version === 4 ?
+        // Backlog item 13a: the runs' wall time, the stage's included, and the current run's so far.
+        (record.wallMs ?? 0) + (this.active.get(id)?.runStartedAt !== undefined ? Date.now() - this.active.get(id)!.runStartedAt! : 0) : record.version === 3 ?
         (["queued", "running", "paused"].includes(record.status) || record.status === "incomplete" && isResumableRunReason(record.reason) ? Date.now() : record.updatedAt) - record.startedAt :
         active ? Date.now() - record.startedAt : ended.reduce((sum, event) => sum + Number(event.elapsedMs ?? 0), 0)),
       checks: structuredClone(record.checks), ...(record.entailment ? { entailment: structuredClone(record.entailment) } : {}), cleanupConfirmed,
@@ -694,6 +716,7 @@ export class GeneralTaskController {
       independentAcceptance: "not_evaluated", canResume,
       ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
+      ...(record.research ? { research: researchStageView(record.research, events, dispatches, active) } : {}),
       ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
@@ -768,8 +791,6 @@ export class GeneralTaskController {
     if (this.closing || this.active.size) throw new Error("general_task_busy");
     const record = this.record(id);
     if (record.configurationIdentity !== this.configurationIdentity(record)) throw new Error("general_task_configuration_changed");
-    // Backlog item 13a: the research stage is wired by a later change. Until then a research task never starts, and never runs as a plain task.
-    if (record.version === 4) throw new Error("general_task_research_unwired");
     record.status = "running"; record.reason = "running"; record.startedAt ??= Date.now(); this.save(record);
     const active: Active = { promise: Promise.resolve(), abort: new AbortController(), pauseRequested: false, cancelRequested: false };
     this.active.set(id, active); this.trackActivity(); active.promise = this.execute(id, active); this.publish(id); return this.get(id);
@@ -790,7 +811,11 @@ export class GeneralTaskController {
       if (sessionPhaseIdentity(phase) !== record.phaseIdentity || this.attestation(record) !== record.attestationIdentity) throw new Error("general_task_input_changed");
       const consultant = record.version === 3 ? this.consultant(record) : undefined;
       const broker = this.broker(record, profile);
-      const session = new GeneralAgentSession({ jobId: id, imageId: profile.imageId, store: this.runtime, broker, checkpoints, privatePhase: phase,
+      // Backlog item 13a: a research task's session runs the reading stage first, on the card the task was created on, with the
+      // three roles on the task's own local model; the identity check above has just read the same card.
+      const model = (contextId: string) => new PrivateAgentModel(broker, profile.model, id, contextId);
+      const research = record.research ? desktopResearchSession(this.researchCard(record), contextId => ({ reader: model(contextId), planner: model(contextId), synthesiser: model(contextId) })) : {};
+      const session = new GeneralAgentSession({ jobId: id, imageId: profile.imageId, store: this.runtime, broker, checkpoints, privatePhase: phase, ...research,
         limits: { maxRequests: profile.limits.sessionRequests, maxElapsedMs: profile.limits.elapsedMs },
         ...(record.publicSources ? { publicInputApproval: { phaseSha256: record.phaseIdentity, authoritySha256: record.attestationIdentity,
           webDestinations: this.webDestinations(record).map(item => item.id) } } :
@@ -800,8 +825,10 @@ export class GeneralTaskController {
           destinationId: consultant.destination.id, maxFeeMicrousd: consultant.maxFeeMicrousd,
           factory: (contextId: string) => { const manager = this.consultationManager(record, contextId, broker); active.consultation = manager; return manager; } } } : {}),
         ...(this.options.testing?.runnerFactory ? { trustedHostRunnerFactory: this.options.testing.runnerFactory } : {}) });
-      active.session = session;
+      active.session = session; active.runStartedAt = Date.now();
       const result = await session.run(active.abort.signal), next = this.record(id);
+      // Backlog item 13a: a research task keeps its runs' wall time, since its stage records none (the receipt and the snapshot read it).
+      if (next.research) next.wallMs = (next.wallMs ?? 0) + (Date.now() - active.runStartedAt);
       const events = this.runtime.events(id), ended = events.filter(event => event.type === "run_ended");
       const preserved = next.configurationIdentity === this.configurationIdentity(next);
       // The session writes session_submitted only after its own synchronous deadline and cancel checks; a later abort or cancel can only shorten the evidence pass.
@@ -830,6 +857,7 @@ export class GeneralTaskController {
       this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
+      if (record.research && active.runStartedAt !== undefined) record.wallMs = (record.wallMs ?? 0) + (Date.now() - active.runStartedAt);
       // Backlog item 6: a configuration change, an integrity failure or missing storage, the session's own codes and the runner's contract refusals
       // are terminal; anything else (Docker down, for example) stays resumable.
       record.reason = caughtRunReason(error, this.root); this.save(record);
@@ -955,7 +983,10 @@ export class GeneralTaskController {
     const snapshot = this.get(id), events = this.runtime.events(id), dispatches = this.runtime.dispatches(id);
     const name = this.profileName(record), coordinator = COORDINATOR_PROFILES[name];
     const finished = events.filter(event => event.type === "model_finished");
-    const usage = finished.map(event => (event.usage && typeof event.usage === "object" ? event.usage : {}) as Record<string, unknown>);
+    // Backlog item 13a: a research task's stage calls, tokens and cut replies count as registry-row.py counts a driver row's (counts_of).
+    const stageRows = record.version === 4 ? events.filter(event => event.type === "research_stage") : [];
+    const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+    const usage = [...finished, ...stageRows].map(event => (event.usage && typeof event.usage === "object" ? event.usage : {}) as Record<string, unknown>);
     const sum = (key: string) => usage.reduce((total, item) => total + (Number.isFinite(Number(item[key] ?? 0)) ? Number(item[key] ?? 0) : 0), 0);
     const counts = record.entailment?.counts;
     const judged = counts ? counts.supported + counts.partial + counts.unsupported + counts.contradicted : 0;
@@ -964,9 +995,10 @@ export class GeneralTaskController {
     const consulted = readConsultation(this.runtime, id)?.status === "settled";
     const receipt: VerdictReceipt = { version: 1, taskId: id, taskJobSha256: record.attestationIdentity,
       date: new Date(record.startedAt ?? record.createdAt).toISOString().slice(0, 10), profile: name, thinking: coordinator.thinking, maxOutputTokens: coordinator.maxOutputTokens,
-      runStatus: record.status, terminalCause: record.reason, modelCalls: snapshot.modelCalls, toolCalls: snapshot.toolCalls, wallSeconds: Math.round(snapshot.elapsedMs / 100) / 10,
+      runStatus: record.status, terminalCause: record.reason, modelCalls: snapshot.modelCalls + stageRows.reduce((total, row) => total + number(row.calls), 0), toolCalls: snapshot.toolCalls,
+      wallSeconds: Math.round(snapshot.elapsedMs / 100) / 10,
       inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"), cachedTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
-      lengthStops: finished.filter(event => event.finishReason === "length").length,
+      lengthStops: finished.filter(event => event.finishReason === "length").length + stageRows.reduce((total, row) => total + number(row.truncatedReplies), 0),
       usd: dispatches.filter(row => row.status === "settled").reduce((total, row) => total + (row.feeMicrousd ?? 0), 0) / 1_000_000,
       unknownDispatches: dispatches.filter(row => row.status === "unknown" || row.status === "committed").length,
       retriedDispatches: dispatches.filter(row => row.status === "superseded").length, failedDispatches: dispatches.filter(row => row.status === "failed").length,

@@ -150,6 +150,21 @@ export interface GeneralTaskSnapshot {
   routing?: GeneralTaskRouting;
   consultation?: GeneralTaskConsultationSummary;
   fees?: { reservedMicrousd: number; settledMicrousd: number };
+  /** Backlog item 13a: a local research task's route, the card it runs on and what its stage did. Absent on every other task. */
+  research?: GeneralTaskResearch;
+}
+/**
+ * Backlog item 13a: a local research task's stage, from the stage's own events. `stage` is not_started (no stage work yet), running,
+ * transferred (its packet reached the writer) or stopped (it ended before the transfer, and it cannot resume). Each row is one stage's
+ * latest counts: its calls, the replies cut at the output limit, a host fallback when no attempt was accepted (the host's plan, or the
+ * synthesis skeleton), and the extraction's chunks. `requests` are the stage's model requests, outside the writer's model calls.
+ */
+export interface GeneralTaskResearch {
+  route: "local_beta";
+  card: { date: string; sha256: string };
+  stage: "not_started" | "running" | "transferred" | "stopped";
+  stages: { stage: "index" | "plan" | "extract" | "synthesise"; calls: number; truncatedReplies?: number; fallback?: "host_plan" | "skeleton"; chunksPlanned?: number; chunksComplete?: number }[];
+  requests: number;
 }
 export interface GeneralTaskArtifactPreview extends GeneralTaskArtifactRef {
   bytes: number;

@@ -1,9 +1,65 @@
 import type { SoarConfig } from "../config";
-import type { GeneralTaskAvailability } from "../../shared/general-task-contracts";
+import type { GeneralTaskAvailability, GeneralTaskResearch } from "../../shared/general-task-contracts";
 import { loadServingCard, servingCardExpectation, servingCardRefusal, type LoadedServingCard } from "../private-agent/serving-card";
 import { inventoryResearchSources } from "../private-agent/research-coverage";
 import { planResearchIndexBatches, researchMandatoryWorkFits, researchRepairReserve } from "../private-agent/research-admission";
 import { RESEARCH_PIPELINE_BUDGET } from "../private-agent/research-contract";
+import { researchSynthesisBelowFloor, type ResearchModels } from "../private-agent/research-pipeline";
+import { nonDefaultRoleParameters } from "../private-agent/research-roles";
+import { researchStageUnfinished, type GeneralSessionOptions } from "../private-agent/session";
+
+/**
+ * Backlog item 13a, requirement B: the write phase of a research task, one named setting. "profile" keeps the heavy profile's own
+ * write phase (its model calls, tool calls and elapsed time); "twelve-call" is E2's 12-call writer bound, as the headless driver's
+ * `--write-bound twelve-call` sets it. E2's result changes this one line. The session keeps the profile's request pool and elapsed
+ * limit either way, as in the driver.
+ */
+export const DESKTOP_RESEARCH_WRITE_BOUND: DesktopResearchWriteBound = "profile";
+export const DESKTOP_RESEARCH_WRITE_BOUNDS = Object.freeze({
+  profile: undefined,
+  "twelve-call": Object.freeze({ maxModelCalls: 12, maxToolCalls: 12, maxElapsedMs: 1_200_000 }),
+});
+export type DesktopResearchWriteBound = keyof typeof DESKTOP_RESEARCH_WRITE_BOUNDS;
+/** The write phase's three limits under `bound`, or the profile's own. */
+export function researchWriteLimits(bound: DesktopResearchWriteBound, profile: { modelCalls: number; toolCalls: number; elapsedMs: number }): { modelCalls: number; toolCalls: number; elapsedMs: number } {
+  const named = DESKTOP_RESEARCH_WRITE_BOUNDS[bound];
+  return named ? { modelCalls: named.maxModelCalls, toolCalls: named.maxToolCalls, elapsedMs: named.maxElapsedMs } : { modelCalls: profile.modelCalls, toolCalls: profile.toolCalls, elapsedMs: profile.elapsedMs };
+}
+
+/**
+ * The session options a research task adds, as the headless driver builds them from a card (localScreenResearchOption,
+ * localScreenCardResearch, localScreenStreams): the three local models, the card's role policy, its admission rates under a
+ * `serving_card` basis, and its K. Never a diagnostics sink, a budget override or an assist.
+ */
+export function desktopResearchSession(card: LoadedServingCard, models: (contextId: string) => ResearchModels): Pick<GeneralSessionOptions, "research" | "localStreams"> {
+  const { roles, admission, localStreams } = card.policy;
+  return { research: { models, roles, ...(admission.basis === "serving_card" ? { admission: admission.rates } : {}) }, localStreams };
+}
+
+const STAGES = ["index", "plan", "extract", "synthesise"] as const;
+const count = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+/**
+ * What the snapshot shows of a research task's stage, read from the stage's own events only: whether it started, transferred its
+ * packet to the writer or stopped before; each stage's calls, cut replies and host fallback; the extraction's chunks; and the stage's
+ * model requests, which the writer's model-call count leaves out.
+ */
+export function researchStageView(record: DesktopResearchRecord, events: readonly Record<string, unknown>[], dispatches: readonly { contextId: string }[], active: boolean): GeneralTaskResearch {
+  const input = events.find(event => event.type === "research_input"), reader = typeof input?.contextId === "string" ? input.contextId : undefined;
+  const transferred = events.some(event => event.type === "research_transfer");
+  const started = transferred || researchStageUnfinished(events, dispatches) || events.some(event => (event.type === "research_stage" || event.type === "research_admission") && event.contextId === reader);
+  const stages: GeneralTaskResearch["stages"] = [];
+  for (const stage of STAGES) {
+    const row = [...events].reverse().find(event => event.type === "research_stage" && event.contextId === reader && event.stage === stage);
+    if (!row) continue;
+    const truncated = count(row.truncatedReplies), planned = count(row.chunksPlanned), complete = count(row.chunksComplete);
+    stages.push({ stage, calls: count(row.calls) ?? 0, ...(truncated ? { truncatedReplies: truncated } : {}),
+      ...(row.fallback === "host_plan" || row.fallback === "skeleton" ? { fallback: row.fallback } : {}),
+      ...(planned !== undefined ? { chunksPlanned: planned } : {}), ...(complete !== undefined ? { chunksComplete: complete } : {}) });
+  }
+  return { route: record.route, card: { date: record.cardDate, sha256: record.cardSha256 },
+    stage: transferred ? "transferred" : !started ? "not_started" : active ? "running" : "stopped", stages,
+    requests: reader === undefined ? 0 : dispatches.filter(row => row.contextId === reader).length };
+}
 
 /**
  * Backlog item 13a: the desktop's one research route. It is the local research pipeline, opted into per task while the beta flag is
@@ -28,13 +84,18 @@ export type DesktopResearchCard = { accepted: true; card: LoadedServingCard } | 
 /**
  * The desktop's only read of the configured card pair: the driver's pinned reader and expectation, always with cache salt on. Research
  * tasks run salted, as the card's P10 request settings require; plain tasks keep their own setting. This never throws, and it reports a
- * refusal by its code only, never the path or the card's text.
+ * refusal by its code only, never the path or the card's text. A card whose synthesis ceiling is under the floor is refused here too.
  */
 export function readDesktopResearchCard(config: Pick<SoarConfig, "vllm" | "streamingEnabled">): DesktopResearchCard {
   const descriptor = config.vllm.servingCard;
   if (!descriptor) return { accepted: false, code: "serving_card_unconfigured" };
-  try { return { accepted: true, card: loadServingCard(descriptor, servingCardExpectation(config, true)) }; }
+  let card: LoadedServingCard;
+  try { card = loadServingCard(descriptor, servingCardExpectation(config, true)); }
   catch (error) { return { accepted: false, code: servingCardRefusal(error)?.code ?? "serving_card_unreadable" }; }
+  // As the headless driver refuses before a run: a card whose synthesis attempts cannot hold the 100-word floor would end every task at start.
+  const roles = card.policy.roles;
+  if (nonDefaultRoleParameters(roles).length && researchSynthesisBelowFloor(roles.synthesis)) return { accepted: false, code: "research_role_policy_invalid" };
+  return { accepted: true, card };
 }
 
 export type ResearchInputsCheck = "fit" | "research_inputs_required" | "research_input_invalid" | "research_source_unreadable" | "research_mandatory_budget_exceeded";

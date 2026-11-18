@@ -174,7 +174,7 @@ function gitConfigured(git: LocalScreenGit, args: readonly string[]): boolean {
   try { return git(args).trim().length > 0; } catch (error) { if ((error as { status?: unknown }).status === 1) return false; throw error; }
 }
 /**
- * Backlog item 11, part 2 (BL-20261109-0422): the run's commit for its freeze, so a registry row names the commit the run executed
+ * Backlog item 11, part 2 (#85): the run's commit for its freeze, so a registry row names the commit the run executed
  * rather than the one the row is written at. `dirty` is true when the repository's own clean test fails (anything staged, unstaged,
  * or untracked and not ignored by the repository's own rules), when an index entry is one `git status` does not compare
  * (skip-worktree, assume-unchanged, sparse checkout), or when a frozen file's bytes are not the ones the source freeze hashed or not
@@ -239,7 +239,7 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
  * role policy (the caps, thinking and structured-output flags), and since 8.2b the research loops and the claims judge read K
  * (localScreenStreams); nothing reads admission yet. The run's request settings,
  * `--cache-salt` included, are part of the expectation: a structured-output flag needs P10's to equal them
- * (BL-20261114-2301-serving-card-request-settings-design).
+ * (#111).
  */
 export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm" | "streamingEnabled">, cacheSalt = true): LoadedServingCard | undefined {
   return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config, cacheSalt)) : undefined;
@@ -252,7 +252,7 @@ export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm" | "s
  */
 export function localScreenResearchOption(broker: PrivateAgentBroker, jobId: string, local: PrivateModelConfig, cloud: PrivateModelConfig | undefined,
   extras: { diagnostics?: ResearchDiagnosticsSink; roles?: ResearchRolePolicy; admission?: ResearchAdmissionRates;
-    /** 10.b (BL-20261117-1202-assist-wiring-design, decision 2): the assist arm's firing, assist model configuration and authored brief. */
+    /** 10.b (#147, decision 2): the assist arm's firing, assist model configuration and authored brief. */
     assist?: { firing: ResearchAssistFiring; modelConfig: PrivateModelConfig; authoredBrief: string } } = {}): NonNullable<GeneralSessionOptions["research"]> {
   const assist = extras.assist;
   return { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, local, jobId, contextId), planner: new PrivateAgentModel(broker, cloud ?? local, jobId, contextId),
@@ -262,7 +262,7 @@ export function localScreenResearchOption(broker: PrivateAgentBroker, jobId: str
 }
 /**
  * freeze.json's pipeline block for a run with the reading stage: the protocol under the card's role policy, which the block names
- * only when it is not the default (7a.2, BL-20261116-1203-research-role-policy-design), so a run without a card records what it did.
+ * only when it is not the default (7a.2, #103), so a run without a card records what it did.
  * 10.b: under the assist arm, also under the assist's firing, which the block names with its own digest.
  */
 export function researchPipelineFreeze(planner: "cloud" | "local", roles?: ResearchRolePolicy, admission?: ResearchAdmissionRates, assist?: ResearchAssistFiring) {
@@ -274,7 +274,7 @@ export function researchPipelineFreeze(planner: "cloud" | "local", roles?: Resea
     ...(assist ? { assist: { version: 1 as const, firing: assist, protocolSha256: researchAssistProtocolSha256(assist) } } : {}) };
 }
 /**
- * 10.b (BL-20261117-1202-assist-wiring-design, decision 2): on the assist arm (`--pipeline research` with the cloud arm), its firing
+ * 10.b (#147, decision 2): on the assist arm (`--pipeline research` with the cloud arm), its firing
  * (forced_split absent) and the assist model's configuration, the cloud arm's in the assist cache mode; off that arm, none.
  */
 export function localScreenAssistArm(input: { pipeline?: "research"; assistFiring?: ResearchAssistFiring }, cloud: { modelConfig: PrivateModelConfig } | undefined):
@@ -282,14 +282,14 @@ export function localScreenAssistArm(input: { pipeline?: "research"; assistFirin
   return cloud && input.pipeline === "research" ? { firing: input.assistFiring ?? "forced_split", modelConfig: { ...cloud.modelConfig, promptCaching: ASSIST_CACHE_MODE } } : undefined;
 }
 /**
- * 7a.2 and item (ii)'s review (BL-20261117-1143-research-second-repair-design): a seeded run writes from a packet read under its source's
+ * 7a.2 and item (ii)'s review (#139): a seeded run writes from a packet read under its source's
  * role policy and admission basis, so both must be this run's (the defaults without a card); refused before anything is created.
  */
 export function assertLocalScreenSeed(seed: { pipeline: Pick<PipelineFreeze, "roles" | "admission"> } | undefined, servingCard: LoadedServingCard | undefined): void {
   if (seed) assertSeedRolePolicy(seed.pipeline, servingCard?.policy.roles, servingCard?.policy.admission.basis === "serving_card");
 }
 /**
- * 7b.3's review (BL-20261117-1131-research-card-admission-design): a card's research values, read once, for both freeze.json's pipeline
+ * 7b.3's review (#137): a card's research values, read once, for both freeze.json's pipeline
  * block and the session's research option, so the two cannot drift apart; a drift would surface only when the run is later seeded. The
  * role policy goes to both; the admission rates only under a `serving_card` basis. 10.b: the assist arm's firing goes to the pipeline block.
  */
@@ -309,7 +309,7 @@ export function localScreenStreams(servingCard: LoadedServingCard | undefined): 
  * the bytes it printed before SC.
  */
 export function localScreenFailureLine(error: unknown, dryRun = false): string {
-  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): a refused dry run also names the check that refused it, when the error's
+  // E2 (#140): a refused dry run also names the check that refused it, when the error's
   // message is a host code (never a path or a value); a run's line keeps its bytes.
   const code = dryRun && error instanceof Error && /^[a-z0-9_]{1,80}$/u.test(error.message) ? error.message : undefined;
   return `${canonical({ state: "incomplete", error: "local_screen_failed_no_replay", ...(code ? { code } : {}), ...servingCardRefusal(error) })}\n`;
@@ -325,7 +325,7 @@ const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls:
     maxElapsedMs: GENERAL_TASK_BUDGETS.heavy.elapsedMs, maxRequests: GENERAL_TASK_BUDGETS.heavy.sessionRequests },
 });
 /**
- * E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): named write-phase bounds for a seeded writer. A bound replaces the
+ * E2 (#140): named write-phase bounds for a seeded writer. A bound replaces the
  * profile's three write-phase limits and nothing else: the session keeps the profile's request pool and elapsed limit, and the model
  * profile is the profile's own. `twelve-call` is the review's 12-call writer bound in the form E2's card takes (item 1).
  */
@@ -377,7 +377,7 @@ export function cloudArmModelConfig(input: Pick<CloudArmInput, "model" | "endpoi
   const anthropic = api === "anthropic_messages";
   if (anthropic && (endpoint.href !== ANTHROPIC_MESSAGES_ENDPOINT || coordinator.thinking !== "medium")) throw new Error("local_screen_cloud_arm_invalid");
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
-  // /v1/responses is the only OpenAI shape that serves tools with reasoning (BL-20261008-1300).
+  // /v1/responses is the only OpenAI shape that serves tools with reasoning (#15).
   // The Responses shape places explicit breakpoints and settles its reported cache writes at the published write price
   // (default 1.25× input) (H1). The chat-completions shape reports no write counts, so it keeps its previous configuration
   // and identity unchanged; a write price given for it is ignored.
@@ -441,7 +441,7 @@ export interface LocalScreenInput {
   /** H2a: salt the owned server's prefix cache per job (default true); `--cache-salt false` is the unsalted control arm of the isolation probe. */
   cacheSalt?: boolean;
   /**
-   * H2b/H2c: run the host-run research stage before the write phase. With the cloud arm, since 10.b (BL-20261117-1202-assist-wiring-design,
+   * H2b/H2c: run the host-run research stage before the write phase. With the cloud arm, since 10.b (#147,
    * decision 2), this is the assist arm: the planner and synthesiser are local and the cloud model serves only item 10's T1 and T2.
    * Earlier runs' freezes record the legacy split arm (`planner: "cloud"`) as history.
    */
@@ -522,7 +522,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   if (config.providerMode !== "local" || config.vllm.costPolicy !== "local_zero_cost") throw new Error("local_screen_provider_not_admitted");
   // SC: a refused card stops the run before the output directory, the database or any request exists, so a loop stays resumable.
   const servingCard = buildLocalScreenServingCard(config, input.cacheSalt !== false);
-  // 7a.2 (BL-20261116-1203-research-role-policy-design): the card's role policy reaches the reading stage and, when it is not the
+  // 7a.2 (#103): the card's role policy reaches the reading stage and, when it is not the
   // default, the freeze's pipeline block. A seeded run writes from a packet read under a policy, so its source must have read under
   // this run's policy (the default without a card); refused, like the card, before anything is created.
   const roles = servingCard?.policy.roles;
@@ -535,7 +535,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
   if (input.retainDiagnostics) assertRunDirectoryIgnored(directory);
-  // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design, decision (4)): the freeze's fields that are fixed before the run starts, built
+  // E2 (#140, decision (4)): the freeze's fields that are fixed before the run starts, built
   // by one function for the run and for its dry run, each value's expression as it was. The owned endpoint is one string for both.
   const localEndpoint = `${config.vllm.baseUrl}/chat/completions`;
   const fixedFreeze = (run: { modelConfig: PrivateModelConfig; localModelConfig: PrivateModelConfig; endpoint: string; cloud: ReturnType<typeof buildCloudArm> | undefined;
@@ -549,7 +549,7 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
       profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}),
-      // 10.b (BL-20261117-1202-assist-wiring-design, decision 10): the assist arm records the effective assist configuration (the assist
+      // 10.b (#147, decision 10): the assist arm records the effective assist configuration (the assist
       // cache mode) as the arm's model configuration, and its firing in the pipeline block, whose planner is local.
       arm: cloud ? (assist ? { ...cloud.freeze, modelConfig: assist.modelConfig } : cloud.freeze) : { arm: "local" as const },
       // 7b.3: the card's roles and, under a `serving_card` admission basis, its rates, from the one helper the research option reads too.
@@ -715,7 +715,7 @@ function messagesPath(endpoint: string | undefined): boolean {
 }
 /**
  * The assist arm's endpoints (H3, and since 10.b the assist arm): the Responses shape on any HTTPS host, or Anthropic's one Messages
- * endpoint (BL-20261030-0620). The CLI refuses any other for `--pipeline research --arm cloud`, and 10.c's capture refuses it too.
+ * endpoint (#31). The CLI refuses any other for `--pipeline research --arm cloud`, and 10.c's capture refuses it too.
  */
 export function assistArmEndpoint(endpoint: string | undefined): boolean {
   return /^https:\/\/[^/?#]+\/v1\/responses$/u.test(endpoint ?? "") || endpoint === ANTHROPIC_MESSAGES_ENDPOINT;
@@ -737,7 +737,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): LocalScreenIn
         (values.has("--pipeline") && (values.get("--pipeline") !== "research" || values.has("--repair-from") || values.has("--document-review") ||
           values.get("--profile") !== "heavy" || values.get("--claims-ledger") !== "true")) ||
         // H3, and since 10.b the assist arm: the cloud model's T1 and T2 run on the Responses shape, or on Anthropic's Messages endpoint
-        // (BL-20261030-0620), under a per-task fee cap of RESEARCH_SPLIT_MAX_FEE_USD.
+        // (#31), under a per-task fee cap of RESEARCH_SPLIT_MAX_FEE_USD.
         (values.has("--pipeline") && values.get("--arm") === "cloud" && (!(Number(values.get("--max-fee-usd")) > 0 && Number(values.get("--max-fee-usd")) <= RESEARCH_SPLIT_MAX_FEE_USD) ||
           !assistArmEndpoint(values.get("--cloud-endpoint")))) ||
         (values.has("--document-review") && (values.get("--document-review") !== "true" || values.has("--claims-ledger") || values.has("--public-retrieval"))) ||

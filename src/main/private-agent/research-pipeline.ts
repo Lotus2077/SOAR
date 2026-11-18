@@ -56,7 +56,7 @@ export const ExtractReplySchema = z.object({ questions: z.array(z.object({ quest
  */
 export const RESEARCH_EXTRACT_JSON_SCHEMA = z.toJSONSchema(ExtractReplySchema);
 /**
- * Item 9 (BL-20261116-1208-research-structured-output-design): each schema role's reply schema and the name its `response_format`
+ * Item 9 (#108): each schema role's reply schema and the name its `response_format`
  * carries, as probe P10 sends them (scripts/serving-probe.py, P10_SCHEMA_NAMES). The pipeline, the serving-card reader's schema
  * digests and the role export read this one table, so P10 measures, the reader checks and a flagged call sends the same schema.
  * Every value is one researchProtocolSha256 already binds.
@@ -85,7 +85,7 @@ export function synthesisLengthCap(brief: string): ResearchSynthesisLengthCap {
   return researchSynthesisLengthCap(brief, { maxOutputTokens: OUTPUT_TOKENS.synthesis, thinking: THINKING.synthesis });
 }
 /**
- * Item 7a.2 (BL-20261116-1203-research-role-policy-design, finding D6): how a role policy (an adopted serving card's per-role caps
+ * Item 7a.2 (#103, finding D6): how a role policy (an adopted serving card's per-role caps
  * and per-attempt thinking, research-roles.ts) reaches the requests. Attempt 1 is a role's initial call, attempt 2 its repair or
  * second call; an assist slot never reads the policy; a role whose model is not the owned local shape at zero fee keeps today's
  * values. Under a non-default policy a cap above its role model's limit, or a synthesis ceiling below the length floor, is refused
@@ -96,7 +96,7 @@ export const RESEARCH_ROLE_POLICY_APPLICATION = Object.freeze({ version: 1, atte
   appliesTo: "local_vllm_shape_zero_fee_role_models", otherRoles: "default_values", capAboveRoleModel: "refused_not_clamped",
   synthesisCeilingBelowFloor: "refused", lengthCap: "per_attempt", presentationReserve: "larger_attempt_length_cap", refusal: "research_role_policy_invalid" });
 /**
- * Item 9 (BL-20261116-1208-research-structured-output-design): how a role policy's structured-output flags reach the requests. A
+ * Item 9 (#108): how a role policy's structured-output flags reach the requests. A
  * local plan, extract or synthesis call adds its role's schema as `response_format` (the ReviewResultV1 shape; `strict: true` for
  * the strict variant only, the key omitted otherwise) when the flag for its effective thinking mode is set: "off" when the attempt
  * or the role model disables thinking, as probe P10's `<role>/off` cell. Bound into researchProtocolSha256 with the policy, and only
@@ -138,7 +138,7 @@ export interface ResearchStageCounts {
   initialCalls?: number; repairCalls?: number; sourcesListed?: number; sourcesModelComplete?: number; sourcesLiteralFallback?: number;
   unresolvedModelSummaries?: number; chunksPlanned?: number; chunksComplete?: number;
   /**
-   * Item (ii) (BL-20261117-1143-research-second-repair-design), on the extract row under a card's admission rates only: the second
+   * Item (ii) (#139), on the extract row under a card's admission rates only: the second
    * repairs sent (each also counted in repairCalls), and how many of them left their chunk complete. Absent without the rates.
    */
   secondRepairCalls?: number; secondRepairsComplete?: number;
@@ -157,7 +157,7 @@ export interface ResearchStageCounts {
   /** 7b.2: plan questions with a verified quote and none in the packet, and the omissions only the presentation guard made (also counted in quotesLeftByCap). */
   questionsTrimmed?: number; quotesLeftByPresentation?: number;
   /**
-   * 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the touchpoint's assist record, on the plan row (T1) and the synthesise
+   * 10.b (#147, decision 7): the touchpoint's assist record, on the plan row (T1) and the synthesise
    * row (T2), only when a hook is configured, fired or not. Its usage is already in the row's own usage and is never added again.
    */
   assist?: ResearchAssistStageRecord;
@@ -192,7 +192,7 @@ export interface ResearchPipelineInput { brief: string; sources: ResearchSource[
    */
   localStreams?: number;
   /**
-   * 7b.3 (BL-20261117-1131-research-card-admission-design): the card's measured rates, set only under a serving card whose admission basis
+   * 7b.3 (#137): the card's measured rates, set only under a serving card whose admission basis
    * is `serving_card` (the reader derives them). Set, the run keeps room for repair calls and may be refused on the clock before any
    * request, summary.json records the admission, and the protocol hash binds RESEARCH_ADMISSION_POLICY. Absent, admission and every
    * file are as without a card. The share of the clock is used only in the admission test: an admitted stage keeps the whole clock.
@@ -203,7 +203,7 @@ export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; r
  * The protocol's digest. 7a.2: a role policy is bound only when nonDefaultRoleParameters finds a value (the predicate the serving-card
  * reader's fail-closed step shares), so without a card, or under a card whose values are all default, the value is unchanged. Item 9:
  * the binding (researchRolePolicyBinding) adds the structured-output rule only when a flag is set. 7b.3: `cardAdmission` binds
- * RESEARCH_ADMISSION_POLICY, set only when the run reads a card's admission rates. 10.b (BL-20261117-1202-assist-wiring-design,
+ * RESEARCH_ADMISSION_POLICY, set only when the run reads a card's admission rates. 10.b (#147,
  * decision 6): with an assist configured, its firing binds the assist protocol block (research-assist.ts); without one, nothing changes.
  */
 export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET, roles: ResearchRolePolicy = DEFAULT_RESEARCH_ROLE_POLICY, cardAdmission = false, assist?: ResearchAssistFiring): string {
@@ -322,7 +322,7 @@ export interface ResearchExtractionAssessment {
    * The chunk state the reply gives on its own: truncated; invalid (no JSON, a schema failure, or a question set other than the
    * plan's); needs_followup (every question named once, one or more of them needs_followup); or complete. The stage holds a
    * complete first attempt whose `lostEvidence` is set for repair, and counts it invalid until it settles it (owner question 3's
-   * corner, BL-20261110-0726-correction-research-tolerance-total-loss).
+   * corner, #85).
    */
   state: "complete" | "invalid" | "truncated" | "needs_followup";
   /** Every reason the stage computes, as fixed codes and positions: why the reply is not complete, or what a kept reply lost or had corrected. */
@@ -347,7 +347,7 @@ export interface ResearchExtractionAssessment {
 }
 /**
  * The extraction stage's checks of one settled reply (backlog item 4; 7a.1, D2), exported so that E0's extractor fixture judges a
- * reply exactly as the stage does (scripts/extractor-fixture.ts, BL-20261116-1123-e0-extractor-fixture-design). Pure: the stage
+ * reply exactly as the stage does (scripts/extractor-fixture.ts, #116). Pure: the stage
  * applies its counters, quote merging and evidence ids, held-attempt rule and diagnostics to the result. Each quote and conflict is
  * judged alone, and every reason is reported for any parsed reply. A reply that names every question once keeps each quote and
  * conflict it can verify, clears a note canonical() cannot encode, and lets each question's outcome follow the verified quotes.
@@ -408,7 +408,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const roles: ResearchRolePolicy = parsedRoles?.success ? parsedRoles.data : DEFAULT_RESEARCH_ROLE_POLICY;
   // 7(c): the hook object is the host's (item 10's wrapper). Its shape is checked here, once, so that reading it later can neither
   // throw nor return another shape: a firing the contract names, and touchpoints that are functions or absent. 10.b: it is read
-  // before the protocol hash, so the hash binds exactly the firing the stage runs under (BL-20261117-1202-assist-wiring-design, decision 6).
+  // before the protocol hash, so the hash binds exactly the firing the stage runs under (#147, decision 6).
   let hooks: { firing: ResearchAssists["firing"]; plan?: NonNullable<ResearchAssists["plan"]>; synthesis?: NonNullable<ResearchAssists["synthesis"]> } | undefined, hooksInvalid = false;
   try {
     if (input.assists !== undefined) {
@@ -450,7 +450,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     input.diagnostics?.retain({ stage: counts.stage, ordinal, purpose, replyContentSha256: digest(reply.content), replyBytes: Buffer.byteLength(reply.content), truncated: reply.truncated, content: reply.content, reasons, ...(disposition ? { disposition } : {}) });
   };
   /**
-   * 8.2b (BL-20261116-1213 decisions 1 and 2): a loop's calls run K at a time on the ordered pool and are applied strictly in
+   * 8.2b (#110 decisions 1 and 2): a loop's calls run K at a time on the ordered pool and are applied strictly in
    * item order, so the stage's state is the serial loop's. A genuine denial, any denied reply but a sibling stop (`cancelled`
    * applied with `afterAbort`), stops launching and aborts the in-flight siblings as it settles. The stage's denial is the
    * lowest-index genuine denial applied, and every settled reply is still applied in order. A pool stopped with the stage's
@@ -486,12 +486,12 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const applied: Pick<ResearchRolePolicy, keyof typeof roleModels> = policySet ? Object.fromEntries(roleNames.map(role => [role, local(roleModels[role]) ? roles[role] : DEFAULT_RESEARCH_ROLE_POLICY[role]])) as Pick<ResearchRolePolicy, keyof typeof roleModels> : DEFAULT_RESEARCH_ROLE_POLICY;
   const lengthCaps = ([0, 1] as const).map(attempt => researchSynthesisLengthCap(input.brief, { maxOutputTokens: applied.synthesis.maxOutputTokens[attempt], thinking: applied.synthesis.thinking[attempt] }));
   // Under a non-default policy every cap is sent exactly or the run is refused before any request: the model layer would cut a cap
-  // above its role model's limit silently, and a synthesis ceiling below the floor cannot hold an argument (BL-20261109-0334-research-
-  // request-shapes-design). The default policy is never checked, so a run without a card is never refused here.
+  // above its role model's limit silently, and a synthesis ceiling below the floor cannot hold an argument (#85).
+  // The default policy is never checked, so a run without a card is never refused here.
   if ((parsedRoles && !parsedRoles.success) || (policySet && (roleNames.some(role => local(roleModels[role]) && applied[role].maxOutputTokens.some(cap => cap > roleModels[role].config.maxOutputTokens)) ||
       (local(roleModels.synthesis) && researchSynthesisBelowFloor(applied.synthesis)))))
     return finish("incomplete", "research_role_policy_invalid");
-  // Item 9 (BL-20261116-1208-research-structured-output-design): the reply format of a schema role's attempt. `applied` keeps a cloud
+  // Item 9 (#108): the reply format of a schema role's attempt. `applied` keeps a cloud
   // role at the default, which has no flag, so a flag here is a local role's. It applies when the flag for the call's effective thinking
   // mode is set: off when the attempt's thinking or the role model's own is disabled (probe P10's `<role>/off` and `<role>/on` cells).
   // The default policy has no flag, so a run without a card reads no model configuration here either.
@@ -556,7 +556,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // The wrapper checks that order position by position (the index for T1 and T2, the coverage for T2) and stops a request that breaks
   // it (assist_request_invalid). The deadline is required: without a session deadline the request carries NaN, and the wrapper stops
   // (assist_deadline_missing) before sending anything. Either stop ends the stage denied at the first assist that fires
-  // (BL-20261113-0929-correction-research-v5-assist-order-deadline).
+  // (#93).
   // 10.b: the outcomes the pipeline makes itself (consult below), so the stage record never mistakes one for the hook's.
   const pipelineOutcomes = new WeakMap<object, "before_call" | "broken">();
   const own = (outcome: ResearchAssistOutcome, why: "before_call" | "broken"): ResearchAssistOutcome => { pipelineOutcomes.set(outcome, why); return outcome; };
@@ -577,9 +577,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     } catch { return own({ kind: "stop", code: input.signal.aborted ? "cancelled" : "assist_hook_failed" }, "broken"); }
   };
   /**
-   * 10.b (BL-20261117-1202-assist-wiring-design, decision 7): each touchpoint's assist record. Every outcome the hook returns must
+   * 10.b (#147, decision 7): each touchpoint's assist record. Every outcome the hook returns must
    * carry its attempt record (research-assist-record.ts); a reply or no-reply without one ends the stage as
-   * research_assist_record_invalid, so no slot attempt goes unrecorded (BL-20261113-0927-research-v5-design, Limitations). An
+   * research_assist_record_invalid, so no slot attempt goes unrecorded (#93, Limitations). An
    * outcome the pipeline made itself is not the hook's: a cancel before the call leaves the touchpoint unfired, and a broken hook
    * (an invalid outcome, a throw) leaves no record to keep, so its stage row, which ends denied, carries none.
    */
@@ -666,7 +666,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     // Item (ii)'s review: under a card's admission rates both counts exist from the row's creation, so a denied row carries them too.
     ...(admission ? { secondRepairCalls: 0, secondRepairsComplete: 0 } : {}) };
   /**
-   * Owner question 3's corner (BL-20261110-0726): a first attempt that dropped every quote it gave for a question it marked
+   * Owner question 3's corner (#85): a first attempt that dropped every quote it gave for a question it marked
    * evidence_found is held rather than kept. Held chunks are repaired after every other repair, while the budget lasts; a held
    * chunk left unrepaired keeps its attempt, as 7a.1 kept it; a repaired one drops it. A repair attempt is kept with its drops.
    */
@@ -729,7 +729,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if (extractRepairRefused) { settleHeld(false); return denied(extractCounts, extractRepairRefused); }
     settleHeld(true);
   } else {
-    // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, a chunk still not complete after its one
+    // Item (ii) (#139): under a card's admission rates, a chunk still not complete after its one
     // repair gets one more, at the second attempt slot (its cap, thinking and response_format), while calls are left. Its review: the
     // unfinished chunks' second repairs come before the held chunks' repairs, which are optional (a held chunk left unrepaired keeps its
     // first attempt), and a held chunk whose repair failed gets its second repair last.
@@ -742,7 +742,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if (heldSecond) return denied(extractCounts, heldSecond);
   }
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
-  // 7b.2 (BL-20261115-1939-research-priority-trim-design, finding D4): the packet keeps a prefix of the trim's priority
+  // 7b.2 (#102, finding D4): the packet keeps a prefix of the trim's priority
   // (research-trim.ts), conflict notes first because evidence.md renders the kept ones; coverage.json discloses every quote and note
   // left out, and the ready gate accepts the packet when those disclosures are counted, unique and bound.
   const questionOrder = plan.questions.map(q => q.id), conflictOrder = researchTrimOrder(questionOrder, conflicts), quoteOrder = researchTrimOrder(questionOrder, verified);

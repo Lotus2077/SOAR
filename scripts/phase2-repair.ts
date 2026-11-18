@@ -1,5 +1,5 @@
 /**
- * Phase 2 repair pair, step 1 (design BL-20261007-1451): freeze a failed run's draft into one packet and get one critique
+ * Phase 2 repair pair, step 1 (design #12): freeze a failed run's draft into one packet and get one critique
  * from the cloud critic (H) or the local critic (L′). Step 2 is the headless driver with --repair-from <this output>.
  *
  *   node --import tsx scripts/phase2-repair.ts --critique --run-directory RUN --task-directory TASK --job-sha256 H --brief-sha256 H \

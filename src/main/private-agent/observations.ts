@@ -8,7 +8,7 @@ import { GENERIC_TOOL_FAILURE, SANDBOX_TOOL_ERROR_CODES, TOOL_ERROR_FEEDBACK, To
 
 /**
  * Projection policies, recorded in the `started` event and fixed for the task's lifetime. Version 1 (rolling) refills the
- * window from the newest observation backwards on every turn. Version 2 (batched, H1 of BL-20261022-0834) replays the
+ * window from the newest observation backwards on every turn. Version 2 (batched, H1 of #20) replays the
  * observations in arrival order: each enters in full, and when the window overflows the budget the oldest full
  * observations are demoted until the window is at or under the demote mark, so the rendered history changes only on an
  * overflow, every few observations rather than every turn, and a provider's prefix cache can serve the rest.
@@ -124,7 +124,7 @@ function compactRead(ref: ObservationReadReference): string { return encode({ ..
 function validateFailure(event: Record<string, unknown>, tool: "execute" | "read_observation", unavailable: boolean): void {
   integrity(event.allowanceFinalizationEligible === false && typeof event.output === "string" && typeof event.invalidExecuteAtOutputLimit === "boolean");
   const output = JSON.parse(event.output as string);
-  // The fixed host failure objects (BL-20261107-0924, E), byte for byte: for an execute the sandbox refused or lost, the legacy generic or its
+  // The fixed host failure objects (#43, E), byte for byte: for an execute the sandbox refused or lost, the legacy generic or its
   // sandbox code; for an execute or read whose container could not be prepared, execution_context_unavailable; for a refused read, the
   // legacy generic or the two read refusals. Anything else must be the argument feedback below.
   const fixed: readonly { readonly error: string }[] = unavailable ? [GENERIC_TOOL_FAILURE, ...SANDBOX_TOOL_ERROR_CODES.map(code => TOOL_ERROR_FEEDBACK[code])]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make a blind verdict bundle for one Phase 2 task (design BL-20261007-1451).
+"""Make a blind verdict bundle for one Phase 2 task (design #12).
 
     python3 scripts/phase2-blind.py --task-directory TASK --out BLIND_ROOT --keys KEY_ROOT \
         --run ARM=RUN_DIRECTORY [--run ARM=RUN_DIRECTORY ...]

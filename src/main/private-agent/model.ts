@@ -39,10 +39,10 @@ const tokenStopSchema = z.object({
 }).strict();
 export type ModelRequestTokenAdmissionStop = z.infer<typeof tokenStopSchema>;
 /**
- * Backlog item 3 (finding A5, BL-20261107-0924): the broker refused the request before any row existed, so nothing was sent and
+ * Backlog item 3 (finding A5, #43): the broker refused the request before any row existed, so nothing was sent and
  * nothing is uncertain; `code` is the broker's own fixed code. A cancel ends the run as cancelled (or paused), an unavailable
  * scanner resumably (`packet_scan_unavailable`), a blocked scan, a missing destination, a size excess without its numbers or a cloud
- * call after an assist whose outcome stayed unknown (BL-20261107-1006, 3) permanently (`model_request_denied`; a size excess with its
+ * call after an assist whose outcome stayed unknown (#43, 3) permanently (`model_request_denied`; a size excess with its
  * numbers records the size stop instead), and a ledger refusal as `unresolved_dispatch_no_replay`.
  */
 export const BROKER_DENIED_STOP = "broker_denied";
@@ -122,10 +122,10 @@ export interface GeneralToolDefinition {
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
-/** Backlog item 10 (BL-20261113-0920-assist-wrapper-design, decision 1): the only cache mode an assist may carry. */
+/** Backlog item 10 (#79, decision 1): the only cache mode an assist may carry. */
 export const ASSIST_CACHE_MODE = "assist_no_cache_write_v1" as const;
 /**
- * Item 9 (BL-20261116-1208-research-structured-output-design): a JSON-schema reply format for one call. `strict` true sends
+ * Item 9 (#108): a JSON-schema reply format for one call. `strict` true sends
  * `strict: true`; false omits the key, as probe P10's non-strict variant does.
  */
 export interface ModelResponseFormat { name: string; schema: Record<string, unknown>; strict: boolean }
@@ -164,7 +164,7 @@ export interface PrivateModelConfig {
    * Request shape: the owned vLLM server (default), OpenAI chat completions (`max_completion_tokens`, no vLLM-only fields),
    * or the OpenAI Responses API, which is the only OpenAI shape that serves function tools with reasoning for the sol models.
    * The Responses shape is stateless (`store: false`) and, like the local arm, never replays a turn's reasoning.
-   * `anthropic_messages` is Anthropic's Messages API (BL-20261030-0620): adaptive thinking at effort medium only, never
+   * `anthropic_messages` is Anthropic's Messages API (#31): adaptive thinking at effort medium only, never
    * replayed, the standard tier and global geography pinned; its body and decoder live in `anthropic.ts`.
    */
   api?: "vllm" | "openai" | "openai_responses" | "anthropic_messages";

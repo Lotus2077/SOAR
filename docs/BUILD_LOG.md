@@ -53081,3 +53081,42 @@ Paid exposure: None.
 Next gate: The doctor with the pair in its environment, then the dry run, then the first run.
 
 References: docs/experiments/e0-card-2026-11-13.md (Amendment 6, item 2); BL-20261117-1701-e0-card-amendment-6-r3-remeasurement; BL-20261117-1616-serving-card-2026-11-17-adopted; BL-20261117-0940-owner-direction-decisions-delegated.
+
+### BL-20261118-0438-source-comments-cite-pull-requests -- 2026-11-18 -- Source comments cite pull requests instead of build-log entry IDs
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner's change of plan in BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout moves the log to one file per entry and puts no entry IDs in source files. This change replaces every entry ID cited in a comment or docstring under src/ and scripts/ with the number of the pull request that added the entry to `main`. It changes comments only.
+
+Decisions:
+1. **The mapping.** An ID names the pull request of the first first-parent commit on `main` that added its heading. Totals:
+   - 85 distinct IDs and 270 citations in 57 files, naming 47 pull requests;
+   - three date-only references, naming #28 and #12.
+
+   One ID that wrapped across two lines, and eight phrasings, were fixed by hand.
+2. **What stays.** Eight IDs in scripts/validate-build-log.ts are data the validator reads, not citations. Test titles are out of scope.
+3. **Held.** The source freeze moves, so the change merges only after the r3 re-measurement's last run.
+
+Changes:
+- 57 files under src/ and scripts/: comments and Python docstrings only.
+- tests/unit/private-agent-research-pipeline.test.ts: the hook contract's byte pin, re-pinned to d8ba77a0…. That file's comments changed; its interface did not.
+- docs/BUILD_LOG.md.
+
+Evidence:
+- **The code is unchanged.**
+  - The 51 TypeScript files minify to identical code here and on `main`.
+  - The 5 Python files parse to identical trees once docstrings are set aside.
+  - The shell script differs in one comment.
+- **The hashes are unchanged.** `researchProtocolSha256()` is e3e08871… by default and f157570b… under admission. The adopted card still binds af4715a1…. P10's 18 request bodies are byte-identical to `main`'s.
+- **The source freeze moves** from c39a5ccb5ec086d52b774be12d486ccf95cbe3a6bd2ac8ab60fe8e8076132462 to 1e083cd2e80bd20ccf79dc90b3817b065e85731bb1bd5bcf3160db841d045d04.
+- **Checks:** typecheck, readiness and the validator pass. The full suite passes: 198 files and 3,975 tests, 88 skipped, none failed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A pull request is coarser than an entry: a comment that cites "decision 5" now points to the pull request, whose entry holds that decision.
+
+Paid exposure: None.
+
+Next gate: the r3 runs' last run, then CI and the coordinating session's merge. A run after the merge names the new freeze.
+
+References: BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout; BL-20261117-1701-e0-card-amendment-6-r3-remeasurement.

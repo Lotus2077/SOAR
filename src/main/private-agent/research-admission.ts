@@ -1,8 +1,8 @@
 /**
  * Research admission (backlog item 7(b); review section 5.2, stage S1): what the host decides from the inputs before the
- * first research request. Part 1 (BL-20261109-0334-research-request-shapes-design) holds the index batches by preview size
+ * first research request. Part 1 (#85) holds the index batches by preview size
  * (finding D8's batching), the mandatory-work ceilings and the synthesis length cap taken from the brief (finding D13); part 3
- * (7b.3, BL-20261117-1131-research-card-admission-design) adds, under a card whose admission basis is `serving_card` only, the
+ * (7b.3, #137) adds, under a card whose admission basis is `serving_card` only, the
  * reserved repair budget and the wall-clock feasibility estimate (researchCardAdmission).
  * Pure: no I/O, no clock, no model text. Every policy here is bound into researchProtocolSha256 (research-pipeline.ts), so a
  * changed value or pattern is a protocol change; RESEARCH_ADMISSION_POLICY is bound only under such a card. This module must not
@@ -48,12 +48,12 @@ export function researchMandatoryWorkFits(work: { batches: number; chunks: numbe
 }
 
 /**
- * 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission, applied only under a serving card whose admission
+ * 7b.3 (#137): card-derived admission, applied only under a serving card whose admission
  * basis is `serving_card`, and bound into researchProtocolSha256 then and only then. The run keeps room for repair calls, and is
  * refused before any request only when its expected time exceeds its share of the session clock. The share is
  * used only in that test: an admitted stage may still use the whole remaining clock.
  */
-// Version 2 (item (ii), BL-20261117-1143-research-second-repair-design): a chunk still unfinished after its one repair gets one more.
+// Version 2 (item (ii), #139): a chunk still unfinished after its one repair gets one more.
 export const RESEARCH_ADMISSION_POLICY = Object.freeze({ version: 2, basis: "serving_card", repairReserve: Object.freeze({ chunksPerRepair: 4, minimum: 1 }), repairsPerChunk: 2,
   stageShare: Object.freeze({ numerator: 1, denominator: 2 }), bytesPerToken: 4, refusal: "expected_estimate_above_share" } as const);
 
@@ -156,7 +156,7 @@ const LIMIT_PATTERNS = Object.freeze([
  * or a rejection after it, marks a minimum or a negated limit. A part of the report anywhere earlier in the clause or among
  * the four words after it ("an abstract of at most 150 words", "500 words per section") marks a part's limit.
  *
- * Corrections BL-20261110-0625 and BL-20261110-0709 (the merge-train review of PR #69, finding F1, and two code reviews):
+ * #85's corrections (the merge-train review of PR #69, finding F1, and two code reviews):
  * - A clause that opens at a heading opener (":" or "(") belongs to the heading before it ("Abstract: at most 150 words",
  *   "Executive summary (max. 200 words)"). The parts check also reads that heading: every word back to the end of the previous
  *   sentence (".", ";", "!" or "?") or the previous line break, commas included ("Abstract, keywords and highlights: ...").
@@ -174,12 +174,12 @@ const LIMIT_PATTERNS = Object.freeze([
  *   words excluding references" limit the report; "each", "every" and "per" mark a per-question limit within the clause, in
  *   its comma chain before it and in the sentence before (below).
  *
- * Correction BL-20261110-0848 (the delta review of PR #69, rules A and B; each only adds a reason to drop a limit):
+ * #85's correction (the delta review of PR #69, rules A and B; each only adds a reason to drop a limit):
  * - A, `commaChain`: a clause opened by a comma belongs to its comma chain. Under a heading opener on the same line
  *   ("Abstract (required, max 150 words)", "Executive summary: one page, no more than 200 words") the heading is read as if the
  *   clause opened there; and a distributive in the chain before the limit's clause, on the same line ("For each source, write
  *   up to 150 words"), marks a part's limit. A distributive in a later clause of the chain is not read ("At most 150 words,
- *   each." reads 150; BL-20261110-1100-correction-research-train-1-review-pins). Part nouns in the chain are not read: "An
+ *   each." reads 150; #85). Part nouns in the chain are not read: "An
  *   abstract of up to 150 words, then a report of 1,200-1,800 words" keeps 1,800.
  * - B, `previousSentence`: when a limit opens its sentence, or a `referring` word stands before it in the sentence, the sentence
  *   before it is read (sentences end at ".", ";", "!", "?" or a line break), and a part noun or a distributive there marks a
@@ -202,7 +202,7 @@ const CLAUSE_GUARDS = Object.freeze({ delimiters: ",;.!?:()", headingOpeners: ":
 
 /**
  * The synthesis length cap (D13): an explicit word limit stated in the brief wins over the default; the largest stated limit
- * wins over smaller ones, and when the clause guards drop the largest no limit is read (correction BL-20261110-0625); either
+ * wins over smaller ones, and when the clause guards drop the largest no limit is read (#85's correction); either
  * is clamped to the ceiling the synthesis reply allows. Recorded in the stage row and sent to the
  * model, never enforced: no reply is rejected on its length. The parse prefers missing a limit, which leaves today's default,
  * to misreading one, which would shrink the argument.
@@ -217,11 +217,11 @@ export const RESEARCH_SYNTHESIS_LENGTH_POLICY = Object.freeze({ version: 1, sour
   replyOverheadTokens: 1024,
   /**
    * The ceiling while the role thinks ("model"): today's request. Three loops on 2026-11-01 had a thinking synthesis reply reach
-   * the 8,192-token cap at this length (BL-20261101-0428, -1106, -2044), so nothing shows a longer argument fits beside reasoning.
+   * the 8,192-token cap at this length (#32), so nothing shows a longer argument fits beside reasoning.
    */
   thinkingCeilingWords: 1200,
   /**
-   * The smallest cap ever sent. Since 7a.2 (BL-20261116-1203-research-role-policy-design) the pipeline refuses, before any
+   * The smallest cap ever sent. Since 7a.2 (#103) the pipeline refuses, before any
    * request, a non-default role policy whose ceiling on either synthesis attempt falls below it (research_role_policy_invalid). A
    * stated limit below it is a part's length (a heading, a label), never the argument's, and is ignored.
    */
@@ -257,7 +257,7 @@ const strip = (token: string) => token.match(/[\p{L}\p{N}'](?:[^]*[\p{L}\p{N}'])
 const isPart = (word: string) => CLAUSE_GUARDS.parts.includes(word) || CLAUSE_GUARDS.addedParts.includes(word);
 interface ClauseToken { start: number; end: number; word: string }
 /**
- * The brief's words and delimiters, found once (correction BL-20261110-0625, finding F2: guarded() rescanned the whole clause for
+ * The brief's words and delimiters, found once (#85's correction, finding F2: guarded() rescanned the whole clause for
  * every candidate, so a clause of many candidates parsed in quadratic time). A word is a run of characters that are neither a
  * space nor a delimiter, stripped (strip above); empty words are dropped. These are exactly the words the clause slices of
  * 7b.1's guard held. Each `...Before[k]` counts words among the first k, so a span's count is one subtraction:
@@ -369,7 +369,7 @@ function guarded(index: ClauseIndex, start: number, end: number, wordLimitPhrase
 /**
  * The largest explicit upper word limit the brief states for the report, or undefined. Heuristic: English phrasings with
  * digits only; a range gives its upper end; a limit below `minimumWords` is no candidate. When the clause guards drop the
- * largest candidate, no limit is read (correction BL-20261110-0625): the brief's own limit was dropped, and a smaller one that
+ * largest candidate, no limit is read (#85's correction): the brief's own limit was dropped, and a smaller one that
  * remains may be a part's limit that no guard recognises ("Discussion: at most 800 words").
  */
 export function briefWordLimit(brief: string): number | undefined {

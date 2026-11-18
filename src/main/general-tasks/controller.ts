@@ -67,7 +67,7 @@ const fixedReasons: Record<string, string> = {
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   packet_scan_unavailable: "The scanner that checks an outbound request was unavailable, so the next model request was not sent. Nothing is uncertain; resume when the scanner is available.",
   model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
-  // Backlog item 6 (finding A6, BL-20261109-0336): an incomplete record keeps its run's own reason. A reason's text is shown only when no
+  // Backlog item 6 (finding A6, #85): an incomplete record keeps its run's own reason. A reason's text is shown only when no
   // request or action is uncertain; none promises a resume, which the allowance, the deadline or a closing app can still withhold.
   runtime_failure_progress_preserved: "The execution runtime failed during the run; progress up to the last saved checkpoint is retained and no request or action is uncertain. A resume starts again from that checkpoint.",
   execution_context_unavailable: "The isolated execution workspace could not be prepared, so nothing more ran and no request or action is uncertain. A resume needs the Docker runtime.",
@@ -77,12 +77,12 @@ const fixedReasons: Record<string, string> = {
   cancelled_or_deadline: "The run stopped at a cancellation or time check before its next step, and no request or action is uncertain. A resume continues while time remains.",
   model_output_incomplete: "The model's last replies were cut at the output limit, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
   one_complete_tool_action_required: "The model's last replies did not contain exactly one tool action, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
-  // Backlog item 6 (finding A7, BL-20261109-0501): a research stage that started and never transferred cannot continue. No certainty is claimed:
+  // Backlog item 6 (finding A7, #85): a research stage that started and never transferred cannot continue. No certainty is claimed:
   // uncertain() skips another context's unknown assist rows, and an uncertain request shows its own text first.
   research_stage_not_replayed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume.",
   task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
   consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
-  // Backlog item 6 follow-up (6.4, BL-20261114-2309): terminal for Resume, which repeats it; a Revoke removes its cause and re-opens the task.
+  // Backlog item 6 follow-up (6.4, #100): terminal for Resume, which repeats it; a Revoke removes its cause and re-opens the task.
   consultation_budget_unavailable: "The approved consultation no longer fits the task's remaining allowance, so it was not sent and nothing is uncertain. Revoking it lets a resume continue locally within what remains; a resume alone would stop the same way.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
@@ -151,7 +151,7 @@ const HOST_FLAG_SECTIONS = Object.freeze({ report_failed: "the report scan", arg
   review_failed: "the review summary" } as const);
 const HOST_FLAG_REVIEW_RULES = Object.freeze({ numeric: "table check", edits: "edit check", clauses: "clause check" } as const);
 /**
- * Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the issue lines of a submission's `host_flags` event (7d.B), built
+ * Backlog item 7(d), part C (#99): the issue lines of a submission's `host_flags` event (7d.B), built
  * only from its counts, rule ids, lines, positions, edit ids and the flags file's error class names, never from report, model or document text. A research task (public sources, so a
  * claims-ledger phase) without an event says its flags were not recorded, since silence would read as "no flags". The flags decide nothing.
  */
@@ -185,7 +185,7 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
   }
   const misses = flags.misses ?? {};
   if (misses.questionsWithoutEvidence) {
-    // 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design): the questions whose verified quotes the packet's caps all left out are among
+    // 7d.D (#119): the questions whose verified quotes the packet's caps all left out are among
     // them. An event recorded before 7d.D has no such count, and its line reads as before.
     const total = misses.questionsWithoutEvidence, trimmed = misses.questionsTrimmed ?? 0;
     const why = trimmed ? `; ${trimmed === total ? (total === 1 ? "it" : "each") : `${trimmed} of them`} had verified evidence, all left out of the packet at its caps` : "";
@@ -252,7 +252,7 @@ interface TaskRecord {
   publicSources?: GeneralTaskPublicSources;
   routing?: "ask_before_consulting";
   consultantIdentity?: string;
-  /** The owner's verdict on a submitted task (BL-20261108-0904-owner-verdict-capture-design); absent until recorded, never rewritten. */
+  /** The owner's verdict on a submitted task (#40); absent until recorded, never rewritten. */
   verdict?: GeneralTaskVerdict;
 }
 /** The verdict receipt's key set: hashes, counts, enums and the verdict only. The registry writer refuses any other key. */
@@ -659,7 +659,7 @@ export class GeneralTaskController {
             "The action stop could not be verified; replay is blocked." : event.type === "model_request_not_dispatched" && event.reason === LOCAL_TOKEN_ADMISSION_STOP ?
               "The next local-model request failed its context or deployment checks and was not sent." : event.type === "model_request_not_dispatched" && event.reason === BROKER_DENIED_STOP ?
                 "The broker refused the next model request before it was sent; nothing is uncertain." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." :
-                  // A validation the host closed without a verifier result (BL-20261107-0924 A; BL-20261107-1041, 12) recorded no checks.
+                  // A validation the host closed without a verifier result (#43, A and 12) recorded no checks.
                   event.type === "host_validation_finished" && event.passed === false && (event.verificationFailure !== undefined || event.captureFailure !== undefined) ?
                     "The frozen artifact could not be verified; the validation is closed and nothing is uncertain." : summaries[String(event.type)] ?? "Task state updated." })) };
   }
@@ -712,7 +712,7 @@ export class GeneralTaskController {
       } else if (active?.consultation) active.consultation.decide(decision);
       else decideWithoutDispatch(this.runtime, input.id, { ...decision, decision: input.decision });
       // Backlog item 6 (6.3): a decision is recorded either way, but it never re-opens a record a terminal stop ended (a damaged storage, say).
-      // The one exception (6.4, BL-20261114-2309): a Revoke cures a stop because the approved consultation no longer fit the allowance.
+      // The one exception (6.4, #100): a Revoke cures a stop because the approved consultation no longer fit the allowance.
       const cured = input.decision === "revoke" && record.reason === "consultation_budget_unavailable";
       if (!active && (record.status === "paused" || isResumableRunReason(record.reason) || cured)) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
     });
@@ -778,7 +778,7 @@ export class GeneralTaskController {
         const privateContextId = events.find(event => event.type === "session_started")?.privateContextId;
         if (typeof privateContextId === "string" && storageIntegrityFailed(events, privateContextId, checkpoints, this.root)) next.reason = "task_integrity_failed";
       }
-      // Backlog item 6 follow-up (6.4, BL-20261114-2309): a Revoke clicked while the stopping run was still ending is recorded, but cannot reset
+      // Backlog item 6 follow-up (6.4, #100): a Revoke clicked while the stopping run was still ending is recorded, but cannot reset
       // the record of an active run; the run's budget stop is cured here when it ends, as decideConsultation cures it after the run.
       if (next.status === "incomplete" && next.reason === "consultation_budget_unavailable" && readConsultation(this.runtime, id)?.status === "revoked") {
         next.status = "paused"; next.reason = "consultation_ready";

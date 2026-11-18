@@ -20,7 +20,8 @@ research code may read, the concurrency K, the admission basis and the evidence 
 key or reply text. Its decision is always {status: proposed, entry: null}. It proposes the role export's caps and thinking on both
 attempts, or with --attempt-thinking ROLE=FIRST,SECOND (the E0 card's Amendment 8) a P10 role's own pair, refused where an attempt
 would send the format at a cap its P10 cell did not measure or where the option moves an attempt to a thinking mode the role's
-structured-output flag does not name. It proposes K 1 and admission none, and structured output for a role and thinking mode only from a P10 cell that was assessed
+structured-output flag does not name. A role with no structured-output flag sends the format on no attempt, so its pair is written as
+given, and the reader accepts it. It proposes K 1 and admission none, and structured output for a role and thinking mode only from a P10 cell that was assessed
 under the protocol the export sent, ran the requested variant, has no unassessed reply, at least 20 calls and at least 95%
 valid, and only when P10 recorded the request settings the export built its bodies under, which the card copies so the reader
 can compare them with a run's (#111). An existing file is refused, and nothing is printed or left behind on any refusal. One card is one probe run: run
@@ -828,7 +829,8 @@ def attempt_thinking_pairs(values: Sequence[str]) -> Dict[str, List[str]]:
 def check_attempt_thinking(role: str, entry: Dict[str, Any], default: str, p10: Optional[Dict[str, Any]]) -> None:
     """What the reader checks of a role's attempts (serving-card.ts, resolveServingCard): an attempt whose thinking mode the structured-output
     flag names sends the format at the cap that mode's P10 cell measured (`serving_card_structured_output_cap_unmeasured`). And one rule more: an
-    attempt the option moves to a mode the flag does not name would go without the format; the reader accepts that, but no cell measured it."""
+    attempt the option moves to a mode the flag does not name would go without the format; the reader accepts that, but no cell measured it.
+    A role with no flag sends the format on no attempt, so there is nothing to check and the pair is written as given."""
     flag = entry.get("structuredOutput")
     if flag is None:
         return

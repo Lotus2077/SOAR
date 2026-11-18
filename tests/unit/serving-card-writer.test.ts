@@ -353,6 +353,8 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
 describe("serving-card writer: --attempt-thinking (the E0 card's Amendment 8)", () => {
   const expectation = { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } };
   const written = (extra: string[]) => { const run = runCardWriter(currentSyntheticProbe(), extra); expect(run.status, run.stderr).toBe(0); return parseServingCard(run.policy!); };
+  /** Adopted with a `serving_card` basis, so the reader also derives the admission rates, which read each role's first attempt's cell. */
+  const admitted = (card: ReturnType<typeof parseServingCard>) => { const copy = adopt(card); (copy as { admission: { basis: string } }).admission.basis = "serving_card"; return copy; };
 
   it("writes each named role's pair, leaves every other role as the export's, and keeps the Markdown byte for byte; the reader resolves the card", () => {
     const today = written([]), paired = written(["--attempt-thinking", "synthesis=model,disabled", "--attempt-thinking", "extract=disabled,model"]);
@@ -361,7 +363,20 @@ describe("serving-card writer: --attempt-thinking (the E0 card's Amendment 8)", 
     expect({ ...paired.roles.synthesis, thinking: null }).toEqual({ ...today.roles.synthesis, thinking: null });
     const markdown = (extra: string[]) => runCardWriter(currentSyntheticProbe(), extra).stdout;
     expect(markdown(["--attempt-thinking", "synthesis=model,disabled"])).toBe(markdown([]));
-    expect(resolveServingCard(adopt(paired), expectation).roles).toEqual(paired.roles);
+    const resolved = resolveServingCard(admitted(paired), expectation);
+    expect(resolved.roles).toEqual(paired.roles); expect(resolved.admission.basis).toBe("serving_card");
+  });
+
+  it("writes a pair as given for a role with no structured-output flag: neither attempt sends the format, and the reader resolves the card", () => {
+    // Both synthesis cells below the 95% rule, as the adopted card's synthesis is today, so the writer proposes no flag for it.
+    const probe = currentSyntheticProbe(), off = probe.P10.cells["synthesis/off"];
+    off.calls[0].classification = "invalid_json"; off.counts.valid -= 1; off.counts.invalid_json += 1;
+    const run = runCardWriter(probe, ["--attempt-thinking", "synthesis=model,disabled"]);
+    expect(run.status, run.stderr).toBe(0);
+    const card = parseServingCard(run.policy!);
+    expect(card.roles.synthesis).toMatchObject({ thinking: ["model", "disabled"], structuredOutput: null });
+    const resolved = resolveServingCard(admitted(card), expectation);
+    expect(resolved.roles.synthesis).toEqual(card.roles.synthesis); expect(resolved.admission.basis).toBe("serving_card");
   });
 
   it("refuses an attempt moved to a thinking mode its role's structured-output flag does not name, so that attempt would lose the format", () => {

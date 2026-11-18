@@ -9,6 +9,8 @@ Decisions:
 2. **`pnpm card:serving -- --attempt-thinking ROLE=FIRST,SECOND`** (plan, extract or synthesis; `model` or `disabled`), once per role and only with `--policy-out`, writes that role's two attempts' thinking. It refuses two kinds of attempt:
    - an attempt that would send the format at a cap its P10 cell did not measure, as the reader does (`serving_card_structured_output_cap_unmeasured`);
    - an attempt the option moves to a thinking mode the role's structured-output flag does not name. The reader accepts that, but the attempt would go without the format its fixture measured.
+
+   A role with no structured-output flag, like the adopted card's synthesis, sends the format on no attempt, so its pair is written as given.
 3. **Without either option**, the export, P10's bodies and the card are unchanged.
 
 Changes: scripts/export-role-schemas.ts; scripts/serving-card.py; their tests; docs/experiments/README.md; this file.

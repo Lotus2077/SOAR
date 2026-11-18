@@ -297,6 +297,9 @@ describe("role schema export with a synthesis cap (the E0 card's Amendment 8)", 
       .not.toBe(JSON.parse((today.requests.synthesis.off.body.messages as { content: string }[])[1]!.content).lengthCap.words);
     const rest = ({ outputTokens: _caps, payloads: { synthesis: _p, ...payloads }, requests: { synthesis: _s, ...requests }, ...other }: RoleSchemaExport) => ({ payloads, requests, other });
     expect(rest(capped)).toEqual(rest(today));
+    // Below about 2,518 tokens the thinking-on cell's fit is under its 1,200-word ceiling, so its word cap moves with the cap: 822 words at 2,048.
+    const low = buildRoleSchemaExport(undefined, settings, { synthesisCap: 2048 });
+    expect(P10_THINKING_MODES.map(mode => JSON.parse((low.requests.synthesis[mode].body.messages as { content: string }[])[1]!.content).lengthCap.words)).toEqual([822, 822]);
     // Both caps together, and the default export unchanged by the new option.
     expect(buildRoleSchemaExport(undefined, settings, { planCap: 16384, synthesisCap: 16384 }).outputTokens).toEqual({ index: 1536, plan: 16384, extract: 2048, synthesis: 16384 });
     expect(canonical(buildRoleSchemaExport("2026-11-18T00:00:00.000Z", settings, {}))).toBe(canonical(today)); expect(today.outputTokens).toBe(OUTPUT_TOKENS);
@@ -323,7 +326,10 @@ describe("role schema export with a synthesis cap (the E0 card's Amendment 8)", 
     const card = parseServingCard(run.policy!);
     expect(card.roles.synthesis).toMatchObject({ maxOutputTokens: [16384, 16384], thinking: ["model", "disabled"] });
     expect([card.evidence.p10!.cells["synthesis/on"]!.maxTokens, card.evidence.p10!.cells["synthesis/off"]!.maxTokens]).toEqual([16384, 16384]);
-    expect(resolveServingCard(adopt(card), { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } }).roles.synthesis).toEqual(card.roles.synthesis);
+    // Adopted with a `serving_card` basis, so the reader also derives the admission rates from the paired roles' first attempts.
+    const admitted = adopt(card); (admitted as { admission: { basis: string } }).admission.basis = "serving_card";
+    const resolved = resolveServingCard(admitted, { model: "RM-01 VLM", requestSettings: { ...SYNTHETIC_P10_REQUEST_SETTINGS } });
+    expect(resolved.roles.synthesis).toEqual(card.roles.synthesis); expect(resolved.admission.basis).toBe("serving_card");
   });
 
   it("takes --synthesis-cap from the command line and prints the caps it wrote", () => {

@@ -46,7 +46,9 @@ This folder holds the committed, sanitized record of live trials (see
     that would send the format at a cap its P10 cell did not measure, as the reader
     does. It also refuses an attempt the option moves to a thinking mode the role's
     structured-output flag does not name, since that attempt would lose the format.
-    Without either option the export and the card are unchanged.
+    A role with no structured-output flag (the adopted card's synthesis today) sends
+    the format on no attempt, so its pair is written as given, and the reader accepts
+    it. Without either option the export and the card are unchanged.
   - **P10's request settings**
     (BL-20261114-2301-serving-card-request-settings-design). The card copies the
     settings the role export built P10's bodies under (`evidence.p10.requestSettings`:

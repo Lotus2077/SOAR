@@ -3,7 +3,7 @@ import { GeneralJobContractSchema, type ArtifactCheck } from "./runner";
 import type { SessionFile, SessionPhase } from "./session";
 
 /**
- * H4 deck validity check (BL-20261019-0431 follow-up): PowerPoint repaired three of six Phase 2 decks and dropped their
+ * H4 deck validity check (#17 follow-up): PowerPoint repaired three of six Phase 2 decks and dropped their
  * charts; python-pptx read-back and the structural zip check passed all six. This host-owned, standard-library check runs
  * in the qualified image's verifier beside the other finish checks and refuses the three defect classes Phase 2 produced
  * (non-integer EMU coordinates, data-label positions Office rejects for the chart type) and the structural faults any

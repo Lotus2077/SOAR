@@ -998,9 +998,10 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
   });
 
   // Since #79 (10.a) merged before 7c, the contract is one file, 10.a's; this pin now guards its bytes, so a change to the hook's interface is a
-  // deliberate re-pin (BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge).
+  // deliberate re-pin (BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge). Re-pinned by BL-20261118-0438-source-comments-cite-pull-requests,
+  // whose comment edits (entry IDs to pull-request numbers) are the file's only change: its interface is the same.
   it("pins the hook contract's bytes (research-assist-contract.ts, 10.a's file): a change to the interface is a deliberate re-pin", () => {
-    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("2c974306d0c5d57ee6a4cc5f9fe515de90c579e5f2654c00e37eb4bd59373c87");
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("d8ba77a0a6470c330b7d668f191bce315f10b96da4575326f5f092e897b38438");
   });
 
   it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {

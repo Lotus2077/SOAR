@@ -14,7 +14,7 @@
  * The three conditions and the 3 x 10 design are a proposal for the E0 card. The committed manifest is a template until the
  * owner fills its hashes from the exposed r3 index; the fixture refuses a template or a mismatch before any request.
  *
- * The serving card's plan call (BL-20261116-1253-e0-planner-structured-condition-design): `legacy-thinking-structured` adds the
+ * The serving card's plan call (#125): `legacy-thinking-structured` adds the
  * strict `research_plan` response_format item 9 sends (model.ts's jsonSchemaResponseFormat over RESEARCH_ROLE_SCHEMAS.plan) at the
  * plan cap, and `legacy-thinking-structured-16384` the same call at the Heavy profile's ceiling. Manifest v2 pins them beside
  * `legacy-thinking`. Each of the conditions and the repeats comes from the manifest unless its own flag is given, and each repeat
@@ -194,7 +194,7 @@ export async function runPlannerFixture(options: FixtureRunOptions): Promise<Fix
   mkdirSync(replies, { recursive: true, mode: 0o700 });
   const headers: Record<string, string> = { "content-type": "application/json", ...(options.endpoint.apiKey ? { authorization: `Bearer ${options.endpoint.apiKey}` } : {}) };
   const timeoutMs = options.endpoint.timeoutMs ?? COORDINATOR_PROFILES.heavy.requestTimeoutMs, sources = fixture.sourceIds.map(id => ({ id }));
-  // Each repeat runs every condition in turn (BL-20261116-1253-e0-planner-structured-condition-design, review), so drift at the
+  // Each repeat runs every condition in turn (#125, review), so drift at the
   // endpoint over the run falls on every condition alike, as the extractor fixture orders its calls.
   for (let ordinal = 1; ordinal <= options.repeats; ordinal++) {
     for (const condition of conditions) {

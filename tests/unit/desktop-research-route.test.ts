@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SoarConfig } from "../../src/main/config";
-import { DESKTOP_RESEARCH_ROUTE, desktopResearchAvailability, isDesktopResearchRecord, readDesktopResearchCard, researchInputsCheck } from "../../src/main/general-tasks/research-route";
+import { DESKTOP_RESEARCH_ROUTE, DESKTOP_RESEARCH_WRITE_BOUND, desktopResearchAvailability, desktopResearchSession, isDesktopResearchRecord, readDesktopResearchCard,
+  researchInputsCheck, researchStageView, researchWriteLimits } from "../../src/main/general-tasks/research-route";
+import { GENERAL_TASK_BUDGETS } from "../../src/main/private-agent/profiles";
+import { LOCAL_SCREEN_WRITE_BOUNDS } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_COVERAGE_POLICY, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
 import { researchRepairReserve } from "../../src/main/private-agent/research-admission";
 import { loadServingCard, servingCardExpectation, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
@@ -42,6 +45,11 @@ describe("desktop local research route (backlog item 13a)", () => {
     expect(readDesktopResearchCard(config(writeCard(dir, proposed(), "proposed.json")))).toEqual({ accepted: false, code: "serving_card_not_adopted" });
     const other = config(written); other.vllm.model = "another-model";
     expect(readDesktopResearchCard(other)).toEqual({ accepted: false, code: "serving_card_model_mismatch" });
+    // As the driver refuses before a run: a synthesis attempt whose ceiling cannot hold the 100-word floor (1,148 tokens leave 99 words).
+    const short = adopt(proposed(), undefined, { defaults: true }); short.roles.synthesis.maxOutputTokens = [8192, 1148];
+    const shortCard = config(writeCard(dir, short, "below-floor.json"));
+    expect(readDesktopResearchCard(shortCard)).toEqual({ accepted: false, code: "research_role_policy_invalid" });
+    expect(desktopResearchAvailability(shortCard)).toMatchObject({ available: false, code: "research_role_policy_invalid" });
   });
 
   it("decides the stage's refusals that are knowable before start on the input files, with the pipeline's own functions", () => {
@@ -85,5 +93,46 @@ describe("desktop local research route (backlog item 13a)", () => {
       { ...record, cardDate: "17 November 2026" }, { ...record, path: "card.json" }, { route: record.route, cardSha256: record.cardSha256 }]) {
       expect(isDesktopResearchRecord(bad), JSON.stringify(bad)).toBe(false);
     }
+  });
+
+  it("keeps a research task's write phase in one named setting: the heavy profile's own by default, E2's twelve-call bound as the driver sets it", () => {
+    const heavy = GENERAL_TASK_BUDGETS.heavy;
+    expect(DESKTOP_RESEARCH_WRITE_BOUND).toBe("profile");
+    expect(researchWriteLimits("profile", heavy)).toEqual({ modelCalls: heavy.modelCalls, toolCalls: heavy.toolCalls, elapsedMs: heavy.elapsedMs });
+    const twelve = LOCAL_SCREEN_WRITE_BOUNDS["twelve-call"];
+    expect(researchWriteLimits("twelve-call", heavy)).toEqual({ modelCalls: twelve.maxModelCalls, toolCalls: twelve.maxToolCalls, elapsedMs: twelve.maxElapsedMs });
+    expect(twelve).toEqual({ maxModelCalls: 12, maxToolCalls: 12, maxElapsedMs: 1_200_000 });
+  });
+
+  it("gives the session the card's roles, its admission rates only under a serving_card basis, and its K, and nothing else", () => {
+    const dir = workspace(), models = () => { throw new Error("not called"); };
+    const plain = adopt(proposed(), undefined, { defaults: true }), read = readDesktopResearchCard(config(writeCard(dir, plain, "plain.json")));
+    if (!read.accepted) throw new Error("card refused");
+    expect(desktopResearchSession(read.card, models)).toEqual({ research: { models, roles: read.card.policy.roles }, localStreams: 1 });
+    const admitted = adopt(proposed(), undefined, { defaults: true });
+    (admitted as { admission: { basis: string } }).admission.basis = "serving_card"; admitted.concurrency.localStreams = 2;
+    const second = readDesktopResearchCard(config(writeCard(dir, admitted, "admitted.json")));
+    if (!second.accepted || second.card.policy.admission.basis !== "serving_card") throw new Error("card refused");
+    expect(desktopResearchSession(second.card, models)).toEqual({ research: { models, roles: second.card.policy.roles, admission: second.card.policy.admission.rates }, localStreams: 2 });
+  });
+
+  it("shows the stage from its own events: not started, running, transferred or stopped, each stage's latest row, and the stage's requests", () => {
+    const record = { route: DESKTOP_RESEARCH_ROUTE, cardSha256: "a".repeat(64), cardDate: "2026-11-17" }, card = { date: record.cardDate, sha256: record.cardSha256 };
+    const input = { type: "research_input", contextId: "reader" };
+    expect(researchStageView(record, [], [], false)).toEqual({ route: "local_beta", card, stage: "not_started", stages: [], requests: 0 });
+    expect(researchStageView(record, [input], [], true)).toMatchObject({ stage: "not_started" });
+    const plan = (calls: number, extra = {}) => ({ type: "research_stage", contextId: "reader", stage: "plan", calls, ...extra });
+    const events = [input, { type: "research_stage", contextId: "reader", stage: "index", calls: 1, usage: {} }, plan(1), plan(2, { truncatedReplies: 2, fallback: "host_plan" }),
+      { type: "research_stage", contextId: "reader", stage: "extract", calls: 5, chunksPlanned: 3, chunksComplete: 2, fallback: "other" },
+      { type: "research_stage", contextId: "elsewhere", stage: "synthesise", calls: 9 }];
+    const dispatches = [{ contextId: "reader" }, { contextId: "reader" }, { contextId: "writer" }];
+    expect(researchStageView(record, events, dispatches, true)).toEqual({ route: "local_beta", card, stage: "running", requests: 2, stages: [
+      { stage: "index", calls: 1 }, { stage: "plan", calls: 2, truncatedReplies: 2, fallback: "host_plan" }, { stage: "extract", calls: 5, chunksPlanned: 3, chunksComplete: 2 }] });
+    expect(researchStageView(record, events, dispatches, false).stage).toBe("stopped");
+    // A refused admission is a stage that stopped before any call.
+    expect(researchStageView(record, [input, { type: "research_admission", contextId: "reader", admission: {} }], [], false).stage).toBe("stopped");
+    expect(researchStageView(record, [...events, { type: "research_transfer", contextId: "reader" }], dispatches, false).stage).toBe("transferred");
+    // Malformed counts are left out, never shown as numbers.
+    expect(researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "index", calls: -1, truncatedReplies: 1.5 }], [], false).stages).toEqual([{ stage: "index", calls: 0 }]);
   });
 });

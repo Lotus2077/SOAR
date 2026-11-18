@@ -1,6 +1,6 @@
 /**
  * The hook between the research pipeline and backlog item 10's assist wrapper (docs/PROJECT_REVIEW_2026-11-05.md §5.2,
- * touchpoints T1 and T2; BL-20261113-0920-assist-wrapper-design, decision 11). Types only: no runtime value lives here, so
+ * touchpoints T1 and T2; #79, decision 11). Types only: no runtime value lives here, so
  * the pipeline (item 7(c)) and the wrapper (research-assist.ts) both import it without a runtime import cycle.
  *
  * A request is host data inside the process, real source ids, paths, texts and hashes included. Only the wrapper turns a
@@ -104,7 +104,7 @@ export interface ResearchAssistAttemptRecord {
 }
 
 /**
- * Since 10.b (BL-20261117-1202-assist-wiring-design, decision 7) every outcome a hook returns carries its attempt `record`
+ * Since 10.b (#147, decision 7) every outcome a hook returns carries its attempt `record`
  * (research-assist-record.ts); the type keeps it optional only so test fakes can attach one later. The pipeline ends the stage as
  * `research_assist_record_invalid` on a reply, no-reply or stop whose record is missing or does not parse for its touchpoint.
  */

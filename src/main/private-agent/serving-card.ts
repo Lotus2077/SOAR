@@ -54,7 +54,7 @@ const P10CellSchema = z.object({ variant: StructuredOutputVariantSchema, maxToke
 const AcceptanceSchema = z.object({ strict: z.boolean(), nonStrict: z.boolean() }).strict();
 /**
  * The settings the role export built P10's bodies under (P10-align: its `requestSettings`, which the probe records), so the reader can
- * refuse a structured-output flag for a run whose flagged bodies P10 never measured (BL-20261114-2301-serving-card-request-settings-design).
+ * refuse a structured-output flag for a run whose flagged bodies P10 never measured (#111).
  */
 const P10RequestSettingsSchema = z.object({ model: identityText(256), streaming: z.boolean(), localReplyContract: z.literal("flash_next_v1").nullable(),
   localContextTokens: positive.nullable(), profile: z.literal("heavy"), cacheSalt: z.boolean() }).strict()
@@ -157,7 +157,7 @@ export const DEFAULT_SERVING_POLICY: Readonly<ServingPolicy> = deepFreeze({ role
   admission: { basis: "none" as const } });
 
 /**
- * The settings that shape a research role's request body (BL-20261114-2301-serving-card-request-settings-design): the served model,
+ * The settings that shape a research role's request body (#111): the served model,
  * SOAR_STREAMING, the Flash reply contract and, only under it, its context, the heavy profile (the only profile research runs under) and
  * the cache salt. The role export records its bodies' settings with this function (cache salt on), and the reader compares a run's.
  */
@@ -179,7 +179,7 @@ export function servingCardExpectation(config: Pick<SoarConfig, "vllm" | "stream
 
 /**
  * sha256(canonical(schema)) of the three schemas the role export gives P10 (scripts/export-role-schemas.ts); computed on call. Since
- * item 9 (BL-20261116-1208-research-structured-output-design) all three read RESEARCH_ROLE_SCHEMAS, the table a flagged call sends.
+ * item 9 (#108) all three read RESEARCH_ROLE_SCHEMAS, the table a flagged call sends.
  */
 export function currentRoleSchemaSha256(): Readonly<Record<StructuredOutputRole, string>> {
   return Object.freeze(Object.fromEntries(STRUCTURED_OUTPUT_ROLES.map(role => [role, digest(canonical(RESEARCH_ROLE_SCHEMAS[role].schema))])) as Record<StructuredOutputRole, string>);
@@ -249,7 +249,7 @@ export function nonDefaultParameters(policy: ServingPolicyParameters): { paramet
 /**
  * Steps 4-10 of the reader against SERVING_CARD_CONSUMED: adopted, the served alias and (under flash_next_v1) the context,
  * every cap within [128, the heavy profile's limit], the evidence for each flagged structured-output mode (taken under the run's request
- * settings since BL-20261114-2301-serving-card-request-settings-design, and since item 9's review at the cap P10 measured it at), the
+ * settings since #111, and since item 9's review at the cap P10 measured it at), the
  * burst for K > 1, then fail closed. Pure; there is no override argument.
  */
 export function resolveServingCard(card: ServingCardV1, expectation: ServingCardExpectation): ServingPolicy {
@@ -282,7 +282,7 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
       const requested: StructuredOutputVariant = p10.strictRequested ? "strict" : "non_strict";
       if (flag.variant !== requested || cell.variant !== flag.variant) refuse("serving_card_structured_output_variant_mismatch", at);
       if (cell.total < P10_RULE.minCalls || cell.valid * 100 < P10_RULE.minValidPercent * cell.total) refuse("serving_card_structured_output_below_rule", at);
-      // Item 9's review (BL-20261116-1208-research-structured-output-design): every attempt that sends the format in this mode sends it at
+      // Item 9's review (#108): every attempt that sends the format in this mode sends it at
       // the cap the cell measured. Research roles run under the heavy profile alone, whose thinking is on, so "model" is this mode's "on".
       card.roles[role].thinking.forEach((thinking, attempt) => {
         if ((thinking === "disabled" ? "off" : "on") === mode && card.roles[role].maxOutputTokens[attempt] !== cell.maxTokens)
@@ -303,7 +303,7 @@ export function resolveServingCard(card: ServingCardV1, expectation: ServingCard
 }
 
 /**
- * 7b.3 (BL-20261117-1131-research-card-admission-design): the measured rates a `serving_card` admission basis reads, from the card's own
+ * 7b.3 (#137): the measured rates a `serving_card` admission basis reads, from the card's own
  * evidence, or `serving_card_admission_unmeasured` at `admission.basis` when the card lacks one:
  * - prefill and decode: the fastest and the slowest of P11's sizes that ran (thinking off);
  * - fan-out decode: the single-stream rates at K 1; at K above 1 the aggregate of P11's burst at that K, never slower than one stream
@@ -357,7 +357,7 @@ export function loadServingCard(descriptor: ServingCardDescriptor, expectation: 
 /**
  * 8.2b: `localStreams` is the card's K, which the driver passes to the session in every run with a card: the research loops and the claims
  * judge run K calls at a time on a zero-risk local model, and one at a time otherwise (ASSIST-M2's default: freeze.json; the registry row's
- * `localStreams` copies it, BL-20261116-1358-run-row-card-and-doctor-sources-design).
+ * `localStreams` copies it, #128).
  */
 export interface ServingCardFreeze { sha256: string; version: 1; date: string; entry: string; localStreams: number }
 /** The freeze.json fragment: {} without a card; never the path. */

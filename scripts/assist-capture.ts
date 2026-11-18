@@ -1,5 +1,5 @@
 /**
- * Backlog item 10's capture mode (10.c; BL-20261117-1130-lane-decisions-second-repair-before-reprobe, decision 5): the T1 and T2 assist
+ * Backlog item 10's capture mode (10.c; #146, decision 5): the T1 and T2 assist
  * packets, and T2's retry, built from a finished zero-fee local run as item 10's wrapper would build them, written as request bodies
  * into a new directory of that run, which git must ignore. Nothing is dispatched: no cloud destination, key, broker request or fee is
  * involved, and the model the builders read is bound to a broker that refuses every request. The coordinating session scans the
@@ -23,7 +23,7 @@
  * of that stage failed, else null). The retry is sent only after a truncated first T2 reply. The capture binds the assist protocol it
  * built under (researchAssistProtocolSha256) in its manifest.
  *
- * A T2 built after item (ii)'s second repair (BL-20261117-1143-research-second-repair-design), the packet the scan most needs to see,
+ * A T2 built after item (ii)'s second repair (#139), the packet the scan most needs to see,
  * comes from a source run read under a serving card whose admission basis is `serving_card` (SOAR_SERVING_CARD_FILE and
  * SOAR_SERVING_CARD_SHA256 on the local run): only then does a chunk its one repair left unfinished get a second. The manifest's
  * `sourceRun` records that basis and the run's second-repair counts, so a capture shows whether its T2 followed a second repair.

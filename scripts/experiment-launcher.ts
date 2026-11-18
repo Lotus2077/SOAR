@@ -1,8 +1,8 @@
 /**
- * Plan 11.5 (BL-20261114-1344-experiment-launcher-design): a supervised launcher that runs an experiment card's queue of harness
+ * Plan 11.5 (#98): a supervised launcher that runs an experiment card's queue of harness
  * runs, H4 loops through scripts/phase4-loop.ts and single runs through scripts/private-agent-local-screen.ts. It runs them one at
  * a time, in the queue's order, only inside the card's windows, only on an idle endpoint and only under the batch's fee cap. It is a
- * tracked, tested port of the H4 and H5 supervisor (BL-20261101-0036, BL-20261101-0135): each run is a child in its own process
+ * tracked, tested port of the H4 and H5 supervisor (#32): each run is a child in its own process
  * group, signals are forwarded to that group, and SIGKILL follows only a bounded wait on the owner's stop. An admitted run is never
  * cut at the end of a window. The launcher is outside the source freeze, and its ledger (DIR/launcher.jsonl) holds codes and counts
  * only: never a path, the endpoint's address, a key, an error message or a child's output.
@@ -36,13 +36,13 @@ export const WAIT_POLL_MS = 30_000;
 export const TERM_WAIT_MS = 120_000;
 export const REAP_WAIT_MS = 10_000;
 /**
- * BL-20261114-1431-experiment-launcher-signals-design, decision (1): a second signal escalates only this long after the first. Under pnpm one
+ * #98, decision (1): a second signal escalates only this long after the first. Under pnpm one
  * Ctrl-C arrives twice, 1 to 2 ms apart, and a hangup through a shell arrives twice, about 3 ms apart.
  */
 export const SIGNAL_REPEAT_MS = 5_000;
 /** Decision (6): at most this many re-invocations of one loop after its first. */
 export const MAX_LOOP_REINVOCATIONS = 4;
-/** Decision (6), HARN-22: the loop stops that part 3b resumes in a later invocation (BL-20261113-0836-infra-resume-design). */
+/** Decision (6), HARN-22: the loop stops that part 3b resumes in a later invocation (#89). */
 export const RESUMABLE_LOOP_FAILURES: readonly string[] = ["loop_stage_infra", "loop_interrupted", "loop_stage_cleanup_required", "loop_stage_ledger_unreadable"];
 export const LAUNCHER_SCRIPTS = { loop: "scripts/phase4-loop.ts", run: "scripts/private-agent-local-screen.ts" } as const;
 const LAUNCHER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -134,11 +134,11 @@ export function parseQueue(bytes: Buffer, root: string): LauncherQueue {
       if (run.kind === "loop") { const loop = parseLoopArguments([...run.argv]); directory = loop.loopDirectory; argumentCap = loop.base.cloudArm?.maxFeeUsd ?? 0; }
       else {
         const single = parseLocalArtifactScreenArguments([...run.argv]);
-        // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design): a queue lists runs; a dry run creates nothing, and its exit 0 would read as submitted.
+        // E2 (#140): a queue lists runs; a dry run creates nothing, and its exit 0 would read as submitted.
         if (single.dryRun) throw new Error("launcher_queue_invalid");
         directory = single.outputDirectory; argumentCap = single.cloudArm?.maxFeeUsd ?? 0; }
     } catch { throw new Error("launcher_queue_invalid"); }
-    // BL-20261114-1431, decision (3): only a loop's sample a can spend. A cloud loop is a research loop whose b and repair are seeded
+    // #98, decision (3): only a loop's sample a can spend. A cloud loop is a research loop whose b and repair are seeded
     // writers without the cloud arm, its critique is local, and part 3b's resumes are zero fee. So a loop's cap, like a run's, covers
     // the arguments' cap once.
     const capMicrousd = Math.round(run.capUsd * MICRO);
@@ -313,14 +313,14 @@ export async function runLauncher(input: LauncherInput, deps: LauncherDependenci
   const note = (event: Record<string, unknown>) => { try { log(event); } catch { ledgerBroken = true; } };
   const forward = (running: Running, signal: ForwardedSignal) => {
     running.signalled = true;
-    // BL-20261114-1431, decision (2): neither driver handles SIGHUP, so a hangup reaches the run as SIGTERM, its graceful stop, on the
+    // #98, decision (2): neither driver handles SIGHUP, so a hangup reaches the run as SIGTERM, its graceful stop, on the
     // same gated path. The run is signalled before the ledger is written, so a failed write never leaves it running unsignalled.
     const sent = signal === "SIGHUP" ? "SIGTERM" : signal;
     running.child.signal(sent); running.stopRequested.resolve();
     note({ event: "signal_forwarded", run: running.run.id, attempt: running.attempt, signal: sent, ...(sent === signal ? {} : { received: signal }) });
   };
   let firstSignalAt = 0;
-  // BL-20261114-1431, decision (1), as corrected after the skeptic's re-check: the first signal is forwarded to the run's group and
+  // #98, decision (1), as corrected after the skeptic's re-check: the first signal is forwarded to the run's group and
   // stops new starts. A later SIGINT or SIGTERM escalates to SIGKILL only when it comes SIGNAL_REPEAT_MS or more after the first; a
   // nearer one is the same signal delivered twice. A later hangup never escalates: closing the terminal while a run stops is no press.
   const unsubscribe = signals.subscribe(signal => {

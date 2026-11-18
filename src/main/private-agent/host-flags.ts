@@ -8,7 +8,7 @@ import { ResearchCoverageSchema, ResearchEvidenceSchema } from "./research-cover
 import type { PrivateAgentStore } from "./store";
 
 /**
- * Backlog item 7(d), part B (BL-20261110-1509-host-flags-event-design): host flags for the owner's attention, recorded once per private
+ * Backlog item 7(d), part B (#92): host flags for the owner's attention, recorded once per private
  * context after submission. The pass scans the claims report and the research packet's argument for corpus-absence claims (absence rules
  * v1), sets beside them the misses the run itself recorded and the single-unit brief disclosure (D11), and summarizes a document review's
  * `output/review-flags.json`. It never decides anything: no check's `passed`, no status, selection or acceptance. It makes no model call,
@@ -222,7 +222,7 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
         const retained = outcome("evidence_retained"), trimmed = outcome("evidence_trimmed");
         misses.briefUnits = coverage.units.length;
         misses.questionsWithoutEvidence = coverage.synthesis.questions.filter(question => !retained.has(question.questionId)).length;
-        // 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design): of those, the questions whose verified quotes 7b.2's trim all left out
+        // 7d.D (#119): of those, the questions whose verified quotes 7b.2's trim all left out
         // of the packet, and the packet's omissions. Computed whenever coverage is read, so an older event's missing count reads "not recorded".
         misses.questionsTrimmed = coverage.synthesis.questions.filter(question => !retained.has(question.questionId) && trimmed.has(question.questionId)).length;
         misses.unresolvedQuestions = coverage.synthesis.questions.filter(question => question.disposition === "unresolved").length;

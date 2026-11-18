@@ -20,7 +20,7 @@ export const DOCUMENT_REVIEW_ARTIFACTS: readonly { path: string; description: st
   { path: "output/clean.docx", description: "The source with every edit accepted and no revisions." },
   { path: "output/issues.xlsx", description: "Issues list: one row per edit." },
   { path: "output/hygiene.json", description: "Author metadata, comment authors, revisions and hidden text that would leave with the files." },
-  // Backlog item 7(d) (BL-20261109-0354-document-review-flags-design).
+  // Backlog item 7(d) (#85).
   { path: DOCUMENT_REVIEW_FLAGS_PATH, description: "Host flags for the owner's attention, written only by the applier in step 3; never write or edit it. A flag never fails the check; the file is compared byte for byte like the other outputs." },
 ]);
 /** The one .docx under input/ (top level only; any .docx deeper makes the source ambiguous). */
@@ -28,7 +28,7 @@ const SOURCE_PATH = /^input\/[^\u0000-\u001f/\\]{1,200}\.docx$/iu;
 const ANY_DOCX = /^input\/.*\.docx$/iu;
 
 /**
- * Backlog item 7(d) (BL-20261109-0354-document-review-flags-design): the host flags' rules v1 (N1, a table against the prose; C1, an edit
+ * Backlog item 7(d) (#85): the host flags' rules v1 (N1, a table against the prose; C1, an edit
  * that turns its clause around; C2, clauses that contradict each other). Stdlib-only Python 3.9, so CI runs it under python3 -I without
  * lxml; the applier carries it verbatim just before its main guard. Its top-level names start with FLAG_, flag_ or review_flags, none of
  * the applier's own. Free of backticks and dollar-brace sequences, and ASCII.

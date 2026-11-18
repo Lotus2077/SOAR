@@ -57,7 +57,7 @@ export type EntailmentComplete = (messages: GeneralMessage[], tools: [], signal:
  * after the completion is durable and tests drive it with a stub. It never throws: every failure becomes a verdict
  * of not_judged, a transport failure or an exhausted allowance also stops the pass (truncated).
  *
- * 8.2b (BL-20261116-1213 decision 3; ASSIST-2's default): `limit` claims are judged at a time on the ordered pool, the session's
+ * 8.2b (#110 decision 3; ASSIST-2's default): `limit` claims are judged at a time on the ordered pool, the session's
  * K for a zero-risk local judge and 1 otherwise. A failed call stops launching, but its in-flight siblings finish and their
  * verdicts are kept, so at K > 1 a truncated pass may hold verdicts for claims launched after the failing one. Verdicts stay in
  * claim order, and `entailmentCalls` counts launched calls. With K = 1 it is the serial pass.
@@ -174,7 +174,7 @@ def section_present(lines, title):
 
 /**
  * How the claims check removes fenced code, then HTML comments, from the report before it reads citations and headings, in Python (decision 6
- * of E1-J2, BL-20261114-1711). `strip_fences` pairs a line that opens a fence (three backticks after optional spaces and tabs) with the next
+ * of E1-J2, #109). `strip_fences` pairs a line that opens a fence (three backticks after optional spaces and tabs) with the next
  * line that is three backticks between optional spaces and tabs, and turns the pair and the lines between into one empty line; an opening line
  * with no later closing line ends the pairing. `strip_comments` removes each `<!--` through the first `-->` that starts after it. They return
  * what `re.sub(r'(?ms)^[ \t]*```.*?^[ \t]*```[ \t]*$', '', text)` and `re.sub(r'(?s)<!--.*?-->', '', text)` returned on every input, in linear
@@ -201,7 +201,7 @@ def strip_comments(text):
  return ''.join(out)`;
 
 /**
- * How the claims check turns HTML and DOCX markup into text, in Python (decision 6 of E1-J2, BL-20261114-1711): `strip_scripts` replaces each
+ * How the claims check turns HTML and DOCX markup into text, in Python (decision 6 of E1-J2, #109): `strip_scripts` replaces each
  * script or style block with a space, `strip_tags` each tag, and `join_runs` removes the markup between two runs of a DOCX paragraph. They
  * return what `re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>', ' ', text)`, `re.sub(r'<[^>]+>', ' ', text)` and
  * `re.sub(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>(?:\s*<w:rPr>.*?</w:rPr>)?\s*<w:t\b[^>]*>', '', chunk, flags=re.S)` returned on every input, in
@@ -209,7 +209,7 @@ def strip_comments(text):
  * - A script or style block still ends where the former pattern's backreference says: SCRIPT_PAIR is that pattern, run only on a short string
  *   made of the name and one candidate closing tag. Names that accept each other share one list of accepted closing positions.
  * - The run join keeps the former pattern's fixed parts as patterns matched at known positions, and lists once each `</w:rPr>` that its tail follows.
- * - `unescape` returns what `html.unescape` returns with Python's integer string limit lifted (BL-20261114-1803). Python 3.11 and later refuse
+ * - `unescape` returns what `html.unescape` returns with Python's integer string limit lifted (#112). Python 3.11 and later refuse
  *   to convert more than 4,300 decimal digits, so `html.unescape` raised ValueError on a longer decimal reference and failed the whole check.
  *   A decimal reference of eight or more digits is decoded from its value without leading zeros, through `html.unescape` on a short reference
  *   (any value above 0x10FFFF reads as U+FFFD); every other stretch of text goes to `html.unescape` as it is.
@@ -281,7 +281,7 @@ def unescape(text):
  * Host-owned verifier: quotes verbatim in declared file sources or in retained public sources (named by URL,
  * resolved and digest-checked through CLAIMS_RETAINED_ENV), locators computed by the host, citations resolved.
  * `units` reads pypdf's `page_labels` once per PDF, at the first page, where the loop first read it before: each read builds every page's
- * label, so a read per page took time that grew with the square of the page count (decision 6 of E1-J2, BL-20261114-1711).
+ * label, so a read per page took time that grew with the square of the page count (decision 6 of E1-J2, #109).
  */
 export function claimsLedgerCheck(input: { reportPath: string; sources: ClaimsSource[]; publicSources?: boolean; root?: string }): ArtifactCheck {
   if ((!input.sources.length && !input.publicSources) || input.sources.length > 64 || new Set(input.sources.map(source => source.id)).size !== input.sources.length) throw new Error("claims_sources_invalid");

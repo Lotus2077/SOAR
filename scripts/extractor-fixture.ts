@@ -1,5 +1,5 @@
 /**
- * E0 extractor fixture (review section 5.6, E0: "extractor on 3 synthetic chunks"; BL-20261116-1123-e0-extractor-fixture-design).
+ * E0 extractor fixture (review section 5.6, E0: "extractor on 3 synthetic chunks"; #116).
  * For each committed synthetic chunk a pinned manifest names, it builds the extraction stage's own initial request (EXTRACT_SYSTEM and
  * researchExtractionUserContent, through the model layer's requestBody exactly as probe P10 builds its bodies: buildRoleRequest in
  * export-role-schemas.ts) under each condition the manifest pins, and POSTs it directly to the owner's endpoint (outside the broker,
@@ -14,7 +14,7 @@
  * chunks in order, so a chunk's call reuses only the job's cached system message and stable packet line, as the stage's calls do.
  * Every refusal happens before any request is sent or any file is written.
  *
- * The serving card's extract call (BL-20261116-1256-e0-extractor-structured-condition-design): `thinking-off-structured` is the
+ * The serving card's extract call (#125): `thinking-off-structured` is the
  * deployed call plus the strict `research_extraction` response_format item 9 sends; manifest v2 pins it beside `thinking-off`.
  */
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";

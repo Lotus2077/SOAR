@@ -1,7 +1,7 @@
 import { SANDBOX_ERROR_CODES, type SandboxErrorCode } from "./sandbox";
 
 /**
- * Backlog item 3 (finding B5, BL-20261107-0924): the fixed, host-authored feedback a tool failure returns to the model, keyed on
+ * Backlog item 3 (finding B5, #43): the fixed, host-authored feedback a tool failure returns to the model, keyed on
  * a code, so the model gets a repair signal instead of one generic error. Every object is a host constant: no message, path,
  * command or provider text ever enters one. `actionInvoked` is stated only where the host knows it. None of these objects is
  * bound into the prompt protocol (binding would move `promptProtocolSha256` and end every paused task in `runtime_contract_drift`),
@@ -38,11 +38,11 @@ export const TOOL_ERROR_FEEDBACK: Readonly<Record<ToolErrorCode, ToolErrorFeedba
   public_fetch_limit_reached: feedback("public_fetch_limit_reached", undefined, false),
   path_invalid: feedback("path_invalid", "The sandbox refused that path; nothing was changed. Use a workspace-relative path without a leading slash, '.', '..' or empty parts, at most 32 parts and 240 bytes, with no control characters or backslashes.", false),
   execution_context_unavailable: feedback("execution_context_unavailable", "The execution container could not be prepared from the last checkpoint, so nothing was invoked. The host tries again on the next action; repeat it.", false),
-  // A finish whose capture succeeded but whose verifier did not run (BL-20261107-1006, 5): the capture is the latest checkpoint, nothing is lost.
+  // A finish whose capture succeeded but whose verifier did not run (#43, 5): the capture is the latest checkpoint, nothing is lost.
   verification_unavailable: feedback("verification_unavailable", "The workspace was captured and is retained as the latest checkpoint, so nothing since the capture was lost, but the host could not run verification (the container could not be released, or the verifier could not be started, failed or was stopped), so completion is not established. Call finish again to verify."),
   sandbox_invalid_input: feedback("sandbox_invalid_input", "The sandbox refused the command before running it: a command must be valid UTF-8 without NUL characters and at most 65536 bytes. Nothing was executed.", false),
   sandbox_busy: feedback("sandbox_busy", "The sandbox was busy with another host operation; nothing was executed. Repeat the action.", false),
-  // Thrown before a call and after one returned (the container became unusable during it), so whether the action ran is not stated (BL-20261107-1006, 6).
+  // Thrown before a call and after one returned (the container became unusable during it), so whether the action ran is not stated (#43, 6).
   sandbox_unusable: feedback("sandbox_unusable", `The execution container was no longer usable when the action was handled, and the host cannot tell whether the action ran. ${RECREATED} Redo the action and verify its result.`),
   sandbox_unavailable: feedback("sandbox_unavailable", `The container runtime failed during the action, and the host cannot tell whether the action ran. ${RECREATED} Redo the action and verify its result.`),
   sandbox_command_timeout: feedback("sandbox_command_timeout", `The action exceeded the host's deadline and was stopped; its effects may be partial. ${RECREATED}`, true),

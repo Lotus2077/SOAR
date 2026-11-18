@@ -1,5 +1,5 @@
 /**
- * Item 7b.2 (BL-20261115-1939-research-priority-trim-design; review finding D4 and section 5.2, principle 5): which verified
+ * Item 7b.2 (#102; review finding D4 and section 5.2, principle 5): which verified
  * quotes and conflict notes the packet keeps, and the presentation guard before synthesis. Host steps only, with no model call.
  * Everything the packet leaves out is disclosed in coverage.json and accepted by the ready gate (research-coverage.ts). Bound into
  * researchProtocolSha256 through RESEARCH_TRIM_POLICY. This module imports nothing, so the pipeline and the tests share it.

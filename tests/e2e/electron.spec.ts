@@ -645,7 +645,7 @@ test("reviews current Git changes locally and refuses a stale Markdown copy", as
     ).toBeVisible();
     await page.getByTestId("start-local-review").click();
 
-    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("diagnostic-probe-never", { timeout: 3_000 })); // TEMPORARY probe, reverted next
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
     await expect(page.getByTestId("review-freshness")).toContainText(
       "Fresh and complete",
     );

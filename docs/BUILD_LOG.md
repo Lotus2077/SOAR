@@ -53086,7 +53086,7 @@ References: docs/experiments/e0-card-2026-11-13.md (Amendment 6, item 2); BL-202
 
 Status: `Approved`
 
-Scope or hypothesis: This designs backlog item 13a (decision 2 of BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout). Only the headless driver passes `research` to a session or reads a serving card, so none of the pipeline reaches the owner's build. The coordinating session reads this design before any code is written. The pull request's description holds the detail, the file references and lane S-pipe's answers.
+Scope or hypothesis: This designs backlog item 13a (decision 2 of BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout). Only the headless driver passes `research` to a session or reads a serving card, so none of the pipeline reaches the owner's build. The coordinating session read this design on 2026-11-18, before any code was written. The pull request's description holds the detail, the file references and lane S-pipe's answers.
 
 Decisions:
 1. **Code path.** A research task's session gets what the driver passes: `research.models` (reader, planner, synthesiser) on the task's local model, and the adopted card's roles, admission rates and `localStreams`. It never gets `diagnostics` or an assist. It needs the heavy profile (200 requests cover 68 for the stage, 80 for the writer, and a public phase), the claims ledger and the driver's brief. Typed URLs run as a public phase before the private one, never under `publicInputApproval` (lane S-pipe).
@@ -53111,10 +53111,10 @@ Evidence: Three read-only agents and this lane read the code at `main` 8c7011a a
 
 Failures or blockers: None.
 
-Limitations and non-claims: `Proposed` only. Nothing is built or measured. The estimates are this lane's, and the pool figure is read from the code, not from a run.
+Limitations and non-claims: The design is approved. Nothing is built or measured. The estimates are this lane's, and the pool figure is read from the code, not from a run.
 
 Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
-Next gate: The coordinating session reads this design. Then 13a.1's implementation, its entry and one light review follow.
+Next gate: 13a.1's first pull request, with its entry and one light review.
 
 References: BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout; BL-20261117-1616-serving-card-2026-11-17-adopted; BL-20261109-0336-desktop-resume-reasons-design; docs/experiments/e5-card-2026-11-17.md.

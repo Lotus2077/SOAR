@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ARCHIVE_SHA256,
   buildLogEntrySha256,
   REQUIRED_BUILD_LOG_FIELDS,
   runBuildLogValidationCli,
@@ -451,11 +453,14 @@ describe("build-log validator", () => {
     );
   });
 
-  it("keeps the archive frozen: any change to it, an append included, fails against the base", () => {
+  it("keeps the archive frozen at its pinned bytes: any change, an append included, fails with or without a base", () => {
+    const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
+    // The pin is the repository's archive as it stands; a stale pin fails here first.
+    expect(sha256(readFileSync(new URL("../../docs/BUILD_LOG.md", import.meta.url), "utf8"))).toBe(ARCHIVE_SHA256);
     const base = "first\nsecond\n";
-    expect(validateFrozenArchive(base, base)).toEqual([]);
-    for (const [current, line] of [[`${base}\n### BL-20260829-1200-third -- 2026-08-29 -- Third\n`, 4], ["first\nchanged\n", 2], ["first\n", 2], [`${base}more\n`, 3]] as const) {
-      expect(validateFrozenArchive(base, current)).toEqual([expect.stringContaining(`frozen archive and may not change (first changed or deleted line ${line})`)]);
+    expect(validateFrozenArchive(base, sha256(base))).toEqual([]);
+    for (const current of [`${base}\n### BL-20260829-1200-third -- 2026-08-29 -- Third\n`, "first\nchanged\n", "first\n", `${base}more\n`, `${base}\n`]) {
+      expect(validateFrozenArchive(current, sha256(base))).toEqual([expect.stringContaining(`frozen archive and may not change (sha256 ${sha256(current)}, pinned ${sha256(base)})`)]);
     }
   });
 
@@ -479,8 +484,9 @@ describe("build-log validator", () => {
     try {
       mkdirSync(path.join(root, "docs"));
       const original = incompleteEntry();
-      writeFileSync(path.join(root, "docs/BUILD_LOG.md"), log(original, fieldCorrection(original)));
-      expect(runBuildLogValidationCli([], root)).toBe(0);
+      const fixture = log(original, fieldCorrection(original));
+      writeFileSync(path.join(root, "docs/BUILD_LOG.md"), fixture);
+      expect(runBuildLogValidationCli([], root, createHash("sha256").update(fixture, "utf8").digest("hex"))).toBe(0);
       expect(stdout).toHaveBeenCalledWith(expect.stringContaining("1 digest-bound field correction; original missing-field evidence retained"));
       expect(stderr).not.toHaveBeenCalled();
     } finally {
@@ -523,7 +529,7 @@ describe("build-log validator", () => {
     expect(validateBuildLog(log(edited, fieldCorrection(original))).errors).toEqual(expect.arrayContaining([expect.stringContaining("target digest does not match")]));
     const rewritten = log(edited, fieldCorrection(edited));
     expect(validateBuildLog(rewritten).errors).toEqual([]);
-    expect(validateFrozenArchive(log(original), rewritten)).toEqual([expect.stringContaining("frozen archive and may not change")]);
+    expect(validateFrozenArchive(rewritten, createHash("sha256").update(log(original), "utf8").digest("hex"))).toEqual([expect.stringContaining("frozen archive and may not change")]);
   });
 
   it.each(["fenced", "html", "quoted", "inline", "malformed", "duplicate"])("refuses %s pseudo-correction markers", kind => {

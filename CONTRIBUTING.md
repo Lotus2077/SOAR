@@ -79,13 +79,16 @@ boundary or persisted event.
    archive into files:
 
    ```bash
-   git merge origin/main          # if it stops on docs/BUILD_LOG.md, leave that file
-   pnpm build-log:to-files        # moves your entries to docs/build-log/ and restores the archive
-   git add -A docs && git commit --no-edit
+   git fetch origin && git merge origin/main   # resolve any other conflict; leave docs/BUILD_LOG.md as it is
+   pnpm build-log:to-files                     # moves your entries to docs/build-log/ and restores main's archive
+   git add docs/BUILD_LOG.md docs/build-log && git commit -m "Move this branch's log entries to docs/build-log/"
    ```
 
-   Then remove any log ID the branch added under `src/` or `scripts/`; the
-   validator names each one.
+   - **When it refuses.** The command refuses while another file is still
+     unmerged, and outside a merge it refuses an unmerged archive, as a rebase
+     leaves one. It moves nothing when it refuses.
+   - **Afterwards,** remove any log ID the branch added under `src/` or
+     `scripts/`; the validator names each one.
 
 An approval-gated plan is not authorized by a merge or by silence. Follow the
 approval record and scope defined by that plan before beginning gated runtime

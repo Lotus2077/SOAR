@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -45,6 +46,7 @@ function entryText(input: { id?: string; date?: string; title?: string; status?:
 /** A fixture archive the archive parser accepts: its history marker and one timestamped entry. */
 const ARCHIVE_ID = "BL-20261117-1049-archived";
 const archive = () => `# Fixture build log\n\n## Backfilled project history\n\n${entryText({ id: ARCHIVE_ID, date: "2026-11-17" })}`;
+const ARCHIVE_PIN = createHash("sha256").update(archive(), "utf8").digest("hex");
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("/usr/bin/git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args],
@@ -56,18 +58,19 @@ function repository(): string {
   const root = scratch();
   git(root, ["init", "-q", "-b", "main"]);
   write(root, "docs/BUILD_LOG.md", archive());
+  write(root, ".gitignore", ".DS_Store\n");
   write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/BL-20261118-0400-base.md`, entryText({ id: "BL-20261118-0400-base" }));
   write(root, "src/main/old.ts", `// cites ${ARCHIVE_ID}\nexport const old = 1;\n`);
   git(root, ["add", "-A"]); git(root, ["commit", "-q", "-m", "base"]);
   return root;
 }
-/** The validator's CLI against HEAD after staging the work tree: its exit code and what it printed. */
-function validate(root: string, base = "HEAD"): { code: number; out: string; err: string } {
-  git(root, ["add", "-A"]);
+/** The validator's CLI against `base` (none: no base) after staging the work tree, under the fixture's pin: its exit code and output. */
+function validate(root: string, base: string | null = "HEAD", stage = true, pin = ARCHIVE_PIN): { code: number; out: string; err: string } {
+  if (stage) git(root, ["add", "-A"]);
   let out = "", err = "";
   vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => { out += String(chunk); return true; }) as typeof process.stdout.write);
   vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array) => { err += String(chunk); return true; }) as typeof process.stderr.write);
-  try { return { code: runBuildLogValidationCli(["--base-ref", base], root), out, err }; } finally { vi.restoreAllMocks(); }
+  try { return { code: runBuildLogValidationCli(base === null ? [] : ["--base-ref", base], root, pin), out, err }; } finally { vi.restoreAllMocks(); }
 }
 
 describe("entry files (one file per entry)", () => {
@@ -143,7 +146,7 @@ describe("entry files (one file per entry)", () => {
     expect(validateMaterialChangeEntryFiles(["docs/plans/x.md", "tests/unit/x.test.ts", "package.json"], names, names)).toEqual([expect.stringContaining("docs/plans/x.md, tests/unit/x.test.ts, package.json")]);
   });
 
-  it("refuses a log ID a change adds under src/ or scripts/, and nothing else", () => {
+  it("refuses a log ID a change adds under src/ or scripts/, counted over every changed file there, and nothing else", () => {
     const old = `// ${ARCHIVE_ID}\nconst a = 1;\n`;
     const cases: [string, string | null, string | null, string[]][] = [
       ["src/a.ts", old, `const a = 1;\n// moved: ${ARCHIVE_ID}\n`, []],
@@ -155,11 +158,21 @@ describe("entry files (one file per entry)", () => {
       ["tests/unit/a.test.ts", null, "// BL-20261118-0430-new\n", []],
       ["docs/x.md", null, "BL-20261118-0430-new\n", []],
       ["scripts/c.ts", null, "const pattern = /BL-[0-9]{8}-[0-9]{4}/;\n", []],
+      // A second copy of a citation the file already holds is a citation added.
+      ["src/a.ts", old, `${old}// again ${ARCHIVE_ID}\n`, [ARCHIVE_ID]],
     ];
     for (const [file, base, current, ids] of cases) {
       const errors = validateNoAddedCodeCitations([{ path: file, base, current }]);
       expect(errors, `${file} ${String(current)}`).toEqual(ids.length ? [expect.stringContaining(`${file} adds the build-log ID${ids.length > 1 ? "s" : ""} ${ids.join(", ")}`)] : []);
     }
+    // A moved or split file keeps its citations: the counts are over every changed file, base against head.
+    expect(validateNoAddedCodeCitations([{ path: "src/old.ts", base: old, current: null }, { path: "src/new.ts", base: null, current: old }])).toEqual([]);
+    expect(validateNoAddedCodeCitations([{ path: "src/old.ts", base: old, current: "const a = 1;\n" }, { path: "scripts/new.py", base: null, current: `# ${ARCHIVE_ID}\n` }])).toEqual([]);
+    expect(validateNoAddedCodeCitations([{ path: "src/old.ts", base: old, current: null }, { path: "src/new.ts", base: null, current: `${old}// ${ARCHIVE_ID}\n` }]))
+      .toEqual([expect.stringContaining(`src/new.ts adds the build-log ID ${ARCHIVE_ID}`)]);
+    // A citation moved out of src/ into tests/ leaves src/ with fewer; one moved from tests/ into src/ is added.
+    expect(validateNoAddedCodeCitations([{ path: "tests/unit/a.test.ts", base: old, current: null }, { path: "src/new.ts", base: null, current: old }]))
+      .toEqual([expect.stringContaining(`src/new.ts adds the build-log ID ${ARCHIVE_ID}`)]);
   });
 });
 
@@ -170,7 +183,7 @@ describe("the validator's command line on a repository", () => {
     write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/${ID}.md`, entryText({ title: "Correction to the archived entry", references: `${ARCHIVE_ID}.` }));
     const result = validate(root);
     expect(result).toMatchObject({ code: 0, err: "" });
-    expect(result.out).toContain("1 archive entries and 2 entry files; the archive unchanged and 1 new entry file against HEAD");
+    expect(result.out).toContain("the frozen archive's 1 entries and 2 entry files; 1 new entry file against HEAD");
   });
 
   it("fails each broken rule, naming it", () => {
@@ -181,6 +194,11 @@ describe("the validator's command line on a repository", () => {
       ["an appended archive entry", root => write(root, "docs/BUILD_LOG.md", `${archive()}\n${entryText({ id: "BL-20261118-0430-appended" })}`), "frozen archive and may not change"],
       ["a new ID in source", root => write(root, "src/main/old.ts", `// cites ${ARCHIVE_ID}\n// and ${ID}\nexport const old = 1;\n`), `src/main/old.ts adds the build-log ID ${ID}`],
       ["a stray file", root => write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/README.md`, "notes\n"), "holds only entry files"],
+      ["a subdirectory", root => write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/old/${ID}.md`, entryText()), "holds only entry files"],
+      ["a moved source file with an extra citation", root => {
+        unlinkSync(path.join(root, "src/main/old.ts")); write(root, "src/main/moved.ts", `// cites ${ARCHIVE_ID}\n// and ${ARCHIVE_ID}\nexport const old = 1;\n`);
+        write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/${ID}.md`, entryText());
+      }, `src/main/moved.ts adds the build-log ID ${ARCHIVE_ID}`],
       ["a file that repeats an archive ID", root => write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/${ARCHIVE_ID}.md`, entryText({ id: ARCHIVE_ID, date: "2026-11-17" })), "already an archive entry's"],
       ["a Correction citing nothing that exists", root => write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/${ID}.md`, entryText({ title: "Correction", references: "BL-20261118-0459-absent." })), "is not an entry"],
       ["a malformed new file", root => write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/${ID}.md`, entryText({ date: "2026-11-17" })), "is not the ID's UTC date"],
@@ -198,6 +216,17 @@ describe("the validator's command line on a repository", () => {
     expect(validate(root).err).toContain("holds only entry files");
   });
 
+  it("passes a moved source file that keeps its citations, and ignores what git ignores in the directory", () => {
+    const root = repository();
+    unlinkSync(path.join(root, "src/main/old.ts")); write(root, "src/main/moved.ts", `// cites ${ARCHIVE_ID}\nexport const old = 1;\n`);
+    write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/${ID}.md`, entryText());
+    write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/.DS_Store`, "finder\n");
+    expect(validate(root)).toMatchObject({ code: 0, err: "" });
+    // An untracked file git does not ignore still counts, staged or not.
+    write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/notes.txt`, "notes\n");
+    expect(validate(root, "HEAD", false).err).toContain(`${BUILD_LOG_ENTRY_DIRECTORY}/notes.txt: the directory holds only entry files`);
+  });
+
   it("warns, without failing, on a new file over the soft limit, and only on new files", () => {
     const root = repository();
     write(root, `${BUILD_LOG_ENTRY_DIRECTORY}/${ID}.md`, entryText({ lines: ENTRY_FILE_SOFT_LINE_LIMIT + 5 }));
@@ -207,6 +236,10 @@ describe("the validator's command line on a repository", () => {
     git(root, ["commit", "-q", "-m", "long entry"]);
     write(root, "docs/notes.md", "unrelated\n");
     expect(validate(root)).toMatchObject({ code: 0, err: "" });
+    // Without a base nothing is new, so nothing warns, and the pinned archive is still checked.
+    expect(validate(root, null)).toMatchObject({ code: 0, err: "" });
+    write(root, "docs/BUILD_LOG.md", `${archive()}\n`);
+    expect(validate(root, null).err).toContain("frozen archive and may not change");
   });
 });
 
@@ -235,14 +268,48 @@ describe("the conversion for branches opened before the switch", () => {
     expect(moveAppendedEntries(root).map((entry) => entry.id)).toEqual(["BL-20261118-0430-one", "BL-20261118-0431-two"]);
     expect(readFileSync(path.join(root, "docs/BUILD_LOG.md"), "utf8")).toBe(mainArchive);
     expect(readFileSync(path.join(root, BUILD_LOG_ENTRY_DIRECTORY, "BL-20261118-0431-two.md"), "utf8")).toBe(two);
-    git(root, ["add", "-A", "docs"]); git(root, ["commit", "-q", "--no-edit"]);
-    expect(validate(root, "main")).toMatchObject({ code: 0, err: "" });
+    git(root, ["add", "docs/BUILD_LOG.md", BUILD_LOG_ENTRY_DIRECTORY]); git(root, ["commit", "-q", "-m", "Move this branch's log entries to docs/build-log/"]);
+    // Main's archive here is the one frozen at the switch, so it is the pin.
+    expect(validate(root, "main", true, createHash("sha256").update(mainArchive, "utf8").digest("hex"))).toMatchObject({ code: 0, err: "" });
 
     // A branch that merged cleanly: the work tree's archive is the base's plus its entries.
     const clean = repository();
     write(clean, "docs/BUILD_LOG.md", `${base}\n${one}`);
     expect(moveAppendedEntries(clean, "HEAD").map((entry) => entry.id)).toEqual(["BL-20261118-0430-one"]);
     expect(readFileSync(path.join(clean, "docs/BUILD_LOG.md"), "utf8")).toBe(base);
+  });
+
+  it("refuses while another file is unmerged, an unmerged archive outside a merge, and a repeated ID, moving nothing; a work tree already holding main's archive loses no entry", () => {
+    // Two branches that both append to the archive and both change docs/other.md.
+    const setup = (other: boolean) => {
+      const root = repository();
+      write(root, "docs/other.md", "base\n"); git(root, ["add", "-A"]); git(root, ["commit", "-q", "-m", "other"]);
+      git(root, ["checkout", "-q", "-b", "lane"]);
+      write(root, "docs/BUILD_LOG.md", `${base}\n${one}`); if (other) write(root, "docs/other.md", "lane\n"); git(root, ["commit", "-q", "-am", "lane"]);
+      git(root, ["checkout", "-q", "main"]);
+      write(root, "docs/BUILD_LOG.md", `${base}\n${entryText({ id: "BL-20261118-0420-main" })}`); if (other) write(root, "docs/other.md", "main\n"); git(root, ["commit", "-q", "-am", "main"]);
+      git(root, ["checkout", "-q", "lane"]);
+      return root;
+    };
+    const merging = setup(true);
+    expect(() => git(merging, ["merge", "-q", "main"])).toThrow();
+    expect(() => moveAppendedEntries(merging)).toThrow("resolve the other conflicts first, then run this again: docs/other.md");
+    expect(existsSync(path.join(merging, BUILD_LOG_ENTRY_DIRECTORY, "BL-20261118-0430-one.md"))).toBe(false);
+    // Resolved by hand, and the archive already overwritten with main's: the entries still come from HEAD.
+    write(merging, "docs/other.md", "resolved\n"); git(merging, ["add", "docs/other.md"]);
+    git(merging, ["checkout", "--theirs", "--", "docs/BUILD_LOG.md"]);
+    expect(moveAppendedEntries(merging).map((entry) => entry.id)).toEqual(["BL-20261118-0430-one"]);
+    expect(readFileSync(path.join(merging, "docs/BUILD_LOG.md"), "utf8")).toBe(git(merging, ["show", "MERGE_HEAD:docs/BUILD_LOG.md"]));
+    // A rebase leaves the archive unmerged with the sides swapped and no MERGE_HEAD: refused.
+    const rebasing = setup(false);
+    expect(() => git(rebasing, ["rebase", "-q", "main"])).toThrow();
+    expect(git(rebasing, ["diff", "--name-only", "--diff-filter=U"]).trim()).toBe("docs/BUILD_LOG.md");
+    expect(() => moveAppendedEntries(rebasing)).toThrow("is unmerged outside a merge");
+    // A branch that appended one ID twice.
+    const twice = repository();
+    write(twice, "docs/BUILD_LOG.md", `${base}\n${one}\n${one}`);
+    expect(() => moveAppendedEntries(twice, "HEAD")).toThrow("the branch appends BL-20261118-0430-one more than once");
+    expect(existsSync(path.join(twice, BUILD_LOG_ENTRY_DIRECTORY, "BL-20261118-0430-one.md"))).toBe(false);
   });
 
   it("moves nothing when a file would be overwritten or an entry would fail the file checks", () => {

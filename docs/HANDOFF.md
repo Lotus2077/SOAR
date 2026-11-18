@@ -365,10 +365,10 @@ BL-20261116-1357-e0-verified).
 - **Open pull requests:**
   - #105 (scrub policy 5, for 10.b's scrubber gate), a draft at 44240e4 that conflicts
     with `main`. It waits for the owner's answer on its 13 residues and blocks 10.b.
-    Its rules are frozen. It merges `main` in and re-stamps when its merge is scheduled.
+    Its rules are frozen. It merges `main` in when its merge is scheduled.
   - #86 (the Rayline evaluation), a draft at 2dd2de9 that conflicts with `main`. It
-    also edits this section, so it resolves that conflict and re-stamps at merge. §7
-    notes its entry.
+    also edits this section, so it resolves that conflict at merge and moves its entry to
+    a file with `pnpm build-log:to-files`, keeping its ID. §7 notes its entry.
 - **Lane work that needs no owner answer:** 7b.3 (card-derived admission), not started,
   with no blocker named in any entry now that 7a.2, item 9 and 8.2b are merged; and lane
   S-pipe's three small points from #130's review (decision 4 of
@@ -660,7 +660,7 @@ the session's choice, and no entry records it.
 - Entries of #90, #91 and #104 on `main`, six in all, cite
   BL-20261113-0730-rayline-evaluation-plan-adjustments, the plan entry on draft #86,
   which is not on `main`. Until #86 merges, those references point outside `main`'s
-  log; its re-stamp correction will record the ID they cite.
+  log. Its entry keeps that ID when it moves to a file, so they resolve then.
 - **The electron-e2e job** has failed five times, each time with the Git-review test
   (tests/e2e/electron.spec.ts:510): three on 2026-11-14 and two on 2026-11-16, the last
   two on GitHub only. Three reruns passed. Two failures were never rerun: #104's at

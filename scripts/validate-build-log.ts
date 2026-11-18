@@ -1,12 +1,17 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import process from "node:process";
 
 /** The archive: every entry up to the switch to one file per entry. It is frozen: no pull request changes it. */
 export const BUILD_LOG_PATH = "docs/BUILD_LOG.md";
+/**
+ * The archive's sha256 at the switch. Any other bytes fail, with or without a base, so the archive cannot change even through a
+ * pull request whose checks ran before the switch; a repair restores these bytes.
+ */
+export const ARCHIVE_SHA256 = "9b01c4ec1c176a05ebbef7762421d6e61b00fdd602f963181921d5f251b960f9";
 /** One file per entry since the switch, named by its ID; files on the base never change. */
 export const BUILD_LOG_ENTRY_DIRECTORY = "docs/build-log";
 /** An entry is about 25 lines, with the detail in the pull request's description; above this is a warning, never an error. */
@@ -560,13 +565,14 @@ function firstDifferentLine(left: string, right: string): number {
 }
 
 /**
- * The archive is frozen: it never changes after the switch to one file per entry. The checks that ordered one entry after another
- * stay with it; entry files are compared with nothing but the IDs they cite.
+ * The archive is frozen: after the switch to one file per entry its bytes are the pinned ones. The checks that ordered one entry
+ * after another stay with it; entry files are compared with nothing but the IDs they cite.
  */
-export function validateFrozenArchive(baseText: string, currentText: string): readonly string[] {
-  if (currentText === baseText) return [];
+export function validateFrozenArchive(currentText: string, pinnedSha256 = ARCHIVE_SHA256): readonly string[] {
+  const found = createHash("sha256").update(currentText, "utf8").digest("hex");
+  if (found === pinnedSha256) return [];
   return [
-    `${BUILD_LOG_PATH} is the frozen archive and may not change (first changed or deleted line ${firstDifferentLine(baseText, currentText)}); add an entry file under ${BUILD_LOG_ENTRY_DIRECTORY}/ instead`,
+    `${BUILD_LOG_PATH} is the frozen archive and may not change (sha256 ${found}, pinned ${pinnedSha256}); add an entry file under ${BUILD_LOG_ENTRY_DIRECTORY}/ instead`,
   ];
 }
 
@@ -725,18 +731,29 @@ export interface CodeChange {
   current: string | null;
 }
 
+function citationCounts(texts: readonly (string | null)[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const text of texts) for (const match of (text ?? "").matchAll(CODE_CITED_ID)) counts.set(match[0], (counts.get(match[0]) ?? 0) + 1);
+  return counts;
+}
+
 /**
- * A pull request adds no build-log ID to a file under src/ or scripts/: each ID a changed file holds at the head must be in it at the
- * base. A moved line passes, and a removed citation is fine; citations already there stay until a pull request removes them.
+ * A pull request adds no build-log ID under src/ or scripts/. Each ID is counted over every changed file there, at the base and at
+ * the head, so a moved line or a moved file keeps its citations, and a citation removed is fine. An ID cited more often at the head
+ * is refused, a new copy of an existing citation included, and each file whose own count of it grew is named. Citations already
+ * there stay until a pull request removes them.
  */
 export function validateNoAddedCodeCitations(changes: readonly CodeChange[]): readonly string[] {
+  const code = changes.filter((change) => CODE_CITATION_PREFIXES.some((prefix) => change.path.startsWith(prefix)));
+  const before = citationCounts(code.map((change) => change.base));
+  const after = citationCounts(code.map((change) => change.current));
+  const added = new Set([...after].filter(([id, count]) => count > (before.get(id) ?? 0)).map(([id]) => id));
   const errors: string[] = [];
-  for (const change of changes) {
-    if (change.current === null || !CODE_CITATION_PREFIXES.some((prefix) => change.path.startsWith(prefix))) continue;
-    const before = new Set([...(change.base ?? "").matchAll(CODE_CITED_ID)].map((match) => match[0]));
-    const added = [...new Set([...change.current.matchAll(CODE_CITED_ID)].map((match) => match[0]))].filter((id) => !before.has(id));
-    if (added.length > 0) {
-      errors.push(`${change.path} adds the build-log ID${added.length === 1 ? "" : "s"} ${added.join(", ")}; cite entries in the entry file or the pull request's description, not under src/ or scripts/`);
+  for (const change of code) {
+    const own = citationCounts([change.current]), was = citationCounts([change.base]);
+    const grew = [...own].filter(([id, count]) => added.has(id) && count > (was.get(id) ?? 0)).map(([id]) => id);
+    if (grew.length > 0) {
+      errors.push(`${change.path} adds the build-log ID${grew.length === 1 ? "" : "s"} ${grew.join(", ")}; cite entries in the entry file or the pull request's description, not under src/ or scripts/`);
     }
   }
   return errors;
@@ -770,21 +787,37 @@ function readBaseEntryFiles(repositoryRoot: string, baseRef: string): Map<string
   return files;
 }
 
-/** The work tree's entry files, by file name; anything in the directory but an entry file is an error. */
+/**
+ * The work tree's entry files, by file name: the directory's tracked and untracked files as git lists them, ignored ones (a Finder
+ * .DS_Store) left out; outside a repository, everything in it. A file deleted from the work tree is absent. Anything but a regular
+ * entry file, a symbolic link or a subdirectory included, is an error.
+ */
 function readEntryFiles(repositoryRoot: string): { files: Map<string, string>; errors: string[] } {
   const directory = path.join(repositoryRoot, BUILD_LOG_ENTRY_DIRECTORY);
   const files = new Map<string, string>();
   const errors: string[] = [];
   if (!existsSync(directory)) return { files, errors };
-  const items = readdirSync(directory, { withFileTypes: true }).sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
-  for (const item of items) {
-    if (!item.isFile() || !ENTRY_FILE_NAME.test(item.name)) {
-      errors.push(`${BUILD_LOG_ENTRY_DIRECTORY}/${item.name}: the directory holds only entry files, named BL-YYYYMMDD-HHMM-short-slug.md`);
+  let names: string[];
+  try {
+    names = gitOutput(repositoryRoot, ["ls-files", "-co", "--exclude-standard", "-z", "--", `${BUILD_LOG_ENTRY_DIRECTORY}/`])
+      .split("\0").filter(Boolean).map((listed) => path.posix.relative(BUILD_LOG_ENTRY_DIRECTORY, listed));
+  } catch {
+    names = readdirSync(directory);
+  }
+  for (const name of [...new Set(names)].sort()) {
+    const file = path.join(directory, name);
+    if (!existsSync(file) && !isSymbolicLink(file)) continue;
+    if (name.includes("/") || !ENTRY_FILE_NAME.test(name) || !lstatSync(file).isFile()) {
+      errors.push(`${BUILD_LOG_ENTRY_DIRECTORY}/${name}: the directory holds only entry files, named BL-YYYYMMDD-HHMM-short-slug.md`);
       continue;
     }
-    files.set(item.name, readFileSync(path.join(directory, item.name), "utf8"));
+    files.set(name, readFileSync(file, "utf8"));
   }
   return { files, errors };
+}
+
+function isSymbolicLink(file: string): boolean {
+  try { return lstatSync(file).isSymbolicLink(); } catch { return false; }
 }
 
 function changedPathsAtBase(
@@ -842,12 +875,14 @@ function parseCliOptions(args: readonly string[]): CliOptions {
 export function runBuildLogValidationCli(
   args: readonly string[],
   repositoryRoot = process.cwd(),
+  /** For tests only, whose fixture archives are not the repository's. */
+  archiveSha256 = ARCHIVE_SHA256,
 ): number {
   try {
     const options = parseCliOptions(args);
     const archiveText = readFileSync(path.join(repositoryRoot, BUILD_LOG_PATH), "utf8");
     const archive = validateBuildLog(archiveText);
-    const errors: string[] = [...archive.errors];
+    const errors: string[] = [...archive.errors, ...validateFrozenArchive(archiveText, archiveSha256)];
     const directory = readEntryFiles(repositoryRoot);
     errors.push(...directory.errors);
     const checked = [...directory.files].map(([name, text]) => ({ name, ...validateEntryFile(name, text) }));
@@ -858,12 +893,10 @@ export function runBuildLogValidationCli(
       if (archiveIds.has(entry.id)) errors.push(`${BUILD_LOG_ENTRY_DIRECTORY}/${entry.id}.md: the ID is already an archive entry's`);
     }
     errors.push(...validateEntryCitations(entries, new Set([...archiveIds, ...entries.map((entry) => entry.id)])));
-    let added: ReadonlySet<string> = new Set(directory.files.keys());
+    // A length warning is for a file new against a base: without one, nothing warns.
+    let added: ReadonlySet<string> = new Set();
     if (options.baseRef !== undefined) {
       const baseRef = options.baseRef;
-      const baseArchive = readBaseFile(repositoryRoot, baseRef, BUILD_LOG_PATH);
-      if (baseArchive === null) throw new Error(`the base ${baseRef} has no ${BUILD_LOG_PATH}`);
-      errors.push(...validateFrozenArchive(baseArchive, archiveText));
       const baseFiles = readBaseEntryFiles(repositoryRoot, baseRef);
       errors.push(...validateImmutableEntryFiles(baseFiles, directory.files));
       added = new Set([...directory.files.keys()].filter((name) => !baseFiles.has(name)));
@@ -887,10 +920,10 @@ export function runBuildLogValidationCli(
     }
     const correctionCount = archive.missingFields.filter(field => field.correctedBy !== undefined).length;
     process.stdout.write(
-      `SOAR build log valid: ${archive.entries.length} archive entries and ${entries.length} entry file${entries.length === 1 ? "" : "s"}${
+      `SOAR build log valid: the frozen archive's ${archive.entries.length} entries and ${entries.length} entry file${entries.length === 1 ? "" : "s"}${
         options.baseRef === undefined
           ? ""
-          : `; the archive unchanged and ${added.size} new entry file${added.size === 1 ? "" : "s"} against ${options.baseRef}`
+          : `; ${added.size} new entry file${added.size === 1 ? "" : "s"} against ${options.baseRef}`
       }${correctionCount ? `; ${correctionCount} digest-bound field correction${correctionCount === 1 ? "" : "s"}; original missing-field evidence retained` : ""}.\n`,
     );
     return 0;

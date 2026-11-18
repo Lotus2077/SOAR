@@ -15,7 +15,7 @@ import { CALL_KINDS, CALL_STATES, CallRecordSchema, ENVELOPE_LINE, LABELLER_MODE
   PLANT_REJECTIONS, SECOND_REQUEST_VALUES, TOKEN_FIELDS, UNBILLED_STATUSES, runLabelling, type LabellingSummary } from "../../scripts/judge-labeller";
 import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, plannerConditionStreamed, runPlannerFixture } from "../../scripts/planner-fixture";
 import { CELL_CALLS, SYNTHESIS_CALL_CLASSES, SYNTHESIS_CELLS, SYNTHESIS_OUTCOMES, type StageCheck, type SynthesisCallClass, type SynthesisCallRecord, type SynthesisFixtureSummary,
-  type SynthesisRequest, type SynthesisTrialRecord } from "../../scripts/synthesis-fixture";
+  type SynthesisRequest, type SynthesisTrialRecord, SYNTHESIS_JUDGE } from "../../scripts/synthesis-fixture";
 import { syntheticProbe, syntheticStream } from "../helpers/serving-probe-fixture";
 
 /**
@@ -517,7 +517,7 @@ describe("E0 registry modes: the synthesis fixture", () => {
     const count = (values: readonly string[]) => values.reduce<Record<string, number>>((n, value) => ({ ...n, [value]: (n[value] ?? 0) + 1 }), {});
     const outcomes = (items: readonly SynthesisTrialRecord[]) => { const tally = { model_synthesis: 0, skeleton: 0, no_outcome: 0 }; for (const item of items) tally[item.outcome]++; return tally; };
     const written: SynthesisFixtureSummary = { version: 1, kind: "synthesis", startedUtc: "2026-11-18T08:00:00.000Z", finishedUtc: "2026-11-18T08:40:00.000Z", model: SERVED,
-      dryRun: false, protocolSha256: h("7"), requestSettings: { model: SERVED, streaming: true, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
+      dryRun: false, judge: SYNTHESIS_JUDGE, protocolSha256: h("7"), requestSettings: { model: SERVED, streaming: true, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
       conditions: [CELL], repeats: 6, attempts: CELL_CALLS[CELL], order: "trial_alternating_packets",
       manifest: { sha256: h("a"), name: "e0-synthesis-fixture-secret-name", task: "r3-grid-batteries", exposure: "exposed", briefSha256: h("b"), trialsPerPacket: 3, packetCount: 2,
         packets: RUNS.map((run, i) => ({ run, coverageSha256: h(String(i + 1)), evidenceSha256: h(String(i + 3)), planSha256: h(String(i + 5)) })) },
@@ -546,8 +546,11 @@ describe("E0 registry modes: the synthesis fixture", () => {
       manifest: { sha256: h("a"), briefSha256: h("b"), trialsPerPacket: 3, packetCount: 2 }, protocolSha256: h("7"), usageMissing: 1, cachedMissing: 1,
       usage: { calls: 6, inputTokens: 6 * 24000, outputTokens: 6 * 3000 },
       classes: { [CELL]: { accepted: 2, invalid: 2, truncated: 2, request_rejected: 1, malformed_reply: 1, transport_failed: 1 } },
-      outcomes: { model_synthesis: 2, skeleton: 1, no_outcome: 3 } });
+      outcomes: { model_synthesis: 2, skeleton: 1, no_outcome: 3 }, judge: "research_tolerance_v2" });
     expect(result.inputSha256).toBe(digest(canonical({ [CELL]: h("4") })));
+    // A summary written before the judge field (the three cells of 2026-11-18 08:00, judged under tolerance version 1) rows with none.
+    const before = summary(); delete before.judge;
+    expect(JSON.parse(run(synthesis(synthesisDir(before)), "accepted")).fixture.judge).toBeNull();
     expectAbsent(line, SERVED, ...RUNS, "e0-synthesis-fixture-secret-name", ".sse", "unknown_evidence_id", "sse_stream_unterminated", "trial_alternating_packets",
       `e0-synthesis-fixture-${CELL}-2026`);
   }, 60_000);
@@ -593,6 +596,8 @@ describe("E0 registry modes: the synthesis fixture", () => {
       [{ ...summary(), manifest: { ...summary().manifest, briefSha256: "input/brief.md" } }, "manifest does not record its hashes and counts"],
       [{ ...summary(), protocolSha256: "the research protocol" }, "research protocol hash"],
       [{ ...summary(), dryRun: true }, "sent its requests"],
+      [{ ...summary(), judge: "lenient" }, "judge is not a research tolerance version"],
+      [{ ...summary(), judge: 2 }, "judge is not a research tolerance version"],
     ];
     for (const [content, message] of cases) expect(refused(synthesis(synthesisDir(content)), "rejected"), message).toContain(message);
     expect(refused(synthesis(scratch()), "incomplete")).toContain("writes summary.json before its first request");

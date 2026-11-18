@@ -35,15 +35,19 @@
  * - a46bfb55d2f841f1dbf426f2c8be6a03fa5cf27d9e61b1e6421ef85c83d73de0: the owner's answer of 2026-11-18 (#166): coverage v5 and its optional
  *   `gaps`, the one chunk a ready packet may hold whose last reply, after every repair, declared questions unresolved; the coverage
  *   policy that says so; and the writer's sentence on gaps. It moves the default for every run.
+ * - 080c5111cac25997b4b7a90b0dc7fbd6a6dd63b4a6419d34ec3b5f82e69a41bc: the synthesis evidence-id tolerance (the E0 card's Amendment 7
+ *   addendum): tolerance policy version 2, coverage v6 and its optional `synthesis.corrections`, and the writer's sentence on
+ *   corrections. It moves the default for every run.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "a46bfb55d2f841f1dbf426f2c8be6a03fa5cf27d9e61b1e6421ef85c83d73de0";
+export const RESEARCH_PROTOCOL_SHA256 = "080c5111cac25997b4b7a90b0dc7fbd6a6dd63b4a6419d34ec3b5f82e69a41bc";
 /**
  * 10.b's second review: a run whose reading stage has an assist hook, by firing (`researchProtocolSha256(budget, undefined, false,
  * firing)`), and one that also runs under a card's admission rates (`..., true, firing`). They move with the default, and with the
  * assist protocol block or the admission policy; pinned on 10.b's merge with 7b.3 and item (ii)
  * (BL-20261117-1216-correction-assist-wiring-card-admission-merge).
+ * The synthesis evidence-id tolerance moved all four with the default.
  */
-export const RESEARCH_PROTOCOL_SHA256_ASSIST = Object.freeze({ forced_split: "22fbc5614d3b2efb4d889cb4a2a0b33c899b5fa44a357297e873abba3c0c1b49",
-  local_first: "9bccf5dc69d5400987ab3c8c919793003d5a9e570cd5261e0d4646bc8021eb9b" });
-export const RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST = Object.freeze({ forced_split: "8b681b766be2de34c10167c7676dd89809af8d734d51bd056182372f4faba5f7",
-  local_first: "66f00e459b88d638e9cf2ff1238f127b22dd713bbe685b60a25d7a8e43c5218a" });
+export const RESEARCH_PROTOCOL_SHA256_ASSIST = Object.freeze({ forced_split: "d2cd9f3981952cd7becd96d6cf11dd630facd0c91b7fa653843c4023ab14eb96",
+  local_first: "11c908020f7f546ac01a40a38f65bf121f8e8bbf88dc1adafa70f57f6d14a61f" });
+export const RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST = Object.freeze({ forced_split: "de1af96e86dbff40ac545719d0d435e9808f154e2739b1f6cdbae2ac6aa512f0",
+  local_first: "f6088e8c4259235819e9413b2c404aecb42d5afe84a3251c68aec35d3c485fd9" });

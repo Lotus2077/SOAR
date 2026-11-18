@@ -50,6 +50,29 @@ export function researchV4Sources() { return [{ id: "input/corpus/alpha.md", pat
   { id: "input/corpus/beta.md", path: "input/corpus/beta.md", bytes: Buffer.from("# Synthetic beta\nThe meadow recorded seven healthy trees during the spring survey.\n") }]; }
 
 /**
+ * A packet whose quotes are tagged for different questions, for researchV4TaggedSources() (the synthesis evidence-id tolerance's tests):
+ * the plan asks Q1 and Q2, and each source's one quote is tagged for one question only, alpha's for Q1 and every other source's for Q2.
+ * Every other stage answers as researchV4Reply, whose synthesis lists under each question only the quotes tagged for it.
+ */
+export function researchV4TaggedReply(system: string, user: string): string {
+  const input = parseResearchUserContent(user);
+  if (system.startsWith("You plan")) return JSON.stringify({ version: 2, questions: [["Q1", "What does the supplied evidence establish?"], ["Q2", "What limits the supplied evidence?"]]
+    .map(([id, text]) => ({ id, text, requirementIds: input.units.map((u: any) => u.id),
+      sourceIds: (input.sourceIndex ? input.sourceIndex.sources.map((s: any) => s.sourceId) : input.sources.map((s: any) => s.id)).slice(0, 8), lookFor: [] })),
+    conflictsToCheck: [], deliverableNotes: "Distinguish evidence from uncertainty." });
+  if (system.startsWith("You extract")) {
+    const quote = String(input.chunk.text).split("\n").map((s: string) => s.trim()).find((s: string) => !s.startsWith("#") && s.length >= 12 && s.length <= 300);
+    const tagged = String(input.source.id).includes("alpha") ? "Q1" : "Q2";
+    return JSON.stringify({ questions: input.plan.questions.map((q: any) => ({ questionId: q.id, status: quote && q.id === tagged ? "evidence_found" : "no_verified_evidence" })),
+      quotes: quote ? [{ quote, questionIds: [tagged], note: "Synthetic source statement; relevance requires review." }] : [], conflicts: [] });
+  }
+  return researchV4Reply(system, user);
+}
+/** researchV4Sources() and a third source, gamma, so Q2 has two quotes: one a synthesis may leave out of Q2's list. */
+export function researchV4TaggedSources() { return [...researchV4Sources(),
+  { id: "input/corpus/gamma.md", path: "input/corpus/gamma.md", bytes: Buffer.from("# Synthetic gamma\nThe hedgerow recorded three healthy trees during the winter survey.\n") }]; }
+
+/**
  * A packet 7b.2's priority trim cuts (#102), for researchV4TrimmedSources(): every extraction reply quotes each line of its chunk for
  * every question with a 200-character note, so the stage verifies 240 quotes that overflow the 64 KiB packet. Its ready packet then
  * holds `quotesLeftByCap` above 0, coverage omissions and `evidence_trimmed` outcomes. Every other stage answers as researchV4Reply.

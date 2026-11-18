@@ -273,7 +273,11 @@ This folder holds the committed, sanitized record of live trials (see
   ready packets, each run's job and its two synthesis receipts. Each invocation runs one
   of Amendment 7's three cells, as 10 trials of the stage's two-attempt sequence; a
   trial ends in a model synthesis or the skeleton. Before any request it checks that the
-  stage's own bodies, rebuilt from each packet, match the receipts.
+  stage's own bodies, rebuilt from each packet, match the receipts. Its summary and
+  registry row record `judge`, the tolerance version its replies were judged under:
+  `research_tolerance_v2` drops an evidence id not tagged for its question instead of
+  refusing the reply. The first three cells (2026-11-18) predate the field and ran under
+  version 1.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan

@@ -1544,6 +1544,7 @@ SYNTHESIS_CLASSES = ("accepted", "invalid", "truncated", "request_rejected", "ma
 SYNTHESIS_OUTCOMES = ("model_synthesis", "skeleton", "no_outcome")
 # The attempt-1 classes after which a synthesis trial sends its attempt 2 (the stage's repair).
 SYNTHESIS_REPAIRED = ("invalid", "truncated")
+SYNTHESIS_JUDGE = re.compile(r"research_tolerance_v[1-9][0-9]{0,2}")
 FIXTURE_KINDS = ("planner", "judge", "extractor", "synthesis")
 # The reply files each fixture writes (planner `<condition>-NN.sse` for a streamed condition and `<condition>-NN.json` for any other, judge
 # `<condition>-r<repeat>-<claim id>.json`), longest names first.
@@ -2070,6 +2071,12 @@ def fixture_row(args) -> dict:
     if kind == "synthesis":
         # Its trials' outcomes, over the trials it recorded: a model synthesis, the host skeleton, or neither.
         record["outcomes"] = outcomes
+        # The judge its replies were judged under (SYNTHESIS_JUDGE): the research tolerance policy's version. A summary written before the
+        # field records none, and was judged under version 1, which refused a reply listing an evidence id not tagged for its question.
+        judge = summary.get("judge")
+        if judge is not None and (type(judge) is not str or not SYNTHESIS_JUDGE.fullmatch(judge)):
+            refuse(source, "the summary's judge is not a research tolerance version")
+        record["judge"] = judge
     if kind == "extractor":
         # The condition the research pipeline itself sends, which the run compares the others with.
         if summary.get("deployedCondition") not in EXTRACTOR_CONDITIONS:

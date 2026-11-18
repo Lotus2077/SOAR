@@ -9,7 +9,8 @@
  * request settings, salted with the packet's own run job, so the cell the adopted card sends is the stage's call byte for byte. Before any
  * request, every invocation (the dry run too) rebuilds the stage's two bodies per packet and checks them against the run's dispatch receipts
  * in result.json: bodyBytes, and packetSha256 over the configured endpoint. Replies are judged by the stage's own checks, copied below from
- * the synthesis stage's judge (research-pipeline.ts keeps them in a closure; a test pins the copy to the stage on the same replies). POSTs
+ * the synthesis stage's judge (research-pipeline.ts keeps them in a closure; a test pins the copy to the stage on the same replies), with
+ * the stage's evidence-id tolerance called from the one function both share (research-coverage.ts, correctSynthesisEvidenceIds). POSTs
  * go directly to the owner's endpoint outside the broker (zero fee, no dispatch rows), streamed as the stage streams. Raw replies stay under
  * the ignored out directory (mode 0o600); summary.json, beside them, holds codes, hashes, counts, times and token usage, plus the model
  * alias and the packets' run directory names, written before the first request and after every call. The printed line names neither the
@@ -26,8 +27,9 @@ import { assembleSseChatCompletion } from "../src/main/private-agent/broker";
 import { canonical, digest, exactText, sha256Schema } from "../src/main/private-agent/contracts";
 import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { researchSynthesisLengthCap } from "../src/main/private-agent/research-admission";
-import { RESEARCH_FILES, RESEARCH_PRESENTATION_POLICY } from "../src/main/private-agent/research-contract";
-import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema, renderResearchEvidence, type ResearchEvidence } from "../src/main/private-agent/research-coverage";
+import { RESEARCH_FILES, RESEARCH_PRESENTATION_POLICY, RESEARCH_TOLERANCE_POLICY } from "../src/main/private-agent/research-contract";
+import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema, correctSynthesisEvidenceIds, renderResearchEvidence, type ResearchEvidence,
+  type ResearchSynthesisCorrections } from "../src/main/private-agent/research-coverage";
 import { assertRunDirectoryIgnored } from "../src/main/private-agent/research-diagnostics";
 import { parseJsonReply } from "../src/main/private-agent/research-index";
 import { normalizeResearchHeadings, researchProtocolSha256, type ResearchDiagnosticReason } from "../src/main/private-agent/research-pipeline";
@@ -57,6 +59,12 @@ export type SynthesisCallClass = (typeof SYNTHESIS_CALL_CLASSES)[number];
 export const SYNTHESIS_OUTCOMES = ["model_synthesis", "skeleton", "no_outcome"] as const;
 export type SynthesisOutcome = (typeof SYNTHESIS_OUTCOMES)[number];
 export const DEFAULT_MANIFEST = "docs/experiments/e0-synthesis-fixture-v1.json";
+/**
+ * The judge a run's replies were judged under, written in its summary and its printed line: the research tolerance policy's version. Since
+ * version 2 the judge drops an evidence id a question lists that is not citable or not tagged for that question instead of refusing the
+ * reply (research-coverage.ts, correctSynthesisEvidenceIds). A summary without the field was judged under version 1, which refused it.
+ */
+export const SYNTHESIS_JUDGE = `research_tolerance_v${RESEARCH_TOLERANCE_POLICY.version}`;
 /** Where a run directory keeps each file the fixture reads: the ready packet under the candidate, and the run's receipts. */
 export const RUN_FILES = Object.freeze({ coverage: join("candidate", RESEARCH_FILES.coverage), evidence: join("candidate", RESEARCH_FILES.evidence),
   plan: join("candidate", RESEARCH_FILES.plan), result: "result.json" });
@@ -172,13 +180,18 @@ function schemaReasons(issues: readonly z.core.$ZodIssue[], known: ReadonlySet<s
 }
 const unique = (values: readonly string[]) => new Set(values).size === values.length;
 const encodable = (text: string): boolean => { try { exactText(text); return true; } catch { return false; } };
-/** The writer's presentation bytes with this argument and these synthesis questions: the coverage as the stage's finish() would write it. */
-function presentationWith(packet: SynthesisPacket, attempt: 0 | 1, text: string, questions: unknown): number {
+type SynthesisQuestions = z.infer<typeof ResearchSynthesisSchema>["questions"];
+/** A model synthesis's coverage section as the stage writes it: its questions and, when the evidence-id tolerance dropped any id, its corrections. */
+const synthesisSection = (text: string, questions: SynthesisQuestions, corrections?: ResearchSynthesisCorrections) =>
+  ({ status: "complete", argumentSha256: digest(Buffer.from(text)), questions, ...(corrections ? { corrections } : {}) });
+/** The writer's presentation bytes with this argument and this synthesis section: the coverage as the stage's finish() would write it. */
+function presentationWith(packet: SynthesisPacket, attempt: 0 | 1, text: string, section: ReturnType<typeof synthesisSection>): number {
   return researchPresentationBytes([{ path: RESEARCH_FILES.argument, bytes: Buffer.from(text) }, { path: RESEARCH_FILES.evidenceText, bytes: packet.evidenceText },
     { path: RESEARCH_FILES.plan, bytes: packet.planBytes }, { path: RESEARCH_FILES.coverage,
-      bytes: Buffer.from(`${canonical({ ...attemptCoverage(packet.coverage, attempt), status: "ready", synthesis: { status: "complete", argumentSha256: digest(Buffer.from(text)), questions } })}\n`) }]);
+      bytes: Buffer.from(`${canonical({ ...attemptCoverage(packet.coverage, attempt), status: "ready", synthesis: section })}\n`) }]);
 }
-export interface SynthesisVerdict { accepted: boolean; reasons: ResearchDiagnosticReason[] }
+/** The stage's verdict; an accepted reply also carries the questions the stage keeps, corrected by the evidence-id tolerance, and its corrections. */
+export interface SynthesisVerdict { accepted: boolean; reasons: ResearchDiagnosticReason[]; questions?: SynthesisQuestions; corrections?: ResearchSynthesisCorrections }
 /** One settled synthesis reply, judged exactly as the stage judges its own: every reason, by code and position only. */
 export function judgeSynthesisReply(reply: { content: string; truncated: boolean }, packet: SynthesisPacket, attempt: 0 | 1): SynthesisVerdict {
   const reasons: ResearchDiagnosticReason[] = reply.truncated ? [{ code: "truncated", path: [] }] : [];
@@ -191,16 +204,18 @@ export function judgeSynthesisReply(reply: { content: string; truncated: boolean
     if (!unique(value.questions.map(q => q.questionId)) || canonical(value.questions.map(q => q.questionId).sort()) !== canonical([...packet.questions].sort())) reasons.push({ code: "question_set_mismatch", path: ["questions"] });
     for (const [i, q] of value.questions.entries()) {
       if (!unique(q.evidenceIds)) reasons.push({ code: "duplicate_evidence_id", path: ["questions", i, "evidenceIds"] });
-      if (q.evidenceIds.some(e => !packet.packetIds.has(e) || !packet.evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId)))) reasons.push({ code: "unknown_evidence_id", path: ["questions", i, "evidenceIds"] });
       if (q.disposition !== "unresolved" && !q.evidenceIds.length) reasons.push({ code: "disposition_without_evidence", path: ["questions", i, "evidenceIds"] });
     }
+    // The stage's evidence-id tolerance, by the same function (research-coverage.ts): an offending id is dropped, never a refusal.
+    const corrected = correctSynthesisEvidenceIds(value.questions, packet.packetIds, packet.evidence.quotes);
     if (unknownCitations) reasons.push({ code: "unknown_citation", path: ["argument"], count: unknownCitations });
     if (!/^## Conflicting evidence\s*$/mu.test(text)) reasons.push({ code: "conflicting_evidence_heading_missing", path: ["argument"] });
     if (!/^## Unanswered questions\s*$/mu.test(text)) reasons.push({ code: "unanswered_questions_heading_missing", path: ["argument"] });
     if (!encodable(text)) reasons.push({ code: "argument_unencodable", path: ["argument"] });
     const accepted = `${text.trim()}\n`;
-    if (!reasons.length && presentationWith(packet, attempt, accepted, value.questions) > RESEARCH_PRESENTATION_POLICY.maxBytes) reasons.push({ code: "presentation_too_large", path: ["argument"], maximum: RESEARCH_PRESENTATION_POLICY.maxBytes });
-    if (!reasons.length) return { accepted: true, reasons };
+    const section = synthesisSection(accepted, corrected.questions, corrected.corrections);
+    if (!reasons.length && presentationWith(packet, attempt, accepted, section) > RESEARCH_PRESENTATION_POLICY.maxBytes) reasons.push({ code: "presentation_too_large", path: ["argument"], maximum: RESEARCH_PRESENTATION_POLICY.maxBytes });
+    if (!reasons.length) return { accepted: true, reasons, questions: section.questions, ...(section.corrections ? { corrections: section.corrections } : {}) };
   }
   return { accepted: false, reasons };
 }
@@ -209,10 +224,12 @@ export interface SynthesisCallRecord {
   condition: SynthesisCell; trial: number; packet: string; attempt: 1 | 2; requestSha256: string; requestBytes: number; status: number | null; elapsedMs: number;
   replyFile: string | null; bodySha256: string | null; bodyBytes: number; classification: SynthesisCallClass; finishReason?: string | null; contentBytes?: number;
   usage?: unknown; codes?: string[]; transportError?: string; streamError?: string;
+  /** On an accepted reply the evidence-id tolerance corrected: the ids it dropped and the questions it left unresolved, as the synthesise row counts them. */
+  evidenceIdsDropped?: number; questionsDowngraded?: number;
 }
 export interface SynthesisTrialRecord { trial: number; packet: string; outcome: SynthesisOutcome; acceptedAttempt: 1 | 2 | null; calls: number }
 export interface SynthesisFixtureSummary {
-  version: 1; kind: "synthesis"; startedUtc: string; finishedUtc?: string; model: string; dryRun: boolean; protocolSha256: string; requestSettings: ServingCardRequestSettings;
+  version: 1; kind: "synthesis"; startedUtc: string; finishedUtc?: string; model: string; dryRun: boolean; judge: string; protocolSha256: string; requestSettings: ServingCardRequestSettings;
   conditions: [SynthesisCell]; repeats: number; attempts: readonly [SynthesisCall, SynthesisCall]; order: "trial_alternating_packets";
   manifest: { sha256: string; name: string; task: string; exposure: string; briefSha256: string; trialsPerPacket: number; packetCount: number;
     packets: { run: string; coverageSha256: string; evidenceSha256: string; planSha256: string }[] };
@@ -252,7 +269,7 @@ export async function runSynthesisFixture(options: SynthesisRunOptions): Promise
   const stageCheck = checkStageReceipts(fixture, options.settings, options.endpoint.baseUrl);
   const requests = new Map(fixture.packets.map(packet => [packet.run, ([0, 1] as const).map(attempt => buildSynthesisRequest(options.settings, packet, attempt, calls[attempt])) as [SynthesisRequest, SynthesisRequest]]));
   const all = [...requests.values()].flat();
-  const summary: SynthesisFixtureSummary = { version: 1, kind: "synthesis", startedUtc: new Date().toISOString(), model: options.settings.vllm.model, dryRun: options.dryRun === true,
+  const summary: SynthesisFixtureSummary = { version: 1, kind: "synthesis", startedUtc: new Date().toISOString(), model: options.settings.vllm.model, dryRun: options.dryRun === true, judge: SYNTHESIS_JUDGE,
     protocolSha256: researchProtocolSha256(), requestSettings: servingCardRequestSettings(options.settings, true), conditions: [cell],
     repeats: manifest.trialsPerPacket * fixture.packets.length, attempts: calls, order: "trial_alternating_packets",
     manifest: { sha256: fixture.manifestSha256, name: manifest.name, task: manifest.task, exposure: manifest.exposure, briefSha256: manifest.briefSha256,
@@ -297,6 +314,7 @@ export async function runSynthesisFixture(options: SynthesisRunOptions): Promise
           const verdict = judgeSynthesisReply({ content: reply.content, truncated }, packet, attempt);
           record.codes = [...new Set(verdict.reasons.map(reason => reason.code))].sort();
           record.classification = verdict.accepted ? "accepted" : truncated ? "truncated" : "invalid";
+          if (verdict.corrections) { record.evidenceIdsDropped = verdict.corrections.dropped.reduce((n, d) => n + d.evidenceIds.length, 0); record.questionsDowngraded = verdict.corrections.downgraded.length; }
         }
       }
     } catch (error) {
@@ -363,7 +381,7 @@ async function main(): Promise<number> {
       read: (run, file) => readFileSync(join(args.batch, run, RUN_FILES[file])) } });
   // No model alias and no run name: packets are listed in the manifest's order.
   const cellRequests = summary.requests[args.cell]!;
-  process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, cell: args.cell, attempts: summary.attempts, trials: summary.repeats, packetCount: summary.manifest.packetCount,
+  process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, judge: summary.judge, cell: args.cell, attempts: summary.attempts, trials: summary.repeats, packetCount: summary.manifest.packetCount,
     stageCheckPassed: stageCheckPassed(summary.stageCheck), stageCheck: summary.stageCheck.map(({ run: _run, ...check }) => check),
     requests: { requestSetSha256: cellRequests.requestSetSha256, requests: cellRequests.requests, packets: Object.values(cellRequests.packets) },
     void: synthesisCellVoid(summary), outcomes: summary.outcomes, byPacket: Object.values(summary.byPacket), counts: summary.counts, codes: summary.codes,

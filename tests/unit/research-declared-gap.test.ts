@@ -137,6 +137,9 @@ describe("one declared gap: the owner's answer of 2026-11-18", () => {
     });
     const refusal = (files: typeof base) => { try { validateReadyResearchPacket(files); return "accepted"; } catch (error) { return (error as Error).message; } };
     expect(refusal(base)).toBe("accepted");
+    // A gap needs coverage version 5 or later: the stage writes 6 since the synthesis evidence-id tolerance, and a version 5 gap still reads.
+    expect(refusal(edit(RESEARCH_FILES.coverage, c => { c.version = 5; }))).toBe("accepted");
+    expect(refusal(edit(RESEARCH_FILES.coverage, c => { c.version = 4; }))).toBe("research_packet_gap");
     expect(refusal(edit(RESEARCH_FILES.coverage, c => { delete c.gaps; }))).toBe("research_packet_not_ready");
     expect(refusal(edit(RESEARCH_FILES.coverage, c => { c.gaps[0].questionIds = ["Q2"]; }))).toBe("research_packet_gap");
     expect(refusal(edit(RESEARCH_FILES.coverage, c => { c.gaps[0].attempts = 3; }))).toBe("research_packet_gap");
@@ -207,10 +210,11 @@ describe("one declared gap: the owner's answer of 2026-11-18", () => {
   });
 
   it("pins the protocol hashes the change sets: the default, under admission, and under the adopted card's roles with admission", () => {
+    // The synthesis evidence-id tolerance moved the three values this change set (they were a46bfb55..., 36b73496... and 22d2d92d...).
     expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
-    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true)).toBe("36b734964c1b7e68622c70a482a2e3cabffc57689a554841124507e96368a3d4");
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, DEFAULT_RESEARCH_ROLE_POLICY, true)).toBe("0a49d5a2f0f8fe06f3f5b00698e5efa54f67b96820591edc980424763e70f1d0");
     const card = JSON.parse(readFileSync(join(__dirname, "..", "..", "docs", "experiments", "serving-card-2026-11-17.json"), "utf8")) as { roles: ResearchRolePolicy };
-    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, card.roles, true)).toBe("22d2d92d5ac67ce3733c3a2a31189c3060c2c73d50ff6d8bd46da8e22ab8b076");
+    expect(researchProtocolSha256(RESEARCH_PIPELINE_BUDGET, card.roles, true)).toBe("34b608f2f9aeba399d0643ff234cbf16eebca945a1a2685a96e3cc882e61f19f");
   });
 
   it("records, under a card's rates, the held chunks and those left without their optional repair", async () => {

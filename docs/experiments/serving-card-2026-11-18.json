@@ -1,0 +1,360 @@
+{
+  "kind": "soar_serving_card",
+  "version": 1,
+  "date": "2026-11-18",
+  "decision": {
+    "status": "proposed",
+    "entry": null
+  },
+  "identity": {
+    "servedModel": "RM-01 VLM",
+    "engineVersion": "0.33.0rc1.dev617+g821038729",
+    "contextTokens": 262144,
+    "modelRootBasename": "Qwen3.8-Flash-Next-NVFP4"
+  },
+  "probe": {
+    "probeVersion": 2,
+    "sha256": "9be68cffe2a0a671fa016a0366b94ddd06ee3b804da68761cce26243a1eeba00",
+    "probesRun": [
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "P7",
+      "P8",
+      "P9",
+      "P10",
+      "P11",
+      "adapter"
+    ],
+    "probesSkipped": [],
+    "probesFailed": []
+  },
+  "roles": {
+    "index": {
+      "maxOutputTokens": [
+        1536,
+        1536
+      ],
+      "thinking": [
+        "disabled",
+        "disabled"
+      ]
+    },
+    "plan": {
+      "maxOutputTokens": [
+        16384,
+        16384
+      ],
+      "thinking": [
+        "model",
+        "model"
+      ],
+      "structuredOutput": {
+        "variant": "strict",
+        "thinkingOff": true,
+        "thinkingOn": true
+      }
+    },
+    "extract": {
+      "maxOutputTokens": [
+        2048,
+        2048
+      ],
+      "thinking": [
+        "disabled",
+        "disabled"
+      ],
+      "structuredOutput": {
+        "variant": "strict",
+        "thinkingOff": true,
+        "thinkingOn": true
+      }
+    },
+    "synthesis": {
+      "maxOutputTokens": [
+        16384,
+        16384
+      ],
+      "thinking": [
+        "model",
+        "model"
+      ],
+      "structuredOutput": {
+        "variant": "strict",
+        "thinkingOff": true,
+        "thinkingOn": false
+      }
+    }
+  },
+  "concurrency": {
+    "localStreams": 1
+  },
+  "admission": {
+    "basis": "none"
+  },
+  "evidence": {
+    "p10": {
+      "callsPerCell": 20,
+      "strictRequested": true,
+      "protocolSha256": "4bb74c03239942d786ec9100d65b462ffe8378629c8ab3cd2eff32e26dd31636",
+      "schemaSha256": {
+        "plan": "3667dfe89b667c89e40dbd5682e34e34892729d07b8ca6dcea7659a8ec9165a6",
+        "extract": "ac172f8c253ed7584a49b7840a1ae878423810ddd2e68ffc61c8214868321fdb",
+        "synthesis": "2ac165528ad04bae32d207e82375e9da3c1fcbc355b07724457170f4ea13a8b8"
+      },
+      "assessed": {
+        "protocolSha256": "4bb74c03239942d786ec9100d65b462ffe8378629c8ab3cd2eff32e26dd31636",
+        "schemasProtocolMatch": true
+      },
+      "acceptance": {
+        "plan": {
+          "strict": true,
+          "nonStrict": true
+        },
+        "extract": {
+          "strict": true,
+          "nonStrict": true
+        },
+        "synthesis": {
+          "strict": true,
+          "nonStrict": true
+        }
+      },
+      "cells": {
+        "plan/on": {
+          "variant": "strict",
+          "maxTokens": 16384,
+          "total": 20,
+          "valid": 20,
+          "truncated": 0,
+          "invalidJson": 0,
+          "schemaInvalid": 0,
+          "bindingInvalid": 0,
+          "requestRejected": 0,
+          "unassessed": 0,
+          "meanCompletionTokens": 2922.7,
+          "meanReasoningTokens": 2380.3
+        },
+        "plan/off": {
+          "variant": "strict",
+          "maxTokens": 16384,
+          "total": 20,
+          "valid": 20,
+          "truncated": 0,
+          "invalidJson": 0,
+          "schemaInvalid": 0,
+          "bindingInvalid": 0,
+          "requestRejected": 0,
+          "unassessed": 0,
+          "meanCompletionTokens": 468.1,
+          "meanReasoningTokens": 0.0
+        },
+        "extract/on": {
+          "variant": "strict",
+          "maxTokens": 2048,
+          "total": 20,
+          "valid": 19,
+          "truncated": 1,
+          "invalidJson": 0,
+          "schemaInvalid": 0,
+          "bindingInvalid": 0,
+          "requestRejected": 0,
+          "unassessed": 0,
+          "meanCompletionTokens": 978.8,
+          "meanReasoningTokens": 809.8
+        },
+        "extract/off": {
+          "variant": "strict",
+          "maxTokens": 2048,
+          "total": 20,
+          "valid": 20,
+          "truncated": 0,
+          "invalidJson": 0,
+          "schemaInvalid": 0,
+          "bindingInvalid": 0,
+          "requestRejected": 0,
+          "unassessed": 0,
+          "meanCompletionTokens": 182.7,
+          "meanReasoningTokens": 0.0
+        },
+        "synthesis/on": {
+          "variant": "strict",
+          "maxTokens": 16384,
+          "total": 20,
+          "valid": 17,
+          "truncated": 3,
+          "invalidJson": 0,
+          "schemaInvalid": 0,
+          "bindingInvalid": 0,
+          "requestRejected": 0,
+          "unassessed": 0,
+          "meanCompletionTokens": 3983.3,
+          "meanReasoningTokens": 1085.8
+        },
+        "synthesis/off": {
+          "variant": "strict",
+          "maxTokens": 16384,
+          "total": 20,
+          "valid": 20,
+          "truncated": 0,
+          "invalidJson": 0,
+          "schemaInvalid": 0,
+          "bindingInvalid": 0,
+          "requestRejected": 0,
+          "unassessed": 0,
+          "meanCompletionTokens": 562.9,
+          "meanReasoningTokens": 0.0
+        }
+      },
+      "requestSettings": {
+        "model": "RM-01 VLM",
+        "streaming": true,
+        "localReplyContract": null,
+        "localContextTokens": null,
+        "profile": "heavy",
+        "cacheSalt": true
+      }
+    },
+    "p11": {
+      "tokensPerWordAssumed": 1.245,
+      "maxTokens": 300,
+      "sizes": {
+        "20000": {
+          "ok": true,
+          "promptTokens": 20103,
+          "completionTokens": 267,
+          "ttftS": 5.846,
+          "prefillTokS": 3438.6,
+          "decodeTokS": 105.83,
+          "tokensPerWord": 1.2514
+        },
+        "60000": {
+          "ok": true,
+          "promptTokens": 60027,
+          "completionTokens": 182,
+          "ttftS": 16.846,
+          "prefillTokS": 3563.2,
+          "decodeTokS": 89.3,
+          "tokensPerWord": 1.2456
+        },
+        "120000": {
+          "ok": true,
+          "promptTokens": 120002,
+          "completionTokens": 194,
+          "ttftS": 34.257,
+          "prefillTokS": 3503,
+          "decodeTokS": 90.28,
+          "tokensPerWord": 1.245
+        }
+      },
+      "sizesRefused": [],
+      "cacheLayouts": {
+        "packetBytes": 20203,
+        "chunkBytes": [
+          65534,
+          65529
+        ],
+        "layouts": {
+          "sorted_keys": {
+            "cacheSaltAccepted": true,
+            "requests": [
+              {
+                "promptTokens": 14309,
+                "cachedTokens": 0,
+                "ttftS": 4.005
+              },
+              {
+                "promptTokens": 14319,
+                "cachedTokens": 0,
+                "ttftS": 4.033
+              }
+            ]
+          },
+          "stable_prefix": {
+            "cacheSaltAccepted": true,
+            "requests": [
+              {
+                "promptTokens": 14311,
+                "cachedTokens": 0,
+                "ttftS": 4.068
+              },
+              {
+                "promptTokens": 14321,
+                "cachedTokens": 0,
+                "ttftS": 4.056
+              }
+            ]
+          }
+        }
+      },
+      "kStreams": {
+        "1": {
+          "streams": 1,
+          "errors": 0,
+          "medianDecodeTokS": 85.37,
+          "aggregateTokS": 84.67,
+          "maxTtftS": 0.103,
+          "maxTotalS": 10.63,
+          "runningMax": 1
+        },
+        "2": {
+          "streams": 2,
+          "errors": 0,
+          "medianDecodeTokS": 71.3,
+          "aggregateTokS": 136.05,
+          "maxTtftS": 0.298,
+          "maxTotalS": 13.23,
+          "runningMax": 2
+        },
+        "4": {
+          "streams": 4,
+          "errors": 0,
+          "medianDecodeTokS": 38.8,
+          "aggregateTokS": 152.61,
+          "maxTtftS": 0.305,
+          "maxTotalS": 23.59,
+          "runningMax": 4
+        },
+        "8": {
+          "streams": 8,
+          "errors": 0,
+          "medianDecodeTokS": 37.62,
+          "aggregateTokS": 295.08,
+          "maxTtftS": 0.3,
+          "maxTotalS": 24.4,
+          "runningMax": 8
+        }
+      }
+    },
+    "bounds": {
+      "index": {
+        "promptTokensAssumed": 20000,
+        "ceiling300s": 31130,
+        "ceiling900s": 94628
+      },
+      "plan": {
+        "promptTokensAssumed": 60000,
+        "ceiling300s": 25285,
+        "ceiling900s": 78865
+      },
+      "extract": {
+        "promptTokensAssumed": 20000,
+        "ceiling300s": 31130,
+        "ceiling900s": 94628
+      },
+      "synthesis": {
+        "promptTokensAssumed": 60000,
+        "ceiling300s": 25285,
+        "ceiling900s": 78865
+      }
+    },
+    "adapter": {
+      "legacyConsistent": true,
+      "flashNextV1Consistent": true,
+      "tokenizeParity": true
+    }
+  }
+}

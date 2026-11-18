@@ -16,7 +16,7 @@ Decisions:
 
 Changes: this file. No code.
 
-Evidence, as shown to the owner (lane S-pipe's counts, read-only, from the stage rows and the hashes-only diagnostics of E0's five r3 runs and the three of 2026-11-18):
+Evidence: What the session showed the owner. The counts are lane S-pipe's, read-only, from the stage rows and the hashes-only diagnostics of E0's five r3 runs and the three of 2026-11-18.
 - 10 chunks were left unfinished in the 8 runs: 6 declared unresolved, 3 with an invalid reply, and 1 unknown, in a run that kept no diagnostics. None was truncated or denied.
 - The three runs of 2026-11-18 would have given 3 packets of 3 instead of 2 of 3.
 - E0's five runs, made with one repair, would have given at most 2 of 5 instead of 1 of 5. Three of them each hold an invalid chunk, which this change does not forgive.

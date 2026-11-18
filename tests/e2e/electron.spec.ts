@@ -225,6 +225,39 @@ async function selectHybridSimulation(
   await expect(page.getByTestId("start-hybrid-simulation")).toBeEnabled();
 }
 
+/**
+ * A failed wait for a finished review: appends the review-safe event summary the renderer already receives (session-view.ts) to
+ * the error, so a CI failure shows which step of the review failed and when. It prints only each event's time and type, and the
+ * allowlisted codes below: a tool call's name, outcome and duration, an inference attempt's error code, a route's reason code.
+ */
+async function withReviewDiagnostics(page: Page, wait: Promise<void>): Promise<void> {
+  try {
+    await wait;
+  } catch (error) {
+    const summary = await page
+      .evaluate(async () => {
+        const soar = (globalThis as unknown as { soar: SoarRendererApi }).soar;
+        const keys = ["name", "isError", "durationMs", "errorCode", "reasonCode", "phase", "action"];
+        const lines: string[] = [];
+        for (const session of await soar.listSessions()) {
+          const snapshot = await soar.getSession(session.id);
+          lines.push(`session ${snapshot.status}`);
+          for (const event of snapshot.events) {
+            const payload = (event.payload ?? {}) as Record<string, unknown>;
+            const fields = keys.filter((key) => payload[key] !== undefined).map((key) => `${key}=${String(payload[key])}`);
+            lines.push(`  ${event.createdAt} ${event.type}${fields.length ? ` ${fields.join(" ")}` : ""}`);
+          }
+        }
+        return lines.join("\n");
+      })
+      .catch((reason: unknown) => `(the summary could not be read: ${String(reason)})`);
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\n\nReview sessions' events (review-safe):\n${summary}`,
+      { cause: error },
+    );
+  }
+}
+
 test("runs a local tool loop and restores it after restart", async () => {
   const testRoot = await mkdtemp(path.join(tmpdir(), "soar-e2e-"));
   const workspaceRoot = path.join(testRoot, "workspace");
@@ -612,7 +645,7 @@ test("reviews current Git changes locally and refuses a stale Markdown copy", as
     ).toBeVisible();
     await page.getByTestId("start-local-review").click();
 
-    await expect(page.getByTestId("session-status")).toContainText("completed");
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
     await expect(page.getByTestId("review-freshness")).toContainText(
       "Fresh and complete",
     );
@@ -695,7 +728,7 @@ test("runs, copies, and replays a fully attributed Hybrid simulation without red
     await expect(page.getByText(canonicalWorkspaceRoot, { exact: true })).toBeVisible();
     await page.getByTestId("start-hybrid-simulation").click();
     await expect(page.locator('[aria-current="step"]')).toBeVisible();
-    await expect(page.getByTestId("session-status")).toContainText("completed");
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
     await expect(
       page.getByText(HYBRID_SIMULATION_RESULT_MARKER, { exact: true }).first(),
     ).toBeVisible();
@@ -772,7 +805,7 @@ test("runs, copies, and replays a fully attributed Hybrid simulation without red
       fakeCloudScenario: "success",
     });
     page = await electronApp.firstWindow();
-    await expect(page.getByTestId("session-status")).toContainText("completed");
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
     await expect(page.locator(".session-simulation-marker")).toHaveText(
       HYBRID_SIMULATION_RESULT_MARKER,
     );
@@ -810,7 +843,7 @@ test("shows egress denial with zero fake-cloud attempts and one Fake Local conti
     const page = await electronApp.firstWindow();
     await selectHybridSimulation(page, canonicalWorkspaceRoot);
     await page.getByTestId("start-hybrid-simulation").click();
-    await expect(page.getByTestId("session-status")).toContainText("completed");
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
     await expect(page.locator(".review-route-sequence")).toContainText(
       "recognized_api_token",
     );

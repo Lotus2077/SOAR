@@ -6,7 +6,7 @@ This section is the entrypoint for the next session. It replaces every earlier "
 this file; the rest of the file is the September 2026 record. "The session" is the coordinating
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
 next session takes that role. The sources are the entry files of 2026-11-18 under
-`docs/build-log/`, pull requests #155 to #181, and `main` at b17a590.
+`docs/build-log/`, pull requests #155 to #183, and `main` at b17a590.
 
 **In brief.**
 - **The measure.** The MVP exit is at least 6 of 8 real owner jobs accepted in each of two
@@ -15,9 +15,9 @@ next session takes that role. The sources are the entry files of 2026-11-18 unde
 - **The order.** The owner approved local research in the desktop before the paid experiments
   E3 and E4 (the same entry, #155).
 - **The state.** 13a.1 is complete on `main`, and no beta build is cut. E0's Amendment 8
-  re-probe is running, because today's protocol hash no longer matches the adopted card.
+  re-probe ran (#183), and the owner is asked for the revised card's adoption.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. Then read the re-probe's outcome (§4, item 1).
+  `ls docs/build-log | tail`. Then see whether the owner has given the adoption go (§4, item 2).
 - **Not without the owner, each asked by name:** the revised card's adoption commit (Amendment 8,
   item 5); the push of the tag `owner-v0.2.1`, a new outside destination and real private data
   (BL-20261117-0940-owner-direction-decisions-delegated, decision 5); #105's residues
@@ -37,8 +37,8 @@ git checkout main
 pnpm install --frozen-lockfile
 ```
 
-CI runs on pull requests and on pushes to `main`; base each new pull request on `main`. These
-merged on 2026-11-18, between 04:31 and 11:26 UTC. #181 and the draft #86 are open (§4).
+CI runs on pull requests and on pushes to `main`. These merged on 2026-11-18, between 04:31 and
+11:26 UTC; #183 and the draft #86 are open, and #181 is closed unmerged (§4).
 
 | Area | Pull requests |
 | --- | --- |
@@ -120,19 +120,22 @@ Recompute both before any run.
 
 ### 4. Still open, and what each blocks
 
-1. **E0's Amendment 8 re-probe** (#180). The re-probe is running, at the new hash `4bb74c03…`.
-   Until a revised card binds that hash, the reader refuses the adopted card
-   (`serving_card_p10_protocol_drift`; BL-20261118-0712-research-one-declared-gap).
+1. **E0's Amendment 8 re-probe** (#180) ran, and the owner's adoption go is asked. Until the
+   adoption, the reader refuses the adopted card (`serving_card_p10_protocol_drift`, #172), and
+   the three r3 runs under the revised card, E2's runs and the beta cut wait.
 
-   > **[TO FILL BEFORE MERGE: the re-probe's outcome, with its result entry's ID.]**
-
-   It blocks the card revision, the owner's adoption commit, the three r3 runs under the revised
-   card, E2's runs and the beta cut.
-2. **The owner's adoption go** for the revised card is not yet asked. The session asks for it
-   by name after Amendment 5's P11 check (Amendment 8, item 5).
-3. **#181,** E0's `synthesis-16384-structured` fixture cell, is open. It runs only if the revised
-   card flags synthesis with thinking on, and then needs at least 8 model syntheses of 10 before
-   the session asks for adoption (Amendment 8, item 4).
+   The re-probe ran at b17a590 from 11:27 to 12:04 UTC: all twelve probes ran, none failed, and
+   P10 at `4bb74c03…` gave plan 20 and 20, extract 19 and 20, synthesis 17 and 20 valid of 20.
+   The writer's card, docs/experiments/serving-card-2026-11-18.json (`proposed`), keeps the plan
+   and extract rows and moves synthesis to [16384, 16384] with thinking on both attempts; its
+   synthesis flag is for thinking off only, so no format is sent and #181 was closed unmerged.
+   Amendment 5's check holds, and the session asked the owner for the adoption commit at about
+   12:15 UTC. The adopted file's sha256 will be `9cd65c4e…`, and the run hash under it
+   `99bbc0e6…` (BL-20261118-1206-e0-amendment-8-reprobe-result, #183).
+2. **The owner's adoption go** was asked by name at about 12:15 UTC. The adoption commit edits
+   only the revised card's `decision` and `admission.basis` (Amendment 8, item 5).
+3. **#181,** E0's `synthesis-16384-structured` fixture cell, is closed unmerged: the revised
+   card sends synthesis no format (Amendment 8, item 4).
 4. **E2.** Its amendment is drafted and held until the revised card; its runbook is in the
    session's notes, outside Git. Its first run stays held until the session announces it
    (Amendment 8, item 7). Its graded runs are the second half of 13a's gate, so they block the
@@ -141,7 +144,7 @@ Recompute both before any run.
    notes) are ready. How a grader is started is not chosen (the brief, Part A, "Graders"); it
    blocks the grading, not the runs.
 6. **Waiting on the owner:**
-   - the adoption go after the re-probe;
+   - the adoption go, asked at about 12:15 UTC;
    - how many real jobs a week the owner can run in the desktop build (BL-20261118-0418,
      decision 6);
    - the push of the local tag `owner-v0.2.1` (BL-20261117-1157-e5-owner-build-cut);
@@ -156,9 +159,8 @@ Recompute both before any run.
 
 ### 5. Act next, in this order
 
-1. **Read the re-probe's result** (§4, item 1). If the revised card flags synthesis with thinking
-   on, merge #181 and run its cell first. Then apply Amendment 5's P11 check and, if it holds,
-   ask the owner for the adoption commit by name (Amendment 8, items 4 and 5).
+1. **The adoption.** #183 holds the re-probe's result and the revised card. On the owner's go,
+   asked at about 12:15 UTC, the adoption commit follows (§4, item 2; Amendment 8, item 5).
 2. **After the adoption,** run the three r3 runs under the revised card, one at a time, by the
    endpoint rules below. Write their result entry with the gap, held-chunk and
    synthesis-correction counts (Amendment 8, item 6).
@@ -171,8 +173,8 @@ Recompute both before any run.
    it by the brief.
 6. **Ask the owner** for each item of §4, item 6, by name. Record each answer in an `Approved`
    entry, quoted, before acting on it.
-7. **Lanes.** S-pipe: #181 and the research protocol. S-desk: the beta cut, when the session says
-   so. S-harn: the harness and the log's tools. S-e1: E2's and E6's fixtures and their gold, which
+7. **Lanes.** S-pipe: the research protocol. S-desk: the beta cut, when the session says so.
+   S-harn: the harness and the log's tools. S-e1: E2's and E6's fixtures and their gold, which
    only it opens. S-assist: the next failed electron-e2e run, read before anyone re-runs it
    (BL-20261118-0800-git-command-deadline-15s).
 

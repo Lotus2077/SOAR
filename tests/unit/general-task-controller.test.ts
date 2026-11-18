@@ -1617,7 +1617,7 @@ describe("desktop local research tasks (backlog item 13a)", () => {
  * replies are not streamed), two text sources, and fixture()'s scripted writer. `edit` changes the card before it is written.
  */
 async function stageFixture(reply: Parameters<typeof researchModelServer>[0], edit?: (card: ServingCardV1) => void, writeBound?: DesktopResearchWriteBound,
-  sources = researchV4Sources()) {
+  sources: { id: string; path: string; bytes: Buffer }[] = researchV4Sources()) {
   const server = await researchModelServer(reply); cleanup.push(server.close);
   const base = fixture(), card = adopt(structuredClone(researchWriterCard ??= proposedServingCard()), undefined, { defaults: true }); edit?.(card);
   // E2's one-line choice, through the controller's test option in place of the shipped constant.

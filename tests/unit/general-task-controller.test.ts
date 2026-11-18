@@ -1811,7 +1811,7 @@ describe("desktop local research task view (backlog item 13a, part 3)", () => {
     const { run } = await stageFixture((system, user) =>
       system.startsWith("You extract") && parseResearchUserContent(user).source.id === "input/02-beta.md" ? "not an extraction" : researchV4Reply(system, user));
     const done = await run();
-    expect(done.reason).toBe("The research stage could not read every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were read.");
+    expect(done.reason).toBe("The research stage could not resolve every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were resolved.");
     expect(done.research!.stages.find(row => row.stage === "extract")).toMatchObject({ chunksPlanned: 2, chunksComplete: 1, repairCalls: 1 });
   });
 
@@ -1862,5 +1862,22 @@ describe("desktop local research: the disclosed gap (backlog item 13a, #172)", (
     expect(coverage.gaps).toEqual([expect.objectContaining({ sourceId: "input/02-beta.md", questionIds: ["Q1"] })]);
     // Without a card's admission rates the stage records no held counts, and the view shows none.
     expect(done.research!.stages.find(row => row.stage === "extract")).not.toHaveProperty("heldChunks");
+  });
+
+  it("ends a stage that left two passages read but not resolved as an incomplete extraction, worded as not resolved, never as unread", async () => {
+    // Every reply for both sources' passages, the repairs' included, declares the plan's questions unresolved (needs_followup). Only one such
+    // passage may be disclosed, so the stage ends research_extraction_incomplete, after recording its extraction row (not a stopped row).
+    const { f, run, stored } = await stageFixture((system, user) => system.startsWith("You extract")
+      ? JSON.stringify({ questions: parseResearchUserContent(user).plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "needs_followup" })), quotes: [], conflicts: [] })
+      : researchV4Reply(system, user));
+    const done = await run();
+    expect(stored()).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(done.reason).toBe("The research stage could not resolve every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were resolved.");
+    expect(done.reason).not.toMatch(/\bread\b/u);
+    expect(done).toMatchObject({ canResume: false, research: { stage: "stopped" } }); expect(done.research).not.toHaveProperty("gap");
+    const extract = done.research!.stages.find(row => row.stage === "extract")!;
+    expect(extract).toMatchObject({ chunksPlanned: 2, chunksComplete: 0, repairCalls: 2 });
+    expect(extract).not.toHaveProperty("denied"); expect(extract).not.toHaveProperty("declaredGaps");
+    expect(f.executions).toHaveLength(0);
   });
 });

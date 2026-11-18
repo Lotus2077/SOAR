@@ -32,7 +32,7 @@ import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema
   type ResearchSynthesisCorrections } from "../src/main/private-agent/research-coverage";
 import { assertRunDirectoryIgnored } from "../src/main/private-agent/research-diagnostics";
 import { parseJsonReply } from "../src/main/private-agent/research-index";
-import { normalizeResearchHeadings, researchProtocolSha256, type ResearchDiagnosticReason } from "../src/main/private-agent/research-pipeline";
+import { RESEARCH_ROLE_SCHEMAS, normalizeResearchHeadings, researchProtocolSha256, type ResearchDiagnosticReason } from "../src/main/private-agent/research-pipeline";
 import { ResearchPlanSchema, type ResearchPlan } from "../src/main/private-agent/research-plan";
 import { researchPresentationBytes } from "../src/main/private-agent/research-presentation";
 import { servingCardRequestSettings, type ServingCardRequestSettings } from "../src/main/private-agent/serving-card";
@@ -40,14 +40,21 @@ import { readChatReply } from "./chat-reply";
 import { buildRoleRequest, requestSettingsOf, type RequestSettings } from "./export-role-schemas";
 import { numericUsage } from "./extractor-fixture";
 
-export const SYNTHESIS_CELLS = ["synthesis-8192", "synthesis-16384", "synthesis-8192-repair-thinking-off"] as const;
+export const SYNTHESIS_CELLS = ["synthesis-8192", "synthesis-16384", "synthesis-8192-repair-thinking-off", "synthesis-16384-structured"] as const;
 export type SynthesisCell = (typeof SYNTHESIS_CELLS)[number];
-export interface SynthesisCall { maxOutputTokens: number; thinking: "model" | "disabled" }
-/** Each cell's two attempts. `synthesis-8192` is the synthesis row of the card adopted on 2026-11-17, so it is the stage's own pair. */
+/** One attempt's cap and thinking, and `structuredOutput` when the attempt sends the synthesis role's strict response_format. */
+export interface SynthesisCall { maxOutputTokens: number; thinking: "model" | "disabled"; structuredOutput?: "strict" }
+/**
+ * Each cell's two attempts. `synthesis-8192` is the synthesis row of the card adopted on 2026-11-17, so it is the stage's own pair.
+ * `synthesis-16384-structured` is the E0 card's Amendment 8, item 4: `synthesis-16384` as a revised card whose synthesis flag has
+ * `thinkingOn` true sends it, with the strict format on both attempts (thinking is on in both). It runs only if the re-probe's card
+ * writes that flag.
+ */
 export const CELL_CALLS: Readonly<Record<SynthesisCell, readonly [SynthesisCall, SynthesisCall]>> = Object.freeze({
   "synthesis-8192": [{ maxOutputTokens: 8192, thinking: "model" }, { maxOutputTokens: 8192, thinking: "model" }],
   "synthesis-16384": [{ maxOutputTokens: 16384, thinking: "model" }, { maxOutputTokens: 16384, thinking: "model" }],
   "synthesis-8192-repair-thinking-off": [{ maxOutputTokens: 8192, thinking: "model" }, { maxOutputTokens: 8192, thinking: "disabled" }],
+  "synthesis-16384-structured": [{ maxOutputTokens: 16384, thinking: "model", structuredOutput: "strict" }, { maxOutputTokens: 16384, thinking: "model", structuredOutput: "strict" }],
 });
 export const STAGE_CELL: SynthesisCell = "synthesis-8192";
 /** The reason the synthesis stage sends with its second attempt (research-pipeline.ts, synthesisStage). */
@@ -143,17 +150,19 @@ export function synthesisUserContent(packet: SynthesisPacket, attempt: 0 | 1, le
     lengthCap: { words: lengthCapWords }, repairReason: attempt ? SYNTHESIS_REPAIR_REASON : null });
 }
 export interface SynthesisRequest { packet: string; attempt: 1 | 2; body: string; requestSha256: string; requestBytes: number; maxTokens: number; thinking: "model" | "disabled";
-  lengthCapWords: number; streamed: boolean }
+  lengthCapWords: number; streamed: boolean; structuredOutput: "strict" | null }
 /** One attempt's body as the model layer builds it, under `settings`, salted for `jobId`. */
 export function buildSynthesisRequest(settings: RequestSettings, packet: SynthesisPacket, attempt: 0 | 1, call: SynthesisCall, jobId = packet.jobId): SynthesisRequest {
   const lengthCapWords = attemptLengthCapWords(packet.brief, call);
   const built = buildRoleRequest(settings, jobId, "synthesis", synthesisUserContent(packet, attempt, lengthCapWords),
-    { maxOutputTokens: call.maxOutputTokens, ...(call.thinking === "disabled" ? { thinking: "disabled" as const } : {}) });
+    { maxOutputTokens: call.maxOutputTokens, ...(call.thinking === "disabled" ? { thinking: "disabled" as const } : {}),
+      // The stage's own format for a flagged synthesis attempt (research-pipeline.ts, responseFormatFor): the role's schema, strict.
+      ...(call.structuredOutput ? { responseFormat: { ...RESEARCH_ROLE_SCHEMAS.synthesis, strict: true } } : {}) });
   // canonical() is requestBody's own serialisation, so re-encoding the parsed body gives back its bytes; refuse anything else.
   const body = canonical(built.body);
   if (digest(body) !== built.bodySha256) fail("body_mismatch");
   return { packet: packet.run, attempt: attempt === 0 ? 1 : 2, body, requestSha256: built.bodySha256, requestBytes: Buffer.byteLength(body), maxTokens: call.maxOutputTokens,
-    thinking: call.thinking, lengthCapWords, streamed: built.body.stream === true };
+    thinking: call.thinking, lengthCapWords, streamed: built.body.stream === true, structuredOutput: call.structuredOutput ?? null };
 }
 /** The broker's packet digest (broker.ts: method, URL, headers and body) for a POST to the owned endpoint. */
 export function synthesisPacketSha256(baseUrl: string, body: string): string {

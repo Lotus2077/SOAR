@@ -1546,7 +1546,7 @@ JUDGE_FAILURES = ("request_rejected", "transport_failed", "malformed_reply", "ju
 EXTRACTOR_CONDITIONS = ("thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384", "thinking-off-structured")
 EXTRACTOR_CLASSES = ("complete", "held", "needs_followup", "invalid", "truncated", "request_rejected", "malformed_reply", "transport_failed")
 # Lane S-pipe's synthesis fixture (scripts/synthesis-fixture.ts, the E0 card's Amendment 7): SYNTHESIS_CELLS, SYNTHESIS_CALL_CLASSES and SYNTHESIS_OUTCOMES.
-SYNTHESIS_CELLS = ("synthesis-8192", "synthesis-16384", "synthesis-8192-repair-thinking-off")
+SYNTHESIS_CELLS = ("synthesis-8192", "synthesis-16384", "synthesis-8192-repair-thinking-off", "synthesis-16384-structured")
 SYNTHESIS_CLASSES = ("accepted", "invalid", "truncated", "request_rejected", "malformed_reply", "transport_failed")
 SYNTHESIS_OUTCOMES = ("model_synthesis", "skeleton", "no_outcome")
 # The attempt-1 classes after which a synthesis trial sends its attempt 2 (the stage's repair).

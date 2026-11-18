@@ -9,11 +9,11 @@ import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { RESEARCH_PRESENTATION_POLICY } from "../../src/main/private-agent/research-contract";
-import { runResearchPipeline, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
+import { RESEARCH_ROLE_SCHEMAS, runResearchPipeline, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { CELL_CALLS, RUN_FILES, STAGE_CELL, SYNTHESIS_CELLS, SYNTHESIS_JUDGE, SYNTHESIS_REPAIR_REASON, buildSynthesisRequest, checkStageReceipts, judgeSynthesisReply, parseSynthesisArguments,
-  runSynthesisFixture, stageCheckPassed, synthesisCellVoid, synthesisPacketSha256, verifySynthesisInputs, type RunFile, type SynthesisCell, type SynthesisPacket } from "../../scripts/synthesis-fixture";
+  SynthesisFixtureManifestSchema, runSynthesisFixture, stageCheckPassed, synthesisCellVoid, synthesisPacketSha256, verifySynthesisInputs, type RunFile, type SynthesisCell, type SynthesisPacket } from "../../scripts/synthesis-fixture";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources, researchV4TaggedReply, researchV4TaggedSources } from "../helpers/research-v4-fixture";
 
 /**
@@ -69,7 +69,9 @@ function manifestFor(packets: ReturnType<typeof runDirectory>[], over: Record<st
 const inputsFor = (root: string, manifest: unknown, brief = Buffer.from(RESEARCH_V4_TEST_BRIEF)) =>
   ({ manifest, brief, read: (run: string, file: RunFile) => readFileSync(join(root, run, RUN_FILES[file])) });
 const roleWith = (cell: SynthesisCell): ResearchRolePolicy => ({ ...DEFAULT_RESEARCH_ROLE_POLICY, synthesis: { maxOutputTokens: [CELL_CALLS[cell][0].maxOutputTokens, CELL_CALLS[cell][1].maxOutputTokens],
-  thinking: [CELL_CALLS[cell][0].thinking, CELL_CALLS[cell][1].thinking], structuredOutput: null } });
+  thinking: [CELL_CALLS[cell][0].thinking, CELL_CALLS[cell][1].thinking],
+  // The E0 card's Amendment 8, item 4: the structured cell is a card whose synthesis flag is strict for thinking on, the mode both attempts use.
+  structuredOutput: CELL_CALLS[cell][0].structuredOutput ? { variant: "strict", thinkingOn: true, thinkingOff: false } : null } });
 
 describe("E0 synthesis fixture: the stage's own requests", () => {
   it("rebuilds the stage's two synthesis bodies byte for byte from the packet the run left, and checks them against its receipts", async () => {
@@ -100,6 +102,9 @@ describe("E0 synthesis fixture: the stage's own requests", () => {
       expect(built.map(r => r.body)).toEqual(s.synthesisBodies);
       expect(built.map(r => [JSON.parse(r.body).max_tokens, JSON.parse(r.body).reasoning_effort ?? null, JSON.parse(r.body).chat_template_kwargs ?? null])).toEqual(
         CELL_CALLS[cell].map(call => [call.maxOutputTokens, call.thinking === "model" ? "medium" : null, call.thinking === "model" ? null : { enable_thinking: false }]));
+      // The strict format exactly where the cell's card sends it, as the stage's flagged call writes it.
+      expect(built.map(r => [r.structuredOutput, JSON.parse(r.body).response_format ?? null])).toEqual(CELL_CALLS[cell].map(call => call.structuredOutput
+        ? ["strict", { type: "json_schema", json_schema: { name: RESEARCH_ROLE_SCHEMAS.synthesis.name, schema: RESEARCH_ROLE_SCHEMAS.synthesis.schema, strict: true } }] : [null, null]));
     }
   }, 60_000);
 });
@@ -340,6 +345,19 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
     expect(server.requests).toHaveLength(0);
   }, 60_000);
 
+  it("dry-runs the E0 card's Amendment 8 cell: the stage check, the tolerant judge, the strict format on all four requests and a request set of its own", async () => {
+    const root = scratch(), packets = [];
+    for (const [run, job] of [["run-2", "e0-synthesis-structured-job-2"], ["run-3", "e0-synthesis-structured-job-3"]] as const) packets.push(runDirectory(root, run, job, await stage(job, refused), OTHER_BASE));
+    const inputs = inputsFor(root, manifestFor(packets));
+    const dry = (cell: SynthesisCell) => runSynthesisFixture({ endpoint: { baseUrl: OTHER_BASE }, settings: SETTINGS, inputs, cell, out: join(scratch(), "never"), dryRun: true });
+    const structured = await dry("synthesis-16384-structured"), plain = await dry("synthesis-16384");
+    expect([stageCheckPassed(structured.stageCheck), structured.judge, structured.attempts]).toEqual([true, SYNTHESIS_JUDGE, CELL_CALLS["synthesis-16384-structured"]]);
+    const requests = (summary: typeof structured, cell: SynthesisCell) => Object.values(summary.requests[cell]!.packets).flat();
+    expect(requests(structured, "synthesis-16384-structured").map(r => [r.structuredOutput, r.maxTokens, r.thinking])).toEqual(Array(4).fill(["strict", 16384, "model"]));
+    expect(requests(plain, "synthesis-16384").map(r => r.structuredOutput)).toEqual([null, null, null, null]);
+    expect(structured.requests["synthesis-16384-structured"]!.requestSetSha256).not.toBe(plain.requests["synthesis-16384"]!.requestSetSha256);
+  }, 60_000);
+
   it("dry-runs a cell without a request or a file: its stage check, its request digests and its design", async () => {
     const server = await fakeServer(() => ({ sse: sse(refused()) }));
     const { root, packets } = await twoPackets(server.baseUrl), out = join(scratch(), "never-written");
@@ -374,15 +392,26 @@ describe("E0 synthesis fixture: the command line and the committed manifest", ()
 
   it("reads its arguments strictly", () => {
     expect(parseSynthesisArguments(["--batch", "b", "--brief", "f", "--cell", "synthesis-16384", "--dry-run"])).toEqual({ batch: "b", brief: "f", cell: "synthesis-16384", dryRun: true });
+    expect(parseSynthesisArguments(["--batch", "b", "--brief", "f", "--cell", "synthesis-16384-structured", "--manifest", "m"])).toEqual({ batch: "b", brief: "f",
+      cell: "synthesis-16384-structured", manifest: "m", dryRun: false });
     for (const argv of [[], ["--batch", "b", "--brief", "f"], ["--batch", "b", "--brief", "f", "--cell", "synthesis-32768"], ["--batch", "b", "--batch", "c", "--brief", "f", "--cell", STAGE_CELL],
       ["--batch", "--brief", "f", "--cell", STAGE_CELL], ["--batch", "b", "--brief", "f", "--cell", STAGE_CELL, "--repeats", "3"]]) expect(parseSynthesisArguments(argv)).toBeUndefined();
   });
 
   it("pins two packets, the three cells and five trials a packet in manifest v1", () => {
     const manifest = JSON.parse(readFileSync(join(__dirname, "..", "..", "docs", "experiments", "e0-synthesis-fixture-v1.json"), "utf8"));
-    expect(manifest).toMatchObject({ schemaVersion: 1, name: "e0-synthesis-fixture-v1", status: "pinned", task: "r3-grid-batteries", exposure: "exposed", cells: [...SYNTHESIS_CELLS],
-      trialsPerPacket: 5 });
+    expect(manifest).toMatchObject({ schemaVersion: 1, name: "e0-synthesis-fixture-v1", status: "pinned", task: "r3-grid-batteries", exposure: "exposed",
+      cells: ["synthesis-8192", "synthesis-16384", "synthesis-8192-repair-thinking-off"], trialsPerPacket: 5 });
     expect(manifest.packets.map((p: { run: string }) => p.run)).toEqual(["run-2", "run-3"]);
     expect(manifest.packets.map((p: { stage: { bodyBytes: number }[] }) => p.stage.map(s => s.bodyBytes))).toEqual([[95334, 95428], [97185, 97279]]);
+  });
+
+  it("pins the E0 card's Amendment 8 cell in manifest v2: v1's two packets, synthesis-16384-structured alone, five trials a packet", () => {
+    const read = (version: number) => JSON.parse(readFileSync(join(__dirname, "..", "..", "docs", "experiments", `e0-synthesis-fixture-v${version}.json`), "utf8"));
+    const v1 = read(1), v2 = read(2);
+    expect(SynthesisFixtureManifestSchema.safeParse(v2).success).toBe(true);
+    expect(v2).toMatchObject({ schemaVersion: 1, name: "e0-synthesis-fixture-v2", status: "pinned", task: v1.task, exposure: v1.exposure, briefSha256: v1.briefSha256,
+      cells: ["synthesis-16384-structured"], trialsPerPacket: 5 });
+    expect(v2.packets).toEqual(v1.packets);
   });
 });

@@ -523,7 +523,7 @@ describe("E0 registry modes: the synthesis fixture", () => {
         packets: RUNS.map((run, i) => ({ run, coverageSha256: h(String(i + 1)), evidenceSha256: h(String(i + 3)), planSha256: h(String(i + 5)) })) },
       stageCheck: RUNS.map((run): StageCheck => ({ run, bodyBytes: [true, true], packetSha256: [true, true] })),
       requests: { [CELL]: { requestSetSha256: h("4"), requests: 4, packets: Object.fromEntries(RUNS.map(run => [run, CELL_CALLS[CELL].map((pair, i): Omit<SynthesisRequest, "body" | "packet"> =>
-        ({ attempt: i === 0 ? 1 : 2, requestSha256: h(String(i + 1)), requestBytes: 95_001 + i, maxTokens: pair.maxOutputTokens, thinking: pair.thinking, lengthCapWords: 1800, streamed: true }))])) } },
+        ({ attempt: i === 0 ? 1 : 2, requestSha256: h(String(i + 1)), requestBytes: 95_001 + i, maxTokens: pair.maxOutputTokens, thinking: pair.thinking, lengthCapWords: 1800, streamed: true, structuredOutput: null }))])) } },
       trials: records, calls, counts: { [CELL]: count(calls.map(item => item.classification)) }, outcomes: outcomes(records),
       byPacket: Object.fromEntries(RUNS.map(run => [run, outcomes(records.filter(record => record.packet === run))])),
       codes: { 1: count(calls.filter(item => item.attempt === 1).flatMap(item => item.codes ?? [])), 2: count(calls.filter(item => item.attempt === 2).flatMap(item => item.codes ?? [])) },

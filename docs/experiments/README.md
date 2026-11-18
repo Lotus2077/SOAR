@@ -279,6 +279,11 @@ This folder holds the committed, sanitized record of live trials (see
   citable or whose quote is not tagged for that question, instead of refusing the
   reply, and both record its `corrections` by kind. The first three cells (2026-11-18)
   predate the field and ran under version 1.
+- `e0-synthesis-fixture-v2.json`: v1's two packets for one cell, the E0 card's Amendment 8, item 4:
+  `synthesis-16384-structured`, which is `synthesis-16384` with the synthesis role's strict format on
+  both attempts, as a revised card whose synthesis flag has thinking on sends it. It runs, with
+  `--manifest docs/experiments/e0-synthesis-fixture-v2.json`, only if the re-probe's card writes
+  that flag.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan

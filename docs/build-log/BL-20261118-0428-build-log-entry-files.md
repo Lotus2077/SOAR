@@ -22,7 +22,7 @@ Changes: the validator, scripts/build-log-to-files.ts, package.json, CI step nam
 
 Evidence:
 - **Tests and mutants.** 66 of 66 build-log tests pass, and 43 single-edit mutants of the two scripts all fail them.
-- **This branch** passes the validator against `main` 5140f5d.
+- **This branch** passes the validator against `main` 4ec4928, whose archive the pin holds.
 - **A real conversion.** The recipe converted #86's branch mid-merge, and the result validated.
 - **The light review.** Its verdict: needs fixes, with one major, seven minor and some nits; privacy was clean. All are fixed, the archive pin and the recipe staging only the log among them.
 

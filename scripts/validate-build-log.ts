@@ -11,7 +11,7 @@ export const BUILD_LOG_PATH = "docs/BUILD_LOG.md";
  * The archive's sha256 at the switch. Any other bytes fail, with or without a base, so the archive cannot change even through a
  * pull request whose checks ran before the switch; a repair restores these bytes.
  */
-export const ARCHIVE_SHA256 = "9b01c4ec1c176a05ebbef7762421d6e61b00fdd602f963181921d5f251b960f9";
+export const ARCHIVE_SHA256 = "fcf19e4379c084bd21bb210cdb841080b33efbc590df1420d095d410f0d77e2f";
 /** One file per entry since the switch, named by its ID; files on the base never change. */
 export const BUILD_LOG_ENTRY_DIRECTORY = "docs/build-log";
 /** An entry is about 25 lines, with the detail in the pull request's description; above this is a warning, never an error. */

@@ -16,25 +16,9 @@ Decisions:
 Changes: src/main/private-agent/research-coverage.ts, research-pipeline.ts and research-contract.ts; scripts/synthesis-fixture.ts, export-role-schemas.ts and registry-row.py; tests; docs/experiments/e0-card-2026-11-13.md; this file.
 
 Evidence:
-- **Tests.** Accepted with corrections:
-  - case (a), case (b) and both;
-  - a findings and a conflict question downgraded, and an unresolved question that only loses ids;
-  - a corrected repair attempt;
-  - an id an assist's packet did not carry.
-
-  Still refused, with no offending id named as a reason: truncated, not JSON, schema, a duplicate id, an empty findings question, a missing heading, an unknown citation, a question-set mismatch. The validator refuses 15 tampered packets, one of them an assist's. The fixture's verdicts and corrections equal the stage's on the same replies.
-- **Mutants:** 35 of 35 single edits fail a test. A 36th was equivalent, and the redundant check it touched was removed.
-- **Full suite:** 205 files, 4,100 tests, 88 skipped, none failed. Typecheck, readiness and the build-log validator pass.
-- **What moves from `main` aa61e94:**
-  - the default protocol hash `a46bfb55…` → `080c5111…`;
-  - under admission `36b73496…` → `0a49d5a2…`;
-  - under the adopted card's roles with admission `22d2d92d…` → `34b608f2…`;
-  - the four assist hashes;
-  - the source freeze `72263758…` → `e262dbc0…`;
-  - P10's synthesis bodies, 6 of 18;
-  - the seeded writer's write phase.
-
-  P10's plan and extract bodies and the card's roles do not move.
+- **Tests:** cases (a), (b) and both; findings and conflict downgrades; a corrected repair attempt; an assist's uncarried id; nine replies still refused, none naming an offending id; 15 tampered packets refused by the validator; the fixture's verdicts and corrections equal the stage's.
+- **Mutants:** 35 of 35 fail a test (a 36th was equivalent; its redundant check was removed). **Full suite:** 205 files, 4,100 tests, 88 skipped, none failed; typecheck, readiness and the build-log validator pass.
+- **What moves from `main` aa61e94:** the default hash `a46bfb55…` → `080c5111…`; under admission `36b73496…` → `0a49d5a2…`; under the adopted card's roles with admission `22d2d92d…` → `34b608f2…`; the four assist hashes; the source freeze `72263758…` → `e262dbc0…`; P10's synthesis bodies (6 of 18); the seeded writer's write phase. P10's plan and extract bodies and the card's roles do not move.
 
 Failures or blockers: None.
 

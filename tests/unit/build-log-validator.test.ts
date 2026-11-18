@@ -7,9 +7,8 @@ import {
   buildLogEntrySha256,
   REQUIRED_BUILD_LOG_FIELDS,
   runBuildLogValidationCli,
-  validateAppendOnlyBuildLog,
   validateBuildLog,
-  validateMaterialChangeBuildLogEntry,
+  validateFrozenArchive,
 } from "../../scripts/validate-build-log";
 
 function entry(input: {
@@ -452,55 +451,12 @@ describe("build-log validator", () => {
     );
   });
 
-  it("accepts only a byte-for-byte base prefix in append-only mode", () => {
+  it("keeps the archive frozen: any change to it, an append included, fails against the base", () => {
     const base = "first\nsecond\n";
-    expect(
-      validateAppendOnlyBuildLog(
-        base,
-        `${base}\n### BL-20260829-1200-third -- 2026-08-29 -- Third\n`,
-      ),
-    ).toEqual([]);
-    expect(validateAppendOnlyBuildLog(base, `${base}more references\n`)).toEqual([
-      expect.stringContaining("complete new entry heading"),
-    ]);
-    expect(
-      validateAppendOnlyBuildLog(
-        base,
-        `${base}more references\n### BL-20260829-1200-third -- 2026-08-29 -- Third\n`,
-      ),
-    ).toEqual([expect.stringContaining("complete new entry heading")]);
-    expect(validateAppendOnlyBuildLog(base, "first\nchanged\n")).toEqual([
-      expect.stringContaining("line is 2"),
-    ]);
-    expect(validateAppendOnlyBuildLog(base, "first\n")).toEqual([
-      expect.stringContaining("line is 2"),
-    ]);
-  });
-
-  it("requires a new entry when material paths changed", () => {
-    const base = log(entry({ id: "BL-0001", date: "2026-08-27" }));
-    const appended = `${base}\n${entry({
-      id: "BL-20260829-1200-runtime",
-      date: "2026-08-29",
-    })}`;
-
-    expect(
-      validateMaterialChangeBuildLogEntry(base, base, ["src/main/index.ts"]),
-    ).toEqual([expect.stringContaining("material changes require")]);
-    expect(
-      validateMaterialChangeBuildLogEntry(base, appended, [
-        "src/main/index.ts",
-      ]),
-    ).toEqual([]);
-    expect(
-      validateMaterialChangeBuildLogEntry(base, base, ["docs/typo.md"]),
-    ).toEqual([]);
-    expect(
-      validateMaterialChangeBuildLogEntry(base, base, [
-        "docs/adr/9999-contract.md",
-        "docs/plans/router.md",
-      ]),
-    ).toEqual([expect.stringContaining("material changes require")]);
+    expect(validateFrozenArchive(base, base)).toEqual([]);
+    for (const [current, line] of [[`${base}\n### BL-20260829-1200-third -- 2026-08-29 -- Third\n`, 4], ["first\nchanged\n", 2], ["first\n", 2], [`${base}more\n`, 3]] as const) {
+      expect(validateFrozenArchive(base, current)).toEqual([expect.stringContaining(`frozen archive and may not change (first changed or deleted line ${line})`)]);
+    }
   });
 
   it("accepts an exact digest-bound append while retaining the original omission and bytes", () => {
@@ -514,8 +470,6 @@ describe("build-log validator", () => {
     expect(result.entries[1].fields[OMITTED_FIELD]).toBe("This is only a fixture.");
     expect(result.missingFields).toEqual([{ entryId: TARGET_ID, entrySha256: buildLogEntrySha256(original), field: OMITTED_FIELD, correctedBy: CORRECTION_ID }]);
     expect(current.slice(0, base.length)).toBe(base);
-    expect(validateAppendOnlyBuildLog(base, current)).toEqual([]);
-    expect(validateMaterialChangeBuildLogEntry(base, current, ["scripts/validate-build-log.ts"])).toEqual([]);
   });
 
   it("reports the applied correction count and retained historical evidence in CLI output", () => {
@@ -569,7 +523,7 @@ describe("build-log validator", () => {
     expect(validateBuildLog(log(edited, fieldCorrection(original))).errors).toEqual(expect.arrayContaining([expect.stringContaining("target digest does not match")]));
     const rewritten = log(edited, fieldCorrection(edited));
     expect(validateBuildLog(rewritten).errors).toEqual([]);
-    expect(validateAppendOnlyBuildLog(log(original), rewritten)).toEqual([expect.stringContaining("not append-only")]);
+    expect(validateFrozenArchive(log(original), rewritten)).toEqual([expect.stringContaining("frozen archive and may not change")]);
   });
 
   it.each(["fenced", "html", "quoted", "inline", "malformed", "duplicate"])("refuses %s pseudo-correction markers", kind => {

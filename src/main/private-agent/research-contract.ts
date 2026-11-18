@@ -20,9 +20,12 @@ export interface ResearchSourceIdentity { id: string; path: string; sha256: stri
  * when every quote and conflict note it left out is disclosed in coverage.json, counted in evidence.json and bound to its chunks and
  * questions (research-coverage.ts); research-trim.ts says which ones it keeps.
  */
-export const RESEARCH_COVERAGE_POLICY = Object.freeze({ version: 2, briefSegmentation: "exact_numbered_spans_or_whole", sourceOrder: "id_utf16_ascending", chunkBytes: 65536,
+export const RESEARCH_COVERAGE_POLICY = Object.freeze({ version: 3, briefSegmentation: "exact_numbered_spans_or_whole", sourceOrder: "id_utf16_ascending", chunkBytes: 65536,
   overlapBytes: 2048, mandatoryBeforeRepair: true, indexRepairsPerBatch: 1, extractionRepairsPerChunk: 1, readyRequiresAllReadable: true,
-  readyRequiresAllChunks: true, readyRequiresNoVerifiedQuoteOmissions: false, readyRequiresNoConflictOmissions: false,
+  // The owner's answer of 2026-11-18 (#166): every chunk complete but at most one, whose last reply, after every repair, declared questions
+  // unresolved; it is disclosed as coverage's gap and gives the packet no evidence.
+  readyRequiresAllChunks: false, readyAllowsDeclaredGaps: 1, declaredGapWhen: "last_reply_needs_followup_after_every_repair",
+  readyRequiresNoVerifiedQuoteOmissions: false, readyRequiresNoConflictOmissions: false,
   omissionsReadyWhen: "disclosed_counted_unique_and_bound", packetBytes: 65536, maxQuestions: 12, semanticAcceptance: "independent_review_required" });
 export const RESEARCH_PRESENTATION_POLICY = Object.freeze({ version: 1, maxBytes: 196608, policy: "complete_untrusted_packet_once", encoding: "json_string_complete_utf8",
   files: [RESEARCH_FILES.argument, RESEARCH_FILES.evidenceText, RESEARCH_FILES.plan, RESEARCH_FILES.coverage], sourceInstructions: "data_only", oversize: "refuse_without_trimming" });

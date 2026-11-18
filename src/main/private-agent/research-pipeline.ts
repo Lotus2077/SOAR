@@ -142,6 +142,13 @@ export interface ResearchStageCounts {
    * repairs sent (each also counted in repairCalls), and how many of them left their chunk complete. Absent without the rates.
    */
   secondRepairCalls?: number; secondRepairsComplete?: number;
+  /**
+   * On the extract row under a card's admission rates only, as the second repairs: the held chunks (a complete first reply that lost every
+   * quote of a question it marked evidence_found), and those of them left without their optional repair, which keep that first reply.
+   */
+  heldChunks?: number; heldKeptUnrepaired?: number;
+  /** On the extract row only when the stage ends with one chunk whose last reply declared questions unresolved, disclosed as coverage's gap: 1. */
+  declaredGaps?: number;
   /** Synthesis (7b.1, finding D13): the word cap sent, the brief's own limit when it states one, and the accepted argument's words. Recorded, never enforced. */
   lengthCapWords?: number; briefWordLimit?: number; argumentWords?: number;
   /** 7a.1 (findings D2 and D5): what a complete extraction reply lost or had corrected, and the accepted argument's rewritten headings. */
@@ -664,13 +671,15 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     chunksPlanned: inventory.chunks.length, chunksComplete: 0, pairsPlanned: inventory.chunks.length, pairsExtracted: 0, quotesDropped: 0,
     conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0,
     // Item (ii)'s review: under a card's admission rates both counts exist from the row's creation, so a denied row carries them too.
-    ...(admission ? { secondRepairCalls: 0, secondRepairsComplete: 0 } : {}) };
+    ...(admission ? { secondRepairCalls: 0, secondRepairsComplete: 0, heldChunks: 0, heldKeptUnrepaired: 0 } : {}) };
   /**
    * Owner question 3's corner (#85): a first attempt that dropped every quote it gave for a question it marked
    * evidence_found is held rather than kept. Held chunks are repaired after every other repair, while the budget lasts; a held
    * chunk left unrepaired keeps its attempt, as 7a.1 kept it; a repaired one drops it. A repair attempt is kept with its drops.
    */
   const held = new Map<string, { keep: () => void; reject: () => void }>();
+  /** Each chunk's last reply, when it declared questions unresolved: those questions, for the gap the stage may disclose. */
+  const declared = new Map<string, string[]>();
   const settleHeld = (keepUnrepaired: boolean) => {
     for (const chunk of coverage.chunks) {
       const hold = held.get(chunk.id); if (!hold) continue; held.delete(chunk.id);
@@ -692,6 +701,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     // diagnostics sink and nothing else; quotesDropped counts the quotes dropped from every parsed reply.
     const assessed = assessResearchExtractionReply({ content: reply.content, truncated: reply.truncated, questions, source, chunk, chunkText });
     let state = assessed.state;
+    if (state === "needs_followup") declared.set(chunk.id, assessed.outcomes.filter(outcome => outcome.status === "needs_followup").map(outcome => outcome.questionId));
+    else declared.delete(chunk.id);
     const reasons = assessed.reasons;
     extractCounts.quotesDropped! += assessed.quotesDropped;
     if (state === "complete") {
@@ -740,8 +751,21 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     settleHeld(true);
     const heldSecond = await repairPass(heldChunks.filter(c => c.status !== "complete" && c.attempts.length === 2), true);
     if (heldSecond) return denied(extractCounts, heldSecond);
+    extractCounts.heldChunks = heldChunks.length; extractCounts.heldKeptUnrepaired = heldChunks.filter(c => c.attempts.length === 1).length;
   }
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
+  // The owner's answer of 2026-11-18 (#166): after every repair has run as before, one chunk whose last reply declared questions
+  // unresolved (needs_followup) no longer ends the stage. It is disclosed as coverage's gap (the chunk, its declared questions and its
+  // attempts) and gives the packet no evidence: its declared questions stay needs_followup and the others no_verified_evidence. A chunk
+  // left invalid or truncated, or a second unresolved chunk, still ends the stage below.
+  const unfinished = coverage.chunks.filter(c => c.status !== "complete");
+  const gapChunk = unfinished.length === 1 && unfinished[0]!.status === "needs_followup" ? unfinished[0]! : undefined;
+  if (gapChunk) {
+    const named = new Set(declared.get(gapChunk.id) ?? []), questionIds = plan.questions.map(q => q.id).filter(id => named.has(id));
+    gapChunk.questions = plan.questions.map(q => ({ questionId: q.id, status: named.has(q.id) ? "needs_followup" as const : "no_verified_evidence" as const, evidenceIds: [] }));
+    coverage.gaps = [{ chunkId: gapChunk.id, sourceId: gapChunk.sourceId, questionIds, attempts: gapChunk.attempts.length }];
+    extractCounts.declaredGaps = 1;
+  }
   // 7b.2 (#102, finding D4): the packet keeps a prefix of the trim's priority
   // (research-trim.ts), conflict notes first because evidence.md renders the kept ones; coverage.json discloses every quote and note
   // left out, and the ready gate accepts the packet when those disclosures are counted, unique and bound.
@@ -801,7 +825,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     conflictsInPacket: evidence.conflicts.length, packetBytes: Buffer.byteLength(renderResearchEvidence(evidence, plan)) }); record(extractCounts);
   const evidenceText = Buffer.from(renderResearchEvidence(evidence, plan));
   put(RESEARCH_FILES.evidence, evidence); files.set(RESEARCH_FILES.evidenceText, evidenceText);
-  if (coverage.chunks.some(c => c.status !== "complete")) return finish("incomplete", "research_extraction_incomplete");
+  // By id: the trim above rebuilds every chunk record, the gap's included.
+  if (coverage.chunks.some(c => c.status !== "complete" && c.id !== gapChunk?.id)) return finish("incomplete", "research_extraction_incomplete");
   if (!evidence.quotes.length) return finish("incomplete", "research_no_evidence");
   if (kept === undefined) return finish("incomplete", "research_presentation_too_large");
   const synthesisCounts: ResearchStageCounts = { stage: "synthesise", calls: 0, invalidReplies: 0, usage: zeroUsage(), citationsStripped: 0, argumentBytes: 0,

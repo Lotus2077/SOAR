@@ -277,7 +277,7 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1509)", ()
         { type: "tool_started", output: JSON.stringify({ error: "public_fetch_limit_reached" }) }] });
       const event = hostFlagsEvent(h.run({ "output/report.md": "Prices fell [C1].", [CLAIMS_LEDGER_PATH]: "[]" }))!;
       expect(event.misses).toEqual({ briefUnits: 1, questionsWithoutEvidence: 1, questionsTrimmed: 0, unresolvedQuestions: 1, noEvidenceOutcomes: 2, extractionRetries: 1,
-        droppedQuotes: 1, quotesLeftByCap: 0, conflictsLeftByCap: 0, fetchFailures: 1, fetchLimitRefusals: 1 });
+        droppedQuotes: 1, quotesLeftByCap: 0, conflictsLeftByCap: 0, declaredGaps: 0, gapQuestions: 0, fetchFailures: 1, fetchLimitRefusals: 1 });
       expect(event.packet).toEqual({ coverageSha256: digest(coverage.bytes) });
       const at = argument.findIndex(line => line.includes("None of the sources mention 2025")) + 1;
       expect(event.argument).toEqual({ format: "markdown", scanned: true, textCut: false, hits: [absence(at, "A1"), absence(at, "A1", true)], truncated: false });
@@ -287,7 +287,7 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1509)", ()
     it("records no misses for the plain fixture packet beyond its single unit, and no single-unit flag for a numbered brief", async () => {
       const plain = hostFlagsEvent(harness({ files: await packet() }).run({ "output/report.md": "x" }))!;
       expect(plain.misses).toEqual({ briefUnits: 1, questionsWithoutEvidence: 0, questionsTrimmed: 0, unresolvedQuestions: 0, noEvidenceOutcomes: 0, extractionRetries: 0,
-        droppedQuotes: 0, quotesLeftByCap: 0, conflictsLeftByCap: 0, fetchFailures: 0, fetchLimitRefusals: 0 });
+        droppedQuotes: 0, quotesLeftByCap: 0, conflictsLeftByCap: 0, declaredGaps: 0, gapQuestions: 0, fetchFailures: 0, fetchLimitRefusals: 0 });
       expect(plain.counts.briefSingleUnit).toBe(1); expect(plain.argument!.hits).toEqual([]);
       const numbered = hostFlagsEvent(harness({ files: await packet("1. Describe the alpha observations.\n2. Describe the beta observations.\n") }).run({ "output/report.md": "x" }))!;
       expect(numbered.misses!.briefUnits).toBe(2); expect(numbered.counts.briefSingleUnit).toBe(0);

@@ -66,6 +66,8 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "questionsTrimmed", "quotesLeftByPresentation",
   // Item (ii) (BL-20261117-1143-research-second-repair-design): under a card's admission rates, the extract row's second repairs and those that completed their chunk; counts.
   "secondRepairCalls", "secondRepairsComplete",
+  // The owner's answer of 2026-11-18 (#166): the held chunks and those kept unrepaired (under a card's admission rates), and a declared gap; counts.
+  "heldChunks", "heldKeptUnrepaired", "declaredGaps",
   // 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes, enums and the
   // provider's model identifier (no white space, at most 200 characters), never free text.
   "assist"]);

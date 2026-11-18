@@ -168,7 +168,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const flags = events.filter(event => event.type === "host_flags");
     expect(flags).toEqual([expect.objectContaining({ contextId: start.privateContextId, packet: { coverageSha256: digest(coverage.bytes) },
       misses: { briefUnits: 1, questionsWithoutEvidence: 0, questionsTrimmed: 0, unresolvedQuestions: 0, noEvidenceOutcomes: 0, extractionRetries: 0, droppedQuotes: 0,
-        quotesLeftByCap: 0, conflictsLeftByCap: 0, fetchFailures: 0, fetchLimitRefusals: 0 },
+        quotesLeftByCap: 0, conflictsLeftByCap: 0, declaredGaps: 0, gapQuestions: 0, fetchFailures: 0, fetchLimitRefusals: 0 },
       report: expect.objectContaining({ scanned: true, hits: [] }), argument: expect.objectContaining({ scanned: true, hits: [] }) })]);
     expect(flags[0]!.counts).toMatchObject({ briefSingleUnit: 1, reportAbsence: 0, argumentAbsence: 0 });
     // The resume reloads the packet from the transfer and records nothing more.

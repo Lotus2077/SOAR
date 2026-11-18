@@ -85,7 +85,7 @@ export const HostFlagsEventSchema = z.object({
   packet: z.object({ coverageSha256: sha256Schema }).strict().optional(),
   report: scanSchema.optional(), argument: scanSchema.optional(),
   misses: z.object(optionalCounts(["briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries",
-    "droppedQuotes", "quotesLeftByCap", "conflictsLeftByCap", "fetchFailures", "fetchLimitRefusals"])).strict().optional(),
+    "droppedQuotes", "quotesLeftByCap", "conflictsLeftByCap", "declaredGaps", "gapQuestions", "fetchFailures", "fetchLimitRefusals"])).strict().optional(),
   review: reviewSchema.optional(),
   counts: z.object(optionalCounts(["reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded",
     "briefSingleUnit", "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
@@ -230,6 +230,9 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
         misses.extractionRetries = coverage.chunks.reduce((sum, chunk) => sum + Math.max(0, chunk.attempts.length - 1), 0);
         misses.quotesLeftByCap = coverage.omissions.length;
         misses.conflictsLeftByCap = coverage.conflictOmissions.length;
+        // The owner's answer of 2026-11-18 (#166): the packet's disclosed gap, if it has one, and the questions its last reply left unresolved.
+        misses.declaredGaps = coverage.gaps?.length ?? 0;
+        misses.gapQuestions = coverage.gaps?.[0]?.questionIds.length ?? 0;
         const evidenceFile = input.phase.files.find(file => file.path === RESEARCH_FILES.evidence);
         if (evidenceFile) misses.droppedQuotes = ResearchEvidenceSchema.parse(JSON.parse(evidenceFile.bytes.toString("utf8"))).counts.droppedUnverifiedOrDuplicate;
         packet = { coverageSha256: digest(coverageFile.bytes), singleUnit: coverage.units.length === 1 ? 1 : 0 };

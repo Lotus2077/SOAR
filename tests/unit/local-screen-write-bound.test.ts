@@ -38,8 +38,10 @@ function workspace(): string { const root = realpathSync(mkdtempSync(join(tmpdir
  * (decision (6)). The write phase must stay byte-identical, so this value never moves without an entry that says why.
  * Item (ii) moved it (BL-20261117-1145-research-second-repair-implemented, and its Correction): the phase holds the seed packet's
  * coverage.json, whose version 4 and new protocol hash change its bytes. It was 047f181ce77830e47681b94ed33c7ec454f13e0740d5201c98ce967b69a1e05f.
+ * The owner's answer of 2026-11-18 (#166) moved it again, for the same reason only: coverage's optional `gaps` moves the protocol hash the
+ * seed's coverage.json records (the seed has no gap, so no other byte changes). It was df3b387d51f3627a39690506682a9c2e86909cf4d5b96eae0eefe18f9a9d0c5a.
  */
-const WRITER_1_PHASE_SHA256 = "df3b387d51f3627a39690506682a9c2e86909cf4d5b96eae0eefe18f9a9d0c5a";
+const WRITER_1_PHASE_SHA256 = "1c4429bf4bbd446c04b6d2ce9cb761a66d5f48c214cf557c947ccb5ea804a011";
 /** Heavy's limits as freeze.json records them for a seeded local writer. */
 const HEAVY_LIMITS = { requests: 200, modelCalls: 80, toolCalls: 120, outputTokens: 16_384, inputBytes: 640 * 1024, requestTimeoutMs: 900_000, elapsedMs: 5_400_000, feeMicrousd: 0 };
 const environment = (baseUrl: string) => ({ SOAR_PROVIDER_MODE: "local", SOAR_VLLM_BASE_URL: baseUrl, SOAR_VLLM_COST_POLICY: "local_zero_cost", SOAR_VLLM_MODEL: "RM-01 VLM" });

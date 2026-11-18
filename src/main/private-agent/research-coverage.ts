@@ -37,6 +37,8 @@ export const ResearchCoverageSchema = z.object({ version: z.literal(4), protocol
   omissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), quoteSha256: sha256Schema, chunkIds: z.array(z.string().min(1).max(80)).min(1).max(4096),
     locator: z.string().min(1).max(100), reason: z.enum(["packet_cap", "presentation_cap"]) }).strict()).max(480),
   conflictOmissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), noteSha256: sha256Schema, reason: z.literal("conflict_cap") }).strict()).max(160),
+  /** The owner's answer of 2026-11-18 (#166): the one chunk whose last reply, after every repair, declared these questions unresolved. Absent without one. */
+  gaps: z.array(z.object({ chunkId: z.string().min(1).max(80), sourceId: id, questionIds: z.array(qid).min(1).max(12), attempts: z.number().int().min(1).max(3) }).strict()).length(1).optional(),
   unresolved: z.array(z.string().min(1).max(80)).max(4096),
   synthesis: z.object({ status: z.enum(["pending", "complete", "invalid", "skeleton"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12) }).strict(),
   fallbacks: z.object({ plan: z.enum(["none", "host_plan"]), synthesis: z.enum(["none", "skeleton"]) }).strict(),
@@ -180,7 +182,13 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
     if (read(path) !== `${canonical(parse(path))}\n`) fail("json_form");
   // 7b.2 (#102): omissions and conflict omissions no longer make a packet incomplete; the
   // counts, identity and binding checks below accept only disclosed ones.
-  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
+  // The owner's answer of 2026-11-18 (#166): one disclosed gap, the chunk whose last reply declared questions unresolved, is the one
+  // chunk a ready packet may hold that is not complete. Its record must be the chunk's own: its source, its status and its attempts.
+  const gap = coverage.gaps?.[0], gapChunk = gap ? coverage.chunks.find(c => c.id === gap.chunkId) : undefined;
+  if (gap && (!gapChunk || gapChunk.sourceId !== gap.sourceId || gapChunk.status !== "needs_followup" || gapChunk.attempts.length !== gap.attempts ||
+    gapChunk.attempts.at(-1)?.status !== "needs_followup")) fail("gap");
+  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) ||
+    coverage.chunks.some(c => c !== gapChunk && (c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete")) ||
     coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");
   if (coverage.protocolSha256 !== summary.protocolSha256 || (expected.protocolSha256 && expected.protocolSha256 !== summary.protocolSha256) || (expected.budget && canonical(expected.budget) !== canonical(summary.budget))) fail("protocol");
   // 7(c): the plan and synthesis ceilings are the budget plus the assist slots; a settled assist reply is one of its stage's calls.
@@ -237,6 +245,11 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   // Item (ii): a third attempt, a second repair, exists only under a card's admission record, which only an admitted run writes.
   if (summary.admission === undefined && coverage.chunks.some(c => c.attempts.length > 2)) fail("extraction_attempts");
   const questions = new Set(plan.questions.map(q => q.id)), evidenceIds = new Set(evidence.quotes.map(q => q.id));
+  // The gap names plan questions once each, its chunk gives the packet no evidence, and its outcomes are the gap's: needs_followup
+  // for each declared question and no_verified_evidence for every other. The extract row records the gap, and only then.
+  if (gap && (!unique(gap.questionIds) || gap.questionIds.some(q => !questions.has(q)) || gapChunk!.questions.some(q => q.evidenceIds.length ||
+    q.status !== (gap.questionIds.includes(q.questionId) ? "needs_followup" : "no_verified_evidence")))) fail("gap");
+  if (((summary.stages[2] as { declaredGaps?: unknown }).declaredGaps ?? 0) !== (gap ? 1 : 0)) fail("gap");
   // 7b.2: every verified quote is in the packet or one omission, and every noted conflict in the packet or one conflict omission.
   if (!evidence.quotes.length || !unique(evidence.quotes.map(q => q.id)) || evidence.counts.inPacket !== evidence.quotes.length || evidence.counts.leftByCap !== coverage.omissions.length ||
     evidence.counts.verified !== evidence.quotes.length + coverage.omissions.length || evidence.counts.conflictsNoted !== evidence.conflicts.length + coverage.conflictOmissions.length) fail("evidence_counts");
@@ -248,7 +261,7 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   for (const chunk of coverage.chunks) {
     if (!unique(chunk.questions.map(q => q.questionId)) || canonical(chunk.questions.map(q => q.questionId).sort()) !== canonical([...questions].sort())) fail("chunk_questions");
     for (const q of chunk.questions) {
-      if (!unique(q.evidenceIds) || q.status === "needs_followup" || (q.status === "no_verified_evidence" && q.evidenceIds.length) || (q.status === "evidence_retained" && !q.evidenceIds.length) ||
+      if (!unique(q.evidenceIds) || (q.status === "needs_followup" && (chunk !== gapChunk || !gap!.questionIds.includes(q.questionId))) || (q.status === "no_verified_evidence" && q.evidenceIds.length) || (q.status === "evidence_retained" && !q.evidenceIds.length) ||
         (q.status === "evidence_trimmed" && (q.evidenceIds.length || !coverage.omissions.some(o => o.chunkIds.includes(chunk.id) && o.questionIds.includes(q.questionId))))) fail("question_outcome");
       for (const e of q.evidenceIds) { const quote = evidence.quotes.find(item => item.id === e); if (!quote || !quote.questionIds.includes(q.questionId) || !quote.chunkIds.includes(chunk.id)) fail("question_quote"); }
     }

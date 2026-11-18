@@ -52835,3 +52835,55 @@ Paid exposure: None.
 Next gate: The owner's two lines. Then the doctor, which must report the card as configured. Then the r3 re-measurement, registered by an amendment before its first run.
 
 References: docs/experiments/serving-card-2026-11-17.json; docs/experiments/README.md ("Adoption", "Audit"); docs/experiments/e0-card-2026-11-13.md (Amendment 5); BL-20261117-1356-e0-reprobe-result-plan-cap-16384; BL-20261117-1155-e0-card-amendment-5; BL-20261117-1156-correction-e0-card-amendment-5-second-repair-restamp; BL-20261117-1130-lane-decisions-second-repair-before-reprobe; BL-20261117-0940-owner-direction-decisions-delegated; pull request #152.
+
+### BL-20261117-1641-fixture-tests-loopback-address-forms -- 2026-11-17 -- The role-fixture tests look for the loopback address's forms, not the port's bare digits, after a chance match failed CI on #153
+
+Status: `Implemented`
+
+Scope or hypothesis: CI's `check` failed once on the adoption pull request (#153), in tests/unit/planner-fixture.test.ts. The test asserts that the planner fixture's summary holds no endpoint address, and one of its checks was that the summary does not contain the loopback server's port as bare digits. That run's random port, 35339, occurred by chance inside the summary, which holds sha256 digests and timestamps. The coordinating session re-ran the job and asked lane S-pipe for a robust assertion. It also asked for the extractor fixture's test, and any other test, to be checked for the same pattern.
+
+Decisions:
+1. **What a record is checked for.** A new helper, `loopbackAddressForms(baseUrl)` in tests/helpers/loopback-address.ts, gives the forms in which the address would show:
+   - the base URL and its origin;
+   - the host and port in each loopback spelling: 127.0.0.1, localhost and [::1];
+   - the port as a URL's port before a path, `:PORT/`.
+
+   It never gives the port's bare digits, nor the digits after a colon, because both occur by chance in digests and JSON numbers. It refuses a base URL without an explicit port, since `:/` would match every URL.
+2. **Where it applies.** Three role-fixture tests now check their records against those forms, beside their existing `127.0.0.1` check:
+   - planner-fixture.test.ts, the failing test, checked the bare digits;
+   - judge-fixture.test.ts checked the same bare digits;
+   - extractor-fixture.test.ts checked `:PORT` twice, which a JSON number such as `"bytes":353390` can also hold.
+
+   The integration tests already check `127.0.0.1:PORT`. No other test checks a port's digits.
+3. **What the checks no longer catch:** a record that holds the port alone, as a bare number with no host or URL around it. No fixture records the endpoint in any form, and checking for the bare digits fails by chance.
+
+Changes:
+- tests/helpers/loopback-address.ts: new.
+- tests/unit/loopback-address.test.ts: new. The forms catch the leaks and ignore the port's digits in a digest, a JSON number, a timestamp and a count. A base URL without a port is refused.
+- tests/unit/planner-fixture.test.ts, judge-fixture.test.ts and extractor-fixture.test.ts: the checks.
+- docs/BUILD_LOG.md: this entry.
+
+Evidence:
+- **The four test files pass:** 45 tests.
+- **Mutants, each with the expected result:**
+  - The planner fixture's summary holds `localhost:PORT`: the planner test fails.
+  - The summary holds `//gateway:PORT/v1`: the test fails.
+  - The summary holds the port's digits inside a digest-like value: the test passes. With the old bare-digit assertion restored, it fails, which reproduces the flake.
+  - The helper returns no forms: the helper's test fails.
+- **Checks:**
+  - `pnpm typecheck` passes.
+  - The full suite passes: 198 files passed and 14 skipped; 3,975 tests passed and 88 skipped; none failed.
+  - `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` exit 0.
+- **Nothing outside tests/ and this log changes.** The source freeze, c39a5ccb5ec086d52b774be12d486ccf95cbe3a6bd2ac8ab60fe8e8076132462 at `main` 6da7080, and `researchProtocolSha256()` are unchanged.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The flake was a chance event, so its absence from later CI runs shows nothing by itself. The mutant above reproduces it.
+- A record that held the port as a bare number, with no host or URL around it, would pass these checks.
+
+Paid exposure: None.
+
+Next gate: CI and the coordinating session's merge.
+
+References: pull request #153 and its failed `check` run; tests/unit/planner-fixture.test.ts; tests/unit/judge-fixture.test.ts; tests/unit/extractor-fixture.test.ts.

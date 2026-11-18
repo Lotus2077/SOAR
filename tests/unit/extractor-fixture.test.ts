@@ -15,6 +15,7 @@ import { CONDITION_CALLS, DEPLOYED_CONDITION, EXTRACTOR_CLASSES, EXTRACTOR_CONDI
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { researchV4Reply } from "../helpers/research-v4-fixture";
+import { loopbackAddressForms } from "../helpers/loopback-address";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
@@ -273,7 +274,7 @@ describe("E0 extractor fixture: a run against a loopback endpoint", () => {
     expect(statSync(join(out, "summary.json")).mode & 0o777).toBe(0o600); expect(statSync(join(out, "replies")).mode & 0o777).toBe(0o700);
     expect(JSON.parse(readFileSync(join(out, "summary.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(summary)));
     const serialized = JSON.stringify(summary);
-    for (const secret of ["127.0.0.1", `:${server.port}`, "test-key", "hidden thoughts", "hidden usage text", "Halverstrand", "2.6 million crowns", "stepped concrete", "bad request",
+    for (const secret of ["127.0.0.1", ...loopbackAddressForms(server.baseUrl), "test-key", "hidden thoughts", "hidden usage text", "Halverstrand", "2.6 million crowns", "stepped concrete", "bad request",
       "fetch failed", "socket", "Stopped by user"]) expect(serialized).not.toContain(secret);
   });
 
@@ -477,7 +478,7 @@ describe("E0 extractor fixture: the registry's fixture mode (scripts/registry-ro
       classes: { "thinking-off": { complete: 4, request_rejected: 1, transport_failed: 1 }, "thinking-on": { complete: 5, truncated: 1 } } });
     expect(result.fixture.classes).toEqual(summary.counts);
     expect(result.inputSha256).toBe(digest(canonical({ "thinking-off": summary.requests["thinking-off"]!.requestSetSha256, "thinking-on": summary.requests["thinking-on"]!.requestSetSha256 })));
-    for (const absent of ["Registry-Alias", "127.0.0.1", `:${server.port}`, "input/corpus", "e0-extractor-fixture-v1", "e0-extractor-fixture-2026", "S1C1", "bad request", "hidden usage text",
+    for (const absent of ["Registry-Alias", "127.0.0.1", ...loopbackAddressForms(server.baseUrl), "input/corpus", "e0-extractor-fixture-v1", "e0-extractor-fixture-2026", "S1C1", "bad request", "hidden usage text",
       "Halverstrand", "repeat_condition_chunk"]) expect(line).not.toContain(absent);
     expect(refusedRow(out, "accepted", { "--task": "e0-synthetic-extraction" })).toContain("--task must equal the fixture manifest's task");
     expect(refusedRow(out, "accepted", { "--exposure": "exposed" })).toContain("--exposure must equal the fixture manifest's exposure");

@@ -16,6 +16,7 @@ import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, FIXTURE_JOB_ID, PLAN_RESPONSE_F
   type FixtureCondition } from "../../scripts/planner-fixture";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
+import { loopbackAddressForms } from "../helpers/loopback-address";
 
 const cleanups: (() => void)[] = [];
 afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); });
@@ -140,7 +141,8 @@ describe("planner fixture request builder", () => {
     expect(statSync(join(out, "summary.json")).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(join(out, "summary.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(summary)));
     const serialized = JSON.stringify(summary);
-    expect(serialized).not.toContain("127.0.0.1"); expect(serialized).not.toContain(String(server.port)); expect(serialized).not.toContain("hidden thoughts"); expect(serialized).not.toContain("test-key"); expect(serialized).not.toContain("orchard");
+    expect(serialized).not.toContain("127.0.0.1"); for (const form of loopbackAddressForms(server.baseUrl)) expect(serialized).not.toContain(form);
+    expect(serialized).not.toContain("hidden thoughts"); expect(serialized).not.toContain("test-key"); expect(serialized).not.toContain("orchard");
     // A dry run builds and hashes the requests, sends nothing and writes nothing.
     const dry = await runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: { index: f.index, brief: f.briefBytes, manifest: f.manifest }, out: join(out, "dry"), repeats: 3, conditions: DEFAULT_CONDITIONS, dryRun: true });
     expect(dry).toMatchObject({ dryRun: true, calls: [], counts: {} }); expect(Object.keys(dry.requests)).toEqual([...DEFAULT_CONDITIONS]); expect(server.requests).toHaveLength(4); expect(existsSync(join(out, "dry"))).toBe(false);

@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { app, BrowserWindow, dialog } from "electron";
 import { loadEnvironmentFiles } from "./config";
 import { startQuit } from "./liveness";
@@ -29,10 +30,16 @@ function chooseUserDataFolder(): UserDataFolder {
     return { kind: "refused", reason: "SOAR could not read the settings that choose its user-data folder." };
   }
   if (folder.kind !== "beta") return folder;
-  app.setPath("userData", folder.path);
-  app.setPath("sessionData", folder.path);
-  return app.getPath("userData") === folder.path && app.getPath("sessionData") === folder.path ? folder
-    : { kind: "refused", reason: "The local research beta could not move to its own user-data folder." };
+  const unmoved: UserDataFolder = { kind: "refused", reason: "The local research beta could not move to its own user-data folder." };
+  // Electron's setPath throws for a folder that does not exist, so the folder is made first; any failure here is a refusal.
+  try {
+    mkdirSync(folder.path, { recursive: true });
+    app.setPath("userData", folder.path);
+    app.setPath("sessionData", folder.path);
+  } catch {
+    return unmoved;
+  }
+  return app.getPath("userData") === folder.path && app.getPath("sessionData") === folder.path ? folder : unmoved;
 }
 const userDataFolder = chooseUserDataFolder();
 

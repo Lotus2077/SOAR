@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,11 +56,25 @@ describe("pnpm setup:general doctor", () => {
     writeFileSync(join(cwd, ".env.local"), "SOAR_ENABLE_LOCAL_RESEARCH_BETA=true\n");
     expect(setupUserDataEnvFile({}, cwd, home, "darwin")).toEqual({ file: join(home, "Library", "Application Support", "SOAR Research Beta", ".env.local") });
     expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "yes" }, cwd, home, "darwin")).toEqual({ refused: "SOAR_ENABLE_LOCAL_RESEARCH_BETA must be true or false." });
+    // The doctor reports the refusals the app makes after reading its settings: the flag only in the default folder's own settings,
+    // and the beta's database outside its folder.
+    rmSync(join(cwd, ".env.local")); mkdirSync(join(plain, ".."), { recursive: true }); writeFileSync(plain, "SOAR_ENABLE_LOCAL_RESEARCH_BETA=true\n");
+    expect(setupUserDataEnvFile({}, cwd, home, "darwin")).toMatchObject({ refused: expect.stringMatching(/on only in the user-data folder's own settings/u) });
+    rmSync(plain);
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "true", SOAR_DB_PATH: join(root, "elsewhere.sqlite") }, cwd, home, "darwin"))
+      .toMatchObject({ refused: expect.stringMatching(/Remove SOAR_DB_PATH/u) });
+    // A beta .env.local that links into the default folder is never the file the doctor writes.
+    const betaFolder = join(home, "Library", "Application Support", "SOAR Research Beta"); mkdirSync(betaFolder, { recursive: true });
+    writeFileSync(plain, ""); symlinkSync(plain, join(betaFolder, ".env.local"));
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "true" }, cwd, home, "darwin")).toEqual({ refused: "The local research beta's .env.local leads out of its own user-data folder." });
   });
   it("refuses at the command line what the app refuses, before any probe or write (backlog item 13a)", () => {
     const { root } = setup(), home = join(root, "home");
     const result = spawnSync(process.execPath, ["--import", "tsx", resolve(__dirname, "..", "..", "scripts", "setup-general.ts"), "--write"],
-      { cwd: resolve(__dirname, "..", ".."), env: { PATH: process.env.PATH ?? "", HOME: home, SOAR_ENABLE_LOCAL_RESEARCH_BETA: "yes" }, encoding: "utf8", timeout: 60_000 });
+      { cwd: resolve(__dirname, "..", ".."), encoding: "utf8", timeout: 60_000,
+        // Sealed off: should the refusal ever regress, the probes reach only a closed loopback port and no Docker daemon.
+        env: { PATH: process.env.PATH ?? "", HOME: home, SOAR_ENABLE_LOCAL_RESEARCH_BETA: "yes", SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1",
+          SOAR_ALLOW_INSECURE_VLLM_HTTP: "true", DOCKER_HOST: "unix:///nonexistent/soar-test-docker.sock" } });
     expect(result.status).toBe(2); expect(result.stdout).toBe("");
     expect(result.stderr).toBe("SOAR_ENABLE_LOCAL_RESEARCH_BETA must be true or false.\n");
     expect(existsSync(home)).toBe(false);

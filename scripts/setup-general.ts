@@ -11,7 +11,7 @@ import { DockerSandbox } from "../src/main/private-agent/sandbox";
 import { loadConfig, loadEnvironmentFiles, vllmEndpointPolicyIssue, type SoarConfig } from "../src/main/config";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, isCoordinatorProfileName } from "../src/main/private-agent/profiles";
 import { loadServingCard, looksLikePath, servingCardExpectation, servingCardRefusal, type LoadedServingCard } from "../src/main/private-agent/serving-card";
-import { decideUserDataFolder } from "../src/main/user-data-folder";
+import { decideUserDataFolder, researchBetaFolderIssue } from "../src/main/user-data-folder";
 
 /**
  * `pnpm setup:general`: a read-only doctor for the general task runtime, plus `--write` to record the
@@ -156,12 +156,18 @@ export function userDataEnvFile(home = homedir(), platform = process.platform): 
 }
 /**
  * Backlog item 13a, requirement A: the settings file of the folder the app chooses from the same settings, so `--write` never writes
- * the default folder's file from a checkout with the local research beta on. A refusal is the app's own.
+ * the default folder's file from a checkout with the local research beta on, nor through a link that leads out of the beta folder.
+ * Every refusal is the app's own, before start (the folder) and after its settings are read (the flag and the database), so the
+ * doctor never reports ready where the app refuses.
  */
 export function setupUserDataEnvFile(env: NodeJS.ProcessEnv, cwd: string, home = homedir(), platform = process.platform): { file: string } | { refused: string } {
-  const fallback = userDataEnvFile(home, platform);
-  const folder = decideUserDataFolder(loadEnvironmentFiles({ cwd, appPath: cwd, environment: env }).SOAR_ENABLE_LOCAL_RESEARCH_BETA, dirname(fallback));
-  return folder.kind === "refused" ? { refused: folder.reason } : { file: folder.kind === "beta" ? join(folder.path, ".env.local") : fallback };
+  const fallback = userDataEnvFile(home, platform), defaultFolder = dirname(fallback);
+  const folder = decideUserDataFolder(loadEnvironmentFiles({ cwd, appPath: cwd, environment: env }).SOAR_ENABLE_LOCAL_RESEARCH_BETA, defaultFolder);
+  if (folder.kind === "refused") return { refused: folder.reason };
+  const userDataPath = folder.kind === "beta" ? folder.path : defaultFolder;
+  const settings = loadEnvironmentFiles({ cwd, appPath: cwd, environment: env, userDataPath });
+  const issue = researchBetaFolderIssue({ folder, localResearchBeta: settings.SOAR_ENABLE_LOCAL_RESEARCH_BETA === "true", userDataPath, databasePath: settings.SOAR_DB_PATH });
+  return issue !== undefined ? { refused: issue } : { file: join(userDataPath, ".env.local") };
 }
 
 export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: string; userDataFile: string; write: boolean; nodeVersion: string; probes: GeneralSetupProbes }): Promise<GeneralSetupReport> {

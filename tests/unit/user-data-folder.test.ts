@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { RESEARCH_BETA_FOLDER_SUFFIX, decideUserDataFolder, researchBetaFolderIssue, resolvedPath, withResearchBetaFolder } from "../../src/main/user-data-folder";
 
@@ -24,11 +24,12 @@ describe("the local research beta's own user-data folder (backlog item 13a, requ
 
   it("refuses a beta folder that resolves to the default folder, into it or around it", () => {
     const { root, home } = appData(), beta = `${home}${RESEARCH_BETA_FOLDER_SUFFIX}`;
+    const into = { kind: "refused", reason: "The local research beta's user-data folder resolves to the default user-data folder, into it or around it." };
     symlinkSync(home, beta);
-    expect(decideUserDataFolder("true", home)).toMatchObject({ kind: "refused" });
+    expect(decideUserDataFolder("true", home)).toEqual(into);
     // A dangling link is followed through its text: here into a folder not yet made inside the default one.
     rmSync(beta); symlinkSync(join(home, "nested"), beta);
-    expect(decideUserDataFolder("true", home)).toMatchObject({ kind: "refused" });
+    expect(decideUserDataFolder("true", home)).toEqual(into);
     // A link loop does not resolve, so it is refused.
     rmSync(beta); symlinkSync(join(root, "loop"), beta); symlinkSync(beta, join(root, "loop"));
     expect(decideUserDataFolder("true", home)).toEqual({ kind: "refused", reason: "The local research beta's user-data folder could not be resolved." });
@@ -39,9 +40,49 @@ describe("the local research beta's own user-data folder (backlog item 13a, requ
     // A default folder that is a link into its own beta folder: the beta folder would hold it.
     const around = join(root, "SOAR2"), aroundBeta = `${around}${RESEARCH_BETA_FOLDER_SUFFIX}`;
     mkdirSync(join(aroundBeta, "inner"), { recursive: true }); symlinkSync(join(aroundBeta, "inner"), around);
-    expect(decideUserDataFolder("true", around)).toMatchObject({ kind: "refused" });
+    expect(decideUserDataFolder("true", around)).toEqual(into);
     // A folder not yet made resolves through its nearest existing ancestor.
     expect(resolvedPath(join(root, "absent", "deeper"))).toBe(join(root, "absent", "deeper"));
+  });
+
+  it("refuses another spelling of the default folder: another case, or the same device and inode under another name", () => {
+    const { root, home } = appData(), beta = `${home}${RESEARCH_BETA_FOLDER_SUFFIX}`;
+    // A link spelt in another case than the default folder's: the same folder on a case-insensitive volume, refused everywhere.
+    symlinkSync(join(root, "soar"), beta);
+    expect(decideUserDataFolder("true", home)).toMatchObject({ kind: "refused" });
+    // With a resolver that keeps every spelling, the device and inode still catch a link to the default folder.
+    rmSync(beta); symlinkSync(home, beta);
+    expect(decideUserDataFolder("true", home, target => resolve(target))).toMatchObject({ kind: "refused" });
+    rmSync(beta); mkdirSync(beta);
+    expect(decideUserDataFolder("true", home, target => resolve(target))).toEqual({ kind: "beta", path: beta });
+    // A default folder not yet made has no device or inode: its spelling alone, without case, refuses a link spelt otherwise.
+    const fresh = join(root, "Fresh"), freshBeta = `${fresh}${RESEARCH_BETA_FOLDER_SUFFIX}`;
+    symlinkSync(join(root, "fresh"), freshBeta);
+    expect(decideUserDataFolder("true", fresh)).toEqual({ kind: "refused", reason: "The local research beta's user-data folder resolves to the default user-data folder, into it or around it." });
+    // On a case-insensitive volume, an entry reached through another case of the beta folder's own name stays inside it.
+    const variant = join(root, "soar research beta");
+    if (existsSync(variant)) {
+      mkdirSync(join(beta, "patch-runs-real")); symlinkSync(join(variant, "patch-runs-real"), join(beta, "patch-runs"));
+      expect(decideUserDataFolder("true", home)).toEqual({ kind: "beta", path: beta });
+    }
+  });
+
+  it("refuses a beta folder whose settings, database, side files or task data lead out of it through a link", () => {
+    const { root, home } = appData(), beta = `${home}${RESEARCH_BETA_FOLDER_SUFFIX}`, elsewhere = join(root, "elsewhere");
+    mkdirSync(beta); mkdirSync(elsewhere); writeFileSync(join(beta, "soar.sqlite"), ""); mkdirSync(join(beta, "general-tasks"));
+    expect(decideUserDataFolder("true", home)).toEqual({ kind: "beta", path: beta });
+    for (const [name, target] of [[".env.local", join(home, ".env.local")], ["soar.sqlite-wal", join(home, "soar.sqlite-wal")], ["patch-runs", join(elsewhere, "patch-runs")]]) {
+      symlinkSync(target, join(beta, name));
+      expect(decideUserDataFolder("true", home), name).toEqual({ kind: "refused", reason: `The local research beta's ${name} leads out of its own user-data folder.` });
+      rmSync(join(beta, name));
+    }
+    // After the settings, the effective database and the task data beside it are resolved too.
+    const folder = { kind: "beta" as const, path: beta };
+    expect(researchBetaFolderIssue({ folder, localResearchBeta: true, userDataPath: beta })).toBeUndefined();
+    rmSync(join(beta, "general-tasks"), { recursive: true }); symlinkSync(join(home, "general-tasks"), join(beta, "general-tasks"));
+    expect(researchBetaFolderIssue({ folder, localResearchBeta: true, userDataPath: beta })).toMatch(/any link there that leads out of the folder/u);
+    rmSync(join(beta, "general-tasks")); rmSync(join(beta, "soar.sqlite")); symlinkSync(join(home, "soar.sqlite"), join(beta, "soar.sqlite"));
+    expect(researchBetaFolderIssue({ folder, localResearchBeta: false, userDataPath: beta })).toMatch(/any link there that leads out of the folder/u);
   });
 
   it("refuses to start with the flag on outside the beta folder, or with the beta's database outside its folder", () => {

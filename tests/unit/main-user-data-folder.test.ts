@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * Backlog item 13a, requirement A: the real src/main/index.ts, loaded under a fake Electron app that records its calls in order.
  * The fake keeps the app's paths, so a moved folder is what the lock and bootstrap then see.
  */
-interface Fake { calls: string[]; paths: Record<string, string>; holdSetPath: boolean; bootstrap: ReturnType<typeof vi.fn> }
+interface Fake { calls: string[]; paths: Record<string, string>; setPath: "move" | "hold" | "throw"; bootstrap: ReturnType<typeof vi.fn> }
 let fake: Fake;
 const cleanups: (() => void)[] = [];
 const saved = { flag: process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA, envFile: process.env.SOAR_ENV_FILE };
@@ -27,15 +27,20 @@ function machine(): { checkout: string; home: string } {
   return { checkout, home };
 }
 
-async function start(checkout: string, home: string, holdSetPath = false): Promise<Fake> {
-  fake = { calls: [], paths: { app: checkout, userData: home, sessionData: home }, holdSetPath, bootstrap: vi.fn(async () => ({ close: async () => {}, busy: () => false })) };
+async function start(checkout: string, home: string, setPath: Fake["setPath"] = "move"): Promise<Fake> {
+  fake = { calls: [], paths: { app: checkout, userData: home, sessionData: home }, setPath, bootstrap: vi.fn(async () => ({ close: async () => {}, busy: () => false })) };
   vi.spyOn(process, "cwd").mockReturnValue(checkout);
   vi.resetModules();
   vi.doMock("electron", () => ({
     app: {
       getAppPath: () => fake.paths.app,
       getPath: (name: string) => fake.paths[name],
-      setPath: (name: string, value: string) => { fake.calls.push(`setPath ${name}`); if (!fake.holdSetPath) fake.paths[name] = value; },
+      setPath: (name: string, value: string) => {
+        fake.calls.push(`setPath ${name}`);
+        // As Electron documents, setPath throws for a folder that does not exist.
+        if (fake.setPath === "throw" || !existsSync(value)) throw new Error("setPath refused");
+        if (fake.setPath === "move") fake.paths[name] = value;
+      },
       requestSingleInstanceLock: () => { fake.calls.push(`lock in ${fake.paths.userData}`); return true; },
       on: () => undefined,
       whenReady: () => Promise.resolve(),
@@ -75,16 +80,18 @@ describe("the main process chooses its user-data folder before the single-instan
   });
 
   it("takes no lock and starts nothing when the flag is malformed, the beta folder resolves to the default one, or the move does not hold", async () => {
-    const cases: [string, (checkout: string, home: string) => void, boolean, RegExp][] = [
-      ["malformed", () => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "yes"; }, false, /must be true or false/u],
-      ["linked to the default", (_checkout, home) => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "true"; symlinkSync(home, `${home} Research Beta`); }, false, /resolves to the default user-data folder/u],
-      ["the move does not hold", () => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "true"; }, true, /could not move to its own user-data folder/u],
-      ["unreadable settings", checkout => { delete process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA; mkdirSync(join(checkout, ".env.local")); }, false, /could not read the settings/u],
+    const cases: [string, (checkout: string, home: string) => void, Fake["setPath"], RegExp][] = [
+      ["malformed", () => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "yes"; }, "move", /must be true or false/u],
+      ["linked to the default", (_checkout, home) => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "true"; symlinkSync(home, `${home} Research Beta`); }, "move", /resolves to the default user-data folder/u],
+      ["the move does not hold", () => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "true"; }, "hold", /could not move to its own user-data folder/u],
+      ["setPath throws", () => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "true"; }, "throw", /could not move to its own user-data folder/u],
+      ["the database links out", (_checkout, home) => { process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA = "true"; mkdirSync(`${home} Research Beta`); symlinkSync(join(home, "soar.sqlite"), join(`${home} Research Beta`, "soar.sqlite")); }, "move", /soar\.sqlite leads out of its own user-data folder/u],
+      ["unreadable settings", checkout => { delete process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA; mkdirSync(join(checkout, ".env.local")); }, "move", /could not read the settings/u],
     ];
-    for (const [name, arrange, hold, reason] of cases) {
+    for (const [name, arrange, setPath, reason] of cases) {
       const { checkout, home } = machine();
       delete process.env.SOAR_ENV_FILE; arrange(checkout, home);
-      const run = await start(checkout, home, hold);
+      const run = await start(checkout, home, setPath);
       expect(run.calls.some(call => call.startsWith("lock")), name).toBe(false);
       expect(run.calls.find(call => call.startsWith("error")), name).toMatch(reason);
       expect(run.calls.at(-1), name).toBe("quit");

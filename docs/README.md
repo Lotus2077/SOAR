@@ -1,6 +1,6 @@
 # Documentation index
 
-Files stay where they are, because the append-only build log links to them. This
+Files stay where they are, because the build log links to them. This
 index says which documents currently govern the project and which are historical
 evidence. Historical documents describe their own versions; their "next steps" are
 not active requirements.
@@ -26,7 +26,8 @@ for repair commit `181f024`; that record authorized no new live attempt or relax
 | [plans/PRIVATE_WORK_DESIGN_V1.md](plans/PRIVATE_WORK_DESIGN_V1.md) | Private-work design (Proposed): strict privacy profile, admin assistant, research and document review, device |
 | [plans/PRIVACY_FILTER_V2_DESIGN.md](plans/PRIVACY_FILTER_V2_DESIGN.md) | Privacy filter v2 direction approved at its defaults on 2026-10-22: synthetic-first stages, no labelled packet before the gates, no paid allocation yet; lenses and change logs under `plans/privacy-filter-v2/` |
 | [PROJECT_REVIEW_2026-09-28.md](PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review behind the plan (September state; succeeded by the 2026-11-05 review) |
-| [BUILD_LOG.md](BUILD_LOG.md) | Append-only decision and evidence ledger |
+| [build-log/](build-log/) | The decision and evidence ledger: one file per entry since 2026-11-18 |
+| [BUILD_LOG.md](BUILD_LOG.md) | The ledger's frozen archive, to 2026-11-18 |
 | [HANDOFF.md](HANDOFF.md) | Start here: the current state, the decisions in force and the next actions (2026-11-07), then the code map and operational boundaries of the general-task runtime (September state) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime architecture, including legacy paths |
 | [MVP_GENERAL_CONSULTANT_SETUP.md](MVP_GENERAL_CONSULTANT_SETUP.md) | Consultant environment setup |
@@ -54,7 +55,8 @@ These are kept as history; each was superseded as noted.
   history; savings no longer drives design.
 - Other files in [plans/](plans/) include historical per-experiment plans and
   amendments. Their original status text may predate later approval or failure;
-  consult PLAN.md and the append-only BUILD_LOG before treating one as active.
+  consult PLAN.md and the build log (the archive and `build-log/`) before treating one
+  as active.
   [adr/](adr/) holds the legacy architecture decisions.
 
 ## Experiment reports, September 7-14

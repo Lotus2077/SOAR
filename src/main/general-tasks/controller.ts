@@ -37,8 +37,8 @@ import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from ".
 import { caughtRunReason, isResumableRunReason, storedRunReason } from "./run-reasons";
 import { storageIntegrityFailed } from "./storage-integrity";
 import { HostFlagsEventSchema } from "../private-agent/host-flags";
-import { DESKTOP_RESEARCH_ROUTE, desktopResearchAvailability, isDesktopResearchRecord, readDesktopResearchCard, researchInputsCheck,
-  type DesktopResearchRecord } from "./research-route";
+import { DESKTOP_RESEARCH_ROUTE, DESKTOP_RESEARCH_WRITE_BOUND, desktopResearchAvailability, desktopResearchSession, isDesktopResearchRecord, readDesktopResearchCard,
+  researchInputsCheck, researchStageView, researchWriteLimits, type DesktopResearchRecord, type DesktopResearchWriteBound } from "./research-route";
 
 /** Cap on one assembled local model reply. */
 const LOCAL_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -276,7 +276,9 @@ export interface GeneralTaskControllerOptions {
   /** PR-B: fires with true when the first task becomes active and false when the last one ends (the shell keeps the machine awake). */
   onActivity?: (active: boolean) => void;
   /** Host-only test dependencies. Never accepted through IPC. */
-  testing?: { readiness?: (imageId: string) => Promise<void>; runnerFactory?: GeneralSessionOptions["trustedHostRunnerFactory"] };
+  testing?: { readiness?: (imageId: string) => Promise<void>; runnerFactory?: GeneralSessionOptions["trustedHostRunnerFactory"];
+    /** Tests only: the research write bound E2 may choose, in place of the shipped DESKTOP_RESEARCH_WRITE_BOUND (requirement B). */
+    researchWriteBound?: DesktopResearchWriteBound };
 }
 
 /** App adapter only: the existing session and runner remain the execution authority. */
@@ -363,6 +365,10 @@ export class GeneralTaskController {
   /** The task's own profile when it recorded one (PR-F), otherwise the configured default. */
   private profileName(record?: { profile?: CoordinatorProfileName }): CoordinatorProfileName { return record?.profile ?? this.options.config().generalTaskProfile ?? DEFAULT_COORDINATOR_PROFILE; }
   private budget(record?: { profile?: CoordinatorProfileName }) { return GENERAL_TASK_BUDGETS[this.profileName(record)]; }
+  /** The write phase's limits: the profile's own, or for a research task the named write bound (requirement B, research-route.ts). */
+  private writeLimits(record: { profile?: CoordinatorProfileName; research?: DesktopResearchRecord }) {
+    return record.research ? researchWriteLimits(this.options.testing?.researchWriteBound ?? DESKTOP_RESEARCH_WRITE_BOUND, this.budget(record)) : this.budget(record);
+  }
   private publish(id: string): void { try { this.options.onUpdate?.(this.get(id)); } catch { /* Closing windows do not interrupt execution. */ } }
   private profile(record?: { profile?: CoordinatorProfileName; research?: DesktopResearchRecord }) {
     const config = this.options.config(), imageId = this.options.imageId(), runtimeIdentity = this.options.runtimeIdentity();
@@ -389,14 +395,15 @@ export class GeneralTaskController {
     if (!profile || record && (record.version !== 3 || record.consultantIdentity !== profile.identity)) throw new Error("general_task_configuration_changed");
     return profile;
   }
+  /** The beta flag and the very card a research task was created on: a later card, or the flag turned off, ends any start or resume of the task. */
+  private researchCard(record: Pick<TaskRecord, "research">) {
+    const config = this.options.config(), read = readDesktopResearchCard(config);
+    if (config.localResearchBeta !== true || !read.accepted || read.card.sha256 !== record.research?.cardSha256) throw new Error("general_task_configuration_changed");
+    return read.card;
+  }
   private configurationIdentity(record: Pick<TaskRecord, "version" | "consultantIdentity" | "profile" | "research">): string {
     const local = this.profile(record).identity;
-    if (record.version === 4) {
-      // The beta flag and the very card the task was created on: a later card, or the flag turned off, ends any start or resume of the task.
-      const config = this.options.config(), read = readDesktopResearchCard(config);
-      if (config.localResearchBeta !== true || !read.accepted || read.card.sha256 !== record.research?.cardSha256) throw new Error("general_task_configuration_changed");
-      return digest(canonical({ version: 4, local, research: record.research }));
-    }
+    if (record.version === 4) { this.researchCard(record); return digest(canonical({ version: 4, local, research: record.research })); }
     if (record.version !== 3) return local;
     const consultant = this.consultant();
     if (record.consultantIdentity !== consultant.identity) throw new Error("general_task_configuration_changed");
@@ -483,7 +490,7 @@ export class GeneralTaskController {
     return { contract: { version: 1, goal: `${record.goal}\nPreserve every provided input file byte-for-byte. Write the required deliverable to ${JSON.stringify(target)}.${publicInstructions}${ledger?.instructions ?? ""}`,
       requiredArtifacts: [{ path: target, description: "The user's requested deliverable." }, ...(ledger ? [{ path: CLAIMS_LEDGER_PATH, description: "Claims ledger: one verbatim source quote per material claim." }] : [])],
       requiredChecks: ["desktop_artifact_structure", ...(ledger ? [CLAIMS_LEDGER_CHECK_ID] : [])],
-      maxModelCalls: this.budget(record).modelCalls, maxToolCalls: this.budget(record).toolCalls, maxElapsedMs: this.budget(record).elapsedMs }, files,
+      maxModelCalls: this.writeLimits(record).modelCalls, maxToolCalls: this.writeLimits(record).toolCalls, maxElapsedMs: this.writeLimits(record).elapsedMs }, files,
     checks: [...(ledger ? [ledger.check] : []), { id: "desktop_artifact_structure", python: `import base64, hashlib, json\nfrom pathlib import Path\nspec=json.loads(base64.b64decode('${expected}'))\nfor item in spec['inputs']:\n    p=Path(item['path'])\n    assert p.is_file() and not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256']\np=Path(spec['target'])\nassert p.is_file() and not p.is_symlink() and p.stat().st_size>0` }] };
   }
   private attestation(record: Pick<TaskRecord, "version" | "goal" | "phaseIdentity" | "inputSnapshot" | "publicSources" | "routing" | "consultantIdentity" | "research">): string {
@@ -583,10 +590,16 @@ export class GeneralTaskController {
     } catch { return; }
   }
   private contextId(id: string): string | undefined {
-    const start = this.runtime.events(id).find(event => event.type === "session_started");
+    const events = this.runtime.events(id), start = events.find(event => event.type === "session_started");
     if (!start) return;
     const contextId = String(start.privateContextId);
-    if (this.runtime.context(contextId).jobId !== id) throw new Error("general_task_context_changed");
+    let jobId: string;
+    try { jobId = this.runtime.context(contextId).jobId; } catch (error) {
+      // Backlog item 13a: a research stage that stopped before the write phase never made the writer's context, so the task has none yet.
+      if (error instanceof Error && error.message === "private_agent_context_missing" && events.some(event => event.type === "research_input")) return undefined;
+      throw error;
+    }
+    if (jobId !== id) throw new Error("general_task_context_changed");
     return contextId;
   }
   /** The writer's context for the blocking predicate; a context that cannot be resolved keeps every unknown row blocking. */
@@ -651,7 +664,7 @@ export class GeneralTaskController {
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
     // Backlog item 6 (finding A6): the run-reasons table decides for an incomplete record; every guard after it still applies.
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && isResumableRunReason(record.reason)) && !consultationFailed &&
-      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !sourcesDamaged && !stageUnfinished && consultation?.status !== "pending" &&
+      (finalising || models < this.writeLimits(record).modelCalls && tools < this.writeLimits(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !sourcesDamaged && !stageUnfinished && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
     const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : consultationFailed ? "consultation_failed" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : sourcesDamaged ? "task_integrity_failed" :
       // Backlog item 6 (finding A7): an unfinished research stage is a permanent stop, named before the time limit, both for a record that
@@ -694,6 +707,7 @@ export class GeneralTaskController {
       independentAcceptance: "not_evaluated", canResume,
       ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
+      ...(record.research ? { research: researchStageView(record.research, events, dispatches, active) } : {}),
       ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
@@ -768,8 +782,6 @@ export class GeneralTaskController {
     if (this.closing || this.active.size) throw new Error("general_task_busy");
     const record = this.record(id);
     if (record.configurationIdentity !== this.configurationIdentity(record)) throw new Error("general_task_configuration_changed");
-    // Backlog item 13a: the research stage is wired by a later change. Until then a research task never starts, and never runs as a plain task.
-    if (record.version === 4) throw new Error("general_task_research_unwired");
     record.status = "running"; record.reason = "running"; record.startedAt ??= Date.now(); this.save(record);
     const active: Active = { promise: Promise.resolve(), abort: new AbortController(), pauseRequested: false, cancelRequested: false };
     this.active.set(id, active); this.trackActivity(); active.promise = this.execute(id, active); this.publish(id); return this.get(id);
@@ -790,7 +802,11 @@ export class GeneralTaskController {
       if (sessionPhaseIdentity(phase) !== record.phaseIdentity || this.attestation(record) !== record.attestationIdentity) throw new Error("general_task_input_changed");
       const consultant = record.version === 3 ? this.consultant(record) : undefined;
       const broker = this.broker(record, profile);
-      const session = new GeneralAgentSession({ jobId: id, imageId: profile.imageId, store: this.runtime, broker, checkpoints, privatePhase: phase,
+      // Backlog item 13a: a research task's session runs the reading stage first, on the card the task was created on, with the
+      // three roles on the task's own local model; the identity check above has just read the same card.
+      const model = (contextId: string) => new PrivateAgentModel(broker, profile.model, id, contextId);
+      const research = record.research ? desktopResearchSession(this.researchCard(record), contextId => ({ reader: model(contextId), planner: model(contextId), synthesiser: model(contextId) })) : {};
+      const session = new GeneralAgentSession({ jobId: id, imageId: profile.imageId, store: this.runtime, broker, checkpoints, privatePhase: phase, ...research,
         limits: { maxRequests: profile.limits.sessionRequests, maxElapsedMs: profile.limits.elapsedMs },
         ...(record.publicSources ? { publicInputApproval: { phaseSha256: record.phaseIdentity, authoritySha256: record.attestationIdentity,
           webDestinations: this.webDestinations(record).map(item => item.id) } } :

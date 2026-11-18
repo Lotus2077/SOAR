@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GENERAL_TASK_LIMITS, GeneralTaskController, VERDICT_RECEIPT_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
@@ -18,11 +18,13 @@ import { workspaceListing } from "../helpers/workspace-listing";
 import { retainPublicSource } from "../../src/main/private-agent/public-sources";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import type { GeneralTaskCreateInput } from "../../src/shared/general-task-contracts";
-import { readDesktopResearchCard } from "../../src/main/general-tasks/research-route";
+import { readDesktopResearchCard, type DesktopResearchWriteBound } from "../../src/main/general-tasks/research-route";
 import type { ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
-import { RESEARCH_COVERAGE_POLICY, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
+import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
+import { researchModelServer } from "../helpers/desktop-research-server";
+import { RESEARCH_V4_TEST_BRIEF, parseResearchUserContent, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
 import { researchRepairReserve } from "../../src/main/private-agent/research-admission";
 
 const cleanup: (() => Promise<void> | void)[] = [];
@@ -1483,7 +1485,7 @@ describe("desktop general-task host controller", () => {
   });
 });
 
-// Backlog item 13a, PR (1): the desktop's local research route on files. The stage itself is wired by a later change.
+// Backlog item 13a: the desktop's local research route on files.
 let researchWriterCard: ServingCardV1 | undefined;
 /** The fixture with the beta on and an adopted card the desktop accepts: the synthetic P10's model alias with streaming on. */
 function researchFixture() {
@@ -1500,7 +1502,7 @@ function researchFixture() {
 }
 
 describe("desktop local research tasks (backlog item 13a)", () => {
-  it("creates a heavy version-4 task bound to the accepted card, salted and with a claims ledger, and does not start it until the stage is wired", () => {
+  it("creates a heavy version-4 task bound to the accepted card, salted and with a claims ledger", () => {
     const { f, card, written, createResearch, createHeavy, stored } = researchFixture(), task = createResearch();
     expect(task).toMatchObject({ status: "queued", profile: "heavy" });
     const record = stored(task.id);
@@ -1513,9 +1515,6 @@ describe("desktop local research tasks (backlog item 13a)", () => {
     f.config.promptCacheSalt = true; const salted = createHeavy(); f.config.promptCacheSalt = false;
     expect(stored(salted.id).configurationIdentity).not.toBe(stored(heavy.id).configurationIdentity);
     expect(record.configurationIdentity).toBe(digest(canonical({ version: 4, local: stored(salted.id).configurationIdentity, research: record.research })));
-    // Until the stage is wired, it never starts, and never runs as a plain task.
-    expect(() => f.controller.start(task.id)).toThrow("general_task_research_unwired");
-    expect(f.executions).toHaveLength(0); expect(f.controller.get(task.id).status).toBe("queued");
   });
 
   it("advertises the beta with its card only while the flag is on, whether or not local execution is ready", async () => {
@@ -1543,9 +1542,7 @@ describe("desktop local research tasks (backlog item 13a)", () => {
     f.config.vllm.servingCard = writeCard(f.root, Buffer.from(`${JSON.stringify(card)}\n`), "compact.json");
     expect(readDesktopResearchCard(f.config)).toMatchObject({ accepted: true, card: { date: card.date } });
     expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
-    f.config.vllm.servingCard = written;
-    expect(() => f.controller.start(task.id)).toThrow("general_task_research_unwired");
-    expect(f.executions).toHaveLength(0);
+    expect(f.executions).toHaveLength(0); expect(f.controller.get(task.id).status).toBe("queued");
   });
 
   it("refuses a research task without the beta or an accepted card, with consultation or typed URLs, on the standard profile, for a non-document deliverable, or without readable inputs, and stores nothing", () => {
@@ -1607,5 +1604,89 @@ describe("desktop local research tasks (backlog item 13a)", () => {
     const row = JSON.parse(execFileSync("python3", ["-I", resolve(__dirname, "..", "..", "scripts", "registry-row.py"), "--verdict-file", path, "--id", "oaj-unit-research", "--batch", "owner-real-jobs",
       "--task", `owner-${task.id.slice(0, 8)}`, "--family", "research", "--exposure", "fresh", "--verdict-by", "owner", "--lesson", "unit"], { cwd: resolve(__dirname, "..", ".."), encoding: "utf8" }));
     expect(row).toMatchObject({ arm: "local-heavy-research", profile: "heavy", outcome: "accepted" });
+  });
+});
+
+// Backlog item 13a, part 2: the reading stage wired into the controller, on a loopback model endpoint (the stage seam).
+/**
+ * A research task on a loopback endpoint that answers with `reply`: the card with its default roles (no structured output, so the
+ * replies are not streamed), two text sources, and fixture()'s scripted writer. `edit` changes the card before it is written.
+ */
+async function stageFixture(reply: Parameters<typeof researchModelServer>[0], edit?: (card: ServingCardV1) => void, writeBound?: DesktopResearchWriteBound) {
+  const server = await researchModelServer(reply); cleanup.push(server.close);
+  const base = fixture(), card = adopt(structuredClone(researchWriterCard ??= proposedServingCard()), undefined, { defaults: true }); edit?.(card);
+  // E2's one-line choice, through the controller's test option in place of the shipped constant.
+  const controller = writeBound ? new GeneralTaskController({ ...base.options, testing: { ...base.options.testing, researchWriteBound: writeBound } }) : base.controller;
+  if (writeBound) cleanup.push(() => controller.close());
+  const f = { ...base, controller };
+  f.config.vllm.model = SYNTHETIC_P10_REQUEST_SETTINGS.model; f.config.vllm.baseUrl = server.baseUrl; f.config.localResearchBeta = true;
+  f.config.vllm.servingCard = writeCard(f.root, card, "stage-card.json");
+  const files = researchV4Sources().map(source => { const path = join(f.root, basename(source.path)); writeFileSync(path, source.bytes); return path; });
+  const task = f.controller.create({ goal: RESEARCH_V4_TEST_BRIEF, inputSelectionId: f.controller.selectInputs(files).id, outputName: "report.md", publicOrSynthetic: true, research: "local_beta" });
+  const run = async () => { f.controller.start(task.id); await f.controller.wait(task.id); return f.controller.get(task.id); };
+  const stored = () => JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
+  return { f, server, task, run, stored };
+}
+const STAGE_PROMPTS = ["You index", "You plan", "You extract", "You write"];
+const stageRequests = (requests: { system: string }[]) => requests.filter(request => STAGE_PROMPTS.some(prefix => request.system.startsWith(prefix)));
+
+describe("desktop local research stage (backlog item 13a, part 2)", () => {
+  it("runs the reading stage on the task's own local model before the writer, hands the writer the packet, and shows the stage", async () => {
+    const { f, server, run } = await stageFixture(researchV4Reply), done = await run();
+    expect(done.status).toBe("submitted");
+    expect(done.research).toMatchObject({ route: "local_beta", stage: "transferred" });
+    expect(done.research!.stages.map(row => row.stage)).toEqual(["index", "plan", "extract", "synthesise"]);
+    for (const row of done.research!.stages) { expect(row.calls, row.stage).toBeGreaterThan(0); expect(row.fallback, row.stage).toBeUndefined(); }
+    for (const prefix of STAGE_PROMPTS) expect(server.requests.some(request => request.system.startsWith(prefix)), prefix).toBe(true);
+    // The stage's requests are its own count; the writer's model calls are the scripted writer's one.
+    expect(done.research!.requests).toBe(stageRequests(server.requests).length);
+    expect(done.modelCalls).toBe(1);
+    // The writer starts after the transfer, with the packet among its files and the heavy profile's own write phase (requirement B's default).
+    const args = f.executions[0]!;
+    expect(args.files.some(file => file.path === RESEARCH_FILES.evidenceText)).toBe(true);
+    expect(args.contract).toMatchObject({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 });
+    expect(args.contract.requiredChecks).toContain("research_claims_ledger");
+  });
+
+  it("uses the host's plan after two plan attempts cut at the output limit, and shows the fallback and the cut replies", async () => {
+    const { run } = await stageFixture((system, user) => system.startsWith("You plan") ? { content: "{\"version\":2,\"questions\":[", finishReason: "length" } : researchV4Reply(system, user));
+    const done = await run();
+    expect(done.status).toBe("submitted");
+    expect(done.research!.stages.find(row => row.stage === "plan")).toEqual({ stage: "plan", calls: 2, truncatedReplies: 2, fallback: "host_plan" });
+  });
+
+  it("writes from the synthesis skeleton when no synthesis attempt is accepted, and shows the fallback", async () => {
+    const { run } = await stageFixture((system, user) => system.startsWith("You write") ? "not an argument" : researchV4Reply(system, user));
+    const done = await run();
+    expect(done.status).toBe("submitted");
+    expect(done.research!.stages.find(row => row.stage === "synthesise")).toMatchObject({ fallback: "skeleton" });
+  });
+
+  it("ends research_extraction_incomplete, with no writer and no Resume, when a chunk stays incomplete after its repairs", async () => {
+    const { f, run, stored } = await stageFixture((system, user) =>
+      system.startsWith("You extract") && parseResearchUserContent(user).source.id === "input/02-beta.md" ? "not an extraction" : researchV4Reply(system, user));
+    const done = await run();
+    expect(stored()).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
+    expect(done).toMatchObject({ status: "incomplete", canResume: false, research: { stage: "stopped" } });
+    const extract = done.research!.stages.find(row => row.stage === "extract")!;
+    expect(extract.chunksComplete).toBeLessThan(extract.chunksPlanned!);
+    expect(f.executions).toHaveLength(0);
+  });
+
+  it("gives the writer E2's twelve-call bound when that one setting names it, and leaves the stage and a plain task as they were", async () => {
+    const { f, run } = await stageFixture(researchV4Reply, undefined, "twelve-call"), done = await run();
+    expect(done).toMatchObject({ status: "submitted", research: { stage: "transferred" } });
+    expect(f.executions[0]!.contract).toMatchObject({ maxModelCalls: 12, maxToolCalls: 12, maxElapsedMs: 1_200_000 });
+    const plain = f.controller.create({ goal: "Make a small report.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true, profile: "heavy" });
+    f.controller.start(plain.id); await f.controller.wait(plain.id);
+    expect(f.executions[1]!.contract).toMatchObject({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 });
+  });
+
+  it("passes the card's admission rates under a serving_card basis to the stage, which records its admission", async () => {
+    const { f, run } = await stageFixture(researchV4Reply, card => { (card as { admission: { basis: string } }).admission.basis = "serving_card"; });
+    const done = await run();
+    expect(done.status).toBe("submitted");
+    const args = f.executions[0]!, transfer = args.store.events(args.jobId).find(event => event.type === "research_transfer") as { binding: { summary: { admission?: { basis: string; decision: string } } } };
+    expect(transfer.binding.summary.admission).toMatchObject({ basis: "serving_card", decision: "admitted" });
   });
 });

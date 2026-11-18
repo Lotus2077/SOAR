@@ -38,7 +38,7 @@ import { caughtRunReason, isResumableRunReason, storedRunReason } from "./run-re
 import { storageIntegrityFailed } from "./storage-integrity";
 import { HostFlagsEventSchema } from "../private-agent/host-flags";
 import { DESKTOP_RESEARCH_ROUTE, DESKTOP_RESEARCH_WRITE_BOUND, desktopResearchAvailability, desktopResearchSession, isDesktopResearchRecord, readDesktopResearchCard,
-  researchDenialReason, researchInputsCheck, researchStageView, researchWriteLimits, type DesktopResearchRecord, type DesktopResearchWriteBound } from "./research-route";
+  researchDenialReason, researchInputsCheck, researchStageView, researchTransferGaps, researchWriteLimits, type DesktopResearchRecord, type DesktopResearchWriteBound } from "./research-route";
 
 /** Cap on one assembled local model reply. */
 const LOCAL_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -739,7 +739,7 @@ export class GeneralTaskController {
       independentAcceptance: "not_evaluated", canResume,
       ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
-      ...(record.research ? { research: researchStageView(record.research, events, dispatches, active) } : {}),
+      ...(record.research ? { research: researchStageView(record.research, events, dispatches, active, researchTransferGaps(events, snapshot => this.checkpoints(id).load(snapshot))) } : {}),
       ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?

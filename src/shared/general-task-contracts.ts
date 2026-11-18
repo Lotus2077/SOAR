@@ -167,10 +167,11 @@ export interface GeneralTaskResearch {
   requests: number;
   /**
    * A packet the stage handed over ready with a disclosed gap (the owner's answer of 2026-11-18, #166): the passages whose last reply still
-   * declared questions unresolved after every repair, from the extract row's `declaredGaps`. coverage.json names them, and the packet
-   * holds no evidence from them.
+   * declared questions unresolved after every repair. It is read from the transferred coverage.json's `gaps`, the disclosure the writer is
+   * told to state as an unresolved limitation: the source of the first and the number of questions it names. When that file cannot be read,
+   * the extraction row's `declaredGaps` count stands in, without a source.
    */
-  gap?: { chunks: number };
+  gap?: { chunks: number; source?: string; questions?: number };
 }
 /**
  * One stage's latest recorded counts, only those the stage recorded. The extraction row also carries its repairs (and, under a card's

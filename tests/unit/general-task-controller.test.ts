@@ -1842,3 +1842,25 @@ describe("desktop local research task view (backlog item 13a, part 3)", () => {
     expect(extract).toMatchObject({ chunksPlanned: 16, chunksComplete: 16 });
   });
 });
+
+// Backlog item 13a with lane S-pipe's #172: the owner's answer of 2026-11-18 (#166) lets a packet transfer with one disclosed gap.
+describe("desktop local research: the disclosed gap (backlog item 13a, #172)", () => {
+  it("shows a packet transferred with one disclosed gap from the coverage the writer received: its source and its questions, not resolved", async () => {
+    // Every reply for the second source's passage, its repair's included, declares the plan's questions unresolved (needs_followup).
+    const { f, run } = await stageFixture((system, user) => {
+      if (!system.startsWith("You extract")) return researchV4Reply(system, user);
+      const input = parseResearchUserContent(user);
+      if (input.source.id !== "input/02-beta.md") return researchV4Reply(system, user);
+      return JSON.stringify({ questions: input.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "needs_followup" })), quotes: [], conflicts: [] });
+    });
+    const done = await run();
+    expect(done.status).toBe("submitted");
+    expect(done.research).toMatchObject({ stage: "transferred", gap: { chunks: 1, source: "input/02-beta.md", questions: 1 } });
+    expect(done.research!.stages.find(row => row.stage === "extract")).toMatchObject({ chunksPlanned: 2, chunksComplete: 1, repairCalls: 1, declaredGaps: 1 });
+    // The view's gap is the disclosure the writer received in the packet's coverage.json.
+    const coverage = JSON.parse(f.executions[0]!.files.find(file => file.path === RESEARCH_FILES.coverage)!.bytes.toString("utf8"));
+    expect(coverage.gaps).toEqual([expect.objectContaining({ sourceId: "input/02-beta.md", questionIds: ["Q1"] })]);
+    // Without a card's admission rates the stage records no held counts, and the view shows none.
+    expect(done.research!.stages.find(row => row.stage === "extract")).not.toHaveProperty("heldChunks");
+  });
+});

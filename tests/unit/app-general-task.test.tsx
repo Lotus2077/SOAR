@@ -621,8 +621,8 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
 
   it("shows the route, the card and the stage in a badge, with the gap state kept for the protocol's revision", async () => {
     const cases: [Partial<GeneralTaskResearch>, string][] = [[{ stage: "not_started" }, "not started"], [{ stage: "running" }, "reading the sources"],
-      [{ stage: "transferred" }, "packet ready"], [{ stage: "transferred", gap: { chunks: 1 } }, "packet ready, with a disclosed gap (1 passage unresolved)"],
-      [{ stage: "transferred", gap: { chunks: 2 } }, "packet ready, with a disclosed gap (2 passages unresolved)"],
+      [{ stage: "transferred" }, "packet ready"], [{ stage: "transferred", gap: { chunks: 1 } }, "packet ready, with a disclosed gap (1 passage not resolved)"],
+      [{ stage: "transferred", gap: { chunks: 2 } }, "packet ready, with a disclosed gap (2 passages not resolved)"],
       [{ stage: "stopped" }, "stopped before the writer"]];
     for (const [overrides, words] of cases) {
       const { api } = fixture([task({ profile: "heavy", research: research(overrides) })]), view = render(<GeneralTaskWorkspace api={api} />);
@@ -641,7 +641,7 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
     const section = await screen.findByRole("region", { name: "Research stage" });
     expect(within(section).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Index: 1 call.",
       "Plan: 2 attempts, 2 cut at the output limit; none was accepted, so the host's plan was used.",
-      "Extraction: 6 of 7 source passages read; 3 repairs (1 second, 1 completing their passage); 1 passage left unresolved and disclosed.",
+      "Extraction: 6 of 7 source passages read; 3 repairs (1 second, 1 completing their passage); 1 passage not resolved after its repairs, disclosed with the packet.",
       "6 of 7 passages held for a repair kept their first reading: the budget had no room for the optional repair.",
       "Evidence packet: 120 of 240 verified quotes kept; 120 left out at the packet's caps (4 by the presentation guard); 2 questions left without a quote in the packet.",
       "Conflicts: 1 of 3 noted conflicts in the packet.", "Synthesis: 2 attempts; none was accepted, so the writer gets the evidence skeleton."]);
@@ -671,7 +671,22 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
       const { api } = fixture([task({ status: "submitted", profile: "heavy", research: research({ stages: [{ stage: "extract", calls: 4, chunksPlanned: 4, chunksComplete: 4, ...counts }] }) })]);
       const view = render(<GeneralTaskWorkspace api={api} />);
       const lines = within(await screen.findByRole("region", { name: "Research stage" })).getAllByRole("listitem").map(item => item.textContent);
-      expect(lines).toEqual([`Extraction: 4 of 4 source passages read${counts.declaredGaps ? `; ${counts.declaredGaps} passages left unresolved and disclosed` : ""}.`, ...held]);
+      expect(lines).toEqual([`Extraction: 4 of 4 source passages read${counts.declaredGaps ? `; ${counts.declaredGaps} passages not resolved after their repairs, disclosed with the packet` : ""}.`, ...held]);
+      view.unmount();
+    }
+  });
+
+  it("names a disclosed gap's source and questions as not resolved, as the writer is told to state it, and never as no evidence", async () => {
+    const words = "Disclosed gap: a passage of input/02-beta.md was not resolved after its repairs, for 2 research questions. The writer was told to state it as an unresolved limitation of this reading.";
+    const cases: [GeneralTaskResearch["gap"], string | null][] = [[{ chunks: 1, source: "input/02-beta.md", questions: 2 }, words],
+      [{ chunks: 1, source: "input/02-beta.md", questions: 1 }, words.replace("2 research questions", "1 research question")],
+      [{ chunks: 1, source: "input/02-beta.md" }, words.replace(", for 2 research questions", "")], [{ chunks: 1 }, null], [undefined, null]];
+    for (const [gap, line] of cases) {
+      const { api } = fixture([task({ status: "running", profile: "heavy", research: research({ ...(gap ? { gap } : {}), stages: [{ stage: "extract", calls: 2, chunksPlanned: 2, chunksComplete: 1, declaredGaps: 1 }] }) })]);
+      const view = render(<GeneralTaskWorkspace api={api} />);
+      const section = await screen.findByRole("region", { name: "Research stage" });
+      if (line) expect(within(section).getByText(line)).toBeVisible(); else expect(within(section).queryByText(/^Disclosed gap/u)).toBeNull();
+      expect(section).not.toHaveTextContent(/no evidence/iu);
       view.unmount();
     }
   });

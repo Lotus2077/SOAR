@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SoarConfig } from "../../src/main/config";
 import { DESKTOP_RESEARCH_ROUTE, DESKTOP_RESEARCH_WRITE_BOUND, desktopResearchAvailability, desktopResearchSession, isDesktopResearchRecord, readDesktopResearchCard,
-  researchDenialReason, researchInputsCheck, researchStageView, researchWriteLimits } from "../../src/main/general-tasks/research-route";
+  researchDenialReason, researchInputsCheck, researchStageView, researchTransferGaps, researchWriteLimits } from "../../src/main/general-tasks/research-route";
+import { RESEARCH_FILES } from "../../src/main/private-agent/research-contract";
 import { LOCAL_TOKEN_ADMISSION_CODES } from "../../src/main/private-agent/flash-next-admission";
 import { GENERAL_TASK_BUDGETS } from "../../src/main/private-agent/profiles";
 import { LOCAL_SCREEN_WRITE_BOUNDS } from "../../scripts/private-agent-local-screen";
@@ -143,8 +144,14 @@ describe("desktop local research route (backlog item 13a)", () => {
     const extract = { type: "research_stage", contextId: "reader", stage: "extract", calls: 9, ...all, gap: { chunks: 3 } }, transfer = { type: "research_transfer", contextId: "reader" };
     const full = researchStageView(record, [input, extract], [], false);
     expect(full.stages).toEqual([{ stage: "extract", calls: 9, ...all }]); expect(full).not.toHaveProperty("gap");
-    // The stage's state carries the gap only for a transferred packet whose extraction row declared one.
-    expect(researchStageView(record, [input, extract, transfer], [], false)).toMatchObject({ stage: "transferred", gap: { chunks: 1 } });
+    // A transferred packet's gap is its coverage.json's own disclosure: its source and the questions it names, whatever the row says.
+    const disclosed = [{ sourceId: "input/02-beta.md", questionIds: ["Q1", "Q3"] }];
+    expect(researchStageView(record, [input, extract, transfer], [], false, disclosed)).toMatchObject({ stage: "transferred", gap: { chunks: 1, source: "input/02-beta.md", questions: 2 } });
+    expect(researchStageView(record, [input, { ...extract, declaredGaps: undefined }, transfer], [], false, disclosed).gap).toEqual({ chunks: 1, source: "input/02-beta.md", questions: 2 });
+    expect(researchStageView(record, [input, extract], [], true, disclosed)).not.toHaveProperty("gap");
+    // A coverage that discloses none decides too; only a coverage that could not be read leaves the row's count to stand in, without a source.
+    expect(researchStageView(record, [input, extract, transfer], [], false, [])).not.toHaveProperty("gap");
+    expect(researchStageView(record, [input, extract, transfer], [], false).gap).toEqual({ chunks: 1 });
     for (const declaredGaps of [0, -1, 1.5, "1", undefined]) {
       expect(researchStageView(record, [input, { ...extract, declaredGaps }, transfer], [], false), String(declaredGaps)).not.toHaveProperty("gap");
     }
@@ -157,6 +164,25 @@ describe("desktop local research route (backlog item 13a)", () => {
     const stopped = { type: "research_stage", contextId: "reader", stage: "extract", calls: 3, chunksPlanned: 4, chunksComplete: 0, repairCalls: 1 };
     expect(researchStageView(record, [input, { ...stopped, denied: "request_failed" }], [], false).stages).toEqual([{ stage: "extract", calls: 3, denied: true, chunksPlanned: 4, chunksComplete: 0, repairCalls: 1 }]);
     for (const denied of [undefined, true, 1]) expect(researchStageView(record, [input, { ...stopped, denied }], [], false).stages[0]).not.toHaveProperty("denied");
+  });
+
+  it("reads a transferred packet's gaps from its own coverage.json, and nothing it cannot read", () => {
+    const entry = { path: RESEARCH_FILES.coverage, sha256: "c".repeat(64), bytes: 10 };
+    const transfer = (snapshot: unknown) => ({ type: "research_transfer", contextId: "reader", binding: { snapshot } });
+    const asked: unknown[] = [];
+    const reading = (value: unknown) => (snapshot: unknown) => { asked.push(snapshot); if (value instanceof Error) throw value; return [{ bytes: Buffer.from(typeof value === "string" ? value : JSON.stringify(value)) }]; };
+    const gaps = [{ chunkId: "input/02-beta.md#1", sourceId: "input/02-beta.md", questionIds: ["Q1"], attempts: 2 }];
+    expect(researchTransferGaps([transfer([{ path: RESEARCH_FILES.evidence, sha256: "e".repeat(64), bytes: 9 }, entry])], reading({ version: 5, gaps }))).toEqual(gaps);
+    // Only the coverage entry is loaded, as recorded, so the store checks its size and digest.
+    expect(asked).toEqual([[entry]]);
+    expect(researchTransferGaps([transfer([entry])], reading({ version: 5 }))).toEqual([]);
+    for (const [why, value] of [["two gaps", { gaps: [...gaps, ...gaps] }], ["a gap without its source", { gaps: [{ ...gaps[0], sourceId: undefined }] }], ["not JSON", "{"],
+      ["null", "null"], ["a damaged file", new Error("checkpoint_digest_mismatch")]] as const) expect(researchTransferGaps([transfer([entry])], reading(value)), why).toBeUndefined();
+    asked.length = 0;
+    for (const events of [[], [transfer(undefined)], [transfer([{ ...entry, path: RESEARCH_FILES.evidence }])], [{ type: "research_transfer", contextId: "reader" }]]) {
+      expect(researchTransferGaps(events, reading({ gaps }))).toBeUndefined();
+    }
+    expect(asked).toEqual([]);
   });
 
   it("words a research request denial from the stage's last stopped row: a failed request, the allowance, the clock, the size, the token checks, the scanner, or the code", () => {

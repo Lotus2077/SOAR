@@ -39,9 +39,9 @@ function title(task: GeneralTaskSnapshot) { const line = task.goal.split("\n")[0
 const RESEARCH_DOCUMENT = /\.(md|markdown|txt|html?|docx|pdf)$/iu;
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const STAGE_NAMES: Record<GeneralTaskResearchStage["stage"], string> = { index: "Index", plan: "Plan", extract: "Extraction", synthesise: "Synthesis" };
-/** The research badge's stage words: a packet with a disclosed gap names how many passages it left unresolved (GeneralTaskResearch.gap). */
+/** The research badge's stage words. A packet with a disclosed gap names how many passages were not resolved, as the writer is told to state it. */
 function researchState(research: GeneralTaskResearch): string {
-  if (research.stage === "transferred") return research.gap ? `packet ready, with a disclosed gap (${plural(research.gap.chunks, "passage")} unresolved)` : "packet ready";
+  if (research.stage === "transferred") return research.gap ? `packet ready, with a disclosed gap (${plural(research.gap.chunks, "passage")} not resolved)` : "packet ready";
   return research.stage === "running" ? "reading the sources" : research.stage === "stopped" ? "stopped before the writer" : "not started";
 }
 /** One stage's lines, from the counts it recorded and nothing else: no fixed sentence or constant stands in for a count. */
@@ -57,7 +57,7 @@ function researchStageLines(row: GeneralTaskResearchStage): string[] {
   if (row.stage === "plan") return [`Plan: ${plural(row.calls, "attempt")}${cut}${row.fallback === "host_plan" ? "; none was accepted, so the host's plan was used" : ""}.`];
   if (row.stage === "synthesise") return [`Synthesis: ${plural(row.calls, "attempt")}${cut}${row.fallback === "skeleton" ? "; none was accepted, so the writer gets the evidence skeleton" : ""}.`];
   const read = row.chunksPlanned !== undefined && row.chunksComplete !== undefined ? `${row.chunksComplete} of ${plural(row.chunksPlanned, "source passage")} read` : plural(row.calls, "call");
-  const gap = row.declaredGaps ? `; ${plural(row.declaredGaps, "passage")} left unresolved and disclosed` : "";
+  const gap = row.declaredGaps ? `; ${plural(row.declaredGaps, "passage")} not resolved after ${row.declaredGaps === 1 ? "its" : "their"} repairs, disclosed with the packet` : "";
   const lines = [`Extraction: ${read}${cut}${repairs}${gap}.`];
   // A held passage's first reply lost every quote of a question it marked answered; its repair is optional and comes last.
   if (row.heldChunks !== undefined && row.heldKeptUnrepaired !== undefined && row.heldChunks > 0) {
@@ -451,6 +451,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
           {task.research && <section className="general-section general-research" aria-label="Research stage"><h3>Research stage</h3>
             {task.research.stages.length ? <ul>{task.research.stages.flatMap(row => researchStageLines(row).map((line, i) => <li key={`${row.stage}-${i}`}>{line}</li>))}</ul>
               : <p className="general-hint">The research stage has recorded no work yet.</p>}
+            {task.research.gap?.source !== undefined && <p className="general-hint">Disclosed gap: a passage of {task.research.gap.source} was not resolved after its repairs{task.research.gap.questions ? `, for ${plural(task.research.gap.questions, "research question")}` : ""}. The writer was told to state it as an unresolved limitation of this reading.</p>}
             <p className="general-hint">{plural(task.research.requests, "research request")} to the local model, counted apart from the model attempts.</p></section>}
           {task.status === "submitted" && task.reportedIssues?.length ? <section className="general-section general-issues" aria-label="Reported issues"><h3>Submitted with reported issues</h3>
             <p className="general-hint">Host-derived facts about this submission. They do not change its status; judge the deliverable with them in mind.</p>

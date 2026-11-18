@@ -1381,10 +1381,10 @@ HOST_FLAG_SECTIONS = ("report_failed", "argument_failed", "misses_failed", "revi
 HOST_FLAG_COUNTS = ("reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded", "briefSingleUnit",
                     "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
                     "numericUnaddressed")
-# 7d.D (#119) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap; an older event's
-# misses lack them, which means not recorded, never zero.
+# 7d.D (#119) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap, and the owner's answer of 2026-11-18 (#166) declaredGaps
+# and gapQuestions; an older event's misses lack them, which means not recorded, never zero.
 HOST_FLAG_MISSES = ("briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries", "droppedQuotes",
-                    "quotesLeftByCap", "conflictsLeftByCap", "fetchFailures", "fetchLimitRefusals")
+                    "quotesLeftByCap", "conflictsLeftByCap", "declaredGaps", "gapQuestions", "fetchFailures", "fetchLimitRefusals")
 HOST_FLAG_FORMATS = ("markdown", "html", "text", "docx", "pdf")
 HOST_FLAG_SCAN_REASONS = ("missing", "format_not_scanned")
 HOST_FLAG_REVIEW_REASONS = ("missing", "too_large", "invalid")

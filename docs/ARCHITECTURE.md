@@ -593,7 +593,7 @@ the exact evidence-map projection rather than trusting caller-supplied fields.
 
 The acquisition is bounded to 200 changed paths, 256 KiB per admitted file
 side, 4 MiB total admitted source, 200 hunks, a 192 KiB gateway result, and a
-20-second overall deadline. Each Git subprocess has a 5-second deadline, 4 MiB
+20-second overall deadline. Each Git subprocess has a 15-second deadline (below the overall one), 4 MiB
 stdout and 64 KiB stderr limits, and cancellation terminates its POSIX process
 group before a bounded kill grace. Working files are opened with no-follow
 semantics and checked before, during, and after the read. The inspector captures

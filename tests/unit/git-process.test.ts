@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createIsolatedGitEnvironment,
+  DEFAULT_GIT_TIMEOUT_MS,
   GIT_CONFIG_PREFLIGHT_STDOUT_LIMIT_BYTES,
   GIT_INDEX_VISIBILITY_STDOUT_LIMIT_BYTES,
   GIT_STDERR_LIMIT_BYTES,
@@ -28,6 +29,7 @@ import {
   createGitProcessRunner,
   GitProcessError,
 } from "../../src/main/tools/git-process";
+import { MAX_INSPECT_DURATION_MS } from "../../src/main/tools/inspect-git-changes";
 
 const execFileAsync = promisify(execFile);
 const temporaryDirectories: string[] = [];
@@ -205,6 +207,10 @@ printf 'true\\n'`,
     expect(() => createGitProcessRunner({ cwd: "/tmp", timeoutMs: 0 })).toThrowError(
       expect.objectContaining({ code: "INVALID_ARGUMENT" }),
     );
+    // One command's hang guard: 15 s, and below the whole inspection's own deadline, or it could never fire there.
+    expect(createGitProcessRunner({ cwd: "/tmp" }).timeoutMs).toBe(DEFAULT_GIT_TIMEOUT_MS);
+    expect(DEFAULT_GIT_TIMEOUT_MS).toBe(15_000);
+    expect(DEFAULT_GIT_TIMEOUT_MS).toBeLessThan(MAX_INSPECT_DURATION_MS);
     expect(() =>
       createGitProcessRunner({ cwd: "/tmp", temporaryIndexParent: "relative" }),
     ).toThrowError(expect.objectContaining({ code: "INVALID_ARGUMENT" }));

@@ -226,6 +226,14 @@ async function selectHybridSimulation(
 }
 
 /**
+ * How long a review may take to finish: a review runs up to two Git inspections, each bounded by its own 20 s deadline
+ * (MAX_INSPECT_DURATION_MS), so a review that a slow git command delays can still finish here, and one that a deadline fails shows
+ * that failure, within the 60 s test limit. A wait on a view that runs its own inspection takes the inspection deadline and a margin.
+ */
+const REVIEW_FINISH_TIMEOUT_MS = 40_000;
+const REVIEW_VIEW_TIMEOUT_MS = 25_000;
+
+/**
  * A failed wait for a finished review: appends the review-safe event summary the renderer already receives (session-view.ts) to
  * the error, so a CI failure shows which step of the review failed and when. It prints only each event's time and type, and the
  * allowlisted codes below: a tool call's name, outcome and duration, an inference attempt's error code, a route's reason code.
@@ -645,9 +653,10 @@ test("reviews current Git changes locally and refuses a stale Markdown copy", as
     ).toBeVisible();
     await page.getByTestId("start-local-review").click();
 
-    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed", { timeout: REVIEW_FINISH_TIMEOUT_MS }));
     await expect(page.getByTestId("review-freshness")).toContainText(
       "Fresh and complete",
+      { timeout: REVIEW_VIEW_TIMEOUT_MS },
     );
     await expect(page.getByTestId("review-result")).toContainText(
       "No blocking findings found in the inspected evidence",
@@ -704,7 +713,7 @@ test("reviews current Git changes locally and refuses a stale Markdown copy", as
     expect(driftedView).not.toHaveProperty("coverage");
 
     await page.getByRole("button", { name: "Copy Markdown" }).click();
-    await expect(page.getByRole("button", { name: "Copy failed" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy failed" })).toBeVisible({ timeout: REVIEW_VIEW_TIMEOUT_MS });
   } finally {
     await electronApp.close();
   }
@@ -728,7 +737,7 @@ test("runs, copies, and replays a fully attributed Hybrid simulation without red
     await expect(page.getByText(canonicalWorkspaceRoot, { exact: true })).toBeVisible();
     await page.getByTestId("start-hybrid-simulation").click();
     await expect(page.locator('[aria-current="step"]')).toBeVisible();
-    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed", { timeout: REVIEW_FINISH_TIMEOUT_MS }));
     await expect(
       page.getByText(HYBRID_SIMULATION_RESULT_MARKER, { exact: true }).first(),
     ).toBeVisible();
@@ -843,7 +852,7 @@ test("shows egress denial with zero fake-cloud attempts and one Fake Local conti
     const page = await electronApp.firstWindow();
     await selectHybridSimulation(page, canonicalWorkspaceRoot);
     await page.getByTestId("start-hybrid-simulation").click();
-    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed"));
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed", { timeout: REVIEW_FINISH_TIMEOUT_MS }));
     await expect(page.locator(".review-route-sequence")).toContainText(
       "recognized_api_token",
     );
@@ -887,7 +896,7 @@ test("shows one failed Fake Cloud phase followed by one Fake Local fallback", as
     const page = await electronApp.firstWindow();
     await selectHybridSimulation(page, canonicalWorkspaceRoot);
     await page.getByTestId("start-hybrid-simulation").click();
-    await expect(page.getByTestId("session-status")).toContainText("completed");
+    await withReviewDiagnostics(page, expect(page.getByTestId("session-status")).toContainText("completed", { timeout: REVIEW_FINISH_TIMEOUT_MS }));
     const route = page.locator(".review-route-sequence");
     await expect(route).toContainText("Fake Cloud");
     await expect(route).toContainText("Failed");
@@ -938,7 +947,7 @@ test("stops a committed Fake Cloud simulation attempt without starting a Local f
               return payload.providerId === "fake-cloud-review";
             });
           }),
-        { timeout: 15_000 },
+        { timeout: REVIEW_FINISH_TIMEOUT_MS },
       )
       .toBe(true);
     await page.getByTestId("stop-review").click();

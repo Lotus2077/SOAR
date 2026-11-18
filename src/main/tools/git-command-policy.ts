@@ -1,7 +1,12 @@
 import path from "node:path";
 
 export const DEFAULT_GIT_EXECUTABLE = "/usr/bin/git";
-export const DEFAULT_GIT_TIMEOUT_MS = 5_000;
+/**
+ * Each git command's deadline: a hang guard that ends one command before the whole inspection's own 20 s deadline
+ * (MAX_INSPECT_DURATION_MS in inspect-git-changes.ts), so it must stay below that. On a macOS CI runner, one of an inspection's
+ * first commands, a trivial `rev-parse` that reads no input, has run past 5 s and failed the review; 15 s leaves it room.
+ */
+export const DEFAULT_GIT_TIMEOUT_MS = 15_000;
 export const GIT_CONFIG_PREFLIGHT_STDOUT_LIMIT_BYTES = 64 * 1024;
 export const GIT_INDEX_COPY_LIMIT_BYTES = 16 * 1024 * 1024;
 export const GIT_INDEX_VISIBILITY_STDOUT_LIMIT_BYTES = 4 * 1024 * 1024;

@@ -53016,3 +53016,68 @@ Paid exposure: None.
 Next gate: The owner's two settings lines, the doctor, the dry run, then the first run.
 
 References: docs/experiments/e0-card-2026-11-13.md (Amendment 6); BL-20261117-1701-e0-card-amendment-6-r3-remeasurement; BL-20261117-1326-research-admission-record-incomplete-stage; pull request #155.
+
+### BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout -- 2026-11-18 -- The owner approves two changes of plan: local research reaches the desktop before the paid experiments, and the log moves to one file per entry
+
+Status: `Approved`
+
+Scope or hypothesis: After the adoption the owner asked the session to review the work and plan the next moves. The session proposed a plan and asked about its two changes that need the owner. This entry records the owner's words and those two changes. `Approved` covers the two. The rest of the plan is the session's.
+
+Decisions:
+1. **The owner's words.** On 2026-11-17 at about 16:40 UTC: "when this step is done, please review, contemplate and carefully plan for the next moves so the whole project can move towards the MVP goal in a more consistent and faster way". On 2026-11-18 at about 04:15 UTC, in answer to the session's question "Do you approve the plan's reorder and the build-log change?": "Approve both".
+2. **The reorder.** Backlog item 13 is split, and its local part comes before E3 and E4.
+   - **13a:** the research pipeline and a serving-card reader in the desktop, for files and typed URLs, with no cloud assist, as a beta route with a badge that says what ran.
+   - **13b:** the staged document review in the desktop, after E6.
+   - **E3 and E4 stay,** as the paid question of whether a cloud assist is worth adding. They no longer stand before local research in the desktop. This replaces the review's order for item 13's local part (docs/PROJECT_REVIEW_2026-11-05.md §5.6 "Order"; §5.7, item 13).
+   - **The gate the plan proposes for 13a reaching an owner build:** the r3 re-measurement reaches the packet in at least 2 of 3 runs, and E2's graded runs accept the writer.
+3. **The log's layout.** One file for each entry, each checked by the validator, with no order between pull requests. It replaces the re-stamp rule of BL-20261113-0937-owner-decision-restamp-unmerged-entries once the validator's change is on `main`. Until then that rule holds.
+4. **Why.** The MVP exit is "≥ 6 of 8 real owner jobs accepted in each of two consecutive weeks, across ≥ 3 families" in the normal app build (docs/PLAN.md §1). The desktop has one route, the general task: only the headless driver passes the research option to a session or reads a serving card. So E0's findings, 7b.3, the second repair and the adopted card do not reach the owner's build before item 13, and E5 is the only experiment on the measure's path. And of about 14,500 lines added on 2026-11-17, 35% went to this log; 18 of that day's 61 entries only moved a timestamp.
+5. **The session's own working rules from now.** One entry a pull request, of about 25 lines, with the detail in the pull request's description (PLAN.md §4 already asks this). A Correction only for a fact that is wrong on `main`. No entry IDs in source files. Cards and amendments under 200 lines. The handoff restated at most once a day. Harness runs when the owner is not using the endpoint.
+6. **Not answered:** how many real jobs a week the owner can run in the desktop build.
+
+Changes: docs/BUILD_LOG.md, this entry.
+
+Evidence:
+- **The owner's sentences** are in the session's chat, quoted as written. The plan is a git-ignored file the session sent to the owner; decisions 2 to 5 restate it.
+- **The code fact** was read by the session: in `src/` and `scripts/`, only scripts/private-agent-local-screen.ts passes `research:` to a session, and only it and scripts/setup-general.ts call `loadServingCard`.
+- **The line counts** are a read-only agent's, from the tree diff between 7ef19ea and 6da7080.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Nothing is built.** 13a has no size estimate in any source.
+- **The plan's order of weeks is the session's** and is not approved line by line.
+
+Paid exposure: None.
+
+Next gate: The validator's change (lane S-harn) and 13a's design (lane S-desk). The r3 re-measurement.
+
+References: docs/PLAN.md §1 and §4; docs/PROJECT_REVIEW_2026-11-05.md §5.6 and §5.7; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261117-0940-owner-direction-decisions-delegated; BL-20261117-1616-serving-card-2026-11-17-adopted.
+
+### BL-20261118-0419-correction-e0-card-amendment-6-card-pair-from-environment -- 2026-11-18 -- Correction to BL-20261117-1701-e0-card-amendment-6-r3-remeasurement: the adopted card's pair is given in each run's environment, so the three runs do not wait for an edit of the owner's settings file
+
+Status: `Implemented`
+
+Scope or hypothesis: Amendment 6 asked for the owner's two settings lines before the first run. The session found that the runs do not need them. This entry changes that one condition, before any run. Everything else in the amendment stands.
+
+Decisions:
+1. **The pair comes from the environment.** `SOAR_SERVING_CARD_FILE` and `SOAR_SERVING_CARD_SHA256` are set in the environment of the doctor, the dry run and each run. The configuration reads the process environment first, and a settings file only fills a name that is unset.
+2. **The owner's settings file is neither opened nor changed,** and it need not hold the pair. If it ever held another pair, the environment's would win, and the dry run's printed digest is the check.
+3. **What does not change.** The card and the digest are those the owner's go adopted (BL-20261117-1616-serving-card-2026-11-17-adopted). The doctor must still report the card configured, with that digest and its entry. docs/experiments/README.md describes the pair in the settings file; that stays the way for the owner's own runs.
+4. **This is the session's choice,** under decision 5 of BL-20261117-0940-owner-direction-decisions-delegated.
+
+Changes: docs/experiments/e0-card-2026-11-13.md, Amendment 6, item 2's condition on the pair. docs/BUILD_LOG.md, this entry.
+
+Evidence:
+- **The code:** `loadEnvironmentFiles` in src/main/config.ts copies the process environment, then sets a file's value only where the name is undefined.
+- **The doctor,** run read-only on 2026-11-18 at 04:16 UTC without the pair, reported no card configured. So the settings file holds no pair today.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The dry run is the first check that this works end to end. Nothing has run.
+
+Paid exposure: None.
+
+Next gate: The doctor with the pair in its environment, then the dry run, then the first run.
+
+References: docs/experiments/e0-card-2026-11-13.md (Amendment 6, item 2); BL-20261117-1701-e0-card-amendment-6-r3-remeasurement; BL-20261117-1616-serving-card-2026-11-17-adopted; BL-20261117-0940-owner-direction-decisions-delegated.

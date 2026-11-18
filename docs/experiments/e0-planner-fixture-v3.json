@@ -1,0 +1,27 @@
+{
+ "schemaVersion": 1,
+ "name": "e0-planner-fixture-v3",
+ "status": "pinned",
+ "note": "The index of the r3 re-measurement's run 2 (batch e0-2026-11-18, the card adopted on 2026-11-17) and the stage brief, with the plan payload's chunk count and extraction budget as that run sent them. Three cells, each run as its own invocation after its dry run (the E0 card's Amendment 7): A, legacy-thinking-structured-16384, the card's plan call non-streamed, as E0's fixture sent it; B, legacy-thinking-structured-16384-streamed, the same call streamed as the stage streams it; C, thinking-off-structured-16384-streamed, B with thinking off. 10 calls a cell, first-attempt form (repair null), with the fixture's one cache salt. `stage` pins run 2's first plan receipt, which cell B's body salted with that run's job must reproduce before any request (--stage-run).",
+ "task": "r3-grid-batteries",
+ "exposure": "exposed",
+ "indexVersion": 2,
+ "indexSha256": "840434e25b56bd8666c1ff69ac38ca7c98c87062811a64a30c0e2d35f03c9c15",
+ "briefSha256": "6f0a6d83323f2c740a3061aab569adf670ae69183c7b11e8b1845f0772d56a35",
+ "sourceIdsSha256": "d4eceaed7578651faf551078e3cb4d95261b1532d3e27b8666b3be0b2f53f897",
+ "sourceCount": 24,
+ "mandatorySourceChunks": 24,
+ "extractionCallBudget": 40,
+ "conditions": [
+  "legacy-thinking-structured-16384",
+  "legacy-thinking-structured-16384-streamed",
+  "thinking-off-structured-16384-streamed"
+ ],
+ "repeats": 10,
+ "stage": {
+  "run": "run-2",
+  "jobIdSha256": "57cf3b28307daf09b31ff117b68a2822e7bfbf8511616763812b91f0eea033c5",
+  "bodyBytes": 69073,
+  "packetSha256": "e29fbd95430cc0ea2def92e3bea8e1466a3ff7d1b941493f596d8edc70aaffb3"
+ }
+}

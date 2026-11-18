@@ -13,7 +13,9 @@ import { assessProbeFile } from "../../scripts/assess-probe-replies";
 import { JUDGE_CONDITIONS, runJudgeFixture } from "../../scripts/judge-fixture";
 import { CALL_KINDS, CALL_STATES, CallRecordSchema, ENVELOPE_LINE, LABELLER_MODEL, LABELLING_FAILURES, LABELLING_OUTCOMES, LOCK_NAME, LabellingSummarySchema,
   PLANT_REJECTIONS, SECOND_REQUEST_VALUES, TOKEN_FIELDS, UNBILLED_STATUSES, runLabelling, type LabellingSummary } from "../../scripts/judge-labeller";
-import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, runPlannerFixture } from "../../scripts/planner-fixture";
+import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, plannerConditionStreamed, runPlannerFixture } from "../../scripts/planner-fixture";
+import { CELL_CALLS, SYNTHESIS_CALL_CLASSES, SYNTHESIS_CELLS, SYNTHESIS_OUTCOMES, type StageCheck, type SynthesisCallClass, type SynthesisCallRecord, type SynthesisFixtureSummary,
+  type SynthesisRequest, type SynthesisTrialRecord } from "../../scripts/synthesis-fixture";
 import { syntheticProbe, syntheticStream } from "../helpers/serving-probe-fixture";
 
 /**
@@ -52,13 +54,15 @@ describe("E0 registry modes: the producers' closed sets", () => {
       "row, probe = load('registry_row', sys.argv[1]), load('serving_probe', sys.argv[2])",
       "print(json.dumps({'probes': list(row.PROBE_NAMES), 'probeVersion': row.PROBE_VERSION, 'probeProbes': list(probe.PROBES), 'probeProbeVersion': probe.PROBE_VERSION,",
       "  'p10Roles': list(row.P10_ROLES), 'probeRoles': list(probe.P10_ROLES), 'p10Modes': list(row.P10_MODES), 'probeModes': list(probe.P10_MODES),",
-      "  'plannerConditions': list(row.PLANNER_CONDITIONS), 'plannerClasses': list(row.PLANNER_CLASSES), 'judgeConditions': list(row.JUDGE_CONDITIONS),",
-      "  'judgeVerdicts': list(row.JUDGE_VERDICTS), 'judgeFailures': list(row.JUDGE_FAILURES)}))"].join("\n");
+      "  'plannerConditions': list(row.PLANNER_CONDITIONS), 'plannerStreamed': list(row.PLANNER_STREAMED), 'plannerClasses': list(row.PLANNER_CLASSES),",
+      "  'judgeConditions': list(row.JUDGE_CONDITIONS), 'judgeVerdicts': list(row.JUDGE_VERDICTS), 'judgeFailures': list(row.JUDGE_FAILURES)}))"].join("\n");
     const mirrored = JSON.parse(execFileSync("python3", ["-I", "-c", python, SCRIPT, join(ROOT, "scripts", "serving-probe.py")], { encoding: "utf8" }));
     expect(mirrored.probes).toEqual(mirrored.probeProbes);
     expect(mirrored.probeVersion).toBe(mirrored.probeProbeVersion);
     expect([mirrored.p10Roles, mirrored.p10Modes]).toEqual([mirrored.probeRoles, mirrored.probeModes]);
     expect(mirrored.plannerConditions).toEqual([...FIXTURE_CONDITIONS]);
+    // The planner keeps a streamed condition's reply as .sse, so the replies listing reads it by these names.
+    expect(mirrored.plannerStreamed).toEqual(FIXTURE_CONDITIONS.filter(plannerConditionStreamed));
     expect(mirrored.judgeConditions).toEqual([...JUDGE_CONDITIONS]);
     expect(mirrored.judgeVerdicts).toEqual([...ENTAILMENT_VERDICTS]);
     // The planner's classes and the judge's failures are TypeScript unions with no runtime value: read them from the scripts' text.
@@ -66,6 +70,15 @@ describe("E0 registry modes: the producers' closed sets", () => {
     const planner = readFileSync(join(ROOT, "scripts", "planner-fixture.ts"), "utf8"), judge = readFileSync(join(ROOT, "scripts", "judge-fixture.ts"), "utf8");
     expect(mirrored.plannerClasses.slice().sort()).toEqual(union(/export type CallClassification = ([^;]+);/u.exec(planner)![1]!).sort());
     expect(mirrored.judgeFailures.slice().sort()).toEqual(union(/failure\?: ([^;]+);/u.exec(judge)![1]!).sort());
+  });
+
+  it("mirrors the synthesis fixture's cells, call classes and outcomes exactly", () => {
+    const python = [
+      "import importlib.util, json, sys",
+      "spec = importlib.util.spec_from_file_location('registry_row', sys.argv[1]); row = importlib.util.module_from_spec(spec); spec.loader.exec_module(row)",
+      "print(json.dumps({'cells': list(row.SYNTHESIS_CELLS), 'classes': list(row.SYNTHESIS_CLASSES), 'outcomes': list(row.SYNTHESIS_OUTCOMES)}))"].join("\n");
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", python, SCRIPT], { encoding: "utf8" })))
+      .toEqual({ cells: [...SYNTHESIS_CELLS], classes: [...SYNTHESIS_CALL_CLASSES], outcomes: [...SYNTHESIS_OUTCOMES] });
   });
 });
 
@@ -381,6 +394,25 @@ describe("E0 registry modes: role-fixture runs", () => {
     expect(refused(["--fixture-dir", empty, "--fixture", "judge"], "incomplete")).toContain("nothing dates it");
     expect(refused(["--fixture-dir", scratch(), "--fixture", "judge"], "incomplete")).toContain("neither summary.json nor a replies directory");
   }, 60_000);
+
+  it("rows a planner run that died from a listing whose streamed conditions kept .sse replies, and refuses either suffix on the other kind of condition", () => {
+    const out = join(scratch(), "e0-planner-fixture-streamed-dead"), replies = join(out, "replies"); mkdirSync(replies, { recursive: true });
+    ["legacy-thinking-structured-16384-01.json", "legacy-thinking-structured-16384-streamed-01.sse", "thinking-off-structured-16384-streamed-01.sse"].forEach((name, i) => {
+      writeFileSync(join(replies, name), "data: {\"secret stream\": true}\n\n");
+      const at = Date.UTC(2026, 10, 18, 9, i) / 1000; utimesSync(join(replies, name), at, at);
+    });
+    const line = run(["--fixture-dir", out, "--fixture", "planner"], "incomplete");
+    expect(JSON.parse(line)).toMatchObject({ modelCalls: 3, date: "2026-11-18", wallSeconds: null, terminalCause: "fixture_unfinished",
+      fixture: { kind: "planner", finished: false, replies: 3 } });
+    expectAbsent(line, "streamed-01", "secret stream");
+    // A streamed condition's raw reply is .sse and any other condition's .json, never the other way.
+    for (const stray of ["legacy-thinking-structured-16384-02.sse", "thinking-off-02.sse", "legacy-thinking-structured-16384-streamed-02.json",
+      "thinking-off-structured-16384-streamed-02.json"]) {
+      writeFileSync(join(replies, stray), "{}");
+      expect(refused(["--fixture-dir", out, "--fixture", "planner"], "incomplete"), stray).toContain("replies/ holds an entry the planner fixture does not write");
+      rmSync(join(replies, stray));
+    }
+  }, 60_000);
 });
 
 describe("E0 registry modes: the extractor fixture", () => {
@@ -456,6 +488,114 @@ describe("E0 registry modes: the extractor fixture", () => {
     ];
     for (const [content, message] of cases) expect(refused(["--fixture-dir", extractorDir(content), "--fixture", "extractor"], "rejected", flags)).toContain(message);
     expect(refused(["--fixture-dir", scratch(), "--fixture", "extractor"], "incomplete", flags)).toContain("writes summary.json before its first request");
+  }, 60_000);
+});
+
+describe("E0 registry modes: the synthesis fixture", () => {
+  /** Summaries in the shape lane S-pipe's synthesis fixture (scripts/synthesis-fixture.ts, SynthesisFixtureSummary) writes for one cell: six trials
+   * alternating two packets, each given as its calls' classes in attempt order, rewritten after every call and every trial, usage cut to numeric fields. */
+  const CELL = "synthesis-8192", SERVED = "Synthesis-Served-Alias", RUNS = ["run-2", "run-3"];
+  const USAGE = { prompt_tokens: 24000, completion_tokens: 3000, total_tokens: 27000, prompt_tokens_details: { cached_tokens: 20000 } };
+  const TRIALS: SynthesisCallClass[][] = [["accepted"], ["invalid", "accepted"], ["truncated", "truncated"], ["invalid", "transport_failed"], ["request_rejected"], ["malformed_reply"]];
+  const settled = (classification: SynthesisCallClass) => ["accepted", "invalid", "truncated"].includes(classification);
+  function call(trial: number, attempt: 1 | 2, classification: SynthesisCallClass): SynthesisCallRecord {
+    const packet = RUNS[(trial - 1) % RUNS.length]!, sent = classification !== "transport_failed";
+    return { condition: CELL, trial, packet, attempt, requestSha256: h(String(attempt)), requestBytes: 95_000 + attempt, status: classification === "request_rejected" ? 400 : sent ? 200 : null,
+      elapsedMs: 41_000, replyFile: sent ? `t${String(trial).padStart(2, "0")}-${packet}-a${attempt}.sse` : null, bodySha256: sent ? h("9") : null, bodyBytes: sent ? 52_000 : 0,
+      classification, ...(settled(classification) ? { finishReason: classification === "truncated" ? "length" : "stop", contentBytes: 9000, usage: USAGE,
+        codes: classification === "accepted" ? [] : classification === "truncated" ? ["truncated"] : ["unknown_evidence_id"] } : {}),
+      ...(classification === "transport_failed" ? { transportError: "TypeError" } : classification === "malformed_reply" ? { streamError: "sse_stream_unterminated" } : {}) };
+  }
+  /** The summary after these trials' calls, holding the records of its first `recorded` trials and the tallies the fixture's tally() writes. */
+  function summary(trials: SynthesisCallClass[][] = TRIALS, recorded = trials.length): Record<string, any> {
+    const calls = trials.flatMap((classes, i) => classes.map((classification, a) => call(i + 1, a === 0 ? 1 : 2, classification)));
+    const records = trials.slice(0, recorded).map((classes, i): SynthesisTrialRecord => {
+      const last = classes[classes.length - 1]!;
+      return { trial: i + 1, packet: RUNS[i % RUNS.length]!, outcome: last === "accepted" ? "model_synthesis" : settled(last) ? "skeleton" : "no_outcome",
+        acceptedAttempt: last === "accepted" ? (classes.length === 1 ? 1 : 2) : null, calls: classes.length };
+    });
+    const count = (values: readonly string[]) => values.reduce<Record<string, number>>((n, value) => ({ ...n, [value]: (n[value] ?? 0) + 1 }), {});
+    const outcomes = (items: readonly SynthesisTrialRecord[]) => { const tally = { model_synthesis: 0, skeleton: 0, no_outcome: 0 }; for (const item of items) tally[item.outcome]++; return tally; };
+    const written: SynthesisFixtureSummary = { version: 1, kind: "synthesis", startedUtc: "2026-11-18T08:00:00.000Z", finishedUtc: "2026-11-18T08:40:00.000Z", model: SERVED,
+      dryRun: false, protocolSha256: h("7"), requestSettings: { model: SERVED, streaming: true, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
+      conditions: [CELL], repeats: 6, attempts: CELL_CALLS[CELL], order: "trial_alternating_packets",
+      manifest: { sha256: h("a"), name: "e0-synthesis-fixture-secret-name", task: "r3-grid-batteries", exposure: "exposed", briefSha256: h("b"), trialsPerPacket: 3, packetCount: 2,
+        packets: RUNS.map((run, i) => ({ run, coverageSha256: h(String(i + 1)), evidenceSha256: h(String(i + 3)), planSha256: h(String(i + 5)) })) },
+      stageCheck: RUNS.map((run): StageCheck => ({ run, bodyBytes: [true, true], packetSha256: [true, true] })),
+      requests: { [CELL]: { requestSetSha256: h("4"), requests: 4, packets: Object.fromEntries(RUNS.map(run => [run, CELL_CALLS[CELL].map((pair, i): Omit<SynthesisRequest, "body" | "packet"> =>
+        ({ attempt: i === 0 ? 1 : 2, requestSha256: h(String(i + 1)), requestBytes: 95_001 + i, maxTokens: pair.maxOutputTokens, thinking: pair.thinking, lengthCapWords: 1800, streamed: true }))])) } },
+      trials: records, calls, counts: { [CELL]: count(calls.map(item => item.classification)) }, outcomes: outcomes(records),
+      byPacket: Object.fromEntries(RUNS.map(run => [run, outcomes(records.filter(record => record.packet === run))])),
+      codes: { 1: count(calls.filter(item => item.attempt === 1).flatMap(item => item.codes ?? [])), 2: count(calls.filter(item => item.attempt === 2).flatMap(item => item.codes ?? [])) } };
+    return JSON.parse(JSON.stringify(written)) as Record<string, any>;
+  }
+  function synthesisDir(content: Record<string, unknown>) {
+    const dir = join(scratch(), `e0-synthesis-fixture-${CELL}-20261118T080000000Z`); mkdirSync(dir);
+    writeFileSync(join(dir, "summary.json"), `${JSON.stringify(content, null, 1)}\n`);
+    return dir;
+  }
+  const synthesis = (dir: string) => ["--fixture-dir", dir, "--fixture", "synthesis"];
+
+  it("rows a finished synthesis run: its calls, usage, classes, trial outcomes and manifest hashes, and no alias, packet run, reply file or code", () => {
+    const dir = synthesisDir(summary());
+    const line = run(synthesis(dir), "accepted"), result = JSON.parse(line);
+    // The malformed reply reported no usage, so the run's token totals and its cache reuse are unknown, not that call's zero.
+    expect(result).toMatchObject({ modelCalls: 9, inputTokens: null, outputTokens: null, cachedTokens: null, usd: 0, disclosedBytes: 0, cloudCalls: [], terminalCause: "fixture_finished",
+      wallSeconds: 2400, date: "2026-11-18", outcome: "accepted" });
+    expect(result.fixture).toEqual({ kind: "synthesis", finished: true, version: 1, sha256: digest(readFileSync(join(dir, "summary.json"))), conditions: [CELL], repeats: 6,
+      manifest: { sha256: h("a"), briefSha256: h("b"), trialsPerPacket: 3, packetCount: 2 }, protocolSha256: h("7"), usageMissing: 1, cachedMissing: 1,
+      usage: { calls: 6, inputTokens: 6 * 24000, outputTokens: 6 * 3000 },
+      classes: { [CELL]: { accepted: 2, invalid: 2, truncated: 2, request_rejected: 1, malformed_reply: 1, transport_failed: 1 } },
+      outcomes: { model_synthesis: 2, skeleton: 1, no_outcome: 3 } });
+    expect(result.inputSha256).toBe(digest(canonical({ [CELL]: h("4") })));
+    expectAbsent(line, SERVED, ...RUNS, "e0-synthesis-fixture-secret-name", ".sse", "unknown_evidence_id", "sse_stream_unterminated", "trial_alternating_packets",
+      `e0-synthesis-fixture-${CELL}-2026`);
+  }, 60_000);
+
+  it("rows a stopped synthesis run from the trials it made, as incomplete or infra_invalid only, and refuses what the synthesis fixture never writes", () => {
+    const stopped = (trials: SynthesisCallClass[][], recorded: number) => { const content = summary(trials, recorded); delete content.finishedUtc; return synthesisDir(content); };
+    // Stopped while trial 4 waits for its attempt 2; every call so far reported its usage.
+    const waiting = stopped([...TRIALS.slice(0, 3), ["invalid"]], 3);
+    expect(row(synthesis(waiting), "incomplete")).toMatchObject({ modelCalls: 6, inputTokens: 6 * 24000, outputTokens: 6 * 3000, cachedTokens: 6 * 20000, wallSeconds: null,
+      terminalCause: "fixture_unfinished", fixture: { finished: false, outcomes: { model_synthesis: 2, skeleton: 1, no_outcome: 0 } } });
+    expect(row(synthesis(waiting), "infra_invalid").outcome).toBe("infra_invalid");
+    for (const outcome of ["accepted", "rejected"]) expect(refused(synthesis(waiting), outcome)).toContain("did not finish");
+    // Stopped between trial 4's last call and its record (the fixture rewrites its summary after the call, then after the trial), and before its first request.
+    expect(row(synthesis(stopped(TRIALS.slice(0, 4), 3)), "incomplete")).toMatchObject({ modelCalls: 7,
+      fixture: { finished: false, outcomes: { model_synthesis: 2, skeleton: 1, no_outcome: 0 } } });
+    expect(row(synthesis(stopped([], 0)), "incomplete")).toMatchObject({ modelCalls: 0,
+      fixture: { finished: false, classes: { [CELL]: {} }, outcomes: { model_synthesis: 0, skeleton: 0, no_outcome: 0 } } });
+    const odd = summary(); odd.calls[0].classification = "email jane doe"; odd.counts[CELL] = { ...odd.counts[CELL], accepted: 1, "email jane doe": 1 };
+    const repeated = summary(); repeated.calls.splice(1, 0, structuredClone(repeated.calls[0]));
+    const trial = (index: number, change: Record<string, unknown>) => ({ ...summary(), trials: summary().trials.map((record: Record<string, unknown>, i: number) => i === index ? { ...record, ...change } : record) });
+    const cases: [Record<string, any>, string][] = [
+      [{ ...summary(), counts: { [CELL]: { ...summary().counts[CELL], accepted: 3 } } }, "counts do not match its calls"],
+      [{ ...summary(), outcomes: { model_synthesis: 2, skeleton: 2, no_outcome: 2 } }, "outcomes do not match its trials"],
+      [trial(1, { acceptedAttempt: 1 }), "record of trial 2 is not its calls'"],
+      [trial(0, { acceptedAttempt: true }), "record of trial 1 is not its calls'"],
+      [odd, "classification is not one the synthesis fixture writes"],
+      // A trial ends on an accepted call and on one that settled no reply, so no attempt 2 follows either; nor does a third attempt or a repeated one.
+      [summary([["accepted", "invalid"], ...TRIALS.slice(1)]), "only after an invalid or truncated one, its attempt 2"],
+      [summary([["transport_failed", "accepted"], ...TRIALS.slice(1)]), "only after an invalid or truncated one, its attempt 2"],
+      [summary([["invalid", "truncated", "accepted"], ...TRIALS.slice(1)]), "only after an invalid or truncated one, its attempt 2"],
+      [repeated, "only after an invalid or truncated one, its attempt 2"],
+      [{ ...summary(), calls: summary().calls.map((item: Record<string, unknown>, i: number) => i === 8 ? { ...item, trial: 7 } : item) }, "trial or attempt"],
+      // Trial 6's record is missing from a finished summary, or trial 6 altogether; a stopped one leaves two trials unrecorded.
+      [summary(TRIALS, 5), "every trial of a finished run"],
+      [summary(TRIALS.slice(0, 5)), "every trial of a finished run"],
+      [{ ...summary(TRIALS.slice(0, 4), 2), finishedUtc: undefined }, "all but at most the last of a stopped one"],
+      [{ ...summary(), manifest: { ...summary().manifest, trialsPerPacket: 2 } }, "trials per packet times its packet count"],
+      [{ ...summary(), conditions: [CELL, "synthesis-16384"] }, "the one cell a synthesis run sends"],
+      [{ ...summary(), conditions: ["synthesis-32768"], requests: { "synthesis-32768": summary().requests[CELL] } }, "synthesis fixture conditions"],
+      [{ ...summary(), stageCheck: [summary().stageCheck[0], { ...summary().stageCheck[1], packetSha256: [true, false] }] }, "stage check"],
+      [{ ...summary(), stageCheck: summary().stageCheck.slice(0, 1) }, "stage check"],
+      [{ ...summary(), stageCheck: summary().stageCheck.map((check: Record<string, unknown>) => ({ ...check, bodyBytes: [1, 1] })) }, "stage check"],
+      [{ ...summary(), manifest: { ...summary().manifest, briefSha256: "input/brief.md" } }, "manifest does not record its hashes and counts"],
+      [{ ...summary(), protocolSha256: "the research protocol" }, "research protocol hash"],
+      [{ ...summary(), dryRun: true }, "sent its requests"],
+    ];
+    for (const [content, message] of cases) expect(refused(synthesis(synthesisDir(content)), "rejected"), message).toContain(message);
+    expect(refused(synthesis(scratch()), "incomplete")).toContain("writes summary.json before its first request");
   }, 60_000);
 });
 

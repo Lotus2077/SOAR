@@ -1,0 +1,51 @@
+{
+ "schemaVersion": 1,
+ "name": "e0-synthesis-fixture-v1",
+ "status": "pinned",
+ "note": "The ready packets of the r3 re-measurement's runs 2 and 3 (batch e0-2026-11-18, the card adopted on 2026-11-17), each pinned by its coverage, evidence and plan hashes, its run's job (the cache salt) and the run's two synthesis receipts: the stage refused attempt 1 (unknown_evidence_id) and attempt 2 ran out its 8,192-token cap, so both fell back to the host skeleton. The brief is the stage brief both runs read. Three cells, each run as its own invocation after its dry run (the E0 card's Amendment 7): synthesis-8192 is the stage's own pair, synthesis-16384 the cap candidate 2 proposes, and synthesis-8192-repair-thinking-off the stage's pair with thinking off on the repair only. 10 trials a cell, alternating the packets, 5 on each.",
+ "task": "r3-grid-batteries",
+ "exposure": "exposed",
+ "briefSha256": "6f0a6d83323f2c740a3061aab569adf670ae69183c7b11e8b1845f0772d56a35",
+ "packets": [
+  {
+   "run": "run-2",
+   "jobIdSha256": "57cf3b28307daf09b31ff117b68a2822e7bfbf8511616763812b91f0eea033c5",
+   "coverageSha256": "8129a1f15eed798a45f55b1338507b5c737bad987c54df0dd9c0e437486c3b50",
+   "evidenceSha256": "d7f69d9f93d6cdd93263536c87bfd65a96539d489a9bc1e2be447db52d6005c6",
+   "planSha256": "28ba535b53d09cfacf6ebe005c3ecef248310081c1f41d6400d830e19d644e4f",
+   "stage": [
+    {
+     "bodyBytes": 95334,
+     "packetSha256": "73b9a5be954d2ae9af5fce50143cd29072c4260a95055670a4c6ddbe34920a60"
+    },
+    {
+     "bodyBytes": 95428,
+     "packetSha256": "866db6e3dd8473f8b4ae52c4535f7ed876a0db3fdeb727db0e448d9d7e7bc8af"
+    }
+   ]
+  },
+  {
+   "run": "run-3",
+   "jobIdSha256": "0900e78421aaedec151de3a5963a9f6fb063b4f670aaac290f57a6775defe48a",
+   "coverageSha256": "9ca60b7f74c4ef64fe5b246f00aab12358c8ab861aa4aa8f7e6f0428c100300a",
+   "evidenceSha256": "adf4109fdc7560391b9cc15f068e8ce640fcb9daccbaface4116d705aa41461f",
+   "planSha256": "18940ac401aa2630944b3fec86ef62541e6b07addcb743b78a2cb8b984030247",
+   "stage": [
+    {
+     "bodyBytes": 97185,
+     "packetSha256": "88ce517b5768cd7b41518d70fc26f07d83f0a30f3ffaac2df22a68ffd3a035e2"
+    },
+    {
+     "bodyBytes": 97279,
+     "packetSha256": "c632ca3e8566b5a0346bd9f531a43801d7e0b51c9675b945280c5cf0b263416f"
+    }
+   ]
+  }
+ ],
+ "cells": [
+  "synthesis-8192",
+  "synthesis-16384",
+  "synthesis-8192-repair-thinking-off"
+ ],
+ "trialsPerPacket": 5
+}

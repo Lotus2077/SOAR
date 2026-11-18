@@ -26,7 +26,8 @@ import sys
 import tempfile
 
 SAFE_ARTIFACT = re.compile(r"^(output|review)/[A-Za-z0-9._\- /]{1,230}$")
-# The deliverables a host-checked mode adds at run time (src/main/private-agent/claims.ts and document-review.ts).
+# The deliverables a host-checked mode adds at run time (src/main/private-agent/claims.ts and document-review.ts), less the
+# document review's host flags file output/review-flags.json, which blind bundles leave out (backlog item 7(d)).
 CLAIMS_ARTIFACTS = ("output/claims.json",)
 DOCUMENT_REVIEW_ARTIFACTS = ("review/edits.json", "output/redline.docx", "output/clean.docx", "output/issues.xlsx", "output/hygiene.json")
 SAFE_ARM = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")

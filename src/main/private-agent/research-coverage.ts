@@ -1,8 +1,11 @@
 import { z } from "zod";
+import { ResearchAdmissionRecordSchema } from "./research-admission";
 import { canonical, digest, sha256Schema } from "./contracts";
 import { ResearchPlanSchema, validatePlanCoverage, validateResearchPlanAttempts, type ResearchPlan } from "./research-plan";
 export { ResearchPlanSchema, validatePlanCoverage, type ResearchPlan } from "./research-plan";
-import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, type ResearchBudget, type ResearchSourceIdentity } from "./research-contract";
+import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_SLOT_POLICY, type ResearchBudget, type ResearchSourceIdentity } from "./research-contract";
+import { hostFallbackPlan, hostSkeletonSynthesis } from "./research-fallback";
+import { ResearchAssistStageRecordSchema } from "./research-assist-record";
 
 const id = z.string().min(1).max(2048), qid = z.string().regex(/^Q[0-9]{1,2}$/u), uid = z.string().regex(/^U[0-9]{1,4}$/u), eid = z.string().regex(/^E[0-9]{1,4}$/u);
 const integer = z.number().int().nonnegative();
@@ -14,24 +17,64 @@ export const ResearchEvidenceSchema = z.object({ version: z.literal(2), quotes: 
 export type ResearchEvidence = z.infer<typeof ResearchEvidenceSchema>;
 export const BriefUnitSchema = z.object({ id: uid, startByte: integer, endByte: integer, text: z.string(), sha256: sha256Schema }).strict();
 export type BriefUnit = z.infer<typeof BriefUnitSchema>;
-const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
+/** 7b.2: `evidence_trimmed` is a chunk question whose verified quotes the packet's caps all left out; it has no evidence ids, and an omission names it. */
+const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "evidence_trimmed", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
 const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["findings", "conflict", "unresolved"]), evidenceIds: z.array(eid).max(480) }).strict();
-export const ResearchCoverageSchema = z.object({ version: z.literal(1), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
+/**
+ * Version 2 since 7(c) (BL-20261113-0927-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`.
+ * Version 3 since 7b.2 (BL-20261115-1939-research-priority-trim-design): an omission names its quote's chunks and locator, so (sourceId,
+ * locator, quoteSha256) is the pipeline's own identity of one verified quote; `presentation_cap` marks a quote only the presentation
+ * guard left out; a chunk question may be `evidence_trimmed`. Omissions no longer make a packet incomplete.
+ */
+/** Item (ii) (BL-20261117-1143-research-second-repair-design): version 4, whose chunks may hold a third attempt, a second repair. */
+export const ResearchCoverageSchema = z.object({ version: z.literal(4), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
   chunks: z.array(z.object({ id: z.string().min(1).max(80), sourceId: id, sourceSha256: sha256Schema, startByte: integer, endByte: integer, sha256: sha256Schema,
     startLine: z.number().int().positive(), status: z.enum(["pending", "complete", "invalid", "truncated", "needs_followup"]),
-    attempts: z.array(z.object({ responseSha256: sha256Schema, status: z.enum(["complete", "invalid", "truncated", "needs_followup"]) }).strict()).max(2),
+    attempts: z.array(z.object({ responseSha256: sha256Schema, status: z.enum(["complete", "invalid", "truncated", "needs_followup"]) }).strict()).max(3),
     questions: z.array(questionOutcome).max(12) }).strict()).max(4096),
-  omissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), quoteSha256: sha256Schema, reason: z.literal("packet_cap") }).strict()).max(480),
+  omissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), quoteSha256: sha256Schema, chunkIds: z.array(z.string().min(1).max(80)).min(1).max(4096),
+    locator: z.string().min(1).max(100), reason: z.enum(["packet_cap", "presentation_cap"]) }).strict()).max(480),
   conflictOmissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), noteSha256: sha256Schema, reason: z.literal("conflict_cap") }).strict()).max(160),
   unresolved: z.array(z.string().min(1).max(80)).max(4096),
-  synthesis: z.object({ status: z.enum(["pending", "complete", "invalid"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12) }).strict(),
+  synthesis: z.object({ status: z.enum(["pending", "complete", "invalid", "skeleton"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12) }).strict(),
+  fallbacks: z.object({ plan: z.enum(["none", "host_plan"]), synthesis: z.enum(["none", "skeleton"]) }).strict(),
   status: z.enum(["ready", "incomplete"]), semanticAcceptance: z.literal("not_evaluated"), corpusAbsenceEstablished: z.literal(false) }).strict();
 export type ResearchCoverage = z.infer<typeof ResearchCoverageSchema>;
 export const ResearchSynthesisSchema = z.object({ version: z.literal(1), argument: z.string().min(1).max(128 * 1024), questions: z.array(synthesisQuestion).min(1).max(12) }).strict();
+/**
+ * 7(c): one synthesis attempt as the synthesis stage row records it, hash-only. `slot` marks the assist and its one retry after a
+ * truncated assist reply (absent: the stage model). Ordinals run over every attempt.
+ */
+export const ResearchSynthesisAttemptSchema = z.object({ ordinal: z.number().int().min(1).max(4), slot: z.enum(["assist", "assist_retry"]).optional(),
+  replyContentSha256: sha256Schema, replyBytes: integer, truncated: z.boolean(), accepted: z.boolean() }).strict();
+export type ResearchSynthesisAttempt = z.infer<typeof ResearchSynthesisAttemptSchema>;
+/** 7(c): the synthesis attempts' order, counts and acceptance; a marked skeleton has no accepted attempt. */
+function validateSynthesisAttempts(stage: { calls: number; invalidReplies: number; truncatedReplies?: number; synthesisAttempts?: unknown; fallback?: unknown }, synthesisCalls: number): void {
+  const reject = (): never => fail("synthesis_attempts");
+  const parsed = z.array(ResearchSynthesisAttemptSchema).min(1).max(synthesisCalls + RESEARCH_SLOT_POLICY.synthesis.assist + RESEARCH_SLOT_POLICY.synthesis.assistRetryOnTruncation).safeParse(stage.synthesisAttempts);
+  if (!parsed.success) return reject();
+  const attempts = parsed.data, skeleton = stage.fallback === "skeleton";
+  if (stage.fallback !== undefined && !skeleton) reject();
+  if (attempts.length !== stage.calls || stage.invalidReplies !== attempts.filter(a => !a.accepted).length || (stage.truncatedReplies ?? 0) !== attempts.filter(a => a.truncated).length) reject();
+  const slots = attempts.map(a => a.slot ?? "stage"), first = slots.indexOf("assist"), stageAttempts = slots.filter(slot => slot === "stage").length;
+  if (stageAttempts > synthesisCalls || slots.filter(slot => slot === "assist").length > 1 || slots.filter(slot => slot === "assist_retry").length > 1) reject();
+  // The retry follows a truncated assist reply directly; the assist block (the assist and its retry) sits first or after every stage attempt.
+  if (slots.includes("assist_retry") && (first < 0 || slots[first + 1] !== "assist_retry" || !attempts[first]!.truncated)) reject();
+  // A skeleton follows only after every stage attempt was spent: a fallback taken earlier is no schedule the pipeline runs.
+  if (skeleton && stageAttempts !== synthesisCalls) reject();
+  const blockEnd = first < 0 ? -1 : first + (slots[first + 1] === "assist_retry" ? 1 : 0);
+  if (first > 0 && (stageAttempts !== synthesisCalls || blockEnd !== attempts.length - 1 || slots.slice(0, first).some(slot => slot !== "stage"))) reject();
+  for (const [i, attempt] of attempts.entries()) if (attempt.ordinal !== i + 1 || attempt.accepted !== (!skeleton && i === attempts.length - 1) || (attempt.accepted && attempt.truncated)) reject();
+}
 export type ResearchPacketFile = { path: string; bytes: Buffer };
-export interface ResearchPacketExpectation { brief?: string; sources?: readonly { id: string; path: string; bytes: Buffer }[]; sourceManifest?: readonly ResearchSourceIdentity[]; protocolSha256?: string; budget?: ResearchBudget }
+export interface ResearchPacketExpectation { brief?: string; sources?: readonly { id: string; path: string; bytes: Buffer }[]; sourceManifest?: readonly ResearchSourceIdentity[]; protocolSha256?: string; budget?: ResearchBudget;
+  /**
+   * 10.b (BL-20261117-1202-assist-wiring-design, decision 8): the firing the packet's stage ran under, where the caller knows it (the
+   * pipeline's own check, the seed loader): a firing requires both touchpoints' records under it, null forbids any; absent, no tie.
+   */
+  assistFiring?: "local_first" | "forced_split" | null }
 
 const PYTHON_SPACE = /[\t\n\v\f\r\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/gu;
 /** The claims check's `norm`: NFKC, then whitespace runs collapsed to one space with no leading or trailing space. */
@@ -117,7 +160,11 @@ export function renderResearchEvidence(evidence: ResearchEvidence, plan: Researc
 }
 const budgetSchema = z.object({ indexCalls: z.number().int().positive(), extractionCalls: z.number().int().positive(), plannerCalls: z.number().int().positive(), synthesisCalls: z.number().int().positive() }).strict();
 const summarySchema = z.object({ version: z.literal(RESEARCH_PIPELINE_VERSION), protocolSha256: sha256Schema, budget: budgetSchema,
-  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional() }).passthrough()).length(4) }).strict();
+  stages: z.array(z.object({ stage: z.enum(["index", "plan", "extract", "synthesise"]), calls: integer, invalidReplies: integer, truncatedReplies: integer.optional(), denied: z.string().optional(),
+    // 10.b (BL-20261117-1202-assist-wiring-design, decision 8): a stage's assist record is parsed strictly; every other key passes as before.
+    assist: ResearchAssistStageRecordSchema.optional() }).passthrough()).length(4),
+  // 7b.3 (BL-20261117-1131-research-card-admission-design): a run under a card's admission rates records them; a ready packet's was admitted.
+  admission: ResearchAdmissionRecordSchema.refine(record => record.decision === "admitted").optional() }).strict();
 export function validateReadyResearchPacket(files: readonly ResearchPacketFile[], expected: ResearchPacketExpectation = {}) {
   const names = Object.values(RESEARCH_FILES).sort();
   if (canonical(files.map(f => f.path).sort()) !== canonical(names)) fail("files");
@@ -126,15 +173,50 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   const parse = (path: string): unknown => { try { return JSON.parse(read(path)); } catch { return fail("json"); } };
   const coverage = ResearchCoverageSchema.parse(parse(RESEARCH_FILES.coverage)), plan = ResearchPlanSchema.parse(parse(RESEARCH_FILES.plan)), evidence = ResearchEvidenceSchema.parse(parse(RESEARCH_FILES.evidence));
   const summary = summarySchema.parse(parse(RESEARCH_FILES.summary));
-  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.omissions.length || coverage.conflictOmissions.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") || coverage.synthesis.status !== "complete") fail("not_ready");
+  // 7(c): every JSON file holds exactly the canonical form of its value, as the pipeline writes it. The gate checks parsed values
+  // while the writer's presentation shows the files' text, so a duplicate key or any other spelling could otherwise show the
+  // writer text the gate never saw (and the host plan's check below would not be byte for byte).
+  for (const path of [RESEARCH_FILES.index, RESEARCH_FILES.plan, RESEARCH_FILES.evidence, RESEARCH_FILES.summary, RESEARCH_FILES.coverage])
+    if (read(path) !== `${canonical(parse(path))}\n`) fail("json_form");
+  // 7b.2 (BL-20261115-1939-research-priority-trim-design): omissions and conflict omissions no longer make a packet incomplete; the
+  // counts, identity and binding checks below accept only disclosed ones.
+  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
+    coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");
   if (coverage.protocolSha256 !== summary.protocolSha256 || (expected.protocolSha256 && expected.protocolSha256 !== summary.protocolSha256) || (expected.budget && canonical(expected.budget) !== canonical(summary.budget))) fail("protocol");
-  const stageLimits = { index: summary.budget.indexCalls, plan: summary.budget.plannerCalls, extract: summary.budget.extractionCalls, synthesise: summary.budget.synthesisCalls };
-  if (summary.stages.some(s => s.invalidReplies > s.calls || (s.truncatedReplies ?? 0) > s.calls) || summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise").some(s => s.invalidReplies >= s.calls || (s.truncatedReplies ?? 0) > s.invalidReplies)) fail("stage_success_contradiction");
+  // 7(c): the plan and synthesis ceilings are the budget plus the assist slots; a settled assist reply is one of its stage's calls.
+  const stageLimits = { index: summary.budget.indexCalls, plan: summary.budget.plannerCalls + RESEARCH_SLOT_POLICY.plan.assist, extract: summary.budget.extractionCalls,
+    synthesise: summary.budget.synthesisCalls + RESEARCH_SLOT_POLICY.synthesis.assist + RESEARCH_SLOT_POLICY.synthesis.assistRetryOnTruncation };
+  // A marked fallback is the one stage outcome with no accepted reply: its rejected replies then equal its calls.
+  const fallbackOf = (stage: { stage: string; fallback?: unknown }) => stage.stage === "plan" ? stage.fallback === "host_plan" : stage.stage === "synthesise" ? stage.fallback === "skeleton" : false;
+  if (summary.stages.some(s => s.invalidReplies > s.calls || (s.truncatedReplies ?? 0) > s.calls) || summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise")
+    .some(s => (fallbackOf(s) ? s.invalidReplies !== s.calls : s.invalidReplies >= s.calls) || (s.truncatedReplies ?? 0) > s.invalidReplies)) fail("stage_success_contradiction");
   if (canonical(summary.stages.map(s => s.stage)) !== canonical(["index", "plan", "extract", "synthesise"]) || summary.stages.some(s => s.calls < 1 || s.calls > stageLimits[s.stage] || s.denied)) fail("stage_counts");
+  // 7(c): attempt records and fallback markers belong to their own stage's row only.
+  const stageKeys: Record<string, readonly string[]> = { index: [], plan: ["planAttempts", "fallback", "assist"], extract: [], synthesise: ["synthesisAttempts", "fallback", "assist"] };
+  if (summary.stages.some(s => ["planAttempts", "synthesisAttempts", "fallback", "assist"].some(key => key in s && !stageKeys[s.stage]!.includes(key)))) fail("stage_keys");
   const brief = coverage.units.map(u => u.text).join("");
   if (digest(Buffer.from(brief)) !== coverage.briefSha256 || Buffer.byteLength(brief) !== coverage.briefBytes || canonical(deriveBriefUnits(brief)) !== canonical(coverage.units) || (expected.brief !== undefined && expected.brief !== brief)) fail("brief");
   validatePlanCoverage(plan, coverage.units, coverage.sources);
-  validateResearchPlanAttempts(summary.stages[1]!, plan, coverage.units);
+  validateResearchPlanAttempts(summary.stages[1]!, plan, coverage.units, { plannerCalls: summary.budget.plannerCalls });
+  validateSynthesisAttempts(summary.stages[3]!, summary.budget.synthesisCalls);
+  // 10.b (decision 8), after the attempt records are validated: a configured hook records both touchpoints, under one policy. A record matches its own row's slot attempts: each
+  // settled assist reply is one slot attempt, the record is accepted exactly when a slot attempt was, and no slot attempt appears
+  // without a fired record (BL-20261113-0927-research-v5-design, Limitations).
+  const touchpoints = summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise");
+  if (touchpoints.some(s => s.assist !== undefined) && (touchpoints.some(s => s.assist === undefined) || new Set(touchpoints.map(s => s.assist!.policy)).size !== 1)) fail("stage_assist");
+  // A fired record's trigger is its policy's for its touchpoint; and where the caller knows the firing, the records are exactly its.
+  if (touchpoints.some(s => s.assist?.fired && s.assist.trigger !== (s.assist.policy === "forced_split" ? "forced_split" : s.assist.touchpoint === "T1" ? "local_plans_rejected" : "local_syntheses_refused")) ||
+      (expected.assistFiring !== undefined && (expected.assistFiring === null ? touchpoints.some(s => s.assist !== undefined) : touchpoints.some(s => s.assist?.policy !== expected.assistFiring)))) fail("stage_assist");
+  for (const s of touchpoints) {
+    const listed = s.stage === "plan" ? (s as { planAttempts?: unknown }).planAttempts : (s as { synthesisAttempts?: unknown }).synthesisAttempts;
+    const slotted = (Array.isArray(listed) ? listed : []).filter((a: { slot?: unknown }) => a && a.slot !== undefined) as { accepted?: unknown }[], record = s.assist;
+    if (!slotted.length && record === undefined) continue;
+    if (!record || record.touchpoint !== (s.stage === "plan" ? "T1" : "T2") || (slotted.length > 0 && !record.fired) ||
+        record.attempts.filter(a => a.outcome === "settled").length !== slotted.length || record.accepted !== slotted.some(a => a.accepted === true)) fail("stage_assist");
+  }
+  // 7(c): a marked fallback must be the host's own recomputation, byte for byte, and only a marked stage may carry one.
+  if ((coverage.fallbacks.plan === "host_plan") !== fallbackOf(summary.stages[1]!) || (coverage.fallbacks.synthesis === "skeleton") !== fallbackOf(summary.stages[3]!)) fail("fallback_marker");
+  if (coverage.fallbacks.plan === "host_plan" && canonical(plan) !== canonical(hostFallbackPlan(coverage.units))) fail("fallback_plan");
   const sourceManifest = coverage.sources.map(({ readable: _readable, ...s }) => s);
   if (!unique(sourceManifest.map(s => s.id)) || sourceManifestIdentity(sourceManifest) !== coverage.sourceManifestSha256 || (expected.sourceManifest && sourceManifestIdentity(expected.sourceManifest) !== coverage.sourceManifestSha256)) fail("sources");
   if (expected.sources) {
@@ -152,8 +234,12 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   if (coverage.chunks.some(c => !sourceManifest.some(s => s.id === c.sourceId))) fail("chunk_source");
   if (summary.stages[2]!.invalidReplies !== coverage.chunks.reduce((n, c) => n + c.attempts.filter(a => a.status !== "complete").length, 0) || (summary.stages[2]!.truncatedReplies ?? 0) !== coverage.chunks.reduce((n, c) => n + c.attempts.filter(a => a.status === "truncated").length, 0)) fail("extraction_attempt_counts");
   if (summary.stages[2]!.calls !== coverage.chunks.reduce((n, c) => n + c.attempts.length, 0)) fail("extraction_receipts");
+  // Item (ii): a third attempt, a second repair, exists only under a card's admission record, which only an admitted run writes.
+  if (summary.admission === undefined && coverage.chunks.some(c => c.attempts.length > 2)) fail("extraction_attempts");
   const questions = new Set(plan.questions.map(q => q.id)), evidenceIds = new Set(evidence.quotes.map(q => q.id));
-  if (!evidence.quotes.length || !unique(evidence.quotes.map(q => q.id)) || evidence.counts.leftByCap || evidence.counts.inPacket !== evidence.quotes.length || evidence.counts.verified !== evidence.quotes.length) fail("evidence_counts");
+  // 7b.2: every verified quote is in the packet or one omission, and every noted conflict in the packet or one conflict omission.
+  if (!evidence.quotes.length || !unique(evidence.quotes.map(q => q.id)) || evidence.counts.inPacket !== evidence.quotes.length || evidence.counts.leftByCap !== coverage.omissions.length ||
+    evidence.counts.verified !== evidence.quotes.length + coverage.omissions.length || evidence.counts.conflictsNoted !== evidence.conflicts.length + coverage.conflictOmissions.length) fail("evidence_counts");
   for (const quote of evidence.quotes) {
     const source = sourceManifest.find(s => s.id === quote.sourceId);
     if (normalizeQuoteText(quote.quote) !== quote.quote || [...quote.quote].length < 12 || [...quote.quote].length > 300) fail("quote_length");
@@ -162,7 +248,8 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   for (const chunk of coverage.chunks) {
     if (!unique(chunk.questions.map(q => q.questionId)) || canonical(chunk.questions.map(q => q.questionId).sort()) !== canonical([...questions].sort())) fail("chunk_questions");
     for (const q of chunk.questions) {
-      if (!unique(q.evidenceIds) || q.status === "needs_followup" || (q.status === "no_verified_evidence" && q.evidenceIds.length) || (q.status === "evidence_retained" && !q.evidenceIds.length)) fail("question_outcome");
+      if (!unique(q.evidenceIds) || q.status === "needs_followup" || (q.status === "no_verified_evidence" && q.evidenceIds.length) || (q.status === "evidence_retained" && !q.evidenceIds.length) ||
+        (q.status === "evidence_trimmed" && (q.evidenceIds.length || !coverage.omissions.some(o => o.chunkIds.includes(chunk.id) && o.questionIds.includes(q.questionId))))) fail("question_outcome");
       for (const e of q.evidenceIds) { const quote = evidence.quotes.find(item => item.id === e); if (!quote || !quote.questionIds.includes(q.questionId) || !quote.chunkIds.includes(chunk.id)) fail("question_quote"); }
     }
   }
@@ -177,11 +264,30 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
       if (occurrence!.locator !== quote.locator) fail("quote_locator");
     }
   }
-  if (evidence.conflicts.some(c => !sourceManifest.some(s => s.id === c.sourceId) || c.questionIds.some(q => !questions.has(q)))) fail("conflict_binding");
+  // 7b.2: an omission names one verified quote, by the pipeline's own identity (source, locator, hash of the text), that is in no
+  // other omission and not in the packet; it binds to its source's chunks and the plan's questions, and every (chunk, question) pair it
+  // names kept verified evidence, in the packet (evidence_retained) or left out (evidence_trimmed). The gate cannot see the trim's
+  // priority, since an omission carries only a hash; the pipeline's tests check it.
+  const omissionKey = (sourceId: string, locator: string, quoteSha256: string) => canonical([sourceId, locator, quoteSha256]);
+  const packetKeys = new Set(evidence.quotes.map(q => omissionKey(q.sourceId, q.locator, digest(q.quote)))), omissionKeys = coverage.omissions.map(o => omissionKey(o.sourceId, o.locator, o.quoteSha256));
+  if (!unique(omissionKeys) || omissionKeys.some(key => packetKeys.has(key))) fail("omission_identity");
+  for (const omission of coverage.omissions) {
+    if (!sourceManifest.some(s => s.id === omission.sourceId) || !unique(omission.questionIds) || omission.questionIds.some(q => !questions.has(q)) || !unique(omission.chunkIds) ||
+      omission.chunkIds.some(c => !coverage.chunks.some(chunk => chunk.id === c && chunk.sourceId === omission.sourceId))) fail("omission_binding");
+    for (const chunkId of omission.chunkIds) for (const questionId of omission.questionIds) {
+      const status = coverage.chunks.find(c => c.id === chunkId)!.questions.find(q => q.questionId === questionId)?.status;
+      if (status !== "evidence_retained" && status !== "evidence_trimmed") fail("omission_question");
+    }
+  }
+  if ([...evidence.conflicts, ...coverage.conflictOmissions].some(c => !sourceManifest.some(s => s.id === c.sourceId) || c.questionIds.some(q => !questions.has(q)))) fail("conflict_binding");
   if (read(RESEARCH_FILES.evidenceText) !== renderResearchEvidence(evidence, plan) || byPath.get(RESEARCH_FILES.evidenceText)!.length > RESEARCH_COVERAGE_POLICY.packetBytes) fail("evidence_render");
   const synth = coverage.synthesis.questions;
   if (!unique(synth.map(q => q.questionId)) || canonical(synth.map(q => q.questionId).sort()) !== canonical([...questions].sort()) || synth.some(q => !unique(q.evidenceIds) || q.evidenceIds.some(e => !evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId))) || (q.disposition !== "unresolved" && !q.evidenceIds.length))) fail("synthesis_coverage");
   if (!/^## Conflicting evidence\s*$/mu.test(read(RESEARCH_FILES.argument)) || !/^## Unanswered questions\s*$/mu.test(read(RESEARCH_FILES.argument))) fail("argument_sections");
+  if (coverage.fallbacks.synthesis === "skeleton") {
+    const skeleton = hostSkeletonSynthesis(plan, evidence);
+    if (read(RESEARCH_FILES.argument) !== skeleton.argument || canonical(synth) !== canonical(skeleton.questions)) fail("fallback_skeleton");
+  }
   if (coverage.synthesis.argumentSha256 !== digest(byPath.get(RESEARCH_FILES.argument)!) || !read(RESEARCH_FILES.argument).trim()) fail("argument");
   for (const citation of read(RESEARCH_FILES.argument).matchAll(/\bE[0-9]{1,4}\b/gu)) if (!evidenceIds.has(citation[0])) fail("citation");
   const index = parse(RESEARCH_FILES.index) as { sources?: { sourceId?: string; sourceSha256?: string }[] };

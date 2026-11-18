@@ -17,7 +17,7 @@ import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-ag
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
 import { loadFlashNextTokenAdmission, LOCAL_TOKEN_ADMISSION_STOP } from "../private-agent/flash-next-admission";
 import { isIP } from "node:net";
-import { readPublicSources } from "../private-agent/public-sources";
+import { readPublicSources, type PublicSource } from "../private-agent/public-sources";
 import { MODEL_FEE_CAP_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
   modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop, BROKER_DENIED_STOP, modelRequestBrokerDenied } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
@@ -35,6 +35,8 @@ import { isBlockingDispatch, isResolvedDispatch } from "../private-agent/store";
 import { isAssistDispatch } from "../private-agent/dispatch-purposes";
 import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from "../liveness";
 import { caughtRunReason, isResumableRunReason, storedRunReason } from "./run-reasons";
+import { storageIntegrityFailed } from "./storage-integrity";
+import { HostFlagsEventSchema } from "../private-agent/host-flags";
 
 /** Cap on one assembled local model reply. */
 const LOCAL_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -80,6 +82,8 @@ const fixedReasons: Record<string, string> = {
   research_stage_not_replayed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume.",
   task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
   consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
+  // Backlog item 6 follow-up (6.4, BL-20261114-2309): terminal for Resume, which repeats it; a Revoke removes its cause and re-opens the task.
+  consultation_budget_unavailable: "The approved consultation no longer fits the task's remaining allowance, so it was not sent and nothing is uncertain. Revoking it lets a resume continue locally within what remains; a resume alone would stop the same way.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
@@ -102,6 +106,7 @@ const summaries: Record<string, string> = {
   claims_entailment: "Claim support judged by the local model and recorded as evidence.",
   host_heartbeat: "A host heartbeat fired late: the machine slept or the app was starved. The gap on each clock is recorded.",
   consultation_response: "Consultant response saved as untrusted advice.",
+  host_flags: "Host flags recorded for the owner's attention; they decide nothing.",
 };
 /** Bounded, exact-text projections of model-authored text for the owner surface; never instructions, never trusted. */
 const AGENT_TEXT_MAX_CHARS = 4000, ACTION_DETAIL_MAX_CHARS = 160;
@@ -142,8 +147,85 @@ function projectAgentText(events: Record<string, unknown>[], contextId: string |
   const finishSummary = finishCall ? boundedText(argumentsOf(finishCall).summary, AGENT_TEXT_MAX_CHARS) : undefined;
   return { ...(plan ? { plan } : {}), ...(finishSummary ? { finishSummary } : {}) };
 }
+const HOST_FLAG_SECTIONS = Object.freeze({ report_failed: "the report scan", argument_failed: "the argument scan", misses_failed: "the misses",
+  review_failed: "the review summary" } as const);
+const HOST_FLAG_REVIEW_RULES = Object.freeze({ numeric: "table check", edits: "edit check", clauses: "clause check" } as const);
+/**
+ * Backlog item 7(d), part C (BL-20261114-1246-host-flags-surfaces-design): the issue lines of a submission's `host_flags` event (7d.B), built
+ * only from its counts, rule ids, lines, positions, edit ids and the flags file's error class names, never from report, model or document text. A research task (public sources, so a
+ * claims-ledger phase) without an event says its flags were not recorded, since silence would read as "no flags". The flags decide nothing.
+ */
+export function hostFlagIssues(events: readonly Record<string, unknown>[], expected: boolean): string[] {
+  const recorded = events.filter(event => event.type === "host_flags");
+  if (!recorded.length) return expected ? ["The host flags of this submission were not recorded."] : [];
+  const parsed = HostFlagsEventSchema.safeParse(recorded[recorded.length - 1]);
+  if (!parsed.success) return ["The host flags of this submission could not be read."];
+  const flags = parsed.data, counts = flags.counts, issues: string[] = [];
+  const many = (n: number, one: string, more: string) => `${n} ${n === 1 ? one : more}`;
+  const listed = (items: readonly string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  // The first positions the event kept (at most 40 per list), and how many more the counts hold.
+  const more = (shown: number, total: number) => total > shown ? `, and ${total - shown} more` : "";
+  for (const [name, label, noun, article] of [["report", "the report", "claim", "a claim"], ["argument", "the research packet's argument", "evidence id", "an evidence id"]] as const) {
+    const scan = flags[name];
+    if (!scan) continue;
+    if (!scan.scanned) {
+      const subject = name === "report" ? "The report" : "The research packet's argument";
+      issues.push(scan.reason === "missing" ? `The host found no ${name === "report" ? "report" : "research packet argument"} to scan for absence claims.` :
+        `${subject} is a ${scan.format === "pdf" ? "PDF" : "Word"} file, so the host did not scan it for absence claims.`);
+      continue;
+    }
+    const total = counts[`${name}Absence`] ?? 0, uncited = counts[`${name}AbsenceUncited`] ?? 0;
+    // The lines of every kept absence hit, cited or not, each once: two claims on one line name it once.
+    const lines = [...new Set(scan.hits.filter(hit => hit.class === "absence").map(hit => hit.line))].map(String);
+    const at = lines.length ? `, at ${lines.length === 1 ? "line" : "lines"} ${listed(lines)}${scan.truncated ? " among the first 40 hits" : ""},` : "";
+    const cites = total === 1 ? (uncited ? `it cites no ${noun}` : `it cites ${article}`) : uncited === 0 ? `each cites ${article}` :
+      uncited === total ? `none cites ${article}` : `${uncited} of them ${uncited === 1 ? "cites" : "cite"} no ${noun}`;
+    if (total) issues.push(`${many(total, "sentence", "sentences")} of ${label}${at} ${total === 1 ? "asserts" : "assert"} that the sources lack something (absence rules v1); ${cites}.`);
+    if (scan.textCut) issues.push(`Only the first part of ${label} was scanned for absence claims.`);
+  }
+  const misses = flags.misses ?? {};
+  if (misses.questionsWithoutEvidence) {
+    // 7d.D (BL-20261116-1200-host-flags-trimmed-counts-design): the questions whose verified quotes the packet's caps all left out are among
+    // them. An event recorded before 7d.D has no such count, and its line reads as before.
+    const total = misses.questionsWithoutEvidence, trimmed = misses.questionsTrimmed ?? 0;
+    const why = trimmed ? `; ${trimmed === total ? (total === 1 ? "it" : "each") : `${trimmed} of them`} had verified evidence, all left out of the packet at its caps` : "";
+    issues.push(`${many(total, "research question has", "research questions have")} no retained evidence${why}.`);
+  }
+  if (misses.unresolvedQuestions) issues.push(`${many(misses.unresolvedQuestions, "research question was", "research questions were")} left unresolved by the synthesis.`);
+  const left = [...(misses.quotesLeftByCap ? [many(misses.quotesLeftByCap, "verified quote", "verified quotes")] : []),
+    ...(misses.conflictsLeftByCap ? [many(misses.conflictsLeftByCap, "conflict note", "conflict notes")] : [])];
+  if (left.length) issues.push(`The research packet left out ${listed(left)} at its caps.`);
+  if (misses.fetchFailures) issues.push(`${many(misses.fetchFailures, "public source fetch", "public source fetches")} failed.`);
+  if (misses.fetchLimitRefusals) issues.push(`${many(misses.fetchLimitRefusals, "public source fetch was", "public source fetches were")} refused at the fetch limit.`);
+  if (counts.briefSingleUnit === 1) issues.push("The brief has a single unit, so the research plan's coverage check was vacuous.");
+  const review = flags.review;
+  if (review && !review.valid) issues.push(`The document review's flags file was ${review.reason === "missing" ? "missing" : review.reason === "too_large" ? "too large to read" :
+    "invalid"}, so its flags were not read.`);
+  if (review?.valid) {
+    if (review.errors?.step) issues.push(`The document review's flag step failed (${review.errors.step}), so its flags were not computed.`);
+    for (const rule of ["numeric", "edits", "clauses"] as const) if (review.errors?.[rule]) issues.push(`The document review's ${HOST_FLAG_REVIEW_RULES[rule]} failed (${review.errors[rule]}).`);
+    const numeric = review.numeric ?? [], edits = review.edits ?? [], clauses = review.clauses ?? [];
+    if (numeric.length) {
+      const total = Math.max(numeric.length, (counts.numericSource ?? 0) + (counts.numericIntroduced ?? 0));
+      issues.push(`${total === 1 ? "1 figure in the prose disagrees with its table row" : `${total} figures in the prose disagree with their table rows`}, ` +
+        `${counts.numericUnaddressed ?? 0} left unaddressed by the edits: ${numeric.map(flag => `table ${flag.table} row ${flag.row} (paragraph ${flag.paragraph})`).join("; ")}${more(numeric.length, total)}.`);
+    }
+    if (edits.length) {
+      const total = Math.max(edits.length, counts.inversionEdits ?? 0);
+      issues.push(`${total === 1 ? "1 edit turns its clause around" : `${total} edits turn their clauses around`}: ` +
+        `${edits.map(flag => `${flag.id} (${flag.codes.map(code => code.replace(/_/gu, " ")).join(", ")})`).join(", ")}${more(edits.length, total)}.`);
+    }
+    if (clauses.length) {
+      const total = Math.max(clauses.length, (counts.inversionSource ?? 0) + (counts.inversionIntroduced ?? 0));
+      issues.push(`${many(total, "pair of clauses is", "pairs of clauses are")} contradictory, ${counts.inversionUnaddressed ?? 0} left unaddressed by the edits: ` +
+        `${clauses.map(flag => `paragraphs ${flag.paragraphs[0]} and ${flag.paragraphs[1]}`).join("; ")}${more(clauses.length, total)}.`);
+    }
+  }
+  if (flags.errors?.length) issues.push(`The host could not compute part of its flags: ${listed(flags.errors.map(code => HOST_FLAG_SECTIONS[code]))}.`);
+  return issues;
+}
 /** Host-derived qualifications of a submission; the agent's own words never add or remove one. */
-function reportedIssues(events: Record<string, unknown>[], contextId: string | undefined, entailment: GeneralTaskEntailment | undefined): string[] {
+function reportedIssues(events: Record<string, unknown>[], contextId: string | undefined, entailment: GeneralTaskEntailment | undefined, hostFlagsExpected: boolean): string[] {
   const own = events.filter(event => !contextId || event.contextId === contextId), issues: string[] = [];
   const failedFinishes = own.filter(event => event.type === "tool_finished" && typeof event.output === "string" && (event.output as string).includes('"complete":false')).length;
   if (failedFinishes) issues.push(`${failedFinishes} finish attempt${failedFinishes === 1 ? "" : "s"} failed the host checks before the final one passed.`);
@@ -156,6 +238,7 @@ function reportedIssues(events: Record<string, unknown>[], contextId: string | u
     if (partial) issues.push(`${partial} judged claim${partial === 1 ? " is" : "s are"} only partly supported.`);
     if (not_judged && entailment.truncated) issues.push(`${not_judged} claim${not_judged === 1 ? " was" : "s were"} not judged (the pass stopped early).`);
   }
+  issues.push(...hostFlagIssues(own, hostFlagsExpected));
   return issues;
 }
 
@@ -510,6 +593,13 @@ export class GeneralTaskController {
     const sizeStopped = events.some(event => modelRequestSizeStop(events, event)), feeStopped = events.some(event => modelRequestFeeStop(events, event));
     const tokenStopped = events.some(event => modelRequestTokenAdmissionStop(events, event));
     const progressStopped = this.progressStop(events, id);
+    // Backlog item 6 (6.3): a damaged source blob never breaks the snapshot, and with it every task's list. The sources are left out, and an
+    // integrity failure is the record's permanent stop; any other read error only leaves them out.
+    let sources: PublicSource[] = [], sourcesDamaged = false;
+    if (record.publicSources) {
+      try { sources = readPublicSources(this.runtime, this.checkpoints(id), id, contextId); }
+      catch (error) { sourcesDamaged = caughtRunReason(error, this.root) === "task_integrity_failed"; }
+    }
     // Backlog item 6: a consultation whose one request failed with a confirmed outcome is never sent again, so every resume would end at once.
     const consultationFailed = consultation?.status === "failed" && !consultation.uncertain;
     // Backlog item 6 (finding A7): a research stage that started and never transferred cannot continue, whatever stopped it (a pause, a quit,
@@ -519,9 +609,9 @@ export class GeneralTaskController {
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
     // Backlog item 6 (finding A6): the run-reasons table decides for an incomplete record; every guard after it still applies.
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && isResumableRunReason(record.reason)) && !consultationFailed &&
-      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !stageUnfinished && consultation?.status !== "pending" &&
+      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !sourcesDamaged && !stageUnfinished && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
-    const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : consultationFailed ? "consultation_failed" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP :
+    const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : consultationFailed ? "consultation_failed" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : sourcesDamaged ? "task_integrity_failed" :
       // Backlog item 6 (finding A7): an unfinished research stage is a permanent stop, named before the time limit, both for a record that
       // would otherwise read as resumable and for the session's own stored refusal; any other terminal stored reason keeps its own text.
       stageUnfinished && (record.status === "paused" || isResumableRunReason(record.reason)) || record.reason === "research_stage_not_replayed" ? "research_stage_not_replayed" :
@@ -550,7 +640,7 @@ export class GeneralTaskController {
       ...(record.version === 3 ? { fees: { reservedMicrousd: dispatches.filter(row => !isResolvedDispatch(row)).reduce((sum, row) => sum + row.reservedFeeMicrousd, 0),
         settledMicrousd: dispatches.filter(row => row.status === "settled").reduce((sum, row) => sum + (row.feeMicrousd ?? 0), 0) } } : {}),
       ...(record.publicSources ? { network: { urls: [...record.publicSources.urls], dnsResolver: record.publicSources.dnsResolver, ...GENERAL_TASK_WEB_LIMITS },
-        sources: readPublicSources(this.runtime, this.checkpoints(id), id, contextId),
+        sources,
         publicFetches: this.runtime.dispatches(id).filter(receipt => receipt.purpose === "public source retrieval").length } : {}),
       artifacts, ...(bundle ? { bundle } : {}), ...(bundleUnavailableReason ? { bundleUnavailableReason } : {}), modelCalls: models, toolCalls: tools,
       elapsedMs: Math.min(this.budget(record).elapsedMs, record.startedAt === null ? 0 : record.version === 3 ?
@@ -562,7 +652,7 @@ export class GeneralTaskController {
       independentAcceptance: "not_evaluated", canResume,
       ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
-      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment) } : {}),
+      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :
@@ -621,7 +711,10 @@ export class GeneralTaskController {
         this.consultationManager(record, contextId).decide(decision);
       } else if (active?.consultation) active.consultation.decide(decision);
       else decideWithoutDispatch(this.runtime, input.id, { ...decision, decision: input.decision });
-      if (!active) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
+      // Backlog item 6 (6.3): a decision is recorded either way, but it never re-opens a record a terminal stop ended (a damaged storage, say).
+      // The one exception (6.4, BL-20261114-2309): a Revoke cures a stop because the approved consultation no longer fit the allowance.
+      const cured = input.decision === "revoke" && record.reason === "consultation_budget_unavailable";
+      if (!active && (record.status === "paused" || isResumableRunReason(record.reason) || cured)) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
     });
     this.consultationPreviews.delete(input.id);
     this.publish(input.id); return this.get(input.id);
@@ -678,7 +771,19 @@ export class GeneralTaskController {
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
         result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP :
         // Backlog item 6 (finding A6): an incomplete run keeps its own fixed code; a value without the code shape, or no stop, the legacy `incomplete`.
-        next.status === "incomplete" ? storedRunReason(result.reason) : next.status; this.save(next);
+        next.status === "incomplete" ? storedRunReason(result.reason) : next.status;
+      // Backlog item 6 (6.3): the runner's catch keeps only an error's class, so a damaged blob of the task's storage would read as a resumable
+      // runtime failure; the blobs the private context's records reference are verified, and a missing or mismatched one ends the task.
+      if (next.status === "incomplete" && next.reason === "runtime_failure_progress_preserved") {
+        const privateContextId = events.find(event => event.type === "session_started")?.privateContextId;
+        if (typeof privateContextId === "string" && storageIntegrityFailed(events, privateContextId, checkpoints, this.root)) next.reason = "task_integrity_failed";
+      }
+      // Backlog item 6 follow-up (6.4, BL-20261114-2309): a Revoke clicked while the stopping run was still ending is recorded, but cannot reset
+      // the record of an active run; the run's budget stop is cured here when it ends, as decideConsultation cures it after the run.
+      if (next.status === "incomplete" && next.reason === "consultation_budget_unavailable" && readConsultation(this.runtime, id)?.status === "revoked") {
+        next.status = "paused"; next.reason = "consultation_ready";
+      }
+      this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       // Backlog item 6: a configuration change, an integrity failure or missing storage, the session's own codes and the runner's contract refusals

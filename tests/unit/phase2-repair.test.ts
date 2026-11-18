@@ -207,10 +207,15 @@ describe("Phase 2 repair pair: the failed run and the critic", () => {
     expect(source).toContain("signal: critiqueSignal(heavy.requestTimeoutMs + 60_000, control.signal)");
     expect(source).not.toMatch(/signal: AbortSignal\.timeout\(heavy\.requestTimeoutMs/u);
     // An interrupt during the draft's rendering stops the critique before its directory exists (merge-train review of #78, F5).
-    const abortCheck = source.indexOf('if (control.signal?.aborted) throw new Error("request_cancelled");'), created = source.indexOf("mkdirSync(directory, { mode: 0o700 });");
-    expect(abortCheck).toBeGreaterThan(source.indexOf("export async function critique("));
+    // The check is a whole line of its own, so a commented-out check or one behind a dead guard fails the pin (delta review of #78, item 3).
+    const start = source.indexOf("export async function critique(");
+    const abortCheck = /^\s*if \(control\.signal\?\.aborted\) throw new Error\("request_cancelled"\);$/mu.exec(source)?.index ?? -1;
+    const rendered = source.indexOf("renderDraft(run.draft", start), created = source.indexOf("mkdirSync(directory, { mode: 0o700 });", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(abortCheck).toBeGreaterThan(start);
+    expect(rendered).toBeGreaterThanOrEqual(start);
+    expect(rendered).toBeLessThan(abortCheck);
     expect(created).toBeGreaterThan(abortCheck);
-    expect(source.indexOf("renderDraft(run.draft", source.indexOf("export async function critique("))).toBeLessThan(abortCheck);
   });
   it("parses the critique command line, and the driver's --repair-from, which is local only", () => {
     const base = ["--critique", "--run-directory", "r", "--task-directory", "t", "--job-sha256", h("a"), "--brief-sha256", h("b"), "--image-id", `sha256:${h("c")}`, "--output-directory", "o"];

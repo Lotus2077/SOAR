@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,6 +15,8 @@ import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import type { BrokerDestination } from "../../src/main/private-agent/broker";
 import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
 import { workspaceListing } from "../helpers/workspace-listing";
+import { retainPublicSource } from "../../src/main/private-agent/public-sources";
+import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -26,7 +28,7 @@ function fixture(cleanupConfirmed = true) {
     vllm: { baseUrl: "http://127.0.0.1:9999/v1", apiKey: "host-key-a", model: "unit-fixture", costPolicy: "local_zero_cost", maxOutputTokens: 8192, timeoutMs: 300000 },
     limits: { inferenceRounds: 24, toolCalls: 24 }, context: { maxInputTokens: 32000, safetyMargin: 0.2 } };
   let runtimeIdentity = digest("runtime-v1"), imageId: string | undefined = `sha256:${"a".repeat(64)}`;
-  let paused = false, cancelled = false, failModel = false, narrate = false, release: (() => void) | undefined;
+  let paused = false, cancelled = false, failModel = false, narrate = false, report = "unit artifact", release: (() => void) | undefined;
   let hold: Promise<void> | undefined;
   const executions: GeneralJobOptions[] = [];
   const factory: NonNullable<NonNullable<GeneralTaskControllerOptions["testing"]>["runnerFactory"]> = args => ({
@@ -47,7 +49,7 @@ function fixture(cleanupConfirmed = true) {
       }
       // The reply's usage and finish reason, as the runner records them (the verdict receipt sums these).
       store.append(jobId, { type: "model_finished", contextId, operationId: op, finishReason: "stop", usage: { inputTokens: 120, outputTokens: 30, cacheReadTokens: 40, cacheWriteTokens: 0 } });
-      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("unit artifact") }]);
+      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from(report) }]);
       store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
       const status = cancelled || signal?.aborted ? "incomplete" : paused ? "paused" : "completed";
       const checks = [{ id: "desktop_artifact_structure", passed: true }];
@@ -82,6 +84,7 @@ function fixture(cleanupConfirmed = true) {
   const controller = new GeneralTaskController(options); cleanup.push(() => controller.close());
   const create = () => controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([input]).id, outputName: "report.md", publicOrSynthetic: true });
   return { root, db, input, config, controller, options, executions, create, set failModel(value: boolean) { failModel = value; }, set narrate(value: boolean) { narrate = value; },
+    set report(value: string) { report = value; },
     changeRuntime() { runtimeIdentity = digest("runtime-v2"); }, removeImage() { imageId = undefined; },
     hold() { hold = new Promise<void>(yes => { release = yes; }); }, release() { release?.(); hold = undefined; }, resetPaused() { paused = false; } };
 }
@@ -348,6 +351,34 @@ describe("desktop general-task host controller", () => {
       endpoint: `${f.config.vllm.baseUrl}/chat/completions`, accountId: "owner_declared_local_server",
       credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true, maxResponseBytes: 256 * 1024, timeoutMs: 900_000, maxRequestBytes: 640 * 1024 })));
     expect(f.controller.get(task.id)).toMatchObject({ status: "submitted" });
+  });
+  it("shows a research submission's host flags in its timeline and its reported issues, and says when they were not recorded (backlog item 7(d), part C)", async () => {
+    const f = fixture(), url = "https://public.example.test/facts";
+    const research = () => f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
+      publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } });
+    // The report the session's host flags pass scans (7d.B): one uncited absence claim on its second line.
+    f.report = "# Findings\nNone of the sources quantify the cost.";
+    const flagged = research(); f.controller.start(flagged.id); await f.controller.wait(flagged.id);
+    const view = f.controller.get(flagged.id);
+    expect(view.status).toBe("submitted");
+    expect(view.events.find(event => event.type === "host_flags")?.summary).toBe("Host flags recorded for the owner's attention; they decide nothing.");
+    expect(view.reportedIssues).toContain("1 sentence of the report, at line 2, asserts that the sources lack something (absence rules v1); it cites no claim.");
+    // A research submission whose event was lost says so; silence would read as "no flags".
+    const append = PrivateAgentStore.prototype.append;
+    const spy = vi.spyOn(PrivateAgentStore.prototype, "append").mockImplementation(function (this: PrivateAgentStore, jobId: string, event: Record<string, unknown>) {
+      if (event.type === "host_flags") throw new Error("store unavailable");
+      return append.call(this, jobId, event);
+    });
+    try {
+      const lost = research(); f.controller.start(lost.id); await f.controller.wait(lost.id);
+      expect(f.controller.get(lost.id)).toMatchObject({ status: "submitted" });
+      expect(f.controller.get(lost.id).events.some(event => event.type === "host_flags")).toBe(false);
+      expect(f.controller.get(lost.id).reportedIssues).toContain("The host flags of this submission were not recorded.");
+    } finally { spy.mockRestore(); }
+    // A plain task requires neither check, so no event is expected and no line is given.
+    const plain = f.create(); f.controller.start(plain.id); await f.controller.wait(plain.id);
+    expect(f.controller.get(plain.id).events.some(event => event.type === "host_flags")).toBe(false);
+    expect(f.controller.get(plain.id).reportedIssues).toEqual([]);
   });
   it("requires a host-checked claims ledger for research tasks with exact public sources", async () => {
     const f = fixture();
@@ -1083,7 +1114,9 @@ describe("desktop general-task host controller", () => {
   it.each([
     ["runtime_contract_drift", GENERIC_INCOMPLETE], ["checkpoint_identity_mismatch", GENERIC_INCOMPLETE], ["host_validation_not_replayed", GENERIC_INCOMPLETE],
     ["repeated_incomplete_tool_arguments_at_output_limit", GENERIC_INCOMPLETE], ["duplicate_tool_call_id", GENERIC_INCOMPLETE],
-    ["bounded_allowance_exhausted", GENERIC_INCOMPLETE], ["consultation_budget_unavailable", GENERIC_INCOMPLETE],
+    ["bounded_allowance_exhausted", GENERIC_INCOMPLETE],
+    // Backlog item 6 follow-up (6.4): still terminal for Resume, but its text names the cure, a Revoke.
+    ["consultation_budget_unavailable", "Revoking it lets a resume continue locally within what remains"],
     // Backlog item 6 (A7): a stage that cannot continue has its own text.
     ["public_source_retention_or_text_failed", GENERIC_INCOMPLETE], ["research_stage_not_replayed", "research stage stopped before its evidence was handed to the writer"],
     ["research_request_denied", GENERIC_INCOMPLETE], ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],
@@ -1309,5 +1342,136 @@ describe("desktop general-task host controller", () => {
     const late = vi.spyOn(Date, "now").mockReturnValue(Date.now() + GENERAL_TASK_LIMITS.elapsedMs + 1);
     expect(stored.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false }); expect(stored.controller.get(task.id).reason).toContain(RESEARCH_STOP);
     late.mockRestore();
+  });
+
+  // Backlog item 6, plan 6.3 (BL-20261113-0817-runner-storage-integrity-design): a damaged blob of the task's storage ends task_integrity_failed.
+  const INTEGRITY = "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.";
+  type Step = { name: string; args: Record<string, unknown> } | "pause";
+  /** The real runner on a stateful sandbox double; each run follows its script of tool calls, and "pause" pauses the task. */
+  function runnerBacked(f: ReturnType<typeof fixture>, scripts: Step[][]) {
+    vi.spyOn(DockerSandbox, "currentEndpoint").mockResolvedValue("unix:///tmp/synthetic-docker.sock");
+    vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue(undefined);
+    const create = vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
+      const files = new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)]));
+      return {
+        async execute(command: string) {
+          if (command.startsWith("rm ")) { files.delete(command.slice(3)); return { exitCode: 0, stdout: "", stderr: "" }; }
+          return { exitCode: 0, stdout: `ran ${command}`, stderr: "" };
+        },
+        async listFiles() { return workspaceListing(files); },
+        async readFile(path: string) { return files.get(path)!; },
+        async editFile(mode: string, path: string, payload: Buffer) { files.set(path, mode === "append" ? Buffer.concat([files.get(path) ?? Buffer.alloc(0), payload]) : Buffer.from(payload)); return { ok: true, bytes: payload.length }; },
+        async close() {},
+      } as unknown as DockerSandbox;
+    });
+    const requests: number[] = [];
+    f.options.testing!.runnerFactory = args => {
+      f.executions.push(args); const run = requests.push(0) - 1, steps = scripts[run] ?? ["pause"]; let i = 0;
+      vi.spyOn(args.model, "complete").mockImplementation(async () => {
+        requests[run]!++;
+        const step = steps[i++] ?? "pause", id = `call_${run}_${i}`;
+        if (step === "pause") { f.controller.pause(args.jobId); return { content: "", toolCalls: [{ id, type: "function", function: { name: "remember_plan", arguments: JSON.stringify({ plan: "pause" }) } }], finishReason: "tool_calls", costUsd: 0, durationMs: 1 }; }
+        return { content: "", toolCalls: [{ id, type: "function", function: { name: step.name, arguments: JSON.stringify(step.args) } }], finishReason: "tool_calls", costUsd: 0, durationMs: 1 };
+      });
+      return new GeneralAgentRunner(args);
+    };
+    return { requests, create };
+  }
+  const blobPath = (f: ReturnType<typeof fixture>, id: string, sha256: string) => join(f.root, "tasks", "checkpoints", id, sha256);
+  const observationSha = (f: ReturnType<typeof fixture>, id: string) => (f.executions[0]!.store.events(id).find(event => event.executionCapture === "retained")!.executionObservation as { sha256: string }).sha256;
+  const writes = (path: string, content: string) => ({ name: "write_file", args: { path, content } });
+  it.each([
+    ["a deleted checkpoint blob", [writes("output/report.md", "report body A")], (f: ReturnType<typeof fixture>, id: string) => rmSync(blobPath(f, id, digest("report body A")))],
+    ["a checkpoint blob holding other bytes of the same size", [writes("output/report.md", "report body B")], (f: ReturnType<typeof fixture>, id: string) => writeFileSync(blobPath(f, id, digest("report body B")), "report body X")],
+    ["a deleted observation blob", [{ name: "execute", args: { command: "echo hi" } }], (f: ReturnType<typeof fixture>, id: string) => rmSync(blobPath(f, id, observationSha(f, id)))],
+    ["a blob that only an earlier checkpoint holds", [writes("work/a.txt", "earlier bytes E"), { name: "execute", args: { command: "true" } }, { name: "execute", args: { command: "rm work/a.txt" } }],
+      (f: ReturnType<typeof fixture>, id: string) => rmSync(blobPath(f, id, digest("earlier bytes E")))],
+  ] as const)("backlog item 6 (6.3): ends task_integrity_failed at its first runtime failure for %s, with no Resume, also after reopening", async (_, steps, damage) => {
+    const f = fixture(), { requests } = runnerBacked(f, [[...steps]]);
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id).status).toBe("paused");
+    damage(f, task.id);
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    // The resume failed inside the runner, whose catch keeps only an error's class, and sent nothing.
+    expect(f.executions[1]!.store.events(task.id).some(event => event.type === "runtime_failure")).toBe(true); expect(requests[1]).toBe(0);
+    expect(storedRecord(f, task.id)).toMatchObject({ status: "incomplete", reason: "task_integrity_failed" });
+    expect(f.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, reason: INTEGRITY });
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, reason: INTEGRITY }); expect(f.executions).toHaveLength(2);
+  });
+
+  it.each([
+    ["a sandbox that fails once", [writes("output/report.md", "report body D")], (_f: ReturnType<typeof fixture>, _id: string, create: { mockRejectedValueOnce(error: Error): void }) => create.mockRejectedValueOnce(new Error("synthetic docker create failure"))],
+    ["an unreadable observation blob", [{ name: "execute", args: { command: "echo hi" } }], (f: ReturnType<typeof fixture>, id: string) => {
+      const path = blobPath(f, id, observationSha(f, id)); chmodSync(path, 0o000); cleanup.push(() => chmodSync(path, 0o600)); }],
+    ["an unreadable checkpoint blob", [writes("output/report.md", "report body G")], (f: ReturnType<typeof fixture>, id: string) => {
+      const path = blobPath(f, id, digest("report body G")); chmodSync(path, 0o000); cleanup.push(() => chmodSync(path, 0o600)); }],
+  ] as const)("backlog item 6 (6.3): keeps a runtime failure resumable when the storage is intact: %s", async (_, steps, environment) => {
+    const f = fixture(), { create } = runnerBacked(f, [[...steps]]);
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    environment(f, task.id, create as unknown as { mockRejectedValueOnce(error: Error): void });
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id)).toMatchObject({ status: "incomplete", reason: "runtime_failure_progress_preserved" });
+    expect(f.controller.get(task.id)).toMatchObject({ canResume: true });
+  });
+
+  const SOURCE_URL = "https://public.example.test/facts";
+  /** A web task whose first run retains one public source, then ends as `end` says: a runtime failure first deletes the source's blob, and
+   * "submitted" hands over to the fixture's own runner. */
+  function sourcedTask(f: ReturnType<typeof fixture>, end: "paused" | "incomplete" | "submitted", bytes: Buffer) {
+    const original = f.options.testing!.runnerFactory!;
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run(signal) {
+      const { store, jobId, contextId, checkpoints } = args;
+      const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_web_1", purpose: "public source retrieval", method: "GET", url: SOURCE_URL, maxFeeMicrousd: 0 });
+      const row = store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+      store.settle(row.id, 0, digest(bytes));
+      retainPublicSource(store, checkpoints, { jobId, contextId, url: SOURCE_URL, bytes, receipt: store.dispatch(row.id) });
+      if (end === "submitted") return original(args).run(signal);
+      f.executions.push(args);
+      const snapshot = checkpoints.save([...args.files]);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      if (end === "incomplete") rmSync(blobPath(f, jobId, digest(bytes)));
+      return end === "paused" ? { status: "paused", reason: "checkpoint_saved", snapshot, checks: [], modelCalls: 0 } :
+        { status: "incomplete", reason: "runtime_failure_progress_preserved", snapshot, checks: [], modelCalls: 0 };
+    } });
+    return f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
+      publicSources: { urls: [SOURCE_URL], allowPublicRetrieval: true, dnsResolver: "system" } });
+  }
+  it("backlog item 6 (6.3): a damaged public-source blob ends the task, and get(), list() and resume() still answer for it and every other task", async () => {
+    for (const end of ["incomplete", "paused"] as const) {
+      const f = fixture(), plain = f.create(), bytes = Buffer.from(`retained public bytes ${end}`), task = sourcedTask(f, end, bytes);
+      f.controller.start(task.id); await f.controller.wait(task.id);
+      // A runtime failure is scanned and stored terminal; a pause is not scanned, and get() itself names the damage.
+      if (end === "paused") rmSync(blobPath(f, task.id, digest(bytes)));
+      expect(storedRecord(f, task.id).reason).toBe(end === "incomplete" ? "task_integrity_failed" : "paused");
+      expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: INTEGRITY, sources: [] });
+      expect(f.controller.list().map(item => item.id).sort()).toEqual([plain.id, task.id].sort());
+      expect(f.controller.get(plain.id)).toMatchObject({ status: "queued" });
+      expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
+    }
+  });
+
+  it("backlog item 6 (6.3): get()'s source read fails closed: an unreadable blob only empties the sources, damage names itself past the time limit, and a submitted task keeps its outcome", async () => {
+    const f = fixture(), bytes = Buffer.from("retained public bytes, unreadable"), task = sourcedTask(f, "paused", bytes);
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    const healthy = f.controller.get(task.id);
+    expect(healthy).toMatchObject({ status: "paused", canResume: true }); expect(healthy.sources).toHaveLength(1);
+    // A permission error is environmental: the sources are left out, and nothing else changes.
+    const path = blobPath(f, task.id, digest(bytes)); chmodSync(path, 0o000); cleanup.push(() => { try { chmodSync(path, 0o600); } catch { /* removed below */ } });
+    expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: healthy.reason, sources: [] });
+    chmodSync(path, 0o600); rmSync(path);
+    // Damage is a permanent stop, named before the time limit.
+    const late = vi.spyOn(Date, "now").mockReturnValue(Date.now() + GENERAL_TASK_LIMITS.elapsedMs + 1);
+    expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: INTEGRITY }); late.mockRestore();
+    // A submitted task keeps its outcome; only its sources are left out.
+    const g = fixture(), done = Buffer.from("retained public bytes, submitted"), submitted = sourcedTask(g, "submitted", done);
+    g.controller.start(submitted.id); await g.controller.wait(submitted.id);
+    const before = g.controller.get(submitted.id);
+    expect(before.status).toBe("submitted");
+    rmSync(blobPath(g, submitted.id, digest(done)));
+    expect(g.controller.get(submitted.id)).toMatchObject({ status: "submitted", reason: before.reason, canResume: false, sources: [] });
   });
 });

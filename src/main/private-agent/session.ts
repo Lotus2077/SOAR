@@ -8,12 +8,17 @@ import { GeneralAgentRunner, GeneralJobContractSchema, type ArtifactCheck, type 
 import { readPublicSources } from "./public-sources";
 import type { GeneralConsultation } from "./consultation";
 import { readPublicSourceFiles } from "./public-sources";
+import { recordHostFlags } from "./host-flags";
 import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
 import { isBlockingDispatch, isResolvedDispatch } from "./store";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchDiagnosticsSink, type ResearchModels } from "./research-pipeline";
 import { validateReadyResearchPacket } from "./research-coverage";
 import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { createResearchInput, createResearchProducer, validateResearchProducer } from "./research-producer";
+import type { ResearchAdmissionRates } from "./research-admission";
+import type { ResearchRolePolicy } from "./research-roles";
+import { ASSIST_WORST_CASE_ROWS, createResearchAssists } from "./research-assist";
+import type { ResearchAssistFiring, ResearchAssists } from "./research-assist-contract";
 
 export interface SessionFile { path: string; bytes: Buffer }
 export interface SessionPhase {
@@ -55,17 +60,44 @@ export interface GeneralSessionOptions {
   /** The model that judges claims after submission; absent uses the private phase's model. Phase 2 judges both arms locally. */
   judgeModelFactory?: (contextId: string) => PrivateAgentModel;
   /**
+   * Backlog item 8.2b: K, the serving card's `localStreams` (1 to MAX_LOCAL_STREAMS). The research loops and the claims judge run K
+   * calls at a time when their model is zero-risk local, and one at a time otherwise, so a run without a research stage still judges
+   * its claims K at a time. No part of the session identity, the protocol hash or the counts. The headless driver passes the card's
+   * value in every run with a card; the desktop passes none (K = 1).
+   */
+  localStreams?: number;
+  /**
    * H2b/H2c: a host-run research stage (index, plan, verified extraction, synthesis) before the write phase, in its own
    * reader context. The planner and synthesiser may be a cloud model only where the job's lineage admits one.
    */
   research?: { models: (contextId: string) => ResearchModels; budget?: ResearchBudget;
+    /** 7a.2: the role policy an adopted serving card resolved; absent is the default, and the identity and every request are as without it. */
+    roles?: ResearchRolePolicy;
+    /**
+     * 7b.3 (BL-20261117-1131-research-card-admission-design): the admission rates of an adopted card whose admission basis is `serving_card`.
+     * Bound into the identity (so a resume under another card's rates ends `session_contract_drift`) and the protocol hash; absent, both
+     * and every request are as without it.
+     */
+    admission?: ResearchAdmissionRates;
     /**
      * Backlog item 4: a sink for the stage's rejected or truncated replies, and since 7a.1 its kept extraction replies with drops. Forwarded to the pipeline only while the reader
      * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
      * of the session identity; the desktop passes none.
      */
-    diagnostics?: ResearchDiagnosticsSink };
+    diagnostics?: ResearchDiagnosticsSink;
+    /**
+     * 10.b (BL-20261117-1202-assist-wiring-design, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
+     * session builds one wrapper per reading stage, with the cloud arm's fee cap. Before any dispatch it refuses
+     * (`session_research_assist_invalid`) an assist without a cloud arm, one whose planner or synthesiser is not zero-risk local, one
+     * whose model is not on the cloud arm's destination, and one the wrapper refuses to build. The firing binds the protocol hash, and
+     * the firing, the model and the authored brief's digest bind the session identity.
+     */
+    assist?: { firing: ResearchAssistFiring; model: (contextId: string) => PrivateAgentModel;
+      /** The owner's own brief (the prepared task's brief.md text), which the composed goal begins with; never the composed goal. */
+      authoredBrief: string } };
 }
+/** 10.b: a research producer's refusal as a session reason: its own fixed code, or one fixed code for anything else. */
+const producerRefusal = (error: unknown) => error instanceof Error && /^research_producer_[a-z_]+$/u.test(error.message) ? error.message : "research_producer_invalid";
 export interface GeneralSessionResult {
   status: "submitted" | "paused" | "incomplete";
   reason: string;
@@ -116,9 +148,9 @@ export function sessionPhaseIdentity(phase: SessionPhase): string {
  * Backlog item 6, finding A7 (BL-20261109-0501-research-stage-pause-design): true when a research stage started and never transferred:
  * its `research_input` names the reader context, no `research_transfer` exists, and a dispatch row of that context or a `research_stage`
  * event of it does. A stage starts at its first call, since every call it stops records a stage event, even one stopped before its row
- * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol before items 7 and 8, and a restart would
- * reset its role ceilings while keeping the spent calls), so the session refuses it and the desktop offers no Resume. A stage that only
- * recorded its input still runs whole on the next run.
+ * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol yet; the parts of items 7 and 8 merged so far
+ * (7a.1, 7b.1, 7d.A, 8.2a) add none, and a restart would reset its role ceilings while keeping the spent calls), so the session refuses
+ * it and the desktop offers no Resume. A stage that only recorded its input still runs whole on the next run.
  */
 export function researchStageUnfinished(events: readonly Record<string, unknown>[], dispatches: readonly { contextId: string }[]): boolean {
   const input = events.find(event => event.type === "research_input");
@@ -192,7 +224,8 @@ export class GeneralAgentSession {
    * Aborts the research stage's in-flight call on pause or cancel (H2b); the stage reports research_cancelled. A pause that stopped a
    * started stage ends the run incomplete (backlog item 6, finding A7): the stage cannot continue, so the session never reports a pause a
    * resume could not honour. The abort does not wait for the reply, so a priced or cloud request already on the wire leaves its row
-   * unknown (E1 bug (b), pinned until 10.b retires the plain-purpose split arm).
+   * unknown (E1 bug (b)). Since 10.b retired the plain-purpose split arm, such a row is an assist's in the reader context, which blocks
+   * nothing; the stage still cannot continue, so the run ends research_stage_not_replayed (BL-20261109-0501, decision (5)).
    */
   private stageAbort?: AbortController;
   /** Aborts the entailment pass's in-flight judge call on pause or cancel; the pass itself is otherwise bounded by its own clock. */
@@ -231,7 +264,9 @@ export class GeneralAgentSession {
     const startedAt = performance.now(), passAbort = new AbortController(); this.passAbort = passAbort;
     let outcome: EntailmentOutcome;
     try {
-      outcome = await judgeClaims({ claims, signal: AbortSignal.any([cancel, passAbort.signal, AbortSignal.timeout(ENTAILMENT_MAX_MS)]), stop: () => this.pauseRequested,
+      // 8.2b: K claims at a time when the judge's model is zero-risk local and the session has a K; otherwise one at a time.
+      const limit = this.options.localStreams !== undefined && model.zeroRisk() ? this.options.localStreams : 1;
+      outcome = await judgeClaims({ claims, limit, signal: AbortSignal.any([cancel, passAbort.signal, AbortSignal.timeout(ENTAILMENT_MAX_MS)]), stop: () => this.pauseRequested,
         remainingMs: () => ENTAILMENT_MAX_MS - (performance.now() - startedAt), complete: (messages, tools, judgeSignal, overrides) => model.complete(messages, tools, judgeSignal, overrides) });
     } finally { this.passAbort = undefined; }
     if (this.pauseRequested && outcome.truncated) return "paused";
@@ -272,6 +307,25 @@ export class GeneralAgentSession {
       let privateModel = options.trustedHostModelFactory(privateContextId);
       let publicModel = options.publicPhase ? options.trustedHostModelFactory(publicContextId) : undefined;
       let researchModels = options.research?.models(readerContextId);
+      const assistOption = options.research?.assist;
+      /**
+       * 10.b (decision 5): the reading stage's assist wrapper for a reader context and the identity it binds, or undefined when the
+       * configuration is refused. Every check, the destinations' zero-risk reads included, sits inside the try, so a refusal is
+       * always `session_research_assist_invalid` and never a throw.
+       */
+      const assistFor = (contextId: string, models: ResearchModels | undefined) => {
+        const arm = options.cloudArm;
+        if (!assistOption || !models || !arm) return undefined;
+        try {
+          if (!models.planner.zeroRisk() || !models.synthesiser.zeroRisk()) return undefined;
+          const model = assistOption.model(contextId);
+          if (model.config.destinationId !== arm.destinationId) return undefined;
+          const assists: ResearchAssists = createResearchAssists({ firing: assistOption.firing, model, authoredBrief: assistOption.authoredBrief, maxFeeMicrousd: arm.maxFeeMicrousd });
+          return { assists, identity: { version: 1, firing: assistOption.firing, model: modelIdentity(model.config), authoredBriefSha256: digest(assistOption.authoredBrief) } };
+        } catch { return undefined; }
+      };
+      let assist = assistFor(readerContextId, researchModels);
+      if (assistOption && !assist) return result("incomplete", "session_research_assist_invalid");
       const judgeModel = options.judgeModelFactory?.(privateContextId);
       const researchIdentity = (models: ResearchModels) => ({ reader: modelIdentity(models.reader.config), planner: modelIdentity(models.planner.config), synthesiser: modelIdentity(models.synthesiser.config) });
       const destinations = [...new Set([privateModel.config.destinationId, ...(publicModel ? [publicModel.config.destinationId] : []),
@@ -285,8 +339,9 @@ export class GeneralAgentSession {
           !Number.isSafeInteger(limits.maxElapsedMs) || limits.maxElapsedMs < 1 || limits.maxElapsedMs > 7_200_000) return result("incomplete", "session_limits_invalid");
       // H2c: the reader's calls draw on the same session request pool as the writer's (and a public phase's), so the pool
       // must hold all of them; the writer's own contract budget is per context and stays whole either way.
+      // 10.b (decision 5): with an assist, the pool also holds the assists' worst case (ASSIST_WORST_CASE_ROWS).
       if (options.research && limits.maxRequests < researchBudgetTotal(options.research.budget ?? RESEARCH_PIPELINE_BUDGET) + options.privatePhase.contract.maxModelCalls +
-          (options.publicPhase ? options.publicPhase.contract.maxModelCalls : 0)) return result("incomplete", "session_limits_invalid");
+          (options.publicPhase ? options.publicPhase.contract.maxModelCalls : 0) + (assistOption ? ASSIST_WORST_CASE_ROWS : 0)) return result("incomplete", "session_limits_invalid");
       const expectedPolicy = { version: 1 as const, id: jobId, mode: options.consultation || options.cloudArm ? "cloud_help" as const : "private" as const, revision: 0, cancelled: false,
         destinations, maxRequests: limits.maxRequests, maxFeeMicrousd: (options.consultation?.maxFeeMicrousd ?? 0) + (options.cloudArm?.maxFeeMicrousd ?? 0) };
       if (!policy) {
@@ -308,19 +363,26 @@ export class GeneralAgentSession {
         // Spread only when set, so the identity of every pre-existing (no-arm) session stays byte-identical.
         ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: modelIdentity(judgeModel.config) } : {}),
         // H2b: the frozen pipeline protocol and the stage's model identities, spread only when configured.
-        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET),
-          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels) } } : {}) }));
+        // 7a.2: a non-default role policy is bound through the protocol hash; the default leaves it unchanged.
+        // 7b.3: a card's admission rates are bound (and the admission policy through the hash) only when set. 10.b (decision 6): an assist's
+        // firing is bound through the protocol hash, and its configuration beside it; without either, nothing changes.
+        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION,
+          protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET, options.research.roles, options.research.admission !== undefined, assistOption?.firing),
+          budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels), ...(options.research.admission ? { admission: options.research.admission } : {}),
+          ...(assist ? { assist: assist.identity } : {}) } } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,
         startedAt: old ? Number(old.startedAt) : Date.now(), privateContextId, publicContextId, ...(options.research ? { readerContextId } : {}) });
       if (privateContextId !== start.privateContextId || publicContextId !== start.publicContextId || (start.readerContextId !== undefined && readerContextId !== start.readerContextId)) {
-        const priorModelIdentity = canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null]);
+        const priorModelIdentity = canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assist?.identity ?? null]);
         privateContextId = start.privateContextId; publicContextId = start.publicContextId; readerContextId = start.readerContextId ?? readerContextId;
         privateModel = options.trustedHostModelFactory(privateContextId);
         publicModel = options.publicPhase ? options.trustedHostModelFactory(publicContextId) : undefined;
         researchModels = options.research?.models(readerContextId);
-        if (canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null]) !== priorModelIdentity) return result("incomplete", "session_model_factory_drift");
+        assist = assistFor(readerContextId, researchModels);
+        if (assistOption && !assist) return result("incomplete", "session_research_assist_invalid");
+        if (canonical([privateModel.config, publicModel?.config ?? null, researchModels ? researchIdentity(researchModels) : null, assist?.identity ?? null]) !== priorModelIdentity) return result("incomplete", "session_model_factory_drift");
       }
       const startedAt = start.startedAt;
       if (!Number.isSafeInteger(startedAt) || startedAt > Date.now()) return result("incomplete", "session_start_invalid");
@@ -388,7 +450,9 @@ export class GeneralAgentSession {
           const binding = prior.binding as { snapshot: WorkspaceSnapshot; snapshotSha256: string; files: { path: string; sha256: string }[]; producer: unknown };
           produced = checkpoints.load(binding.snapshot);
           if (checkpoints.fingerprint(binding.snapshot) !== binding.snapshotSha256 || canonical(sessionFileManifest(produced)) !== canonical(binding.files)) return result("incomplete", "research_transfer_drift");
-          validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput });
+          // 10.b (BL-20261113-0927-research-v5-design, decision 5): a producer refusal ends the session with its code, never an uncaught throw.
+          try { validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput }); }
+          catch (error) { return result("incomplete", producerRefusal(error)); }
         } else {
           if (this.pauseRequested || boundedSignal.aborted) return result(this.pauseRequested ? "paused" : "incomplete", "session_stopped");
           // An unresolved dispatch from an interrupted stage is never replayed past, as in the runner; nothing resolves an unknown row today,
@@ -406,10 +470,20 @@ export class GeneralAgentSession {
           const diagnostics = options.research.diagnostics && diagnosticRetention(store.context(readerContextId)) === "raw" ? options.research.diagnostics : undefined;
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
-              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}) });
+              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
+              ...(options.research.roles ? { roles: options.research.roles } : {}), ...(options.research.admission ? { admission: options.research.admission } : {}),
+              ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}),
+              // 10.b (decision 5): the wrapper, with the session deadline the pipeline already passes it (BL-20261113-0929, decision 2).
+              ...(assist ? { assists: assist.assists } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {
+            // 7b.3's review (BL-20261117-1131-research-card-admission-design): a refused admission writes no file and no stage row, and the
+            // session keeps no summary of an incomplete stage, so the record (the work, both estimates, the share and the decision) is its own event.
+            // The r3 re-measurement (BL-20261117-1326-research-admission-record-incomplete-stage): an admitted stage that ends incomplete keeps
+            // its record the same way, so a stage under a card's admission rates leaves one in summary.json when it completes, here when not.
+            if (outcome.summary.admission)
+              store.append(jobId, { type: "research_admission", contextId: readerContextId, admission: outcome.summary.admission });
             // Backlog item 6 (finding A7): a pause that stopped the stage ends incomplete with the refusal the next run gives (an unresolved
             // row, or a stage that started). Every call the stage stops records a stage event, so the paused arm is defensive: no production
             // caller can pause between the session's check and the pipeline's entry, and the arm is truthful there (the stage never started).
@@ -421,8 +495,10 @@ export class GeneralAgentSession {
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
           if (outcome.files.some(file => privatePhase.files.some(existing => existing.path === file.path))) return result("incomplete", "research_transfer_collision");
           const snapshot = checkpoints.save(outcome.files);
-          const producer = createResearchProducer({ kind: "session", jobId, contextId: readerContextId,
-            brief: privatePhase.contract.goal, sources, files: outcome.files, receipts: store.dispatches(jobId) });
+          let producer: ReturnType<typeof createResearchProducer>;
+          try { producer = createResearchProducer({ kind: "session", jobId, contextId: readerContextId,
+            brief: privatePhase.contract.goal, sources, files: outcome.files, receipts: store.dispatches(jobId) }); }
+          catch (error) { return result("incomplete", producerRefusal(error)); }
           store.append(jobId, { type: "research_transfer", contextId: readerContextId,
             binding: { snapshot, snapshotSha256: checkpoints.fingerprint(snapshot), files: sessionFileManifest(outcome.files), summary: outcome.summary, producer } });
           produced = outcome.files;
@@ -437,6 +513,9 @@ export class GeneralAgentSession {
       if (privateResult.status !== "completed") return result(privateResult.status, privateResult.reason);
       if (store.dispatches(jobId).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
       if (!this.events().some(event => event.type === "session_submitted")) store.append(jobId, { type: "session_submitted", snapshotSha256: checkpoints.fingerprint(finalSnapshot), independentAcceptanceRequired: true });
+      // Backlog item 7(d), part B: host flags for the owner's attention, once per context and outside the `if` above, so the run after a crash
+      // between the two appends records them; the pass never throws and never decides anything.
+      recordHostFlags({ store, jobId, contextId: privateContextId, phase: privatePhase, checkpoints, finalSnapshot });
       // Evidence after the fact: submission is durable, so the pass can only add verdicts; a pause leaves it for the next resume.
       if (await this.entailment(privateContextId, judgeModel ?? privateModel, signal) === "paused") return result("paused", "session_stopped");
       return result("submitted", "independent_acceptance_pending");

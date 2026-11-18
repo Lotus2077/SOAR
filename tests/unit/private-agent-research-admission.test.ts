@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, briefWordLimit, planResearchIndexBatches, researchIndexPreviewEnd, researchMandatoryWorkFits,
-  researchSynthesisLengthCap, researchWordCount } from "../../src/main/private-agent/research-admission";
+import { RESEARCH_ADMISSION_POLICY, RESEARCH_INDEX_BATCH_POLICY, RESEARCH_SYNTHESIS_LENGTH_POLICY, ResearchAdmissionRatesSchema, briefWordLimit, planResearchIndexBatches,
+  researchCardAdmission, researchIndexPreviewEnd, researchMandatoryWorkFits, researchRepairReserve, researchSynthesisLengthCap, researchWordCount,
+  type ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
 import { INDEX_LIMITS } from "../../src/main/private-agent/research-index";
 import { OUTPUT_TOKENS, THINKING, synthesisLengthCap } from "../../src/main/private-agent/research-pipeline";
@@ -145,7 +146,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Executive summary (one page, no more than 200 words)", "Introduction: set the scene, at most 200 words.", "Conclusion: one paragraph, at most 150 words.",
       "Per source, at most 150 words.", "For each source, write up to 150 words.", "For every study, write at most 150 words.", "For each of the five papers, write no more than 200 words.",
       "Cover five papers; for each, at most 200 words.", "Each section (required, 300-400 words)", "Three sections; each, at most 300 words.",
-      // BL-20261110-1100: under a chain's heading opener the heading ends at the opener, however long the chain, and a line break before the opener is skipped.
+      // BL-20261110-1100-correction-research-train-1-review-pins: under a chain's heading opener the heading ends at the opener, however long the chain, and a line break before the opener is skipped.
       "Findings: short, plain, clear, direct, at most 2,000 words", "Background: two or three pages, at most 600 words", "Abstract\n(required, max 150 words)"])
       expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
   });
@@ -161,11 +162,12 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Compare the three vendors' pricing. Begin with an executive summary. It must not exceed 250 words. Then give a detailed analysis.",
       "Requirements:\n- Include an abstract. Maximum 200 words.\n- Cite every source.", "Abstract; at most 150 words", "Abstract (structured; max 150 words)",
       "Deliverable 1 \u2014 Evidence report. No word limit, but be concise.\nDeliverable 2 \u2014 Summary for the newsletter. No more than 300 words.",
-      // BL-20261110-1100: a referring word cut into the limit's word, each of the nine referring words, a referring word before a comma or a parenthesis, a part
+      // BL-20261110-1100-correction-research-train-1-review-pins: a referring word cut into the limit's word, each of the nine referring words, a referring word before a comma or a parenthesis, a part
       // after an exclusion word (rule B counts it), and a limit that opens its line after a wrapped heading or distributive.
       "Include an abstract. Keep it\u2014at most 150 words.", "Include an abstract. Its length is at most 150 words.", "Start with an executive summary. Its length must not exceed 200 words.",
       "Add two captions. Keep these under 150 words.", "Write section summaries. These must not exceed 150 words.", "Write the section headings. Keep those to at most 120 words.",
       "Add captions. Keep those under 150 words.", "Add captions. They must not exceed 150 words.", "Add captions. Keep them under 150 words.", "Include captions. Keep them under 150 words.",
+      "Include an abstract. Keep this under 150 words.", "Include an abstract. Keep that under 150 words.",
       "Open with an abstract. There, use at most 150 words.", "Include an abstract. There, use at most 150 words.", "Include an abstract. Keep it short, under 200 words",
       "Start with an executive summary. It is for the board (at most 200 words).", "Without delay write an abstract. Max 150 words.", "Per source,\nat most 150 words.",
       "Abstract (required,\nmax 150 words)"])
@@ -179,12 +181,14 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Give each question a 2-3 word label; keep the report under 2,000 words.", 2000],
       // A comma chain's heading opener counts only on the limit's own line.
       ["Sections:\nbe concise, at most 2,000 words", 2000],
-      // BL-20261110-1100: rule A reads distributives only from the chain's opener, on the limit's line; rule B reads only the one sentence before, which a line
+      // BL-20261110-1100-correction-research-train-1-review-pins: rule A reads distributives only from the chain's opener, on the limit's line; rule B reads only the one sentence before, which a line
       // break bounds too; a cut word that is not a referring word does not open the sentence; and a headed chain's words are not heading words.
       ["Cover each vendor,\nthen be brief, at most 2,000 words", 2000], ["Cite every source,\nbe concise, at most 2,000 words", 2000], ["Cite every source. Report: concise, at most 2,000 words", 2000],
       ["Cite every source; be concise, at most 2,000 words.", 2000], ["Answer each question. Overall, at most 2,000 words", 2000], ["Include an abstract. Report\u2014max 2,000 words.", 2000],
       ["Include an abstract\nin the report. Max 2,000 words.", 2000], ["Include an abstract. Cite the sources. Max 2,000 words.", 2000], ["Include an abstract. Write a report. Max 2,000 words.", 2000],
-      ["Each source is a PDF\nWrite a report on them.\nMax 2,000 words.", 2000], ["Report: include an abstract, at most 2,000 words", 2000]];
+      ["Each source is a PDF\nWrite a report on them.\nMax 2,000 words.", 2000], ["Report: include an abstract, at most 2,000 words", 2000],
+      // A line break inside a run of white space (a trailing space, an indent) still ends the line.
+      ["Sections: Abstract, Results \nLength: at most 2,000 words", 2000], ["Sections: Abstract, Results\n Length: at most 2,000 words", 2000]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
   });
   it("misses these report limits under rules A and B, as the parse prefers (new known misses)", () => {
@@ -192,13 +196,13 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Answer every question. Keep it under 900 words.", "Write the report. Do not include an abstract. Keep it under 800 words.", "I need a summary of the audit findings for the board. Max 500 words.",
       "Give each question a 2-3 word label, and keep the report under 2,000 words.", "Write the following sections: introduction, body, and a conclusion, at most 3,000 words in total.",
       "Include an abstract. This report must not exceed 2,000 words.", "Write the abstract first. (At most 2,000 words.)",
-      // BL-20261110-1100: an exclusion cancels nothing in the sentence before; list words and distributives are read in any sense, a title line among them; and a
+      // BL-20261110-1100-correction-research-train-1-review-pins: an exclusion cancels nothing in the sentence before; list words, distributives and referring words are read in any sense (a title line, a relative "that"); and a
       // short heading-only noun opens a one-line comma chain. These are examples of what rules A and B miss, not the full set.
       "Write a report without an abstract. Max 2,000 words.", "Research report\nTitle: The economics of vertical farming.\nUnder 2,500 words.",
       "Background: the board meets on Friday, so I need a report on supplier risk, max 1,500 words.", "Read every source. Then write a report that is under 2,000 words."])
       expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
   });
-  it("still misreads these part limits after rules A and B (known misreads, stated in BL-20261110-0848 and BL-20261110-1100)", () => {
+  it("still misreads these part limits after rules A and B (known misreads, stated in BL-20261110-0848 and BL-20261110-1100-correction-research-train-1-review-pins)", () => {
     const cases: [string, number][] = [["Abstract, at most 150 words", 150], ["For the abstract, use at most 150 words.", 150], ["- Abstract, 150 words max", 150],
       ["Max 120 words. That is for the summary.", 120], ["Include an executive summary, and keep it under 200 words.", 200],
       // Heading-only nouns outside ":" or "(", nouns glued by "/" or an apostrophe, off-list nouns, and a part more than four words after the limit.
@@ -214,19 +218,23 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Full report please, plus a press release of no more than 400 words.", 400],
       // Before #69: a digit on the next line makes a range read as its lower end (NUMBER's lookahead); noted for a later PR.
       ["Word limit: 600-900\n3 sources minimum", 600],
-      // BL-20261110-1100, the forms rules A and B leave. A distributive in a later clause of the chain, and the "word limit N" exemption after a part:
+      // BL-20261110-1100-correction-research-train-1-review-pins, the forms rules A and B leave. A distributive in a later clause of the chain, and the "word limit N" exemption after a part:
       ["At most 150 words, each.", 150], ["Notes: brief, at most 150 words, for each source.", 150],
       ["Include an abstract. Word limit: 150.", 150], ["Start with an executive summary. Its word limit is 200.", 200], ["Abstract (optional; word limit 150)", 150],
       // a wrapped line (rule A reads only the limit's line; rule B ends a sentence at a line break):
       ["For each source,\nwrite up to 150 words.", 150], ["Abstract:\nconcise, at most 150 words", 150], ["Start with an abstract. Keep it\nunder 150 words.", 150],
-      // a limit that neither opens its sentence nor follows a referring word: a lead-in word, a quote glued to the limit, or a list marker, which is a sentence of its own:
+      ["Notes,\nfor each vendor,\nbe brief, at most 2,000 words", 2000], ["Intro\nAbstract: x\nconcise, short, at most 2,000 words", 2000],
+      // a limit that neither opens its sentence nor follows a referring word: a lead-in word or a quote glued to the limit; and a list marker, which is a sentence of its own, so
+      // rule B reads the marker and not the item before:
       ["Include an abstract. Please stay under 150 words.", 150], ["Include an abstract. Aim for under 150 words.", 150], ["Include an abstract. Length: max 150 words.", 150],
       ["Include an abstract. \u2019Max 150 words\u2019", 150], ["1. Include an abstract.\n2. Max 150 words.", 150],
       // a part two or more sentences back:
       ["Include an abstract. Make it punchy. Max 150 words.", 150], ["Include an abstract. Please. Max 150 words.", 150], ["I'd like an executive summary as well. Nothing long; a maximum of 250 words.", 250],
       // an abbreviation's period or a parenthesis between the part and the limit, and a chain anchored at ")":
       ["Each source (approx. 1 page, 400 words max)", 400], ["Include an abstract (approx. half a page). Max 150 words.", 150], ["For each source (a paper), write up to 150 words.", 150],
-      ["Abstract (required), max 150 words", 150]];
+      ["Abstract (required), max 150 words", 150],
+      // a part or a distributive in the limit's own sentence before a referring word (rule B reads only the sentence before):
+      ["Write a report. For the abstract, keep it under 150 words.", 150], ["Write a report. Notes (per source) keep it under 150 words.", 150]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
     // Report limits still missed on line-structured briefs, with an exclusion off the list, and in phrasings no pattern matches.
     for (const brief of ["Sections: three\nAt most 900 words", "Word limit (not including the abstract): at most 900 words", "Maximum length: 1,500 words.", "No longer than 1,000 words."])
@@ -239,9 +247,9 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Limit (excluding findings): at most 900 words", 900], ["The abstract should be written in at most 150 words", undefined],
       // Two rules only the protocol pin caught: the four-word bound on heading-only nouns, and "incl" cancelling only when it opens a parenthesis.
       ["Give the evidence an overview (at most 1,500 words)", 1500], ["Write a report incl an abstract: at most 150 words", undefined],
-      // BL-20261110-1100: both cut-word halves of rule B's trigger, and no look-back when no word precedes the limit's sentence (the look-back would throw).
+      // BL-20261110-1100-correction-research-train-1-review-pins: both cut-word halves of rule B's trigger, and no look-back when no word precedes the limit's sentence (the look-back would throw).
       ["Include an abstract. Total/max 2,000 words", 2000], ["Include an abstract. It/max 150 words", undefined], ["?\nMax 2,000 words", 2000], ["...Max 2,000 words", 2000],
-      ["---\nKeep it under 2,000 words.", 2000]];
+      ["---\nKeep it under 2,000 words.", 2000], ["?\nIt/max 2,000 words", 2000]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
   });
   it("misses, rather than misreads, a report limit that sits beside a part noun", () => {
@@ -300,7 +308,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     expect(researchSynthesisLengthCap("Write at most 8,000 words.", { maxOutputTokens: 16384, thinking: "disabled" })).toEqual({ words: 8000, ceilingWords: 12337, briefWordLimit: 8000 });
     // A value below the 100-word floor is a part's length, never the argument's: the default applies.
     expect(researchSynthesisLengthCap("Write at most 12 words.", { maxOutputTokens: 8192, thinking: "model" })).toEqual({ words: 1200, ceilingWords: 1200 });
-    // A role cap too small for the floor still names the floor; 7a.2 refuses such a role policy before any request.
+    // A role cap too small for the floor still names the floor; 7a.2 (not merged) is to refuse such a role policy before any request.
     expect(researchSynthesisLengthCap("No limit.", { maxOutputTokens: 1024, thinking: "disabled" })).toEqual({ words: 100, ceilingWords: 0 });
     expect(researchSynthesisLengthCap("No limit.", { maxOutputTokens: 1100, thinking: "model" })).toEqual({ words: 100, ceilingWords: 61 });
   });
@@ -309,3 +317,59 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     expect(researchWordCount("")).toBe(0); expect(researchWordCount(" \n ## -- ")).toBe(0); expect(researchWordCount("\u00dcn\u00efcode w\u00f6rds \u6570\u636e")).toBe(3);
   });
 });
+
+// 7b.3 (BL-20261117-1131-research-card-admission-design): card-derived admission under a `serving_card` basis.
+describe("7b.3: the reserve, the estimate and the admission test under a card", () => {
+  const rates: ResearchAdmissionRates = { prefillTokensPerSecond: { fastest: 4000, slowest: 2000 }, decodeTokensPerSecond: { fastest: 100, slowest: 50 },
+    fanOutDecodeTokensPerSecond: { fastest: 200, slowest: 100 }, expectedOutputTokens: { plan: 1000, extract: 100, synthesis: 2000 } };
+  const caps = { index: 1536, plan: 8192, extract: 2048, synthesis: 8192 };
+  // Two batches of previews and three chunks: 15,000 preview tokens and 31,001 chunk tokens at 4 bytes a token (4,002 bytes round up to 1,001).
+  const work = { batchPreviewBytes: [40_000, 20_000], chunkBytes: [80_000, 40_000, 4_002] };
+  const admit = (remainingMs: number | undefined, budget = RESEARCH_PIPELINE_BUDGET, at = work) => researchCardAdmission(at, budget, caps, rates, remainingMs);
+
+  it("pins the policy the protocol hash binds under a card", () => {
+    expect(RESEARCH_ADMISSION_POLICY).toEqual({ version: 2, basis: "serving_card", repairReserve: { chunksPerRepair: 4, minimum: 1 }, repairsPerChunk: 2, stageShare: { numerator: 1, denominator: 2 },
+      bytesPerToken: 4, refusal: "expected_estimate_above_share" });
+    expect(Object.isFrozen(RESEARCH_ADMISSION_POLICY) && Object.isFrozen(RESEARCH_ADMISSION_POLICY.repairReserve) && Object.isFrozen(RESEARCH_ADMISSION_POLICY.stageShare)).toBe(true);
+  });
+
+  it("reserves one repair call per four chunks, at least one, so today's budget admits at most 32 chunks (D3)", () => {
+    expect([0, 1, 4, 5, 8, 9, 24, 32, 33, 40].map(researchRepairReserve)).toEqual([1, 1, 1, 2, 2, 3, 6, 8, 9, 10]);
+    const chunks = (count: number) => ({ batchPreviewBytes: [], chunkBytes: Array(count).fill(4) });
+    expect(admit(undefined, RESEARCH_PIPELINE_BUDGET, chunks(32)).decision).toBe("admitted");
+    expect(admit(undefined, RESEARCH_PIPELINE_BUDGET, chunks(33))).toMatchObject({ decision: "refused_budget", work: { chunks: 33, reservedRepairs: 9, extractionCalls: 40 } });
+    // The reserve fits exactly; one call fewer refuses; a batch beyond the index calls refuses too.
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4 }).decision).toBe("admitted");
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }).decision).toBe("refused_budget");
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, indexCalls: 1 }).decision).toBe("refused_budget");
+  });
+
+  it("estimates the expected time as a lower bound and the cap-bound time as every call the budget allows, in tenths of a second", () => {
+    const record = admit(86_000);
+    // Expected: 46,001 prompt tokens at 4,000/s, three chunks of 100 at 200/s, and 1,000 + 2,000 at 100/s: 11.50025 + 1.5 + 30 = 43.0.
+    // Cap-bound: 4 index calls (two per batch) and 9 extraction calls (per chunk its first attempt and two repairs, item (ii)), 123,003 prompt
+    // tokens at 2,000/s, 4 x 1,536 + 9 x 2,048 at 100/s, and 2 x 8,192 + 2 x 8,192 at 50/s: 61.5015 + 245.76 + 655.36 = 962.6.
+    expect(record).toEqual({ basis: "serving_card", policy: RESEARCH_ADMISSION_POLICY, rates, work: { batches: 2, chunks: 3, reservedRepairs: 1, indexCalls: 24, extractionCalls: 40 },
+      estimate: { expectedSeconds: 43, capBoundSeconds: 962.6, shareSeconds: 43 }, decision: "admitted" });
+    // Only the budget's calls count: one extraction call per chunk when the budget holds no more.
+    expect(admit(undefined, { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 4, indexCalls: 2 }).estimate.capBoundSeconds).toBe(tenths(15_000 / 2000 + 31_001 * 4 / 3 / 2000 + (2 * 1536 + 4 * 2048) / 100 + 32_768 / 50));
+  });
+
+  it("refuses on the clock only when the expected estimate exceeds half the remaining clock, and never without a session deadline", () => {
+    expect(admit(86_000).decision).toBe("admitted");
+    expect(admit(85_800)).toMatchObject({ decision: "refused_clock", estimate: { expectedSeconds: 43, shareSeconds: 42.9 } });
+    expect(admit(-5)).toMatchObject({ decision: "refused_clock", estimate: { shareSeconds: 0 } });
+    for (const remainingMs of [undefined, Number.NaN]) expect(admit(remainingMs)).toMatchObject({ decision: "admitted", estimate: { shareSeconds: null } });
+    // The cap-bound estimate never decides: far above the share, the run is still admitted.
+    expect(admit(100_000)).toMatchObject({ decision: "admitted", estimate: { capBoundSeconds: 962.6, shareSeconds: 50 } });
+  });
+
+  it("takes only positive, finite rates whose fastest is not below their slowest", () => {
+    expect(ResearchAdmissionRatesSchema.parse(rates)).toEqual(rates);
+    const bad = [{ ...rates, decodeTokensPerSecond: { fastest: 40, slowest: 50 } }, { ...rates, prefillTokensPerSecond: { fastest: 0, slowest: 0 } },
+      { ...rates, expectedOutputTokens: { ...rates.expectedOutputTokens, plan: Number.POSITIVE_INFINITY } }, { ...rates, expectedOutputTokens: { ...rates.expectedOutputTokens, extract: -1 } },
+      { ...rates, cardSha256: "1".repeat(64) }, { ...rates, fanOutDecodeTokensPerSecond: undefined }];
+    for (const value of bad) expect(ResearchAdmissionRatesSchema.safeParse(value).success).toBe(false);
+  });
+});
+const tenths = (seconds: number) => Math.round(seconds * 10) / 10;

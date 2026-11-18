@@ -1,6 +1,6 @@
 /** Pure research-index assessment. Model metadata and source literals remain untrusted, never evidence of answer coverage. */
 import { z } from "zod";
-import { digest } from "./contracts";
+import { digest, exactText } from "./contracts";
 
 /** These bounds and assessment semantics must be included in the research protocol identity. */
 export const INDEX_LIMITS = Object.freeze({
@@ -30,7 +30,9 @@ export interface IndexBatchAssessment {
   readonly diagnostics: IndexBatchDiagnostics;
 }
 
-const field = (max: number) => z.string().max(max);
+/** 7(c): a field canonical() cannot encode (a NUL or a lone surrogate) fails the row, which then falls back to its literal card. */
+const encodable = (text: string): boolean => { try { exactText(text); return true; } catch { return false; } };
+const field = (max: number) => z.string().max(max).refine(encodable);
 // Optional descriptive fields are normalized below; a nonblank gist is mandatory for model_complete.
 const RowSchema = z.object({
   sourceId: field(INDEX_LIMITS.sourceIdChars).min(1), title: field(INDEX_LIMITS.titleChars).optional(),

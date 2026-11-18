@@ -26,7 +26,12 @@
     "probe:export-schemas": "node --import tsx scripts/export-role-schemas.ts",
     "probe:assess": "node --import tsx scripts/assess-probe-replies.ts",
     "fixture:planner": "node --import tsx scripts/planner-fixture.ts",
+    "fixture:judge": "node --import tsx scripts/judge-fixture.ts",
+    "fixture:extractor": "node --import tsx scripts/extractor-fixture.ts",
+    "assist:capture": "node --import tsx scripts/assist-capture.ts",
+    "label:judge": "node --import tsx scripts/judge-labeller.ts",
     "card:serving": "python3 scripts/serving-card.py",
+    "launcher": "node --import tsx scripts/experiment-launcher.ts",
     "setup:general": "node --import tsx scripts/setup-general.ts",
     "setup:patch-pilot": "node scripts/setup-patch-pilot.mjs",
     "dev:patch": "node scripts/run-patch-pilot.mjs --cloud-only",
@@ -54,7 +59,8 @@
     "check": "pnpm validate:readiness && pnpm validate:build-log && pnpm typecheck && pnpm test && pnpm build",
     "check:release-head": "node --experimental-strip-types scripts/verify-release-head.ts",
     "validate:readiness": "node scripts/validate-readiness.mjs",
-    "validate:build-log": "node --experimental-strip-types scripts/validate-build-log.ts"
+    "validate:build-log": "node --experimental-strip-types scripts/validate-build-log.ts",
+    "build-log:to-files": "node --import tsx scripts/build-log-to-files.ts"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

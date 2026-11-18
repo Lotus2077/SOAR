@@ -65,9 +65,13 @@ const receiptSchema = z.union([
  * forced split, whose plan or synthesis stage may have no other call); skipped (`unknown`), failed into the host fallback or
  * superseded, it binds uncounted, since the stage's calls are replies and such a row has none. The ready-packet validator's
  * per-stage bounds are therefore unchanged.
+ *
+ * 7(c) (research v5): in the plan and synthesis stages the counted rows, in commit order, are the stage's attempts. A row has an
+ * assist purpose exactly where its attempt carries an assist slot, so a local call cannot be relabelled as an assist (or the
+ * reverse) between the ledger and the packet.
  */
 function receiptBindings(receipts: readonly unknown[], jobId: string, contextId: string,
-  summary: { stages: readonly { stage: string; calls: number }[] }): ResearchProducer["receipts"] {
+  summary: { stages: readonly { stage: string; calls: number; planAttempts?: unknown; synthesisAttempts?: unknown }[] }): ResearchProducer["receipts"] {
   const rows = receipts.filter(receipt => typeof receipt === "object" && receipt !== null && (receipt as { contextId?: unknown }).contextId === contextId);
   const seen = new Set<string>();
   const bindings = rows.map(raw => {
@@ -81,9 +85,14 @@ function receiptBindings(receipts: readonly unknown[], jobId: string, contextId:
     return { id: row.id, stage, sha256: digest(canonical(raw)), ...(assist ? { role: "assist" as const } : {}), ...(row.status === "settled" ? {} : { status: row.status }) };
   });
   need(summary.stages.length === 4 && same(summary.stages.map(stage => stage.stage), Object.keys(stagePurposes)), "research_producer_stage_summary");
-  for (const stage of summary.stages) need(Number.isSafeInteger(stage.calls) && stage.calls > 0 &&
-    bindings.filter(receipt => receipt.stage === stage.stage && receipt.status !== "superseded" && !(receipt.role === "assist" && receipt.status !== undefined)).length === stage.calls,
-    "research_producer_receipt_count");
+  const counted = (stage: string) => bindings.filter(receipt => receipt.stage === stage && receipt.status !== "superseded" && !(receipt.role === "assist" && receipt.status !== undefined));
+  for (const stage of summary.stages) need(Number.isSafeInteger(stage.calls) && stage.calls > 0 && counted(stage.stage).length === stage.calls, "research_producer_receipt_count");
+  for (const stage of summary.stages) {
+    if (stage.stage !== "plan" && stage.stage !== "synthesise") continue;
+    const attempts = stage.stage === "plan" ? stage.planAttempts : stage.synthesisAttempts, rows = counted(stage.stage);
+    need(Array.isArray(attempts) && attempts.length === rows.length &&
+      rows.every((receipt, i) => (receipt.role === "assist") === ((attempts[i] as { slot?: unknown } | undefined)?.slot !== undefined)), "research_producer_slot_mismatch");
+  }
   return bindings;
 }
 

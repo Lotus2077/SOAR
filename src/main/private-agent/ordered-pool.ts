@@ -1,8 +1,9 @@
 /**
  * Backlog item 8 (finding D12 of docs/PROJECT_REVIEW_2026-11-05.md; §5.2 "Local fan-out"): independent zero-risk local calls
  * run K at a time while their results are applied strictly in item order, so a stage's counts, ids and files come out as the
- * serial loop would make them. This module is the pool only. It dispatches nothing itself and has no caller until item 8's
- * loops adopt it (8.2b), under the ledger's concurrent admission (8.1); with K = 1 it is exactly the serial loop.
+ * serial loop would make them. This module is the pool only and dispatches nothing itself. Since 8.2b
+ * (BL-20261116-1213-local-fanout-design) the research index and extraction loops and the claims judge run on it, under the
+ * ledger's concurrent admission (8.1); with K = 1 it is exactly the serial loop.
  *
  * Rules:
  * - Items launch in item order. At most `limit` items are launched and not yet applied at any time, so a slot is refilled only
@@ -20,6 +21,8 @@
  */
 
 export const ORDERED_POOL_MAX_LIMIT = 8;
+/** K for a loop (8.2b): an integer from 1 to ORDERED_POOL_MAX_LIMIT as given; absent or out of range, 1, the serial loop. */
+export const orderedPoolLimit = (k: number | undefined): number => k !== undefined && Number.isSafeInteger(k) && k >= 1 && k <= ORDERED_POOL_MAX_LIMIT ? k : 1;
 export type PoolOutcome<R> = { status: "fulfilled"; value: R } | { status: "rejected"; error: unknown };
 /** What follows: keep launching, stop launching (in-flight items finish), or stop and abort the in-flight items. */
 export type PoolDecision = "continue" | "stop" | "abort";
@@ -51,8 +54,9 @@ export interface OrderedPoolResult {
 export async function runOrderedPool<T, R>(options: OrderedPoolOptions<T, R>): Promise<OrderedPoolResult> {
   const { items, limit } = options;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > ORDERED_POOL_MAX_LIMIT) throw new Error("ordered_pool_limit_invalid");
-  // One combined signal per pool, and one relay listener per in-flight launch on it: at most K listeners, whatever each call
-  // adds to its own signal (the broker, token admission and backoff each add one), so K = 8 stays under Node's warning limit.
+  // One combined signal per pool, and one relay listener per in-flight launch on it: the stage's own signal gets none, and each
+  // launch's signal holds only what its call adds (the broker, token admission and backoff each add one), whatever K is.
+  // (No warning limit applies on Node 22.22.2, whose AbortSignals have no maximum; BL-20261110-0619 withdrew that rationale.)
   const siblings = new AbortController(), siblingStop = new Error("ordered_pool_sibling_stop"), combined = AbortSignal.any([options.signal, siblings.signal]);
   const settled = new Map<number, { outcome: PoolOutcome<R>; afterAbort: boolean }>(), inFlight = new Map<number, Promise<void>>();
   let next = 0, applyNext = 0, stopped = false, reached = false, failure: { error: unknown } | undefined;

@@ -23,7 +23,8 @@ day-to-day administration, and (at lower priority) coding.
 | [docs/plans/PRIVATE_WORK_DESIGN_V1.md](docs/plans/PRIVATE_WORK_DESIGN_V1.md) | Strict privacy profile, draft-only admin assistant, research and document-review design, device notes |
 | [docs/PROJECT_REVIEW_2026-09-28.md](docs/PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review: what is right and wrong |
 | [docs/HANDOFF.md](docs/HANDOFF.md) | Start here: the current state, the decisions in force and the next actions (2026-11-07), then the September code map |
-| [docs/BUILD_LOG.md](docs/BUILD_LOG.md) | Append-only record of decisions, results and failures |
+| [docs/build-log/](docs/build-log/) | The record of decisions, results and failures: one file per entry since 2026-11-18 |
+| [docs/BUILD_LOG.md](docs/BUILD_LOG.md) | The frozen archive of every entry to 2026-11-18 |
 | [docs/README.md](docs/README.md) | Index of current and historical documents |
 
 ## Status
@@ -34,7 +35,7 @@ grades do not establish acceptance in the desktop app.
 
 | Area | State |
 | --- | --- |
-| General task (desktop) | A goal with optional files and exact public URLs, saved progress, pause/resume/cancel, preview and export. Research tasks with public sources require a host-checked claims ledger (verbatim quotes against retained source bytes). |
+| General task (desktop) | A goal with optional files and exact public URLs, saved progress, pause/resume/cancel, preview and export. Research tasks with public sources require a host-checked claims ledger (verbatim quotes against retained source bytes). A submission's reported issues also list the host flags for the owner's attention. Examples: report sentences that assert the sources lack something; a Word or PDF report left unscanned; a scan cut at 1 MiB; failed or refused public fetches; parts the host could not compute; and flags that were not recorded or could not be read. Flags decide nothing. |
 | Owner acceptance | One recorded owner-run real job: document translation and editing on `owner-v0.2`, accepted without edits on 2026-10-12 (19 actions, 493 seconds). The weekly owner-job targets and MVP exit have not been demonstrated. |
 | Local model profile | `heavy` (thinking on, 16K output, 80 calls / 90 min) is the default since 2026-10-06; `standard` (the September profile: thinking off, 4,096 tokens, 20 calls / 15 min) stays selectable with `SOAR_GENERAL_TASK_PROFILE=standard`. Every result before that date used `standard`. |
 | Liveness | Local replies stream, with a 120 s inactivity limit counted from the first byte (`SOAR_STREAMING=false` restores the non-streaming request). The Mac stays awake while a task runs, and a late host heartbeat is recorded. Quitting while a task runs waits for it to pause, with a "Quit now" option that leaves it unable to resume. |
@@ -106,10 +107,12 @@ After E0, `SOAR_SERVING_CARD_FILE` and `SOAR_SERVING_CARD_SHA256` in `.env.local
 reads it before any run directory exists. A fixed `serving_card_*` code refuses a
 card that is not adopted, was measured on another served alias or (under
 `flash_next_v1`) another context, lacks the probe evidence for a value, or sets a
-value whose consumer has not merged. The card's sha256, version, date and adopting
-entry are recorded in `freeze.json` (never the path), and a copy of the card stays
-in the run directory. Without the pair nothing changes; the desktop does not read
-the card.
+value whose consumer has not merged (today, only admission). With a card whose
+`concurrency.localStreams` (K) is above 1, the research loops and the claims
+judge run K zero-risk local calls at a time. The card's sha256, version, date,
+adopting entry and K are recorded in `freeze.json` (never the path), and a copy
+of the card stays in the run directory. Without the pair nothing changes; the
+desktop does not read the card.
 
 Diagnostics for the inference endpoint (synthetic prompts only; results stay under
 the ignored `.soar/`, and no address is printed or stored):
@@ -129,6 +132,22 @@ the ignored `.soar/`, and no address is printed or stored):
 - `pnpm fixture:planner -- --index <index.json> --brief <brief> [--dry-run]`: the
   E0 planner fixture, checked against the hashes-only manifest
   `docs/experiments/e0-planner-fixture-v1.json`; raw replies stay under `.soar/`.
+- `pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> [--dry-run]`:
+  the E0 judge fixture. It runs today's entailment judgement on a claim set that a
+  cloud model labelled through its API, checked against the hashes-only manifest
+  `docs/experiments/e0-judge-fixture-v1.json`, and scores agreement. `pnpm fixture:judge --
+  harvest --runs <runDir> --task <name> --out <claims.json>` collects the claims to label;
+  [the labelling protocol](docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md) says how.
+  Claims, labels and raw replies stay under `.soar/`.
+- `scripts/with-cloud-key.sh pnpm --silent label:judge -- --claims .soar/experiments/e0-judge/claims.json --minimum-per-class <n> [--dry-run]`:
+  the E0 judge labelling, the protocol's one paid step. It sends the protocol's steps 2 and 3,
+  the per-class minimum and the harvested claims to `gpt-6-sol` under a USD 1.00 total cap,
+  and writes `claims.json` and `labels.json` beside the claim set. It runs only after the E0
+  card's amendment names it. A dry run needs no key, sends nothing and prints the projected fee.
+  `--silent` keeps pnpm's banner, which names the checkout's path, off the output. The total
+  holds through `.soar/experiments/e0-judge/labelling-ledger.jsonl`: keep it, and put a
+  relabelled set in a subdirectory. A killed run leaves `labelling.lock` there; remove it by
+  hand once no labelling runs (the ledger still counts the killed request).
 
 ## Commands
 
@@ -137,10 +156,11 @@ the ignored `.soar/`, and no address is printed or stored):
 | `pnpm dev` | Run the desktop app |
 | `pnpm check` | Readiness and build-log validation, typecheck, tests, build |
 | `pnpm test:e2e` | Electron end-to-end tests (after `pnpm build`) |
-| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
+| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint, the endpoint's identity (served alias, model root basename, engine version, context window) and its window against the profile, and, with the serving-card pair set, the adopted card compared field by field; `--write` records the image id and profile in the app's user-data settings; the serving card is checked as the headless driver reads it, from the process environment, `SOAR_ENV_FILE` and the repository's `.env.local`, never the user-data file |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
 | `pnpm probe:export-schemas` / `pnpm probe:assess` | Write the role schemas probe P10 sends; validate its retained replies with the real schemas |
-| `pnpm card:serving` / `pnpm fixture:planner` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner fixture against its manifest |
+| `scripts/with-cloud-key.sh pnpm --silent label:judge` | Label the E0 judge claim set and plant its negatives through `gpt-6-sol`, under the USD 1.00 total cap (paid; the E0 card's amendment names it first); `--dry-run` prints the projected fee and sends nothing |
+| `pnpm card:serving` / `pnpm fixture:planner` / `pnpm fixture:judge` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner and judge fixtures against their manifests (`fixture:judge -- harvest` collects verified claims for labelling) |
 | `pnpm setup:patch-pilot` / `pnpm dev:patch` | Coding pilot setup and cloud-only launch |
 | `pnpm check:release-head` | Release-only gate on a clean committed head |
 
@@ -149,8 +169,9 @@ the ignored `.soar/`, and no address is printed or stored):
 See [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md) and the process
 section of [docs/PLAN.md](docs/PLAN.md).
 
-- **Build log.** Record decisions, failures and results in the build log. Never
-  rewrite an earlier entry.
+- **Build log.** Record decisions, failures and results in one entry file a pull
+  request under `docs/build-log/`. Never change an entry once it is on `main`, and
+  never edit the archive `docs/BUILD_LOG.md`.
 - **Evidence standard.** Keep submitted and accepted separate. File existence, test
   totals and mechanics are not acceptance.
 - **What never goes into Git or cloud tools:** credentials, private endpoints, raw

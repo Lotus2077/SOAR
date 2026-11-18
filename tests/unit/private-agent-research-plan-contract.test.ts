@@ -4,6 +4,7 @@ import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-age
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { deriveBriefUnits, ResearchPlanSchema, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
 import { assessResearchPlanReply, buildResearchPlanRepair, RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanAttemptSchema } from "../../src/main/private-agent/research-plan";
+import { hostFallbackPlan } from "../../src/main/private-agent/research-fallback";
 import { RESEARCH_FILES, runResearchPipeline, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 
@@ -152,17 +153,21 @@ describe("planner authoritative contract and exact bounded feedback", () => {
     expect(other.attempt.repairContext).toBe("omitted_oversize");
     expect(JSON.stringify(omitted)).not.toContain(large.slice(0, 12));
   });
-  it("retains both failed attempts and never requests a third plan or extraction", async () => {
+  it("retains both failed attempts, never requests a third plan without a hook, and falls back to the host plan (7c)", async () => {
     const m = setup(call => call.stage === "plan" ? "invalid JSON" : valid(call));
     const result = await execute(m);
-    expect(result).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
-    expect(m.calls.map(c => c.stage)).toEqual(["index", "plan", "plan"]);
-    expect(planStage(result)).toMatchObject({ calls: 2, invalidReplies: 2, questions: 0 });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    // Two plan requests, then extraction and synthesis on the host plan: no third plan request is made without an assist hook.
+    expect(m.calls.map(c => c.stage)).toEqual(["index", "plan", "plan", "extract", "extract", "synthesise"]);
+    const fallback = hostFallbackPlan(deriveBriefUnits(RESEARCH_V4_TEST_BRIEF));
+    expect(planStage(result)).toMatchObject({ calls: 2, invalidReplies: 2, questions: fallback.questions.length, fallback: "host_plan" });
     expect(planStage(result).planAttempts).toHaveLength(2);
     expect(planStage(result).planAttempts?.every(a => !a.accepted && a.acceptedPlanSha256 === null)).toBe(true);
-    expect(result.files.some(f => f.path === RESEARCH_FILES.plan)).toBe(false);
+    expect(JSON.parse(result.files.find(f => f.path === RESEARCH_FILES.plan)!.bytes.toString())).toEqual(fallback);
+    expect(m.calls.filter(c => c.stage === "extract").every(c => canonical(c.input.plan) === canonical(fallback))).toBe(true);
     const persisted = JSON.parse(result.files.find(f => f.path === RESEARCH_FILES.summary)!.bytes.toString());
     expect(persisted.stages.find((s: any) => s.stage === "plan").planAttempts).toEqual(planStage(result).planAttempts);
+    expect(JSON.parse(result.files.find(f => f.path === RESEARCH_FILES.coverage)!.bytes.toString()).fallbacks).toEqual({ plan: "host_plan", synthesis: "none" });
   });
   it("never turns transport denial into semantic repair", async () => {
     const m = setup(call => call.stage === "plan" ? new BrokerError("request_timeout") : valid(call));

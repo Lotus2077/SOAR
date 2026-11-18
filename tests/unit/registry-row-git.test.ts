@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -47,7 +47,7 @@ function row(args: string[], script = SCRIPT, env: NodeJS.ProcessEnv = process.e
 }
 const C = (n: string) => n.repeat(40);
 
-describe("registry git provenance (backlog item 11, part 2)", () => {
+describe("registry git provenance (backlog item 11, part 2)", { timeout: 30_000 }, () => {
   it("takes a run row's git from its freeze, not from the commit the row is written at", () => {
     const root = scratch("soar-git-row-");
     expect(row(["--run-dir", runDirectory(root, "clean", { commit: C("c"), dirty: false })])).toMatchObject({ git: "cccccccccccc", gitSource: "run", gitDirty: false });
@@ -103,7 +103,7 @@ function repository() {
 /** The source freeze's entries for these paths, as the driver would read them now. */
 const frozenOf = (root: string, paths: string[]) => paths.map(path => ({ path, sha256: digest(readFileSync(join(root, path))) }));
 
-describe("the driver's git state (backlog item 11, part 2)", () => {
+describe("the driver's git state (backlog item 11, part 2)", { timeout: 30_000 }, () => {
   it("asks git exactly these read-only questions, keeps only the commit and a boolean, and returns null on any doubt", () => {
     const root = scratch("soar-git-fake-");
     mkdirSync(join(root, "src")); writeFileSync(join(root, "src", "a.ts"), "export {};\n");
@@ -172,6 +172,10 @@ describe("the driver's git state (backlog item 11, part 2)", () => {
     expect(localScreenGitState([{ ...stale[0]!, sha256: h("0") }, ...stale.slice(1)], { root, cwd: root })).toEqual({ commit, dirty: true });
     // An edit the status cannot see (skip-worktree) still differs from the committed blob.
     git("update-index", "--skip-worktree", "src/a.ts"); writeFileSync(join(root, "src", "a.ts"), "export const a = 2;\n");
+    // The edit keeps the file's size, so within the second the index recorded it, git's stat check can take it for the committed file
+    // (racy git), and `checkout --` below then skips restoring it: CI on #91 saw `dirty: true` at the clean check. A later mtime makes
+    // the edit visible to the stat check; an index refresh would not, since it trusts the same matching stat.
+    const later = Date.now() / 1000 + 60; utimesSync(join(root, "src", "a.ts"), later, later);
     expect(git("status", "--porcelain")).toBe("");
     expect(localScreenGitState(frozen(), { root, cwd: root })).toEqual({ commit, dirty: true });
     git("update-index", "--no-skip-worktree", "src/a.ts"); git("checkout", "-q", "--", "src/a.ts");
@@ -220,7 +224,53 @@ describe("the driver's git state (backlog item 11, part 2)", () => {
     const check = driver.indexOf('if (sourceFreeze.sha256 !== input.expectedRuntimeSha256) throw new Error("local_screen_reviewed_source_changed");');
     const read = driver.indexOf("const git = localScreenGitState(sourceFreeze.files);");
     expect(check).toBeGreaterThan(0); expect(read).toBeGreaterThan(check); expect(read).toBeLessThan(driver.indexOf("mkdirSync(directory, { mode: 0o700 });"));
-    const literal = driver.slice(driver.indexOf("const freeze = { version: 1, jobId,"), driver.indexOf('save("freeze.json", freeze);'));
-    expect(literal).toMatch(/\n\s+git,\n/u);
+    // E2 (BL-20261117-1049-e2-write-bound-and-dry-run-design, decision (4)): the freeze's fixed fields are one function's, which the
+    // run's freeze spreads and the dry run prints; `git` is among them.
+    const [fields, dryRun, freeze, save] = ["const fixedFreeze = (", "if (input.dryRun) {", "const freeze = { ...fixedFreeze(", 'save("freeze.json", freeze);'].map(text => driver.indexOf(text));
+    expect(read).toBeLessThan(fields!); expect(fields).toBeLessThan(dryRun!); expect(dryRun).toBeLessThan(freeze!); expect(freeze).toBeLessThan(save!);
+    expect(driver.slice(fields, dryRun)).toMatch(/\n\s+git,\n/u);
+  });
+});
+
+/** Backlog item 11, part 3b: the checks of part 2 that BL-20261110-0723 (f) deferred to it. */
+describe("registry git provenance: deferred checks (BL-20261110-0723 (f))", { timeout: 60_000 }, () => {
+  const git = (cwd: string, args: string[]) => execFileSync("/usr/bin/git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args],
+    { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { PATH: "/usr/bin:/bin", HOME: cwd, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } });
+  /** A repository with one commit, and inside it a directory that is not a repository of its own. */
+  function enclosing() {
+    const outer = scratch("soar-git-outer-");
+    git(outer, ["init", "-q"]); writeFileSync(join(outer, ".gitignore"), "copy/\n"); git(outer, ["add", ".gitignore"]); git(outer, ["commit", "-q", "-m", "outer"]);
+    const copy = join(outer, "copy"); mkdirSync(join(copy, "scripts"), { recursive: true });
+    return { outer, copy };
+  }
+  it("never takes the commit of a repository above the writer's own: the writer's ceiling", () => {
+    const { outer, copy } = enclosing();
+    expect(git(copy, ["rev-parse", "--show-toplevel"]).trim()).toBe(outer);
+    copyFileSync(SCRIPT, join(copy, "scripts", "registry-row.py"));
+    const run = runDirectory(scratch("soar-git-ceiling-run-"), "legacy");
+    expect(() => row(["--run-dir", run], join(copy, "scripts", "registry-row.py"))).toThrow(/cannot read the commit this row is written at/u);
+  });
+  it("never takes the commit of a repository above the driver's own: the runner's ceiling", () => {
+    const { copy } = enclosing();
+    expect(() => localScreenGitRunner(copy)(["rev-parse", "--show-toplevel"])).toThrow();
+    expect(localScreenGitState([], { root: copy, cwd: copy })).toBeNull();
+  });
+  it("compares frozen files with their blobs in a SHA-256 repository", () => {
+    const repo = scratch("soar-git-sha256-");
+    git(repo, ["init", "-q", "--object-format=sha256"]); writeFileSync(join(repo, "file.ts"), "export const x = 1;\n");
+    git(repo, ["add", "file.ts"]); git(repo, ["commit", "-q", "-m", "one"]);
+    const bytes = readFileSync(join(repo, "file.ts")), commit = git(repo, ["rev-parse", "HEAD"]).trim();
+    expect(commit).toMatch(/^[0-9a-f]{64}$/u);
+    expect(localScreenGitState([{ path: "file.ts", sha256: digest(bytes) }], { root: repo, cwd: repo })).toEqual({ commit, dirty: false });
+    expect(localScreenGitState([{ path: "file.ts", sha256: h("0") }], { root: repo, cwd: repo })).toEqual({ commit, dirty: true });
+  });
+  it("gives a superseding copy of a runs_differ row with a malformed gitDirty the writing commit, labelled", () => {
+    const registry = join(scratch("soar-git-differ-"), "registry.jsonl");
+    const original = { id: "differ-1", batch: "b", task: "t", family: "research", exposure: "fresh", arm: "local-heavy", outcome: "rejected", verdictBy: "none", lesson: "l",
+      git: "cccccccccccc", gitSource: "runs_differ", gitDirty: "yes", runStatus: "submitted", runClass: { version: 1, infra: false, cause: "submitted" } };
+    writeFileSync(registry, `${JSON.stringify(original)}\n`);
+    const superseding = JSON.parse(execFileSync("python3", ["-I", SCRIPT, "--supersedes", "differ-1", "--registry", registry, "--id", "differ-2", "--outcome", "accepted", "--verdict-by", "none", "--lesson", "l"],
+      { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as Record<string, unknown>;
+    expect(superseding).toMatchObject({ git: HEAD.slice(0, 12), gitSource: "row_written", gitDirty: null });
   });
 });

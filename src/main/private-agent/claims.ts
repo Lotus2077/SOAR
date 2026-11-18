@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ArtifactCheck } from "./runner";
 import type { GeneralMessage } from "./model";
 import { canonical, digest, exactText } from "./contracts";
+import { orderedPoolLimit, runOrderedPool } from "./ordered-pool";
 
 /**
  * Research claims ledger (PR-J1). The model writes output/claims.json beside its
@@ -55,37 +56,65 @@ export type EntailmentComplete = (messages: GeneralMessage[], tools: [], signal:
  * The pass itself: one fresh, thinking-off judgement per verified claim. Pure over `complete`, so the session runs it
  * after the completion is durable and tests drive it with a stub. It never throws: every failure becomes a verdict
  * of not_judged, a transport failure or an exhausted allowance also stops the pass (truncated).
+ *
+ * 8.2b (BL-20261116-1213 decision 3; ASSIST-2's default): `limit` claims are judged at a time on the ordered pool, the session's
+ * K for a zero-risk local judge and 1 otherwise. A failed call stops launching, but its in-flight siblings finish and their
+ * verdicts are kept, so at K > 1 a truncated pass may hold verdicts for claims launched after the failing one. Verdicts stay in
+ * claim order, and `entailmentCalls` counts launched calls. With K = 1 it is the serial pass.
  */
 export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: EntailmentComplete; signal: AbortSignal; remainingMs: () => number;
   /** A pause request: honoured at the next claim boundary, so the session can leave the rest for a resume; it also labels a call it stopped. */
-  stop?: () => boolean }): Promise<EntailmentOutcome> {
-  const verdicts: EntailmentRecord[] = []; let calls = 0, stopReason: EntailmentStopReason | undefined;
-  for (const claim of input.claims) {
-    if (!claim.context) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "context_omitted" }); continue; }
-    // Once the pass has stopped, the remaining claims say so rather than repeating the first claim's failure.
-    if (stopReason) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "pass_stopped" }); continue; }
-    if (input.stop?.()) { stopReason = "paused"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "paused" }); continue; }
-    if (input.signal.aborted || input.remainingMs() < ENTAILMENT_RESERVE_MS) { stopReason = "deadline_or_cancelled"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "deadline_or_cancelled" }); continue; }
-    let reply: string;
-    try {
+  stop?: () => boolean;
+  /** 8.2b: K, the claims judged at a time (1 to ORDERED_POOL_MAX_LIMIT); absent or out of range, 1. */
+  limit?: number }): Promise<EntailmentOutcome> {
+  type Judged = { kind: "omitted" } | { kind: "reply"; content: string } | { kind: "failed"; label: EntailmentStopReason };
+  const limit = orderedPoolLimit(input.limit);
+  const verdicts: EntailmentRecord[] = []; let calls = 0, stopReason: EntailmentStopReason | undefined, stoppedAt: number | undefined;
+  const pool = await runOrderedPool<EntailmentClaim, Judged>({ items: input.claims, limit, signal: input.signal,
+    // The pause and deadline checks, once a slot is free. A claim without context passes untested: it is answered without a
+    // call, as the serial pass answered it before these checks, and a false here would stop the whole pass.
+    beforeLaunch: (claim, index) => {
+      if (!claim.context) return true;
+      const reason: EntailmentStopReason | undefined = input.stop?.() ? "paused" : input.signal.aborted || input.remainingMs() < ENTAILMENT_RESERVE_MS ? "deadline_or_cancelled" : undefined;
+      if (reason === undefined) return true;
+      stopReason ??= reason; stoppedAt = index; return false;
+    },
+    launch: async (claim, _index, signal) => {
+      if (!claim.context) return { kind: "omitted" as const };
       calls++;
-      reply = (await input.complete(entailmentMessages(claim), [], input.signal, { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: ENTAILMENT_PURPOSE })).content;
-    } catch {
-      // Every host stop (a pause, a cancel, the pass's own clock, and whatever aborts the run's signal: the desktop's task deadline, the
-      // driver's interrupt) reaches the call through this signal, so a call stopped mid-request carries the label the same stop gets
-      // between calls; one that failed while nothing stopped it is the judge's own failure (E1-J).
-      stopReason = !input.signal.aborted ? "request_failed" : input.stop?.() ? "paused" : "deadline_or_cancelled";
-      verdicts.push({ id: claim.id, verdict: "not_judged", reason: stopReason === "request_failed" ? "judge_request_failed" : stopReason });
-      continue;
-    }
-    try {
-      const text = String(reply).trim(), json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-      const verdict = EntailmentReplySchema.parse(JSON.parse(json));
-      // The reason is model text headed for the durable ledger: it must be exact text or it is dropped.
-      let reason: string | undefined;
-      try { reason = verdict.reason === undefined ? undefined : exactText(verdict.reason); } catch { reason = undefined; }
-      verdicts.push({ id: claim.id, verdict: verdict.verdict, ...(reason ? { reason } : {}) });
-    } catch { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_reply_invalid" }); }
+      try { return { kind: "reply" as const, content: String((await input.complete(entailmentMessages(claim), [], signal, { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: ENTAILMENT_PURPOSE })).content) }; }
+      catch {
+        // Every host stop (a pause, a cancel, the pass's own clock, and whatever aborts the run's signal: the desktop's task deadline, the
+        // driver's interrupt) reaches the call through this signal, so a call stopped mid-request carries the label the same stop gets
+        // between calls; one that failed while nothing stopped it is the judge's own failure (E1-J). It is labelled now, as it fails,
+        // because the pass's signal may change before its apply.
+        return { kind: "failed" as const, label: !input.signal.aborted ? "request_failed" as const : input.stop?.() ? "paused" as const : "deadline_or_cancelled" as const };
+      }
+    },
+    interrupt: outcome => outcome.status === "fulfilled" && outcome.value.kind === "failed" ? "stop" : undefined,
+    apply: (outcome, claim) => {
+      const judged: Judged = outcome.status === "fulfilled" ? outcome.value : { kind: "failed", label: "request_failed" };
+      if (judged.kind === "omitted") { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "context_omitted" }); return undefined; }
+      if (judged.kind === "failed") { stopReason ??= judged.label; verdicts.push({ id: claim.id, verdict: "not_judged", reason: judged.label === "request_failed" ? "judge_request_failed" : judged.label }); return "stop"; }
+      try {
+        const text = judged.content.trim(), json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+        const verdict = EntailmentReplySchema.parse(JSON.parse(json));
+        // The reason is model text headed for the durable ledger: it must be exact text or it is dropped.
+        let reason: string | undefined;
+        try { reason = verdict.reason === undefined ? undefined : exactText(verdict.reason); } catch { reason = undefined; }
+        verdicts.push({ id: claim.id, verdict: verdict.verdict, ...(reason ? { reason } : {}) });
+      } catch { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_reply_invalid" }); }
+      return undefined;
+    } });
+  // Claims never launched, in order: one without context is answered as ever; the claim a pause or the deadline stopped at takes
+  // that reason, and every other says the pass had stopped, rather than repeating the first claim's failure. The pool launches
+  // nothing once the pass's signal has aborted, without asking beforeLaunch; the first claim left then takes the stop's label,
+  // a pause before the deadline or cancel, as the serial pass gave it.
+  for (let index = pool.launched; index < input.claims.length; index++) {
+    const claim = input.claims[index]!;
+    if (!claim.context) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "context_omitted" }); continue; }
+    if (stopReason === undefined) { stopReason = input.stop?.() ? "paused" : "deadline_or_cancelled"; stoppedAt = index; }
+    verdicts.push({ id: claim.id, verdict: "not_judged", reason: index === stoppedAt ? stopReason : "pass_stopped" });
   }
   const counts = { supported: 0, partial: 0, unsupported: 0, contradicted: 0, not_judged: 0 };
   for (const row of verdicts) counts[row.verdict]++;
@@ -132,8 +161,127 @@ export function encodeRetainedClaimsSources(sources: RetainedClaimsSource[]): st
 }
 
 /**
+ * The rule that decides a required section heading is present, in Python, for the claims check: `section_present` strips each line's leading
+ * `#`, `*`, `_` and whitespace and its trailing `*`, `_`, `:` and whitespace, and compares what is left with the title, ignoring case.
+ * `strip_trailing` returns what `re.sub(r'[*_:\s]+$', '', text)` returned on every input, in linear time (E1-J2): that pattern retried a run
+ * of those characters from each of its positions when the run did not reach the end, so its time grew with the square of the run's length;
+ * the helper matches the same class once, at the start of the reversed text. Tests run this constant, not a copy of it.
+ */
+export const CLAIMS_SECTION_RULE_PY = String.raw`def strip_trailing(text):
+ return text[:len(text)-re.match(r'[*_:\s]*',text[::-1]).end()]
+def section_present(lines, title):
+ return any(strip_trailing(re.sub(r'^[#*_\s]+','',line)).lower()==title.lower() for line in lines)`;
+
+/**
+ * How the claims check removes fenced code, then HTML comments, from the report before it reads citations and headings, in Python (decision 6
+ * of E1-J2, BL-20261114-1711). `strip_fences` pairs a line that opens a fence (three backticks after optional spaces and tabs) with the next
+ * line that is three backticks between optional spaces and tabs, and turns the pair and the lines between into one empty line; an opening line
+ * with no later closing line ends the pairing. `strip_comments` removes each `<!--` through the first `-->` that starts after it. They return
+ * what `re.sub(r'(?ms)^[ \t]*```.*?^[ \t]*```[ \t]*$', '', text)` and `re.sub(r'(?s)<!--.*?-->', '', text)` returned on every input, in linear
+ * time: those patterns scanned to the end from every opener that had no closer. The backtick is `chr(96)`, since this template cannot hold one.
+ * Tests run this constant, not a copy of it.
+ */
+export const CLAIMS_REPORT_STRIP_PY = String.raw`def strip_fences(text):
+ fence=chr(96)*3; lines=text.split('\n'); out=[]; i=0
+ while i<len(lines):
+  if lines[i].lstrip(' \t').startswith(fence):
+   j=i+1
+   while j<len(lines) and lines[j].strip(' \t')!=fence: j+=1
+   if j==len(lines): out.extend(lines[i:]); break
+   out.append(''); i=j+1
+  else: out.append(lines[i]); i+=1
+ return '\n'.join(out)
+def strip_comments(text):
+ out=[]; i=0; p=text.find('<!--')
+ while p>=0:
+  q=text.find('-->',p+4)
+  if q<0: break
+  out.append(text[i:p]); i=q+3; p=text.find('<!--',i)
+ out.append(text[i:])
+ return ''.join(out)`;
+
+/**
+ * How the claims check turns HTML and DOCX markup into text, in Python (decision 6 of E1-J2, BL-20261114-1711): `strip_scripts` replaces each
+ * script or style block with a space, `strip_tags` each tag, and `join_runs` removes the markup between two runs of a DOCX paragraph. They
+ * return what `re.sub(r'(?is)<(script|style)[^>]*>.*?</\1>', ' ', text)`, `re.sub(r'<[^>]+>', ' ', text)` and
+ * `re.sub(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>(?:\s*<w:rPr>.*?</w:rPr>)?\s*<w:t\b[^>]*>', '', chunk, flags=re.S)` returned on every input, in
+ * linear time: each of those scanned to the end from every opener that had no closer.
+ * - A script or style block still ends where the former pattern's backreference says: SCRIPT_PAIR is that pattern, run only on a short string
+ *   made of the name and one candidate closing tag. Names that accept each other share one list of accepted closing positions.
+ * - The run join keeps the former pattern's fixed parts as patterns matched at known positions, and lists once each `</w:rPr>` that its tail follows.
+ * - `unescape` returns what `html.unescape` returns with Python's integer string limit lifted (BL-20261114-1803). Python 3.11 and later refuse
+ *   to convert more than 4,300 decimal digits, so `html.unescape` raised ValueError on a longer decimal reference and failed the whole check.
+ *   A decimal reference of eight or more digits is decoded from its value without leading zeros, through `html.unescape` on a short reference
+ *   (any value above 0x10FFFF reads as U+FFFD); every other stretch of text goes to `html.unescape` as it is.
+ * Tests run this constant, not a copy of it.
+ */
+export const CLAIMS_MARKUP_STRIP_PY = String.raw`import bisect, html, re
+SCRIPT_NAME=re.compile(r'(?is)<(script|style)')
+SCRIPT_PAIR=re.compile(r'(?is)<(script|style)[^>]*>.*?</\1>')
+RUN_HEAD=re.compile(r'</w:t>\s*</w:r>\s*<w:r\b[^>]*>',re.S)
+RUN_PROPS=re.compile(r'\s*<w:rPr>',re.S)
+RUN_TAIL=re.compile(r'\s*<w:t\b[^>]*>',re.S)
+LONG_DECIMAL=re.compile(r'&#([0-9]{8,});?')
+def strip_scripts(text):
+ slashes=[]; q=text.find('</')
+ while q>=0: slashes.append(q); q=text.find('</',q+2)
+ kinds=[]; out=[]; i=0; gt=-1; m=SCRIPT_NAME.search(text)
+ while m:
+  name=m.group(1)
+  if gt<m.end(): gt=text.find('>',m.end())
+  if gt<0: break
+  for first,closers in kinds:
+   if SCRIPT_PAIR.fullmatch('<'+first+'></'+name+'>'): break
+  else:
+   closers=[q for q in slashes if SCRIPT_PAIR.fullmatch('<'+name+'>'+text[q:q+len(name)+3])]; kinds.append((name,closers))
+  k=bisect.bisect_left(closers,gt+1)
+  if k==len(closers): m=SCRIPT_NAME.search(text,m.start()+1); continue
+  out.append(text[i:m.start()]); out.append(' '); i=closers[k]+len(name)+3; m=SCRIPT_NAME.search(text,i)
+ out.append(text[i:])
+ return ''.join(out)
+def strip_tags(text):
+ out=[]; i=0; p=text.find('<')
+ while p>=0:
+  r=text.find('>',p+1)
+  if r<0: break
+  if r>p+1: out.append(text[i:p]); out.append(' '); i=r+1; p=text.find('<',i)
+  else: p=text.find('<',r)
+ out.append(text[i:])
+ return ''.join(out)
+def join_runs(chunk):
+ tails=[]; c=chunk.find('</w:rPr>')
+ while c>=0:
+  t=RUN_TAIL.match(chunk,c+8)
+  if t: tails.append((c,t.end()))
+  c=chunk.find('</w:rPr>',c+8)
+ out=[]; i=0; s=chunk.find('</w:t>')
+ while s>=0:
+  end=-1; h=RUN_HEAD.match(chunk,s)
+  if h:
+   o=RUN_PROPS.match(chunk,h.end())
+   if o:
+    k=bisect.bisect_left(tails,(o.end(),))
+    if k<len(tails): end=tails[k][1]
+   if end<0:
+    t=RUN_TAIL.match(chunk,h.end())
+    if t: end=t.end()
+  if end<0: s=chunk.find('</w:t>',s+1); continue
+  out.append(chunk[i:s]); i=end; s=chunk.find('</w:t>',end)
+ out.append(chunk[i:])
+ return ''.join(out)
+def unescape(text):
+ parts=LONG_DECIMAL.split(text)
+ for k in range(1,len(parts),2):
+  digits=parts[k].lstrip('0') or '0'
+  parts[k]=html.unescape('&#%s;' % (digits if len(digits)<8 else '99999999'))
+ for k in range(0,len(parts),2): parts[k]=html.unescape(parts[k])
+ return ''.join(parts)`;
+
+/**
  * Host-owned verifier: quotes verbatim in declared file sources or in retained public sources (named by URL,
  * resolved and digest-checked through CLAIMS_RETAINED_ENV), locators computed by the host, citations resolved.
+ * `units` reads pypdf's `page_labels` once per PDF, at the first page, where the loop first read it before: each read builds every page's
+ * label, so a read per page took time that grew with the square of the page count (decision 6 of E1-J2, BL-20261114-1711).
  */
 export function claimsLedgerCheck(input: { reportPath: string; sources: ClaimsSource[]; publicSources?: boolean; root?: string }): ArtifactCheck {
   if ((!input.sources.length && !input.publicSources) || input.sources.length > 64 || new Set(input.sources.map(source => source.id)).size !== input.sources.length) throw new Error("claims_sources_invalid");
@@ -165,24 +313,28 @@ def file(name):
  for part in parts:
   cur=cur/part; need(not cur.is_symlink(),'invalid_path')
  need(cur.resolve().is_relative_to(root) and cur.is_file() and cur.stat().st_nlink==1 and cur.stat().st_size<=67108864,'invalid_file'); return cur
+${CLAIMS_MARKUP_STRIP_PY}
 def units(path):
  data=path.read_bytes(); low=path.name.lower()
  if data[:5]==b'%PDF-' or low.endswith('.pdf'):
   from pypdf import PdfReader
   reader=PdfReader(io.BytesIO(data)); out=[]
   for index,page in enumerate(reader.pages):
+   if index==0:
+    try: labels=reader.page_labels
+    except Exception: labels=None
    label=None
-   try: label=reader.page_labels[index]
+   try: label=labels[index]
    except Exception: label=None
    out.append(('page %s' % (label or index+1), page.extract_text() or ''))
   return out
  if data[:4]==b'PK\\x03\\x04' or low.endswith('.docx'):
   with zipfile.ZipFile(io.BytesIO(data)) as z: xml=z.read('word/document.xml').decode('utf-8','replace')
-  paras=[html.unescape(re.sub(r'<[^>]+>',' ',re.sub(r'</w:t>\\s*</w:r>\\s*<w:r\\b[^>]*>(?:\\s*<w:rPr>.*?</w:rPr>)?\\s*<w:t\\b[^>]*>','',chunk,flags=re.S))) for chunk in re.split(r'</w:p>',xml)]
+  paras=[unescape(strip_tags(join_runs(chunk))) for chunk in re.split(r'</w:p>',xml)]
   return [('paragraph %d' % (i+1),t) for i,t in enumerate(paras) if t.strip()]
  text=data.decode('utf-8','replace'); out=[('line',line) for line in text.split('\\n')]
  if low.endswith(('.html','.htm')) or text.lstrip()[:1]=='<':
-  stripped=html.unescape(re.sub(r'<[^>]+>',' ',re.sub(r'(?is)<(script|style)[^>]*>.*?</\\1>',' ',text)))
+  stripped=unescape(strip_tags(strip_scripts(text)))
   out.append(('html text',stripped))
  return out
 def locate(quote, items):
@@ -203,8 +355,8 @@ def locate(quote, items):
   joined=others[index][1]+' '+others[index+1][1]; pos=joined.find(quote)
   if pos>=0: return ('%s to %s' % (others[index][0],others[index+1][0]), window(joined,pos,len(quote)))
  return None
-def section_present(lines, title):
- return any(re.sub(r'[*_:\\s]+$','',re.sub(r'^[#*_\\s]+','',line)).lower()==title.lower() for line in lines)
+${CLAIMS_SECTION_RULE_PY}
+${CLAIMS_REPORT_STRIP_PY}
 result={'passed':False,'claims':[],'report':{}}
 try:
  ledger_bytes=file(p['ledgerPath']).read_bytes(); need(len(ledger_bytes)<=262144,'ledger_size_limit')
@@ -235,7 +387,7 @@ try:
   result['claims'].append(entry)
  report_file=file(p['reportPath']); report_units=units(report_file)
  report='\\n'.join(text for label,text in report_units if label!='html text') if report_units and report_units[0][0]!='line' else report_file.read_text(encoding='utf-8',errors='replace')
- body=re.sub(r'(?s)<!--.*?-->','',re.sub(r'(?ms)^[ \\t]*\`\`\`.*?^[ \\t]*\`\`\`[ \\t]*$','',report)); lines=body.split('\\n')
+ body=strip_comments(strip_fences(report)); lines=body.split('\\n')
  cited=set(re.findall(r'\\[(C[0-9]{1,3})\\]',body))
  missing=sorted(ids-cited); unknown=sorted(cited-ids)
  sections={title:section_present(lines,title) for title in p['sections']}

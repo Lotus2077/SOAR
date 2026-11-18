@@ -131,6 +131,8 @@ describe("registry rows classified by how the run ended (backlog item 11, part 3
     write([{ stage: "a", startedAt: "t0", finishedAt: "t1", reused: false, interrupted: true }]);
     expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ runClass: infra("operator_stop"), loop: { selected: "a" } });
     expect(() => row(["--loop-dir", loop], "rejected")).toThrow(/operator_stop/u);
+    // A refused loop row prints nothing (merge train 1's delta review of #78, item 2).
+    try { row(["--loop-dir", loop], "rejected"); } catch (error) { expect((error as { stdout?: string }).stdout).toBe(""); }
     // Without the mark (or without any stages record, as loops before part 1 wrote), a cancelled end is the session's clock.
     write([{ stage: "a", startedAt: "t0", finishedAt: "t1", reused: false }]);
     expect(row(["--loop-dir", loop], "rejected")).toMatchObject({ runClass: task() });
@@ -147,6 +149,8 @@ describe("registry rows classified by how the run ended (backlog item 11, part 3
     const supersede = (id: string, outcome: string) => JSON.parse(execFileSync("python3", ["-I", SCRIPT, "--supersedes", id, "--registry", registry, "--id", `${id}-fix-${outcome}`, "--outcome", outcome,
       "--verdict-by", "agent_diagnostic", "--lesson", "l"], { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as Record<string, unknown>;
     expect(() => supersede(original.id, "rejected")).toThrow(/ended on infrastructure/u);
+    // A refused superseding row prints nothing either.
+    try { supersede(original.id, "rejected"); } catch (error) { expect((error as { stdout?: string }).stdout).toBe(""); }
     expect(supersede(original.id, "accepted")).toMatchObject({ outcome: "accepted", runClass: infra("model_unavailable"), supersedes: original.id });
     expect(supersede(legacy.id, "rejected")).toMatchObject({ outcome: "rejected", supersedes: legacy.id });
     expect(supersede(legacy.id, "rejected")).not.toHaveProperty("runClass");

@@ -30,5 +30,5 @@ inside this repo's rules in `AGENTS.md`:
 - Suggest `/implement` or `/implement-spec` only for work whose plan approval
   gate is durably recorded; otherwise suggest recording the approval first.
 - A published spec or ticket is `Proposed`, never `Approved`.
-- When a skill's output is a crucial change, the `docs/BUILD_LOG.md` entry is
-  still part of done.
+- When a skill's output is a crucial change, its entry file under
+  `docs/build-log/` is still part of done.

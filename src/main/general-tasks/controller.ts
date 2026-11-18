@@ -202,6 +202,8 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
     issues.push(`${many(total, "research question has", "research questions have")} no retained evidence${why}.`);
   }
   if (misses.unresolvedQuestions) issues.push(`${many(misses.unresolvedQuestions, "research question was", "research questions were")} left unresolved by the synthesis.`);
+  // The owner's answer of 2026-11-18 (#166): a packet may stand with one passage whose reading stayed unresolved; coverage.json names it.
+  if (misses.declaredGaps) issues.push(`One passage of the sources stayed unresolved after its repairs: the reader declared ${many(misses.gapQuestions ?? 0, "research question", "research questions")} unresolved there, and the packet holds no evidence from it.`);
   const left = [...(misses.quotesLeftByCap ? [many(misses.quotesLeftByCap, "verified quote", "verified quotes")] : []),
     ...(misses.conflictsLeftByCap ? [many(misses.conflictsLeftByCap, "conflict note", "conflict notes")] : [])];
   if (left.length) issues.push(`The research packet left out ${listed(left)} at its caps.`);

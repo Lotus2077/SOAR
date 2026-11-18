@@ -16,7 +16,8 @@ import { RESEARCH_TRANSFER_CHECK_ID, researchTransferPhase, sessionFileManifest,
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 import type { ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest } from "../../src/main/private-agent/research-assist-contract";
-import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
+import { RESEARCH_V4_TEST_BRIEF, parseResearchUserContent, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
+import { inventoryResearchSources } from "../../src/main/private-agent/research-coverage";
 import { withAttemptRecord } from "../helpers/research-assist-fixture";
 import { researchAssistProtocolSha256 } from "../../src/main/private-agent/research-assist";
 
@@ -474,5 +475,37 @@ describe("E1 recoverability: retried and skipped rows through the producer and t
       { id: "receipt-plan-retried", stage: "plan", status: "superseded", sha256: digest(canonical(retry)) },
       { id: row.id, stage: "plan", sha256: digest(canonical(row)) }]);
     seeds(rows, producer);
+  });
+});
+
+describe("the owner's answer of 2026-11-18 (#166): a seed whose packet declares a gap", () => {
+  it("loads a packet with one disclosed unresolved chunk, and refuses one whose gap was changed after the run", async () => {
+    const ledger: Record<string, unknown>[] = [], first = inventoryResearchSources(researchV4Sources()).chunks[0]!.id;
+    const request = async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
+      // The first chunk's every reply declares its questions unresolved; every other call answers as the happy fixture does.
+      const parsed = system.startsWith("You extract") ? parseResearchUserContent(user) : undefined;
+      const content = parsed && parsed.chunk.id === first
+        ? JSON.stringify({ questions: parsed.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "needs_followup" })), quotes: [], conflicts: [] })
+        : researchV4Reply(system, user);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      const receipt = { id: `receipt-${ledger.length}`, jobId, contextId, contextSha256: h("3"), packetSha256: digest(input.body), destinationId: "fixture",
+        destinationSha256: h("4"), purpose: input.purpose, policyRevision: 0, committedAt: ledger.length + 1,
+        reservedFeeMicrousd: 0, status: "settled", feeMicrousd: settle(bytes), responseSha256: digest(bytes), scan: { status: "not_required_for_synthetic_local_test" } };
+      ledger.push(receipt); return { bytes, receipt };
+    };
+    const config = { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium" as const, inputUsdPerMillion: 0, outputUsdPerMillion: 0 };
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, jobId, contextId);
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: model, planner: model, synthesiser: model },
+      signal: new AbortController().signal, record() {} });
+    expect(outcome.status).toBe("completed");
+    const gaps = JSON.parse(outcome.files.find(file => file.path === RESEARCH_FILES.coverage)!.bytes.toString()).gaps;
+    expect(gaps).toEqual([expect.objectContaining({ chunkId: first, attempts: 2 })]);
+    const dir = sourceRun({ base: { files: outcome.files, receipts: ledger } }), loaded = loadResearchSeed(dir, task);
+    expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: loaded.seed.snapshotSha256, code: null });
+    // The loader revalidates the packet, so a gap changed after the run is refused.
+    const changed = sourceRun({ base: { files: outcome.files, receipts: ledger }, files: files => files.map(file => file.path !== RESEARCH_FILES.coverage ? file
+      : { ...file, bytes: Buffer.from(`${canonical({ ...JSON.parse(file.bytes.toString()), gaps: [{ ...gaps[0], attempts: 3 }] })}\n`) }) });
+    expect(() => loadResearchSeed(changed, task)).toThrow();
   });
 });

@@ -250,6 +250,17 @@ This folder holds the committed, sanitized record of live trials (see
   card's extract call: the deployed call with the strict `research_extraction`
   response_format item 9 sends. That makes 10 repeats and 60 calls
   (BL-20261116-1256-e0-extractor-structured-condition-design).
+- `e0-planner-fixture-v3.json`: the index of the r3 re-measurement's run 2 and the stage
+  brief, with E0 card Amendment 7's cells: A, the card's plan call at 16,384 tokens
+  non-streamed; B, that call streamed as the stage sends it; and C, B with thinking off.
+  That makes 10 calls a cell. `stage` pins run 2's first plan receipt, which cell B,
+  salted with that run's job, must reproduce before any request (`--stage-run`).
+- `e0-synthesis-fixture-v1.json`: the hashes-only manifest of the E0 synthesis fixture
+  (`scripts/synthesis-fixture.ts`, `pnpm fixture:synthesis`). It pins runs 2 and 3's
+  ready packets, each run's job and its two synthesis receipts. Each invocation runs one
+  of Amendment 7's three cells, as 10 trials of the stage's two-attempt sequence; a
+  trial ends in a model synthesis or the skeleton. Before any request it checks that the
+  stage's own bodies, rebuilt from each packet, match the receipts.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `LAUNCHER.md`: how a card's batch runs under `scripts/experiment-launcher.ts` (plan
@@ -276,7 +287,7 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
   run's output;
 - raw outputs, traces and databases, including the probe results and the raw model
   replies the probes and fixtures retain (`serving-probe-*/`, `e0-planner-fixture-*/`,
-  `e0-judge-fixture-*/`, `e0-extractor-fixture-*/`, `role-schemas.json`), and the
+  `e0-judge-fixture-*/`, `e0-extractor-fixture-*/`, `e0-synthesis-fixture-*/`, `role-schemas.json`), and the
   judge fixture's claim set and labels (`e0-judge/`);
 - task gold data and endpoints;
 - anything derived from personal or professional data.

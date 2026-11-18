@@ -37,8 +37,8 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
     another row already supersedes, and a new id that already exists.
 
 E0 (BL-20261116-0839-e0-registry-modes-design): `--probe-dir DIR` rows a scripts/serving-probe.py run from its probe.json,
-`--fixture-dir DIR --fixture planner|judge|extractor` a role-fixture run from its summary.json (or, for a planner or judge run that
-died without one, from its replies/ listing), and `--labelling-file FILE` the summary of one scripts/judge-labeller.ts invocation.
+`--fixture-dir DIR --fixture planner|judge|extractor|synthesis` a role-fixture run from its summary.json (or, for a planner or judge
+run that died without one, from its replies/ listing), and `--labelling-file FILE` the summary of one scripts/judge-labeller.ts invocation.
 Each row holds digests, bounded counts and USD amounts, booleans and closed codes only; the served alias, paths, file names, model
 or claim text and labels never reach it.
 
@@ -102,7 +102,7 @@ def main() -> int:
     parser.add_argument("--verdict-file", default=None, help="a desktop verdict receipt (JSON) instead of a run directory")
     parser.add_argument("--probe-dir", default=None, help="E0: a serving-probe run directory (probe.json from scripts/serving-probe.py)")
     parser.add_argument("--fixture-dir", default=None, help="E0: a role-fixture run directory (summary.json); give --fixture too")
-    parser.add_argument("--fixture", default=None, choices=FIXTURE_KINDS, help="with --fixture-dir: the fixture that wrote it (planner, judge or extractor)")
+    parser.add_argument("--fixture", default=None, choices=FIXTURE_KINDS, help="with --fixture-dir: the fixture that wrote it (planner, judge, extractor or synthesis)")
     parser.add_argument("--labelling-file", default=None, help="E0: the labelling tool's summary.json (scripts/judge-labeller.ts, pnpm label:judge)")
     parser.add_argument("--supersedes", default=None, metavar="ROW_ID", help="copy the registry row with this id and change only its verdict fields")
     parser.add_argument("--registry", default=DEFAULT_REGISTRY, help="the registry --supersedes reads (default: docs/experiments/registry.jsonl)")
@@ -1527,7 +1527,10 @@ PROBE_VERSION = 2
 P10_ROLES = ("plan", "extract", "synthesis")
 P10_MODES = ("on", "off")
 # The fixtures' closed sets; tests pin each copy to scripts/planner-fixture.ts and scripts/judge-fixture.ts.
-PLANNER_CONDITIONS = ("legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off", "legacy-thinking-structured", "legacy-thinking-structured-16384")
+PLANNER_CONDITIONS = ("legacy-thinking", "flash-thinking", "thinking-off", "flash-thinking-off", "legacy-thinking-structured", "legacy-thinking-structured-16384",
+                      "legacy-thinking-structured-16384-streamed", "thinking-off-structured-16384-streamed")
+# The planner conditions it sends streamed (plannerConditionStreamed), whose raw replies it keeps as .sse.
+PLANNER_STREAMED = ("legacy-thinking-structured-16384-streamed", "thinking-off-structured-16384-streamed")
 PLANNER_CLASSES = ("valid", "binding_invalid", "schema_invalid", "invalid_json", "truncated", "request_rejected", "transport_failed", "malformed_reply")
 JUDGE_CONDITIONS = ("j1-legacy", "j1-flash", "j1-legacy-reversed", "j1-flash-reversed")
 JUDGE_VERDICTS = ("supported", "partial", "unsupported", "contradicted")
@@ -1535,9 +1538,17 @@ JUDGE_FAILURES = ("request_rejected", "transport_failed", "malformed_reply", "ju
 # Lane S-pipe's extractor fixture (scripts/extractor-fixture.ts, pull request #116 at 18b062e): EXTRACTOR_CONDITIONS and EXTRACTOR_CLASSES.
 EXTRACTOR_CONDITIONS = ("thinking-off", "thinking-on", "thinking-on-8192", "thinking-on-16384", "thinking-off-structured")
 EXTRACTOR_CLASSES = ("complete", "held", "needs_followup", "invalid", "truncated", "request_rejected", "malformed_reply", "transport_failed")
-FIXTURE_KINDS = ("planner", "judge", "extractor")
-# The reply files each fixture writes (planner `<condition>-NN.json`, judge `<condition>-r<repeat>-<claim id>.json`), longest names first.
-REPLY_NAMES = {"planner": re.compile("^(?:" + "|".join(map(re.escape, sorted(PLANNER_CONDITIONS, key=len, reverse=True))) + r")-[0-9]{2,3}\.json$"),
+# Lane S-pipe's synthesis fixture (scripts/synthesis-fixture.ts, the E0 card's Amendment 7): SYNTHESIS_CELLS, SYNTHESIS_CALL_CLASSES and SYNTHESIS_OUTCOMES.
+SYNTHESIS_CELLS = ("synthesis-8192", "synthesis-16384", "synthesis-8192-repair-thinking-off")
+SYNTHESIS_CLASSES = ("accepted", "invalid", "truncated", "request_rejected", "malformed_reply", "transport_failed")
+SYNTHESIS_OUTCOMES = ("model_synthesis", "skeleton", "no_outcome")
+# The attempt-1 classes after which a synthesis trial sends its attempt 2 (the stage's repair).
+SYNTHESIS_REPAIRED = ("invalid", "truncated")
+FIXTURE_KINDS = ("planner", "judge", "extractor", "synthesis")
+# The reply files each fixture writes (planner `<condition>-NN.sse` for a streamed condition and `<condition>-NN.json` for any other, judge
+# `<condition>-r<repeat>-<claim id>.json`), longest names first.
+REPLY_NAMES = {"planner": re.compile("^(?:(?:" + "|".join(map(re.escape, sorted((name for name in PLANNER_CONDITIONS if name not in PLANNER_STREAMED), key=len, reverse=True)))
+                                     + r")-[0-9]{2,3}\.json|(?:" + "|".join(map(re.escape, sorted(PLANNER_STREAMED, key=len, reverse=True))) + r")-[0-9]{2,3}\.sse)$"),
                "judge": re.compile("^(?:" + "|".join(map(re.escape, sorted(JUDGE_CONDITIONS, key=len, reverse=True))) + r")-r[0-9]{1,2}-C[0-9]{1,3}\.json$")}
 # The labelling summary (lane S-e1's scripts/judge-labeller.ts, `pnpm label:judge`), version 1, as agreed on 2026-11-15: exactly these
 # keys. The closed sets mirror the tool's exported LABELLING_OUTCOMES, CALL_KINDS, CALL_STATES, SECOND_REQUEST_VALUES, PLANT_REJECTIONS,
@@ -1833,10 +1844,11 @@ def fixture_usage(calls: list) -> dict:
 
 
 def fixture_manifest(kind: str, manifest, source: str) -> dict:
-    """The fixture manifest's hashes and counts as the run recorded them, never its name, task or note."""
+    """The fixture manifest's hashes and counts as the run recorded them, never its name, task, note or packets' run names."""
     digests, counts = {"planner": (("indexSha256", "briefSha256", "sourceIdsSha256"), ("sourceCount", "mandatorySourceChunks", "extractionCallBudget")),
                        "judge": (("sha256", "claimsSha256", "labelsSha256"), ("claimCount", "plantedCount", "minimumPerClass")),
-                       "extractor": (("sha256", "briefSha256", "planSha256"), ("unitCount", "sourceCount"))}[kind]
+                       "extractor": (("sha256", "briefSha256", "planSha256"), ("unitCount", "sourceCount")),
+                       "synthesis": (("sha256", "briefSha256"), ("trialsPerPacket", "packetCount"))}[kind]
     if not isinstance(manifest, dict) or not all(is_digest(manifest.get(key)) for key in digests) or not all(bounded_count(manifest.get(key)) for key in counts):
         refuse(source, "the summary's manifest does not record its hashes and counts")
     kept = {key: manifest[key] for key in digests + counts}
@@ -1879,10 +1891,11 @@ def check_call_cells(kind: str, calls: list, conditions: list, repeats: int, kep
 
 
 def call_class(kind: str, call: dict, source: str) -> str:
-    """A fixture call's class: the planner's classification, or the judge's verdict, or, for a call not judged, its failure."""
-    if kind in ("planner", "extractor"):
+    """A fixture call's class: the planner's, extractor's or synthesis fixture's classification, or the judge's verdict, or, for a call not
+    judged, its failure."""
+    if kind in ("planner", "extractor", "synthesis"):
         value = call.get("classification")
-        if value not in (PLANNER_CLASSES if kind == "planner" else EXTRACTOR_CLASSES):
+        if value not in {"planner": PLANNER_CLASSES, "extractor": EXTRACTOR_CLASSES, "synthesis": SYNTHESIS_CLASSES}[kind]:
             refuse(source, f"a call's classification is not one the {kind} fixture writes")
         return value
     verdict, failure = call.get("verdict"), call.get("failure")
@@ -1923,6 +1936,48 @@ def check_judge_scores(scores: dict, calls: list, kept: dict, source: str) -> No
                 refuse(source, f"the summary's {condition} {key} scores are not its calls' and its manifest's")
 
 
+def synthesis_outcome(classes: list):
+    """A synthesis trial's (outcome, acceptedAttempt) from its calls' classes in attempt order, or None while it waits for its attempt 2: an
+    accepted call is the model's synthesis, a refused attempt 2 leaves the host skeleton, and a call that settled no reply ends it with none."""
+    if classes[-1] == "accepted":
+        return "model_synthesis", len(classes)
+    if classes[-1] not in SYNTHESIS_REPAIRED:
+        return "no_outcome", None
+    return ("skeleton", None) if len(classes) == 2 else None
+
+
+def synthesis_trials(summary: dict, calls: list, repeats: int, interrupted: bool, source: str) -> dict:
+    """A synthesis run's trials (scripts/synthesis-fixture.ts runSynthesisFixture) from its calls, in the order it made them: each trial sends
+    attempt 1, and attempt 2 only after an invalid or truncated attempt 1. Its records are its ended trials', in trial order, each its calls'.
+    The fixture rewrites its summary after every call and then after every trial, so a finished run recorded all `repeats` trials, and a
+    stopped one may leave its last trial unrecorded, waiting for its attempt 2 or for its record. Returns the outcome counts over the records."""
+    trials = []
+    for call in calls:
+        trial, attempt, name = call.get("trial"), call.get("attempt"), call_class("synthesis", call, source)
+        if type(trial) is not int or not 1 <= trial <= repeats or type(attempt) is not int or attempt not in (1, 2):
+            refuse(source, "a call's trial or attempt is not one the synthesis fixture writes")
+        if attempt == 1 and trial == len(trials) + 1:
+            trials.append([name])
+        elif attempt == 2 and trial == len(trials) and synthesis_outcome(trials[-1]) is None:
+            trials[-1].append(name)
+        else:
+            refuse(source, "the summary's calls are not each trial's attempt 1 and, only after an invalid or truncated one, its attempt 2, in trial order")
+    records, outcomes = summary.get("trials"), dict.fromkeys(SYNTHESIS_OUTCOMES, 0)
+    if not isinstance(records, list) or len(records) > len(trials) or (not interrupted and len(trials) != repeats) \
+            or len(trials) - len(records) > (1 if interrupted else 0):
+        refuse(source, "the summary's trials are not a record of every trial of a finished run, or of all but at most the last of a stopped one")
+    for number, (classes, record) in enumerate(zip(trials, records), 1):
+        ended = synthesis_outcome(classes)
+        expected = None if ended is None else {"trial": number, "outcome": ended[0], "acceptedAttempt": ended[1], "calls": len(classes)}
+        # Compared by type too, so that no boolean stands for a trial, an attempt or a count.
+        if not isinstance(record, dict) or expected is None or any(type(record.get(key)) is not type(value) or record.get(key) != value for key, value in expected.items()):
+            refuse(source, f"the summary's record of trial {number} is not its calls' outcome, accepted attempt and call count")
+        outcomes[ended[0]] += 1
+    if summary.get("outcomes") != outcomes:
+        refuse(source, "the summary's outcomes do not match its trials")
+    return outcomes
+
+
 def unfinished_fixture_row(args, kind: str, source: str) -> dict:
     """A fixture run that died before writing summary.json, rowed from its replies/ listing (decision (4)): one file per answered
     request, so a lower bound; dated by the earliest reply. Only the listing is read, never a reply."""
@@ -1941,23 +1996,26 @@ def unfinished_fixture_row(args, kind: str, source: str) -> dict:
 
 def fixture_row(args) -> dict:
     """Decision (4): one role-fixture run directory, from its summary.json (scripts/planner-fixture.ts FixtureSummary, scripts/judge-fixture.ts
-    JudgeFixtureSummary, and lane S-pipe's scripts/extractor-fixture.ts)."""
+    JudgeFixtureSummary, and lane S-pipe's scripts/extractor-fixture.ts and scripts/synthesis-fixture.ts SynthesisFixtureSummary)."""
     source, kind = "--fixture-dir", args.fixture
     path = os.path.join(args.fixture_dir, "summary.json")
     if not os.path.lexists(path):
-        if kind == "extractor":
-            refuse(source, "the extractor fixture writes summary.json before its first request, so a directory without one sent nothing")
+        if kind in ("extractor", "synthesis"):
+            refuse(source, f"the {kind} fixture writes summary.json before its first request, so a directory without one sent nothing")
         return unfinished_fixture_row(args, kind, source)
     raw, summary = read_producer_json(path, source)
     if type(summary.get("version")) is not int or summary["version"] != 1 or summary.get("dryRun") is not False:
         refuse(source, "summary.json is not a version 1 summary of a run that sent its requests")
     started = recorded_instant(summary.get("startedUtc"), source, "startedUtc")
-    interrupted = kind == "extractor" and summary.get("finishedUtc") is None
+    # The extractor and synthesis fixtures rewrite their summary as they go and add finishedUtc at the end.
+    interrupted = kind in ("extractor", "synthesis") and summary.get("finishedUtc") is None
     finished = None if interrupted else recorded_instant(summary.get("finishedUtc"), source, "finishedUtc")
-    allowed = {"planner": PLANNER_CONDITIONS, "judge": JUDGE_CONDITIONS, "extractor": EXTRACTOR_CONDITIONS}[kind]
+    allowed = {"planner": PLANNER_CONDITIONS, "judge": JUDGE_CONDITIONS, "extractor": EXTRACTOR_CONDITIONS, "synthesis": SYNTHESIS_CELLS}[kind]
     conditions, repeats = summary.get("conditions"), summary.get("repeats")
     if not isinstance(conditions, list) or not conditions or not all(condition in allowed for condition in conditions) or len(set(conditions)) != len(conditions):
         refuse(source, f"the summary's conditions are not {kind} fixture conditions")
+    if kind == "synthesis" and len(conditions) != 1:
+        refuse(source, "the summary's conditions are not the one cell a synthesis run sends")
     if not bounded_count(repeats) or repeats < 1:
         refuse(source, "the summary's repeats is not a positive count")
     manifest = summary.get("manifest")
@@ -1965,36 +2023,53 @@ def fixture_row(args) -> dict:
         if not isinstance(manifest, dict) or manifest.get(key) != given:
             refuse(source, f"{flag} must equal the fixture manifest's {key}")
     kept = fixture_manifest(kind, manifest, source)
+    if kind == "synthesis":
+        # Its trials alternate the packets, trialsPerPacket on each; it sends nothing unless both stage bodies of every packet, rebuilt, match the
+        # run's receipts in size and in packet digest.
+        if repeats != kept["trialsPerPacket"] * kept["packetCount"]:
+            refuse(source, "the summary's repeats is not its manifest's trials per packet times its packet count")
+        stage = summary.get("stageCheck")
+        passed = lambda check: isinstance(check, dict) and all(isinstance(check.get(key), list) and [item is True for item in check[key]] == [True, True]
+                                                               for key in ("bodyBytes", "packetSha256"))
+        if not isinstance(stage, list) or len(stage) != kept["packetCount"] or not all(map(passed, stage)):
+            refuse(source, "the summary's stage check does not pass both stage bodies of every packet")
     requests, digest = summary.get("requests"), "requestSha256" if kind == "planner" else "requestSetSha256"
     if not isinstance(requests, dict) or set(requests) != set(conditions) or not all(isinstance(item, dict) and is_digest(item.get(digest)) for item in requests.values()):
         refuse(source, "the summary's requests do not record a request digest per condition")
     calls, chunks = summary.get("calls"), summary.get("chunks")
     if kind == "extractor" and (not isinstance(chunks, list) or not chunks or not all(isinstance(chunk, dict) for chunk in chunks)):
         refuse(source, "the summary does not record its chunks")
-    # Calls per condition and repeat: one planner request, one judge request per claim, one extractor request per chunk.
-    expected = len(conditions) * repeats * (kept["claimCount"] if kind == "judge" else len(chunks) if kind == "extractor" else 1)
-    # An interrupted extractor run records the calls it made so far; every other summary records them all.
-    if not isinstance(calls, list) or (len(calls) > expected if interrupted else len(calls) != expected) \
+    # Calls per condition and repeat: one planner request, one judge request per claim, one extractor request per chunk. A synthesis trial
+    # makes one or two, which its trials check.
+    expected = None if kind == "synthesis" else len(conditions) * repeats * (kept["claimCount"] if kind == "judge" else len(chunks) if kind == "extractor" else 1)
+    # An interrupted extractor run records the calls it made so far; every other planner, judge or extractor summary records them all.
+    if not isinstance(calls, list) or (expected is not None and (len(calls) > expected if interrupted else len(calls) != expected)) \
             or not all(isinstance(call, dict) and call.get("condition") in conditions for call in calls):
-        refuse(source, f"the summary does not record its {expected} calls")
+        refuse(source, "the summary does not record its calls" if expected is None else f"the summary does not record its {expected} calls")
     if not all(call.get("status") is None or (isinstance(call["status"], int) and not isinstance(call["status"], bool)) for call in calls):
         refuse(source, "a call's status is not an HTTP status")
-    check_call_cells(kind, calls, conditions, repeats, kept, chunks, interrupted, source)
+    if kind == "synthesis":
+        outcomes = synthesis_trials(summary, calls, repeats, interrupted, source)
+    else:
+        check_call_cells(kind, calls, conditions, repeats, kept, chunks, interrupted, source)
     classes = {condition: {} for condition in conditions}
     for call in calls:
         name = call_class(kind, call, source)
         classes[call["condition"]][name] = classes[call["condition"]].get(name, 0) + 1
-    if kind in ("planner", "extractor") and summary.get("counts") != classes:
+    if kind in ("planner", "extractor", "synthesis") and summary.get("counts") != classes:
         refuse(source, "the summary's counts do not match its calls")
     usage = fixture_usage(calls)
     record = {"kind": kind, "finished": not interrupted, "version": 1, "sha256": hashlib.sha256(raw).hexdigest(), "conditions": conditions, "repeats": repeats,
               "manifest": kept, "classes": {condition: dict(sorted(counts.items())) for condition, counts in classes.items()}, "usageMissing": usage["usageMissing"],
               "cachedMissing": usage["cachedMissing"], "usage": {key: usage[key] for key in ("calls", "inputTokens", "outputTokens")}}
-    if kind in ("planner", "extractor"):
+    if kind in ("planner", "extractor", "synthesis"):
         # The research protocol hash the run's request bodies were built under (researchProtocolSha256()).
         if not is_digest(summary.get("protocolSha256")):
             refuse(source, "the summary does not record its research protocol hash")
         record["protocolSha256"] = summary["protocolSha256"]
+    if kind == "synthesis":
+        # Its trials' outcomes, over the trials it recorded: a model synthesis, the host skeleton, or neither.
+        record["outcomes"] = outcomes
     if kind == "extractor":
         # The condition the research pipeline itself sends, which the run compares the others with.
         if summary.get("deployedCondition") not in EXTRACTOR_CONDITIONS:

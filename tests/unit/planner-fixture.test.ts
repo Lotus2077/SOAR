@@ -12,9 +12,11 @@ import { deriveBriefUnits, inventoryResearchSources } from "../../src/main/priva
 import { assembleIndexEntry, buildLiteralSourceCard } from "../../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research-plan";
 import { OUTPUT_TOKENS, PLAN_SYSTEM, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
-import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, FIXTURE_JOB_ID, PLAN_RESPONSE_FORMAT, PlannerFixtureManifestSchema, buildPlannerBody, buildPlannerMessages, plannerConditionCap, runPlannerFixture, verifyFixtureInputs,
+import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, FIXTURE_JOB_ID, PLAN_RESPONSE_FORMAT, PlannerFixtureManifestSchema, STAGE_CONDITION, buildPlannerBody, buildPlannerMessages, checkPlannerStage, plannerConditionCap,
+  plannerConditionStreamed, plannerPacketSha256, runPlannerFixture, verifyFixtureInputs,
   type FixtureCondition } from "../../scripts/planner-fixture";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
+import { buildRoleRequest } from "../../scripts/export-role-schemas";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
 import { loopbackAddressForms } from "../helpers/loopback-address";
 
@@ -122,7 +124,7 @@ describe("planner fixture request builder", () => {
     expect(summary).toMatchObject({ version: 1, protocolSha256: researchProtocolSha256(), model: "Synthetic", repeats: 1, units: 2, dryRun: false,
       manifest: { indexSha256: f.manifest.indexSha256, briefSha256: f.manifest.briefSha256, sourceIdsSha256: f.manifest.sourceIdsSha256, sourceCount: 2, mandatorySourceChunks: f.inventory.chunks.length },
       counts: { "legacy-thinking": { valid: 1 }, "flash-thinking": { truncated: 1 }, "thinking-off": { binding_invalid: 1 }, "flash-thinking-off": { request_rejected: 1 } } });
-    for (const condition of DEFAULT_CONDITIONS) expect(summary.requests[condition]).toEqual({ requestSha256: digest(buildPlannerBody(condition as FixtureCondition, "Synthetic", buildPlannerMessages(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest: f.manifest })))), requestBytes: expect.any(Number), maxTokens: 8192 });
+    for (const condition of DEFAULT_CONDITIONS) expect(summary.requests[condition]).toEqual({ requestSha256: digest(buildPlannerBody(condition as FixtureCondition, "Synthetic", buildPlannerMessages(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest: f.manifest })))), requestBytes: expect.any(Number), maxTokens: 8192, streamed: false });
     const [valid, truncated, binding, rejected] = summary.calls;
     expect(valid).toMatchObject({ condition: "legacy-thinking", ordinal: 1, status: 200, replyFile: "legacy-thinking-01.json", finishReason: "stop", reasoningField: "reasoning_content", reasoningBytes: Buffer.byteLength("hidden thoughts"), classification: "valid",
       attempt: { accepted: true, bindingInspection: "completed", errors: [], truncated: false } });
@@ -270,7 +272,8 @@ describe("planner fixture: the serving card's plan call (manifest v2, BL-2026111
     const plain = conditions.map(c => buildPlannerBody(c, "Synthetic", messages)), salted = conditions.map(c => buildPlannerBody(c, "Synthetic", messages, { cacheSalt: salt }));
     // Each salted body is the plain body with the one salt added, and nothing else changed.
     salted.forEach((body, i) => { const { cache_salt: added, ...rest } = JSON.parse(body); expect(added).toBe(salt); expect(canonical(rest)).toBe(plain[i]); });
-    const recorded = (bodies: string[]) => Object.fromEntries(conditions.map((c, i) => [c, { requestSha256: digest(bodies[i]!), requestBytes: Buffer.byteLength(bodies[i]!), maxTokens: plannerConditionCap(c) }]));
+    const recorded = (bodies: string[]) => Object.fromEntries(conditions.map((c, i) => [c, { requestSha256: digest(bodies[i]!), requestBytes: Buffer.byteLength(bodies[i]!), maxTokens: plannerConditionCap(c),
+      streamed: plannerConditionStreamed(c) }]));
     const run = (options: { cacheSalt?: boolean; dryRun?: boolean }, baseUrl = "http://127.0.0.1:9/v1") =>
       runPlannerFixture({ endpoint: { baseUrl, model: "Synthetic" }, inputs, out: join(outDir(), "salt"), repeats: 2, conditions, ...options });
     expect((await run({ dryRun: true })).requests).toEqual(recorded(plain)); expect((await run({ dryRun: true, cacheSalt: false })).requests).toEqual(recorded(plain));
@@ -291,5 +294,100 @@ describe("planner fixture: the serving card's plan call (manifest v2, BL-2026111
       .map(([condition, request]) => [condition, request.requestSha256]));
     const expected = (options: { cacheSalt?: string }) => Object.fromEntries(conditions.map(c => [c, digest(buildPlannerBody(c, "Synthetic", messages, options))]));
     expect(printed(["--cache-salt"])).toEqual(expected({ cacheSalt: vllmCacheSalt(FIXTURE_JOB_ID) })); expect(printed([])).toEqual(expected({}));
+  });
+});
+
+describe("planner fixture: Amendment 7's cells A, B and C, and the stage check (manifest v3)", () => {
+  const A: FixtureCondition = "legacy-thinking-structured-16384", B: FixtureCondition = "legacy-thinking-structured-16384-streamed", C: FixtureCondition = "thinking-off-structured-16384-streamed";
+  /** A loopback fake that answers each call with a stream as vLLM sends it, or with a plain reply. */
+  async function streamServer(script: (ordinal: number) => { sse?: string; json?: unknown; status?: number }) {
+    const requests: { raw: string; body: any }[] = [];
+    const server: Server = createServer((request, response) => {
+      let data = ""; request.setEncoding("utf8"); request.on("data", part => { data += part; });
+      request.on("end", () => {
+        requests.push({ raw: data, body: JSON.parse(data) }); const reply = script(requests.length);
+        if (reply.sse !== undefined) { response.writeHead(200, { "content-type": "text/event-stream" }); response.end(reply.sse); return; }
+        response.writeHead(reply.status ?? 200, { "content-type": "application/json" }); response.end(JSON.stringify(reply.json ?? {}));
+      });
+    });
+    await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
+    const port = (server.address() as { port: number }).port;
+    cleanups.push(() => new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }));
+    return { requests, baseUrl: `http://127.0.0.1:${port}/v1` };
+  }
+  const stream = (content: string, finish = "stop") => [{ choices: [{ index: 0, delta: { content: content.slice(0, 10) }, finish_reason: null }] },
+    { choices: [{ index: 0, delta: { content: content.slice(10) }, finish_reason: finish }] }, { choices: [], usage: { prompt_tokens: 24_000, completion_tokens: 900 } }]
+    .map(chunk => `data: ${JSON.stringify({ id: "x", model: "Synthetic", ...chunk })}\n\n`).join("") + "data: [DONE]\n\n";
+  /** A stage run's result.json: its first plan receipt is cell B's body salted with the run's job, over `baseUrl`. */
+  function stageResult(messages: ReturnType<typeof buildPlannerMessages>, job: string, baseUrl: string) {
+    const body = buildPlannerBody(B, "Synthetic", messages, { cacheSalt: vllmCacheSalt(job) });
+    const dispatches = [{ jobId: job, purpose: "research source index", committedAt: 1, bodyBytes: 900, packetSha256: "1".repeat(64) },
+      { jobId: job, purpose: "research plan", committedAt: 2, bodyBytes: Buffer.byteLength(body), packetSha256: plannerPacketSha256(baseUrl, body) },
+      { jobId: job, purpose: "research plan", committedAt: 3, bodyBytes: 1, packetSha256: "2".repeat(64) }];
+    return { result: Buffer.from(JSON.stringify({ dispatches })), stage: { run: "run-2", jobIdSha256: digest(job), bodyBytes: dispatches[1]!.bodyBytes, packetSha256: dispatches[1]!.packetSha256 } };
+  }
+
+  it("appends cells B and C to the conditions, at the 16,384-token cap, streamed", () => {
+    expect(FIXTURE_CONDITIONS.slice(-3)).toEqual([A, B, C]);
+    expect([A, B, C].map(c => [plannerConditionCap(c), plannerConditionStreamed(c)])).toEqual([[16384, false], [16384, true], [16384, true]]);
+    expect(FIXTURE_CONDITIONS.filter(c => plannerConditionStreamed(c))).toEqual([B, C]);
+    expect(STAGE_CONDITION).toBe(B);
+  });
+
+  it("builds A, B and C as the model layer does: B is A streamed, and C is B with thinking off", () => {
+    const f = fixtureInputs(), messages = buildPlannerMessages(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest: f.manifest })), job = "e0-plan-cells";
+    const layer = (streamingEnabled: boolean, thinking?: "disabled") => canonical(buildRoleRequest({ vllm: { model: "Synthetic" }, streamingEnabled }, job, "plan", messages[1]!.content,
+      { maxOutputTokens: 16384, responseFormat: PLAN_RESPONSE_FORMAT, ...(thinking ? { thinking } : {}) }).body);
+    const salted = (c: FixtureCondition) => buildPlannerBody(c, "Synthetic", messages, { cacheSalt: vllmCacheSalt(job) });
+    expect([salted(A), salted(B), salted(C)]).toEqual([layer(false), layer(true), layer(true, "disabled")]);
+    const { stream: _s, stream_options: options, ...rest } = JSON.parse(salted(B));
+    expect(options).toEqual({ include_usage: true }); expect(canonical({ ...rest, stream: false })).toBe(salted(A));
+    expect(JSON.parse(salted(C))).toMatchObject({ stream: true, chat_template_kwargs: { enable_thinking: false }, response_format: { type: "json_schema" } });
+    expect(JSON.parse(salted(C))).not.toHaveProperty("reasoning_effort");
+  });
+
+  it("runs a streamed cell: the stream is reassembled and judged, its raw reply kept as .sse, and no reasoning field recorded", async () => {
+    const f = fixtureInputs(), server = await streamServer(ordinal => ordinal === 1 ? { sse: stream(plan(["input/corpus/alpha.md"])) } : { sse: stream("", "length") });
+    const out = join(outDir(), "streamed");
+    const summary = await runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" }, inputs: { index: f.index, brief: f.briefBytes, manifest: f.manifest }, out, repeats: 1, conditions: [B, C] });
+    expect(server.requests.map(r => [r.body.stream, r.body.stream_options, r.body.max_tokens])).toEqual([[true, { include_usage: true }, 16384], [true, { include_usage: true }, 16384]]);
+    expect(summary.calls.map(c => [c.condition, c.classification, c.replyFile, c.finishReason])).toEqual([[B, "valid", `${B}-01.sse`, "stop"], [C, "truncated", `${C}-01.sse`, "length"]]);
+    expect(summary.calls.every(c => c.reasoningField === undefined && c.reasoningBytes === undefined)).toBe(true);
+    expect(summary.requests[B]).toMatchObject({ maxTokens: 16384, streamed: true });
+    expect(readdirSync(join(out, "replies")).sort()).toEqual([`${B}-01.sse`, `${C}-01.sse`]);
+    expect(JSON.stringify(summary)).not.toContain("orchard");
+  });
+
+  it("checks cell B against the stage run's first plan receipt before any request, and refuses another job, receipt, endpoint or a missing run", async () => {
+    const f = fixtureInputs(), server = await streamServer(() => ({ sse: stream(plan(["input/corpus/alpha.md"])) }));
+    const messages = buildPlannerMessages(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest: f.manifest }));
+    const { result, stage } = stageResult(messages, "e0-plan-stage-job", server.baseUrl), manifest = { ...f.manifest, stage };
+    const run = (over: Record<string, unknown> = {}, inputs: Record<string, unknown> = {}) => runPlannerFixture({ endpoint: { baseUrl: server.baseUrl, model: "Synthetic" },
+      inputs: { index: f.index, brief: f.briefBytes, manifest, stageResult: result, ...inputs }, out: join(outDir(), "stage"), repeats: 1, conditions: [B], ...over });
+    expect(checkPlannerStage(verifyFixtureInputs({ index: f.index, brief: f.briefBytes, manifest }), result, "Synthetic", server.baseUrl))
+      .toEqual({ run: "run-2", condition: B, bodyBytes: true, packetSha256: true });
+    expect((await run({ dryRun: true })).stageCheck).toEqual({ run: "run-2", condition: B, bodyBytes: true, packetSha256: true });
+    expect(server.requests).toHaveLength(0);
+    await expect(run({}, { stageResult: undefined })).rejects.toThrow("planner_fixture_stage_run_missing");
+    await expect(run({}, { manifest: { ...manifest, stage: { ...stage, jobIdSha256: digest("another job") } } })).rejects.toThrow("planner_fixture_stage_job_mismatch");
+    await expect(run({}, { manifest: { ...manifest, stage: { ...stage, bodyBytes: stage.bodyBytes + 1 } } })).rejects.toThrow("planner_fixture_stage_receipt_mismatch");
+    await expect(run({}, { stageResult: Buffer.from("{}") })).rejects.toThrow("planner_fixture_stage_result_invalid");
+    // The receipt binds the endpoint the run used: over another one the dry run reports it, and the run refuses before any request.
+    const elsewhere = { endpoint: { baseUrl: "http://127.0.0.1:9/v1", model: "Synthetic" } };
+    expect((await run({ ...elsewhere, dryRun: true })).stageCheck).toEqual({ run: "run-2", condition: B, bodyBytes: true, packetSha256: false });
+    await expect(run(elsewhere)).rejects.toThrow("planner_fixture_stage_mismatch");
+    expect(server.requests).toHaveLength(0);
+    // A manifest without `stage` (v1, v2) checks nothing and needs no run.
+    expect((await run({ dryRun: true }, { manifest: f.manifest, stageResult: undefined })).stageCheck).toBeUndefined();
+    expect((await run()).calls.map(c => c.classification)).toEqual(["valid"]);
+  });
+
+  it("pins manifest v3: run 2's index and the stage brief, cells A, B and C ten times each, and run 2's first plan receipt", () => {
+    const manifest = PlannerFixtureManifestSchema.parse(JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "e0-planner-fixture-v3.json"), "utf8")));
+    expect(manifest).toMatchObject({ name: "e0-planner-fixture-v3", status: "pinned", task: "r3-grid-batteries", exposure: "exposed", sourceCount: 24, mandatorySourceChunks: 24,
+      extractionCallBudget: 40, conditions: [A, B, C], repeats: 10, stage: { run: "run-2", bodyBytes: 69073 } });
+    expect(manifest.indexSha256?.slice(0, 12)).toBe("840434e25b56");
+    // The same stage brief as v1 and v2.
+    expect(manifest.briefSha256).toBe(JSON.parse(readFileSync(join(ROOT, "docs", "experiments", "e0-planner-fixture-v2.json"), "utf8")).briefSha256);
   });
 });

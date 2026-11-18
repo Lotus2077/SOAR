@@ -53084,7 +53084,7 @@ References: docs/experiments/e0-card-2026-11-13.md (Amendment 6, item 2); BL-202
 
 ### BL-20261118-0438-desktop-local-research-13a-design -- 2026-11-18 -- 13a designed: local research in the desktop as an opt-in beta route for files and typed URLs, run only on an adopted serving card, with no cloud and a badge that says what ran
 
-Status: `Proposed`
+Status: `Approved`
 
 Scope or hypothesis: This designs backlog item 13a (decision 2 of BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout). Only the headless driver passes `research` to a session or reads a serving card, so none of the pipeline reaches the owner's build. The coordinating session reads this design before any code is written. The pull request's description holds the detail, the file references and lane S-pipe's answers.
 
@@ -53099,6 +53099,11 @@ Decisions:
    - the desktop's public phase;
    - the heavy pool, since a research run with fetches can use about 193 of its 200 requests;
    - a beta build launched without its own folder, which would share E5's database.
+8. **Confirmed on 2026-11-18.** The coordinating session confirmed three of the decisions: an accepted card is required, 13a.1 comes before 13a.2, and the beta build has its own user-data folder. It added three requirements:
+   - (A) the folder separation fails closed, so a beta build started the plain way never touches the default folder's database, settings or lock;
+   - (B) the writer's bound on research tasks is one named setting;
+   - (C) 13a.1 is text only, with PDF and DOCX conversion a later item.
+   The owner may replace each of them. Nothing is built or measured.
 
 Changes: docs/BUILD_LOG.md, this entry. No code.
 

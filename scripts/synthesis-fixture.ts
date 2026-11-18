@@ -28,7 +28,7 @@ import { canonical, digest, exactText, sha256Schema } from "../src/main/private-
 import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { researchSynthesisLengthCap } from "../src/main/private-agent/research-admission";
 import { RESEARCH_FILES, RESEARCH_PRESENTATION_POLICY, RESEARCH_TOLERANCE_POLICY } from "../src/main/private-agent/research-contract";
-import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema, correctSynthesisEvidenceIds, renderResearchEvidence, type ResearchEvidence,
+import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema, correctSynthesisEvidenceIds, renderResearchEvidence, synthesisCorrectionCounts, type ResearchEvidence,
   type ResearchSynthesisCorrections } from "../src/main/private-agent/research-coverage";
 import { assertRunDirectoryIgnored } from "../src/main/private-agent/research-diagnostics";
 import { parseJsonReply } from "../src/main/private-agent/research-index";
@@ -224,9 +224,16 @@ export interface SynthesisCallRecord {
   condition: SynthesisCell; trial: number; packet: string; attempt: 1 | 2; requestSha256: string; requestBytes: number; status: number | null; elapsedMs: number;
   replyFile: string | null; bodySha256: string | null; bodyBytes: number; classification: SynthesisCallClass; finishReason?: string | null; contentBytes?: number;
   usage?: unknown; codes?: string[]; transportError?: string; streamError?: string;
-  /** On an accepted reply the evidence-id tolerance corrected: the ids it dropped and the questions it left unresolved, as the synthesise row counts them. */
-  evidenceIdsDropped?: number; questionsDowngraded?: number;
+  /**
+   * On an accepted reply the evidence-id tolerance corrected: the ids it dropped, by kind, and the questions it left unresolved, as the
+   * synthesise row counts them; and `allUnresolvedByDrops` when the drops left every question unresolved, which the E0 card's addendum
+   * to Amendment 7 counts as no model synthesis.
+   */
+  evidenceIdsDroppedNotCitable?: number; evidenceIdsDroppedNotTagged?: number; questionsDowngraded?: number; allUnresolvedByDrops?: true;
 }
+/** The accepted calls' corrections, summed: those with any drop, the ids dropped by kind, the questions downgraded, and the replies the drops left all unresolved. */
+export interface SynthesisCorrectionTotals { acceptedWithDrops: number; evidenceIdsDroppedNotCitable: number; evidenceIdsDroppedNotTagged: number; questionsDowngraded: number;
+  allUnresolvedByDrops: number }
 export interface SynthesisTrialRecord { trial: number; packet: string; outcome: SynthesisOutcome; acceptedAttempt: 1 | 2 | null; calls: number }
 export interface SynthesisFixtureSummary {
   version: 1; kind: "synthesis"; startedUtc: string; finishedUtc?: string; model: string; dryRun: boolean; judge: string; protocolSha256: string; requestSettings: ServingCardRequestSettings;
@@ -237,6 +244,7 @@ export interface SynthesisFixtureSummary {
   requests: Record<string, { requestSetSha256: string; requests: number; packets: Record<string, Omit<SynthesisRequest, "body" | "packet">[]> }>;
   trials: SynthesisTrialRecord[]; calls: SynthesisCallRecord[]; counts: Record<string, Partial<Record<SynthesisCallClass, number>>>;
   outcomes: Record<SynthesisOutcome, number>; byPacket: Record<string, Record<SynthesisOutcome, number>>; codes: { "1": Record<string, number>; "2": Record<string, number> };
+  corrections: SynthesisCorrectionTotals;
 }
 export interface SynthesisEndpoint { baseUrl: string; apiKey?: string; timeoutMs?: number }
 export interface SynthesisRunOptions { endpoint: SynthesisEndpoint; settings: RequestSettings; inputs: SynthesisFixtureInputs; cell: SynthesisCell; out: string; dryRun?: boolean }
@@ -258,6 +266,10 @@ function tally(summary: SynthesisFixtureSummary): void {
     for (const code of call.codes ?? []) codes[call.attempt][code] = (codes[call.attempt][code] ?? 0) + 1;
   }
   summary.counts = { [summary.conditions[0]]: counts }; summary.codes = codes;
+  const corrected = summary.calls.filter(call => call.questionsDowngraded !== undefined), sum = (key: "evidenceIdsDroppedNotCitable" | "evidenceIdsDroppedNotTagged" | "questionsDowngraded") =>
+    corrected.reduce((n, call) => n + (call[key] ?? 0), 0);
+  summary.corrections = { acceptedWithDrops: corrected.length, evidenceIdsDroppedNotCitable: sum("evidenceIdsDroppedNotCitable"), evidenceIdsDroppedNotTagged: sum("evidenceIdsDroppedNotTagged"),
+    questionsDowngraded: sum("questionsDowngraded"), allUnresolvedByDrops: corrected.filter(call => call.allUnresolvedByDrops).length };
   summary.outcomes = zeroOutcomes(); summary.byPacket = Object.fromEntries(summary.manifest.packets.map(p => [p.run, zeroOutcomes()]));
   for (const trial of summary.trials) { summary.outcomes[trial.outcome]++; summary.byPacket[trial.packet]![trial.outcome]++; }
 }
@@ -277,7 +289,8 @@ export async function runSynthesisFixture(options: SynthesisRunOptions): Promise
       packets: manifest.packets.map(p => ({ run: p.run, coverageSha256: p.coverageSha256, evidenceSha256: p.evidenceSha256, planSha256: p.planSha256 })) },
     stageCheck, requests: { [cell]: { requestSetSha256: digest(canonical(all.map(r => r.requestSha256))), requests: all.length,
       packets: Object.fromEntries([...requests].map(([run, pair]) => [run, pair.map(({ body: _b, packet: _p, ...kept }) => kept)])) } },
-    trials: [], calls: [], counts: {}, outcomes: zeroOutcomes(), byPacket: {}, codes: { 1: {}, 2: {} } };
+    trials: [], calls: [], counts: {}, outcomes: zeroOutcomes(), byPacket: {}, codes: { 1: {}, 2: {} },
+    corrections: { acceptedWithDrops: 0, evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0, allUnresolvedByDrops: 0 } };
   tally(summary);
   if (options.dryRun) return summary;
   if (!stageCheckPassed(stageCheck)) fail("stage_mismatch");
@@ -314,7 +327,10 @@ export async function runSynthesisFixture(options: SynthesisRunOptions): Promise
           const verdict = judgeSynthesisReply({ content: reply.content, truncated }, packet, attempt);
           record.codes = [...new Set(verdict.reasons.map(reason => reason.code))].sort();
           record.classification = verdict.accepted ? "accepted" : truncated ? "truncated" : "invalid";
-          if (verdict.corrections) { record.evidenceIdsDropped = verdict.corrections.dropped.reduce((n, d) => n + d.evidenceIds.length, 0); record.questionsDowngraded = verdict.corrections.downgraded.length; }
+          if (verdict.corrections) {
+            Object.assign(record, synthesisCorrectionCounts(verdict.corrections));
+            if (verdict.corrections.downgraded.length && verdict.questions!.every(q => q.disposition === "unresolved")) record.allUnresolvedByDrops = true;
+          }
         }
       }
     } catch (error) {
@@ -384,7 +400,7 @@ async function main(): Promise<number> {
   process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, judge: summary.judge, cell: args.cell, attempts: summary.attempts, trials: summary.repeats, packetCount: summary.manifest.packetCount,
     stageCheckPassed: stageCheckPassed(summary.stageCheck), stageCheck: summary.stageCheck.map(({ run: _run, ...check }) => check),
     requests: { requestSetSha256: cellRequests.requestSetSha256, requests: cellRequests.requests, packets: Object.values(cellRequests.packets) },
-    void: synthesisCellVoid(summary), outcomes: summary.outcomes, byPacket: Object.values(summary.byPacket), counts: summary.counts, codes: summary.codes,
+    void: synthesisCellVoid(summary), outcomes: summary.outcomes, byPacket: Object.values(summary.byPacket), counts: summary.counts, codes: summary.codes, corrections: summary.corrections,
     retained: summary.dryRun ? null : `${basename(out)}/replies` })}\n`);
   return stageCheckPassed(summary.stageCheck) ? 0 : 2;
 }

@@ -155,7 +155,8 @@ describe("registry columns (plan 11.4)", () => {
     const written = row(["--run-dir", dir], "accepted");
     // Every attempt's reservation (two of the retried packet, one of the unknown call); pinned: the unknown call and the committed local row.
     expect(written).toMatchObject({ usd: 0.12, reservedUsd: 0.42, pinnedUsd: 0.1, committedDispatches: 1, disclosedBytes: 2548, urls: 4, domains: 2, retainedBytes: 650, queries: null,
-      actions: { tools: { execute: 1, fetch_public: 1, other: 2 }, fetchReceipts: 4, sourcesRead: 7 }, researchFallback: { plan: "host_plan", synthesis: "none" } });
+      actions: { tools: { execute: 1, fetch_public: 1, other: 2 }, fetchReceipts: 4, sourcesRead: 7 }, researchFallback: { plan: "host_plan", synthesis: "none" },
+      researchCorrections: null });
     // A fee only where the store settled one: the superseded and the unknown call have none.
     expect(written.cloudCalls).toEqual([
       { purpose: "research plan", status: "superseded", feeUsd: null, reservedUsd: 0.16, bodyBytes: 2048 },
@@ -176,14 +177,22 @@ describe("registry columns (plan 11.4)", () => {
     expect(row(["--run-dir", odd], "accepted")).toMatchObject({ disclosedBytes: null });
     // A reading stage that recorded no count, as a denied index stage does, reads null, not 0.
     const denied = runDirectory(root, "denied", { events: [stage("index"), stage("plan"), stage("synthesise")] });
-    expect(row(["--run-dir", denied], "accepted")).toMatchObject({ actions: { sourcesRead: null }, researchFallback: { plan: "none", synthesis: "none" } });
+    expect(row(["--run-dir", denied], "accepted")).toMatchObject({ actions: { sourcesRead: null }, researchFallback: { plan: "none", synthesis: "none" }, researchCorrections: null });
+    // The synthesis evidence-id tolerance's counts, which every synthesise row records since coverage version 6: zero is a count, and a
+    // malformed one makes the whole column unknown.
+    const counted = { evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 3, questionsDowngraded: 1 };
+    const tolerant = runDirectory(root, "tolerant", { events: [stage("index"), stage("plan"), stage("synthesise", counted)] });
+    expect(row(["--run-dir", tolerant], "accepted").researchCorrections).toEqual(counted);
+    const malformed = runDirectory(root, "malformed", { events: [stage("index"), stage("plan"), stage("synthesise", { ...counted, questionsDowngraded: -1 })] });
+    expect(row(["--run-dir", malformed], "accepted").researchCorrections).toBeNull();
   });
   it("sums a loop's runs, a moved run and the critique included, counts URLs and hostnames over their union, and takes the fallback from the run whose reading stage made the packet", () => {
     const root = scratch(), loop = join(root, "loop");
     // Each run's snapshot receiver listens on its own loopback port: the same two sources, read by a and b, count once each.
     runDirectory(loop, "a", { start: 8, end: 12, dispatches: [cloud({ status: "settled", feeMicrousd: 90_000, packetSha256: "c1", bodyBytes: 1000, disclosedBytes: 1000, committedAt: 9_000 })],
       events: [retained("https://www.example.org/a", 100), retained("http://127.0.0.1:50001/sources/s1", 10), retained("http://[::1]:50001/sources/s2", 10),
-        stage("index", { sourcesIndexed: 5 }), stage("plan", { fallback: "host_plan" }), stage("synthesise", { fallback: "skeleton" })] });
+        stage("index", { sourcesIndexed: 5 }), stage("plan", { fallback: "host_plan" }), stage("synthesise", { fallback: "skeleton", evidenceIdsDroppedNotCitable: 0,
+          evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0 })] });
     runDirectory(loop, "b.infra-1", { start: 1, end: 3, dispatches: [local({ status: "committed", packetSha256: "l1", bodyBytes: 200, disclosedBytes: 0 })], events: [retained("https://example.org/a", 40)] });
     // b's call was committed before a's, so it comes first although b's directory sorts after a's.
     runDirectory(loop, "b", { start: 12, end: 16, dispatches: [cloud({ status: "settled", feeMicrousd: 30_000, packetSha256: "c2", bodyBytes: 400, disclosedBytes: 400, committedAt: 2_000 })],
@@ -203,7 +212,8 @@ describe("registry columns (plan 11.4)", () => {
     const loopRow = row(["--loop-dir", loop], "accepted");
     expect(loopRow).toMatchObject({ reservedUsd: 0.32, pinnedUsd: 0, committedDispatches: 1, disclosedBytes: 1400, urls: 4, domains: 1, retainedBytes: 280, queries: null,
       cloudCalls: [{ purpose: "research plan", status: "settled", feeUsd: 0.03, reservedUsd: 0.16, bodyBytes: 400 }, { purpose: "research plan", status: "settled", feeUsd: 0.09, reservedUsd: 0.16, bodyBytes: 1000 }],
-      actions: { tools: { execute: 1 }, fetchReceipts: 7, sourcesRead: 5 }, researchFallback: { plan: "host_plan", synthesis: "skeleton" } });
+      actions: { tools: { execute: 1 }, fetchReceipts: 7, sourcesRead: 5 }, researchFallback: { plan: "host_plan", synthesis: "skeleton" },
+      researchCorrections: { evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0 } });
     const text = JSON.stringify(loopRow);
     for (const leaked of ["example", "127.0.0.1", "::1", "50001", "50002", "http", "sources/s"]) expect(text).not.toContain(leaked);
   });

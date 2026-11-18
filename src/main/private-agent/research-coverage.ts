@@ -23,31 +23,41 @@ const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["find
 type SynthesisQuestion = z.infer<typeof synthesisQuestion>;
 /**
  * The synthesis evidence-id tolerance (RESEARCH_TOLERANCE_POLICY.synthesis.evidenceIds), disclosed by coverage version 6: the ids the
- * host dropped from each question's list, and the findings or conflict questions the drop left with none, now unresolved.
+ * host dropped from each question's list, by reason, and the findings or conflict questions the drops left with none, now unresolved.
+ * `not_citable`: no id the reply could cite (a stage reply's are the packet's quote ids; an assist reply's, the ids its own packet
+ * carried). `not_tagged_for_question`: a citable quote whose questionIds do not name that question.
  */
+export const RESEARCH_SYNTHESIS_DROP_REASONS = ["not_citable", "not_tagged_for_question"] as const;
 export const ResearchSynthesisCorrectionsSchema = z.object({
-  dropped: z.array(z.object({ questionId: qid, evidenceIds: z.array(eid).min(1).max(480) }).strict()).min(1).max(12),
+  dropped: z.array(z.object({ questionId: qid, reason: z.enum(RESEARCH_SYNTHESIS_DROP_REASONS), evidenceIds: z.array(eid).min(1).max(480) }).strict()).min(1).max(24),
   downgraded: z.array(z.object({ questionId: qid, from: z.enum(["findings", "conflict"]) }).strict()).max(12) }).strict();
 export type ResearchSynthesisCorrections = z.infer<typeof ResearchSynthesisCorrectionsSchema>;
 /**
  * The tolerance itself, shared by the synthesis stage's judge and the E0 synthesis fixture. A question keeps an id only when it is
- * citable (a stage reply's are the packet's quote ids; an assist reply's, the ids its own packet carried) and its quote is tagged for
- * that question. Every other id is dropped from that list, and a findings or conflict question left with none becomes unresolved. The
- * argument is not changed. Without a drop the questions come back as given and there are no corrections.
+ * citable and its quote is tagged for that question. Every other id is dropped from that list, under its reason, and a findings or
+ * conflict question left with none becomes unresolved. The argument is not changed. Without a drop the questions come back as given
+ * and there are no corrections.
  */
 export function correctSynthesisEvidenceIds(questions: readonly SynthesisQuestion[], citable: ReadonlySet<string>, quotes: readonly { id: string; questionIds: readonly string[] }[]):
   { questions: SynthesisQuestion[]; corrections?: ResearchSynthesisCorrections } {
   const dropped: ResearchSynthesisCorrections["dropped"] = [], downgraded: ResearchSynthesisCorrections["downgraded"] = [];
   const corrected = questions.map((q): SynthesisQuestion => {
-    const keeps = (e: string) => citable.has(e) && quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId));
-    const kept = q.evidenceIds.filter(keeps);
-    if (kept.length === q.evidenceIds.length) return q;
-    dropped.push({ questionId: q.questionId, evidenceIds: q.evidenceIds.filter(e => !keeps(e)) });
+    const tagged = (e: string) => quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId));
+    const notCitable = q.evidenceIds.filter(e => !citable.has(e)), notTagged = q.evidenceIds.filter(e => citable.has(e) && !tagged(e));
+    if (!notCitable.length && !notTagged.length) return q;
+    if (notCitable.length) dropped.push({ questionId: q.questionId, reason: "not_citable", evidenceIds: notCitable });
+    if (notTagged.length) dropped.push({ questionId: q.questionId, reason: "not_tagged_for_question", evidenceIds: notTagged });
+    const kept = q.evidenceIds.filter(e => citable.has(e) && tagged(e));
     if (kept.length || q.disposition === "unresolved") return { ...q, evidenceIds: kept };
     downgraded.push({ questionId: q.questionId, from: q.disposition });
     return { questionId: q.questionId, disposition: "unresolved", evidenceIds: kept };
   });
   return dropped.length ? { questions: corrected, corrections: { dropped, downgraded } } : { questions: corrected };
+}
+/** The synthesise row's counts of a synthesis's corrections, by kind: zero without corrections. The stage, the fixture and the validator share it. */
+export function synthesisCorrectionCounts(corrections?: ResearchSynthesisCorrections) {
+  const dropped = (reason: (typeof RESEARCH_SYNTHESIS_DROP_REASONS)[number]) => (corrections?.dropped ?? []).filter(d => d.reason === reason).reduce((n, d) => n + d.evidenceIds.length, 0);
+  return { evidenceIdsDroppedNotCitable: dropped("not_citable"), evidenceIdsDroppedNotTagged: dropped("not_tagged_for_question"), questionsDowngraded: corrections?.downgraded.length ?? 0 };
 }
 /**
  * Version 2 since 7(c) (#93): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`.
@@ -331,20 +341,22 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   if (read(RESEARCH_FILES.evidenceText) !== renderResearchEvidence(evidence, plan) || byPath.get(RESEARCH_FILES.evidenceText)!.length > RESEARCH_COVERAGE_POLICY.packetBytes) fail("evidence_render");
   const synth = coverage.synthesis.questions;
   if (!unique(synth.map(q => q.questionId)) || canonical(synth.map(q => q.questionId).sort()) !== canonical([...questions].sort()) || synth.some(q => !unique(q.evidenceIds) || q.evidenceIds.some(e => !evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId))) || (q.disposition !== "unresolved" && !q.evidenceIds.length))) fail("synthesis_coverage");
-  // The synthesis evidence-id tolerance (version 6): the corrections a model synthesis kept, and only one. Each names a plan question
-  // once. A dropped id is not in its question's list and, when the stage's own reply was accepted, is no packet quote tagged for that
-  // question (an assist reply's citable ids are its own packet's, which this packet does not record). A downgraded question lost ids
-  // and lists none, so the check above holds it unresolved. The synthesise row counts both exactly.
-  const corrections = coverage.synthesis.corrections, synthesisRow = summary.stages[3] as { evidenceIdsDropped?: unknown; questionsDowngraded?: unknown; synthesisAttempts?: { slot?: unknown }[] };
+  // The synthesis evidence-id tolerance (version 6): the corrections a model synthesis kept, and only one. Each names a plan question,
+  // once a reason, and an id once a question. A dropped id is not in its question's list. A `not_tagged_for_question` id is a packet
+  // quote not tagged for that question. A `not_citable` id is no packet quote when the stage's own reply was accepted; an assist reply's
+  // citable ids are its own packet's, which this packet does not record. A downgraded question lost ids and lists none, so the check
+  // above holds it unresolved. The synthesise row counts both, by kind, at version 6 always, and below it not at all.
+  const corrections = coverage.synthesis.corrections, synthesisRow = summary.stages[3] as Record<string, unknown> & { synthesisAttempts?: { slot?: unknown }[] };
   if (corrections) {
-    const kept = (questionId: string) => synth.find(q => q.questionId === questionId)!, stageReply = synthesisRow.synthesisAttempts?.at(-1)?.slot === undefined;
-    if (coverage.version < 6 || coverage.synthesis.status !== "complete" || !unique(corrections.dropped.map(d => d.questionId)) || !unique(corrections.downgraded.map(d => d.questionId)) ||
-      corrections.dropped.some(d => !questions.has(d.questionId) || !unique(d.evidenceIds) || d.evidenceIds.some(e => kept(d.questionId).evidenceIds.includes(e) ||
-        (stageReply && evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(d.questionId))))) ||
-      corrections.downgraded.some(d => !corrections.dropped.some(x => x.questionId === d.questionId) || kept(d.questionId).evidenceIds.length)) fail("synthesis_corrections");
+    const listed = (questionId: string) => synth.find(q => q.questionId === questionId)!.evidenceIds, stageReply = synthesisRow.synthesisAttempts?.at(-1)?.slot === undefined;
+    const isQuote = (e: string) => evidence.quotes.some(quote => quote.id === e), taggedFor = (e: string, questionId: string) => evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(questionId));
+    const droppedFrom = (questionId: string) => corrections.dropped.filter(d => d.questionId === questionId).flatMap(d => d.evidenceIds);
+    if (coverage.version < 6 || coverage.synthesis.status !== "complete" || !unique(corrections.dropped.map(d => `${d.questionId} ${d.reason}`)) ||
+      !unique(corrections.downgraded.map(d => d.questionId)) || corrections.dropped.some(d => !questions.has(d.questionId) || !unique(droppedFrom(d.questionId)) ||
+        d.evidenceIds.some(e => listed(d.questionId).includes(e) || (d.reason === "not_tagged_for_question" ? !isQuote(e) || taggedFor(e, d.questionId) : stageReply && isQuote(e)))) ||
+      corrections.downgraded.some(d => !corrections.dropped.some(x => x.questionId === d.questionId) || listed(d.questionId).length)) fail("synthesis_corrections");
   }
-  if ((synthesisRow.evidenceIdsDropped ?? 0) !== (corrections ? corrections.dropped.reduce((n, d) => n + d.evidenceIds.length, 0) : 0) ||
-    (synthesisRow.questionsDowngraded ?? 0) !== (corrections?.downgraded.length ?? 0)) fail("synthesis_corrections");
+  if (Object.entries(synthesisCorrectionCounts(corrections)).some(([key, value]) => coverage.version >= 6 ? synthesisRow[key] !== value : synthesisRow[key] !== undefined)) fail("synthesis_corrections");
   if (!/^## Conflicting evidence\s*$/mu.test(read(RESEARCH_FILES.argument)) || !/^## Unanswered questions\s*$/mu.test(read(RESEARCH_FILES.argument))) fail("argument_sections");
   if (coverage.fallbacks.synthesis === "skeleton") {
     const skeleton = hostSkeletonSynthesis(plan, evidence);

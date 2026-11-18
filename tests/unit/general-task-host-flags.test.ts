@@ -68,6 +68,22 @@ describe("the reported issues of a submission's host flags (backlog item 7(d), p
     expect(lines({ questionsWithoutEvidence: 1, questionsTrimmed: 1, unresolvedQuestions: 1, quotesLeftByCap: 3, conflictsLeftByCap: 1, fetchFailures: 1 })).toEqual([trimmed(1, "it"),
       "1 research question was left unresolved by the synthesis.", "The research packet left out 3 verified quotes and 1 conflict note at its caps.", "1 public source fetch failed."]);
   });
+  it("says which unresolved questions the host's evidence check downgraded (the synthesis evidence-id tolerance); an event from before it reads as before", () => {
+    const lines = (misses: Record<string, number>) => hostFlagIssues([event({ misses })], true);
+    expect(lines({ unresolvedQuestions: 2, questionsDowngraded: 2 }))
+      .toEqual(["2 research questions were downgraded to unresolved by the host's evidence check, which removed every evidence ID the synthesis listed for them."]);
+    expect(lines({ unresolvedQuestions: 1, questionsDowngraded: 1 }))
+      .toEqual(["1 research question was downgraded to unresolved by the host's evidence check, which removed every evidence ID the synthesis listed for it."]);
+    expect(lines({ unresolvedQuestions: 3, questionsDowngraded: 1 }))
+      .toEqual(["3 research questions were left unresolved, 1 of them downgraded by the host's evidence check, which removed every evidence ID the synthesis listed for it."]);
+    expect(lines({ unresolvedQuestions: 3, questionsDowngraded: 2 }))
+      .toEqual(["3 research questions were left unresolved, 2 of them downgraded by the host's evidence check, which removed every evidence ID the synthesis listed for them."]);
+    // None downgraded, and an event recorded before the tolerance, which has no such count: the line as before.
+    for (const misses of [{ unresolvedQuestions: 2, questionsDowngraded: 0 }, { unresolvedQuestions: 2 }] as Record<string, number>[]) {
+      expect(lines(misses)).toEqual(["2 research questions were left unresolved by the synthesis."]);
+    }
+    expect(lines({ unresolvedQuestions: 0, questionsDowngraded: 0 })).toEqual([]);
+  });
   it("summarizes a document review by positions and edit ids, names a failed rule or step, and says why a flags file was not read", () => {
     for (const [reason, text] of [["missing", "missing"], ["too_large", "too large to read"], ["invalid", "invalid"]]) {
       expect(hostFlagIssues([event({ rules: { review: 1 }, review: { valid: false, reason } })], false)).toEqual([`The document review's flags file was ${text}, so its flags were not read.`]);

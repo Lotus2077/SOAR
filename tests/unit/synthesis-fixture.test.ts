@@ -149,7 +149,7 @@ describe("E0 synthesis fixture: the stage's judge", () => {
     // Three kinds of reply reach acceptance, so the comparison covers both sides of every check. Under the evidence-id tolerance, a reply
     // whose only listed id is no packet quote keeps its argument, with each question's id dropped and the question downgraded to unresolved.
     expect(accepted).toEqual(["accepted", "headingsNormalised", "unknownEvidenceId"]);
-    expect(judgeSynthesisReply(replies.unknownEvidenceId!, packet, 0).corrections).toEqual({ dropped: questions.map(q => ({ questionId: q, evidenceIds: ["E999"] })),
+    expect(judgeSynthesisReply(replies.unknownEvidenceId!, packet, 0).corrections).toEqual({ dropped: questions.map(q => ({ questionId: q, reason: "not_citable", evidenceIds: ["E999"] })),
       downgraded: questions.map(q => ({ questionId: q, from: "findings" })) });
 
     // The tolerance on a packet whose quotes are tagged for different questions: a quote listed under a question it is not tagged for (b), an id
@@ -173,13 +173,14 @@ describe("E0 synthesis fixture: the stage's judge", () => {
     const verdicts: Record<string, ReturnType<typeof judgeSynthesisReply>> = {};
     for (const [name, reply] of Object.entries(taggedReplies)) verdicts[name] = await compare(`tagged-${name}`, reply, tagged, true);
     expect(accepted.slice(3)).toEqual(["tagged-caseB", "tagged-caseA", "tagged-bothDowngraded", "tagged-unresolvedKept"]);
-    expect(verdicts.caseB!.corrections).toEqual({ dropped: [{ questionId: "Q1", evidenceIds: [q2a] }], downgraded: [] });
-    expect(verdicts.caseA!.corrections).toEqual({ dropped: [{ questionId: "Q1", evidenceIds: ["E999"] }], downgraded: [] });
+    const drop = (questionId: string, reason: string, evidenceIds: (string | undefined)[]) => ({ questionId, reason, evidenceIds });
+    expect(verdicts.caseB!.corrections).toEqual({ dropped: [drop("Q1", "not_tagged_for_question", [q2a])], downgraded: [] });
+    expect(verdicts.caseA!.corrections).toEqual({ dropped: [drop("Q1", "not_citable", ["E999"])], downgraded: [] });
     expect(verdicts.bothDowngraded).toMatchObject({ questions: [row("Q1", "unresolved", []), row("Q2", "unresolved", [])],
-      corrections: { dropped: [{ questionId: "Q1", evidenceIds: ["E999", q2a] }, { questionId: "Q2", evidenceIds: [q1] }],
+      corrections: { dropped: [drop("Q1", "not_citable", ["E999"]), drop("Q1", "not_tagged_for_question", [q2a]), drop("Q2", "not_tagged_for_question", [q1])],
         downgraded: [{ questionId: "Q1", from: "findings" }, { questionId: "Q2", from: "conflict" }] } });
     expect(verdicts.unresolvedKept).toMatchObject({ questions: [row("Q1", "unresolved", []), row("Q2", "unresolved", [q2a!])],
-      corrections: { dropped: [{ questionId: "Q1", evidenceIds: [q2b] }, { questionId: "Q2", evidenceIds: [q1] }], downgraded: [{ questionId: "Q1", from: "conflict" }] } });
+      corrections: { dropped: [drop("Q1", "not_tagged_for_question", [q2b]), drop("Q2", "not_tagged_for_question", [q1])], downgraded: [{ questionId: "Q1", from: "conflict" }] } });
     // What the tolerance does not cover is refused as before, and an offending id is never a reason.
     expect(verdicts.duplicateOffending!.reasons.map(r => r.code)).toEqual(["duplicate_evidence_id"]);
     expect(verdicts.offendingAndHeadingMissing!.reasons.map(r => r.code)).toEqual(["unanswered_questions_heading_missing"]);
@@ -279,19 +280,29 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
       ["medium", null], [null, { enable_thinking: false }]]);
   }, 60_000);
 
-  it("records on an accepted call the ids the evidence-id tolerance dropped and the questions it downgraded, and none on a reply it kept whole", async () => {
+  it("records on an accepted call the ids the evidence-id tolerance dropped by kind, its downgrades and a reply the drops left all unresolved, and tallies them", async () => {
     let packet: SynthesisPacket | undefined;
     const id = () => [...packet!.packetIds][0]!, sections = "\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.";
-    const reply = (evidenceIds: string[]) => JSON.stringify({ version: 1, argument: `A bounded finding [${id()}].${sections}`,
-      questions: [...packet!.questions].map(q => ({ questionId: q, disposition: "findings", evidenceIds })) });
-    const server = await fakeServer(ordinal => ({ sse: sse(ordinal === 1 ? reply([id(), "E999"]) : ordinal === 2 ? reply(["E998"]) : reply([id()])) }));
+    const reply = (evidenceIds: string[], disposition = "findings") => JSON.stringify({ version: 1, argument: `A bounded finding [${id()}].${sections}`,
+      questions: [...packet!.questions].map(q => ({ questionId: q, disposition, evidenceIds })) });
+    // 1: an id no packet quote has, beside one that stands; 2: the only id, so every question is downgraded and the reply is all unresolved by
+    // the drops (the addendum counts it as no model synthesis); 3: unresolved throughout before the drop, which counts as the stage counts it.
+    const server = await fakeServer(ordinal => ({ sse: sse(ordinal === 1 ? reply([id(), "E999"]) : ordinal === 2 ? reply(["E998"]) : ordinal === 3 ? reply(["E997"], "unresolved") : reply([id()])) }));
     const { root, packets } = await twoPackets(server.baseUrl), inputs = inputsFor(root, manifestFor(packets, { trialsPerPacket: 2 }));
     packet = verifySynthesisInputs(inputs).packets[0];
-    const summary = await runSynthesisFixture({ endpoint: { baseUrl: server.baseUrl }, settings: SETTINGS, inputs, cell: "synthesis-16384", out: join(scratch(), "out") });
+    const out = join(scratch(), "out");
+    const summary = await runSynthesisFixture({ endpoint: { baseUrl: server.baseUrl }, settings: SETTINGS, inputs, cell: "synthesis-16384", out });
     expect(summary.outcomes).toEqual({ model_synthesis: 4, skeleton: 0, no_outcome: 0 });
-    expect(summary.calls.map(c => [c.classification, c.evidenceIdsDropped ?? null, c.questionsDowngraded ?? null])).toEqual([["accepted", 1, 0], ["accepted", 1, 1],
-      ["accepted", null, null], ["accepted", null, null]]);
+    expect(summary.calls.map(c => [c.classification, c.evidenceIdsDroppedNotCitable ?? null, c.evidenceIdsDroppedNotTagged ?? null, c.questionsDowngraded ?? null,
+      c.allUnresolvedByDrops ?? null])).toEqual([["accepted", 1, 0, 0, null], ["accepted", 1, 0, 1, true], ["accepted", 1, 0, 0, null], ["accepted", null, null, null, null]]);
+    expect(summary.corrections).toEqual({ acceptedWithDrops: 3, evidenceIdsDroppedNotCitable: 3, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 1, allUnresolvedByDrops: 1 });
     expect(summary.judge).toBe(SYNTHESIS_JUDGE);
+    // The registry row tallies the same from the calls.
+    const flags = { "--id": "e0-synthesis-x", "--batch": "e0-2026-11", "--task": "synthetic", "--family": "research", "--exposure": "fresh", "--arm": "local",
+      "--verdict-by": "agent_diagnostic", "--lesson": "l", "--outcome": "accepted" };
+    const line = execFileSync("python3", ["-I", join(__dirname, "..", "..", "scripts", "registry-row.py"), "--fixture-dir", out, "--fixture", "synthesis",
+      ...Object.entries(flags).flat()], { cwd: join(__dirname, "..", ".."), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    expect(JSON.parse(line).fixture).toMatchObject({ judge: SYNTHESIS_JUDGE, corrections: summary.corrections });
   }, 60_000);
 
   it("counts a transport failure or a reply the model layer would reject as no outcome, and never sends attempt 2 after one", async () => {

@@ -84,7 +84,7 @@ export const HostFlagsEventSchema = z.object({
   rules: z.object({ absence: z.literal(1).optional(), review: z.literal(1).optional() }).strict(),
   packet: z.object({ coverageSha256: sha256Schema }).strict().optional(),
   report: scanSchema.optional(), argument: scanSchema.optional(),
-  misses: z.object(optionalCounts(["briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries",
+  misses: z.object(optionalCounts(["briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "questionsDowngraded", "noEvidenceOutcomes", "extractionRetries",
     "droppedQuotes", "quotesLeftByCap", "conflictsLeftByCap", "declaredGaps", "gapQuestions", "fetchFailures", "fetchLimitRefusals"])).strict().optional(),
   review: reviewSchema.optional(),
   counts: z.object(optionalCounts(["reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded",
@@ -226,6 +226,9 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
         // of the packet, and the packet's omissions. Computed whenever coverage is read, so an older event's missing count reads "not recorded".
         misses.questionsTrimmed = coverage.synthesis.questions.filter(question => !retained.has(question.questionId) && trimmed.has(question.questionId)).length;
         misses.unresolvedQuestions = coverage.synthesis.questions.filter(question => question.disposition === "unresolved").length;
+        // The synthesis evidence-id tolerance: of those, the questions the host's evidence check downgraded, having dropped every id the synthesis
+        // listed for them. An older event lacks the count, which means not recorded, never zero.
+        misses.questionsDowngraded = coverage.synthesis.corrections?.downgraded.length ?? 0;
         // A declared gap's chunk was never read as empty (its replies were refused), so its outcomes are the gap's counts below, not these.
         misses.noEvidenceOutcomes = coverage.chunks.reduce((sum, chunk) => chunk.id === coverage.gaps?.[0]?.chunkId ? sum
           : sum + chunk.questions.filter(question => question.status === "no_verified_evidence").length, 0);

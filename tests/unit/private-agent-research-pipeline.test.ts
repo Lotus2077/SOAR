@@ -68,6 +68,8 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "secondRepairCalls", "secondRepairsComplete",
   // The owner's answer of 2026-11-18 (#166): the held chunks and those kept unrepaired (under a card's admission rates), and a declared gap; counts.
   "heldChunks", "heldKeptUnrepaired", "declaredGaps",
+  // The synthesis evidence-id tolerance: on the synthesise row, the accepted synthesis's ids dropped by kind (with questionsDowngraded above); counts.
+  "evidenceIdsDroppedNotCitable", "evidenceIdsDroppedNotTagged",
   // 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes, enums and the
   // provider's model identifier (no white space, at most 200 characters), never free text.
   "assist"]);
@@ -832,14 +834,15 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     const ids = h.seen.synthesis[0]!.evidence.quotes.map(quote => quote.id);
     expect(ids.length).toBeGreaterThan(1);
     expect(parsed(result, RESEARCH_FILES.coverage).synthesis).toMatchObject({ status: "complete", questions: [{ questionId: "Q1", disposition: "findings", evidenceIds: [ids[0]] }],
-      corrections: { dropped: [{ questionId: "Q1", evidenceIds: ids.slice(1) }], downgraded: [] } });
-    expect(result.summary.stages[3]).toMatchObject({ evidenceIdsDropped: ids.length - 1, questionsDowngraded: 0 });
+      corrections: { dropped: [{ questionId: "Q1", reason: "not_citable", evidenceIds: ids.slice(1) }], downgraded: [] } });
+    expect(result.summary.stages[3]).toMatchObject({ evidenceIdsDroppedNotCitable: ids.length - 1, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0 });
     expect(result.summary.stages[3]!.synthesisAttempts!.map(a => [a.slot ?? "stage", a.accepted])).toEqual([["assist", true]]);
-    // The dropped ids are packet quotes tagged for Q1: the validator accepts that only because an assist's citable ids are its own packet's.
+    // The dropped ids are packet quotes tagged for Q1, dropped as not citable: the validator accepts that only because an assist's citable ids
+    // are its own packet's.
     // A dropped id its question still lists is refused whichever reply was kept.
     const files = copy(result);
     edit(files, RESEARCH_FILES.coverage, value => { value.synthesis.corrections.dropped[0].evidenceIds.push(ids[0]); });
-    edit(files, RESEARCH_FILES.summary, value => { value.stages[3].evidenceIdsDropped += 1; });
+    edit(files, RESEARCH_FILES.summary, value => { value.stages[3].evidenceIdsDroppedNotCitable += 1; });
     expect(() => validateReadyResearchPacket(files)).toThrow("research_packet_synthesis_corrections");
   });
 

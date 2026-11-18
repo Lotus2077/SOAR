@@ -35,11 +35,11 @@
  * - a46bfb55d2f841f1dbf426f2c8be6a03fa5cf27d9e61b1e6421ef85c83d73de0: the owner's answer of 2026-11-18 (#166): coverage v5 and its optional
  *   `gaps`, the one chunk a ready packet may hold whose last reply, after every repair, declared questions unresolved; the coverage
  *   policy that says so; and the writer's sentence on gaps. It moves the default for every run.
- * - 080c5111cac25997b4b7a90b0dc7fbd6a6dd63b4a6419d34ec3b5f82e69a41bc: the synthesis evidence-id tolerance (the E0 card's Amendment 7
- *   addendum): tolerance policy version 2, coverage v6 and its optional `synthesis.corrections`, and the writer's sentence on
- *   corrections. It moves the default for every run.
+ * - 4bb74c03239942d786ec9100d65b462ffe8378629c8ab3cd2eff32e26dd31636: the synthesis evidence-id tolerance (the E0 card's Amendment 7
+ *   addendum): tolerance policy version 2, coverage v6 and its optional `synthesis.corrections` (dropped ids by reason, and
+ *   downgrades), and the writer's sentence on corrections. It moves the default for every run.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "080c5111cac25997b4b7a90b0dc7fbd6a6dd63b4a6419d34ec3b5f82e69a41bc";
+export const RESEARCH_PROTOCOL_SHA256 = "4bb74c03239942d786ec9100d65b462ffe8378629c8ab3cd2eff32e26dd31636";
 /**
  * 10.b's second review: a run whose reading stage has an assist hook, by firing (`researchProtocolSha256(budget, undefined, false,
  * firing)`), and one that also runs under a card's admission rates (`..., true, firing`). They move with the default, and with the
@@ -47,7 +47,7 @@ export const RESEARCH_PROTOCOL_SHA256 = "080c5111cac25997b4b7a90b0dc7fbd6a6dd63b
  * (BL-20261117-1216-correction-assist-wiring-card-admission-merge).
  * The synthesis evidence-id tolerance moved all four with the default.
  */
-export const RESEARCH_PROTOCOL_SHA256_ASSIST = Object.freeze({ forced_split: "d2cd9f3981952cd7becd96d6cf11dd630facd0c91b7fa653843c4023ab14eb96",
-  local_first: "11c908020f7f546ac01a40a38f65bf121f8e8bbf88dc1adafa70f57f6d14a61f" });
-export const RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST = Object.freeze({ forced_split: "de1af96e86dbff40ac545719d0d435e9808f154e2739b1f6cdbae2ac6aa512f0",
-  local_first: "f6088e8c4259235819e9413b2c404aecb42d5afe84a3251c68aec35d3c485fd9" });
+export const RESEARCH_PROTOCOL_SHA256_ASSIST = Object.freeze({ forced_split: "15f1e00fd054ac3c4a4deb79989cc2af5f53ca7d4c2bf763f09ee55cfbd75252",
+  local_first: "c020b75e06dd1fe4571857a30b0ddc9946bb788b7886f821b02968b22dfea3bd" });
+export const RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST = Object.freeze({ forced_split: "ac059d632984cc1cf2bbaa85cebfcf2b77f72531c9a2df202fe4680237376769",
+  local_first: "a2685a5994da3409da747eac64bbf0107b7d6a80cf78e708f74cede7c116a536" });

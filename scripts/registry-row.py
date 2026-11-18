@@ -47,7 +47,7 @@ accepted. `--verdict-by` is `owner`, `agent_diagnostic` or `none`; `owner` requi
 receipt supplies them).
 
 Plan 11.4: --run-dir and --loop-dir rows add reservedUsd, pinnedUsd, committedDispatches, cloudCalls, disclosedBytes, urls,
-domains, retainedBytes, actions, queries and researchFallback (docs/experiments/README.md). With --run-dir,
+domains, retainedBytes, actions, queries, researchFallback and researchCorrections (docs/experiments/README.md). With --run-dir,
 --launcher-ledger STATE/launcher.jsonl reads whether the experiment launcher forwarded a signal to the run.
 """
 
@@ -597,10 +597,14 @@ def depth_parts(events: list, dispatches: list) -> dict:
         "sourcesRead": index["sourcesIndexed"] if index is not None and is_count(index.get("sourcesIndexed")) else None,
         "fallback": {"plan": "host_plan" if (plan or {}).get("fallback") == "host_plan" else "none",
                      "synthesis": "skeleton" if (synthesis or {}).get("fallback") == "skeleton" else "none"} if stages else None,
+        # The synthesis evidence-id tolerance: the synthesise row's correction counts, which it records at every run since coverage
+        # version 6; null for a row without them (an older protocol, or no synthesis row), which means not recorded, never zero.
+        "corrections": {key: synthesis[key] for key in SYNTHESIS_CORRECTION_COUNTS}
+                       if synthesis is not None and all(is_count(synthesis.get(key)) for key in SYNTHESIS_CORRECTION_COUNTS) else None,
     }
 
 
-def depth_columns(parts: list, fallback) -> dict:
+def depth_columns(parts: list, fallback, corrections=None) -> dict:
     """Plan 11.4's columns from one or several runs' parts: amounts and counts summed, cloud calls in commit order, URLs and
     hostnames counted over the union; `domains` drops a leading www. and loopback hosts, and is approximate (hostnames, not
     registrable domains)."""
@@ -633,6 +637,7 @@ def depth_columns(parts: list, fallback) -> dict:
                     "sourcesRead": sum(reads) if reads else None},
         "queries": None,
         "researchFallback": fallback,
+        "researchCorrections": corrections,
     }
 
 
@@ -1316,7 +1321,8 @@ def loop_row(args) -> dict:
     extra["activeSeconds"] = active_seconds(loop_dir, loop)
     # Plan 11.4: every run the scan found, the critique's ledger included; the fallback markers of the run whose reading stage made the packet.
     reader = stage_run(loop_dir, loop)
-    extra.update(depth_columns(parts, depth_parts(ledger_rows(reader)[0], [])["fallback"] if os.path.isdir(reader) else None))
+    reading = depth_parts(ledger_rows(reader)[0], []) if os.path.isdir(reader) else None
+    extra.update(depth_columns(parts, reading["fallback"] if reading else None, reading["corrections"] if reading else None))
     cloud = read_freeze(stage_run(loop_dir, loop)) or {} if loop.get("arm") == "cloud" else None
     if final:
         selected_dir = os.path.join(loop_dir, final["candidate"])
@@ -1381,10 +1387,11 @@ HOST_FLAG_SECTIONS = ("report_failed", "argument_failed", "misses_failed", "revi
 HOST_FLAG_COUNTS = ("reportAbsence", "reportAbsenceUncited", "reportBounded", "argumentAbsence", "argumentAbsenceUncited", "argumentBounded", "briefSingleUnit",
                     "inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed", "numericIntroduced", "numericResolved", "numericSource",
                     "numericUnaddressed")
-# 7d.D (#119) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap, and the owner's answer of 2026-11-18 (#166) declaredGaps
-# and gapQuestions; an older event's misses lack them, which means not recorded, never zero.
-HOST_FLAG_MISSES = ("briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "noEvidenceOutcomes", "extractionRetries", "droppedQuotes",
-                    "quotesLeftByCap", "conflictsLeftByCap", "declaredGaps", "gapQuestions", "fetchFailures", "fetchLimitRefusals")
+# 7d.D (#119) adds questionsTrimmed, quotesLeftByCap and conflictsLeftByCap, the owner's answer of 2026-11-18 (#166) declaredGaps
+# and gapQuestions, and the synthesis evidence-id tolerance questionsDowngraded; an older event's misses lack them, which means not
+# recorded, never zero.
+HOST_FLAG_MISSES = ("briefUnits", "questionsWithoutEvidence", "questionsTrimmed", "unresolvedQuestions", "questionsDowngraded", "noEvidenceOutcomes", "extractionRetries",
+                    "droppedQuotes", "quotesLeftByCap", "conflictsLeftByCap", "declaredGaps", "gapQuestions", "fetchFailures", "fetchLimitRefusals")
 HOST_FLAG_FORMATS = ("markdown", "html", "text", "docx", "pdf")
 HOST_FLAG_SCAN_REASONS = ("missing", "format_not_scanned")
 HOST_FLAG_REVIEW_REASONS = ("missing", "too_large", "invalid")
@@ -1476,7 +1483,7 @@ def run_counts(run_dir: str) -> dict:
     dispatches = result.get("dispatches", [])
     parts = depth_parts(events, dispatches if isinstance(dispatches, list) else [])
     return {
-        "started": started, "ended": ended, "depth": depth_columns([parts], parts["fallback"]),
+        "started": started, "ended": ended, "depth": depth_columns([parts], parts["fallback"], parts["corrections"]),
         "row": {
             "date": started.date().isoformat(), "taskJobSha256": freeze["taskBinding"]["jobSha256"],
             "profile": freeze.get("profile", "standard"), "maxOutputTokens": freeze["modelConfig"]["maxOutputTokens"],
@@ -1545,6 +1552,9 @@ SYNTHESIS_OUTCOMES = ("model_synthesis", "skeleton", "no_outcome")
 # The attempt-1 classes after which a synthesis trial sends its attempt 2 (the stage's repair).
 SYNTHESIS_REPAIRED = ("invalid", "truncated")
 SYNTHESIS_JUDGE = re.compile(r"research_tolerance_v[1-9][0-9]{0,2}")
+# The synthesis evidence-id tolerance's counts, on the synthesise row (research-coverage.ts synthesisCorrectionCounts) and on an accepted
+# fixture call that the tolerance corrected.
+SYNTHESIS_CORRECTION_COUNTS = ("evidenceIdsDroppedNotCitable", "evidenceIdsDroppedNotTagged", "questionsDowngraded")
 FIXTURE_KINDS = ("planner", "judge", "extractor", "synthesis")
 # The reply files each fixture writes (planner `<condition>-NN.sse` for a streamed condition and `<condition>-NN.json` for any other, judge
 # `<condition>-r<repeat>-<claim id>.json`), longest names first.
@@ -1947,6 +1957,28 @@ def synthesis_outcome(classes: list):
     return ("skeleton", None) if len(classes) == 2 else None
 
 
+def synthesis_corrections(summary: dict, calls: list, source: str) -> dict:
+    """A tolerant synthesis run's corrections (scripts/synthesis-fixture.ts SynthesisCorrectionTotals) from its calls: only an accepted
+    call carries them, all three counts together, and `allUnresolvedByDrops` only as true beside a downgrade. Refused unless the summary's
+    `corrections` is exactly that tally."""
+    totals = {"acceptedWithDrops": 0, **dict.fromkeys(SYNTHESIS_CORRECTION_COUNTS, 0), "allUnresolvedByDrops": 0}
+    for call in calls:
+        present = [key for key in SYNTHESIS_CORRECTION_COUNTS if key in call]
+        flag = call.get("allUnresolvedByDrops")
+        if not present and "allUnresolvedByDrops" not in call:
+            continue
+        if call.get("classification") != "accepted" or len(present) != len(SYNTHESIS_CORRECTION_COUNTS) or not all(is_count(call[key]) for key in present) \
+                or ("allUnresolvedByDrops" in call and (flag is not True or call["questionsDowngraded"] < 1)):
+            refuse(source, "a call's corrections are not ones the synthesis fixture writes")
+        totals["acceptedWithDrops"] += 1
+        for key in SYNTHESIS_CORRECTION_COUNTS:
+            totals[key] += call[key]
+        totals["allUnresolvedByDrops"] += 1 if flag is True else 0
+    if summary.get("corrections") != totals:
+        refuse(source, "the summary's corrections do not match its calls")
+    return totals
+
+
 def synthesis_trials(summary: dict, calls: list, repeats: int, interrupted: bool, source: str) -> dict:
     """A synthesis run's trials (scripts/synthesis-fixture.ts runSynthesisFixture) from its calls, in the order it made them: each trial sends
     attempt 1, and attempt 2 only after an invalid or truncated attempt 1. Its records are its ended trials', in trial order, each its calls'.
@@ -2077,6 +2109,10 @@ def fixture_row(args) -> dict:
         if judge is not None and (type(judge) is not str or not SYNTHESIS_JUDGE.fullmatch(judge)):
             refuse(source, "the summary's judge is not a research tolerance version")
         record["judge"] = judge
+        # The tolerance's corrections on the accepted calls, by kind, summed from the calls and checked against the summary's own tally:
+        # among them the replies the drops left with every question unresolved, which the E0 card's addendum to Amendment 7 counts apart.
+        # A summary judged under version 1 records none, and rows as null.
+        record["corrections"] = synthesis_corrections(summary, calls, source) if judge is not None else None
     if kind == "extractor":
         # The condition the research pipeline itself sends, which the run compares the others with.
         if summary.get("deployedCondition") not in EXTRACTOR_CONDITIONS:

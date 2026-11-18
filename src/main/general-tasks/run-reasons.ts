@@ -1,5 +1,5 @@
 /**
- * Backlog item 6, finding A6 (BL-20261109-0336-desktop-resume-reasons-design): every reason a desktop task can record, classified by
+ * Backlog item 6, finding A6 (#85): every reason a desktop task can record, classified by
  * whether a later run could change it.
  * - `resumable`: a resume may continue. Every guard in the controller still comes first: an uncertain row, operation or consultation,
  *   a stop marker, the allowance, the deadline and a pending consultation.

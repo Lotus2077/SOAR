@@ -3,7 +3,7 @@ import { canonical } from "./contracts";
 import type { GeneralMessage, GeneralToolDefinition } from "./model";
 
 /**
- * Anthropic Messages shape for the headless cloud arm (BL-20261030-0620, approved BL-20261030-0745). Raw canonical JSON
+ * Anthropic Messages shape for the headless cloud arm (#31, which approved it). Raw canonical JSON
  * through the broker, no SDK. The API version is fixed here and on the destination, so a version change is a code
  * change bound by the runtime digest.
  */

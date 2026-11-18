@@ -2,7 +2,7 @@
  * Backlog item 8 (finding D12 of docs/PROJECT_REVIEW_2026-11-05.md; §5.2 "Local fan-out"): independent zero-risk local calls
  * run K at a time while their results are applied strictly in item order, so a stage's counts, ids and files come out as the
  * serial loop would make them. This module is the pool only and dispatches nothing itself. Since 8.2b
- * (BL-20261116-1213-local-fanout-design) the research index and extraction loops and the claims judge run on it, under the
+ * (#110) the research index and extraction loops and the claims judge run on it, under the
  * ledger's concurrent admission (8.1); with K = 1 it is exactly the serial loop.
  *
  * Rules:
@@ -56,7 +56,7 @@ export async function runOrderedPool<T, R>(options: OrderedPoolOptions<T, R>): P
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > ORDERED_POOL_MAX_LIMIT) throw new Error("ordered_pool_limit_invalid");
   // One combined signal per pool, and one relay listener per in-flight launch on it: the stage's own signal gets none, and each
   // launch's signal holds only what its call adds (the broker, token admission and backoff each add one), whatever K is.
-  // (No warning limit applies on Node 22.22.2, whose AbortSignals have no maximum; BL-20261110-0619 withdrew that rationale.)
+  // (No warning limit applies on Node 22.22.2, whose AbortSignals have no maximum; #85 withdrew that rationale.)
   const siblings = new AbortController(), siblingStop = new Error("ordered_pool_sibling_stop"), combined = AbortSignal.any([options.signal, siblings.signal]);
   const settled = new Map<number, { outcome: PoolOutcome<R>; afterAbort: boolean }>(), inFlight = new Map<number, Promise<void>>();
   let next = 0, applyNext = 0, stopped = false, reached = false, failure: { error: unknown } | undefined;

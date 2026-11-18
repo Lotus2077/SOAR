@@ -11,7 +11,7 @@ import { GeneralJobContractSchema } from "./runner";
 import type { SessionFile, SessionPhase } from "./session";
 
 /**
- * Phase 2 repair pair (design BL-20261007-1451). A failed local draft is frozen into one packet (brief, a text rendering
+ * Phase 2 repair pair (design #12). A failed local draft is frozen into one packet (brief, a text rendering
  * of each required file, the host checks the agent saw); one critic (the cloud model for H, the local model for L′)
  * reviews it; a new local run repairs the identical draft with the critique as untrusted advice.
  */
@@ -22,7 +22,7 @@ export const CRITIC_PROMPT_VERSION = 1;
 export const CRITIC_PURPOSE = "phase 2 repair critique";
 /**
  * Both APIs count reasoning inside this cap. At 8,192 the local critic spent every token reasoning and wrote nothing
- * (BL-20261007 L′ dry run); 16,384 is the heavy profile's own limit and the same for both critics.
+ * (#12's L′ dry run); 16,384 is the heavy profile's own limit and the same for both critics.
  */
 export const CRITIC_MAX_OUTPUT_TOKENS = 16_384;
 export const CRITIC_MAX_FEE_USD = 1;
@@ -143,7 +143,7 @@ export function loadRepairDirectory(directory: string): { binding: RepairBinding
     return readFileSync(path);
   };
   const raw = JSON.parse(inside(join(root, "critique.json"), root).toString("utf8")) as Record<string, unknown>;
-  // critique() records the outcome and the request posture beside the binding (BL-20261008-1240, BL-20261008-1312); only the
+  // critique() records the outcome and the request posture beside the binding (#15, #16); only the
   // binding is identity, and the posture fields are checked rather than ignored.
   const { finishReason: _finish, usage: _usage, servedModel: _served, feeMicrousd: _fee, requestShape, proxyFakeIp, researchSnapshotSha256, localCriticIdentity, ...bindingFields } = raw;
   if ((requestShape !== undefined && !["vllm", "openai", "openai_responses", "anthropic_messages"].includes(requestShape as string)) ||

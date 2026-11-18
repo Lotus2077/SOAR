@@ -74,7 +74,7 @@ export interface GeneralSessionOptions {
     /** 7a.2: the role policy an adopted serving card resolved; absent is the default, and the identity and every request are as without it. */
     roles?: ResearchRolePolicy;
     /**
-     * 7b.3 (BL-20261117-1131-research-card-admission-design): the admission rates of an adopted card whose admission basis is `serving_card`.
+     * 7b.3 (#137): the admission rates of an adopted card whose admission basis is `serving_card`.
      * Bound into the identity (so a resume under another card's rates ends `session_contract_drift`) and the protocol hash; absent, both
      * and every request are as without it.
      */
@@ -86,7 +86,7 @@ export interface GeneralSessionOptions {
      */
     diagnostics?: ResearchDiagnosticsSink;
     /**
-     * 10.b (BL-20261117-1202-assist-wiring-design, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
+     * 10.b (#147, decision 5): item 10's assists for the reading stage, through 7(c)'s hook. The
      * session builds one wrapper per reading stage, with the cloud arm's fee cap. Before any dispatch it refuses
      * (`session_research_assist_invalid`) an assist without a cloud arm, one whose planner or synthesiser is not zero-risk local, one
      * whose model is not on the cloud arm's destination, and one the wrapper refuses to build. The firing binds the protocol hash, and
@@ -145,7 +145,7 @@ export function sessionPhaseIdentity(phase: SessionPhase): string {
     ...(phase.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(phase.initialEvidence) } : {}) }));
 }
 /**
- * Backlog item 6, finding A7 (BL-20261109-0501-research-stage-pause-design): true when a research stage started and never transferred:
+ * Backlog item 6, finding A7 (#85): true when a research stage started and never transferred:
  * its `research_input` names the reader context, no `research_transfer` exists, and a dispatch row of that context or a `research_stage`
  * event of it does. A stage starts at its first call, since every call it stops records a stage event, even one stopped before its row
  * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol yet; the parts of items 7 and 8 merged so far
@@ -225,7 +225,7 @@ export class GeneralAgentSession {
    * started stage ends the run incomplete (backlog item 6, finding A7): the stage cannot continue, so the session never reports a pause a
    * resume could not honour. The abort does not wait for the reply, so a priced or cloud request already on the wire leaves its row
    * unknown (E1 bug (b)). Since 10.b retired the plain-purpose split arm, such a row is an assist's in the reader context, which blocks
-   * nothing; the stage still cannot continue, so the run ends research_stage_not_replayed (BL-20261109-0501, decision (5)).
+   * nothing; the stage still cannot continue, so the run ends research_stage_not_replayed (#85, decision (5)).
    */
   private stageAbort?: AbortController;
   /** Aborts the entailment pass's in-flight judge call on pause or cancel; the pass itself is otherwise bounded by its own clock. */
@@ -450,7 +450,7 @@ export class GeneralAgentSession {
           const binding = prior.binding as { snapshot: WorkspaceSnapshot; snapshotSha256: string; files: { path: string; sha256: string }[]; producer: unknown };
           produced = checkpoints.load(binding.snapshot);
           if (checkpoints.fingerprint(binding.snapshot) !== binding.snapshotSha256 || canonical(sessionFileManifest(produced)) !== canonical(binding.files)) return result("incomplete", "research_transfer_drift");
-          // 10.b (BL-20261113-0927-research-v5-design, decision 5): a producer refusal ends the session with its code, never an uncaught throw.
+          // 10.b (#93, decision 5): a producer refusal ends the session with its code, never an uncaught throw.
           try { validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput }); }
           catch (error) { return result("incomplete", producerRefusal(error)); }
         } else {
@@ -473,14 +473,14 @@ export class GeneralAgentSession {
               deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}),
               ...(options.research.roles ? { roles: options.research.roles } : {}), ...(options.research.admission ? { admission: options.research.admission } : {}),
               ...(options.localStreams !== undefined ? { localStreams: options.localStreams } : {}),
-              // 10.b (decision 5): the wrapper, with the session deadline the pipeline already passes it (BL-20261113-0929, decision 2).
+              // 10.b (decision 5): the wrapper, with the session deadline the pipeline already passes it (#93, decision 2).
               ...(assist ? { assists: assist.assists } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {
-            // 7b.3's review (BL-20261117-1131-research-card-admission-design): a refused admission writes no file and no stage row, and the
+            // 7b.3's review (#137): a refused admission writes no file and no stage row, and the
             // session keeps no summary of an incomplete stage, so the record (the work, both estimates, the share and the decision) is its own event.
-            // The r3 re-measurement (BL-20261117-1326-research-admission-record-incomplete-stage): an admitted stage that ends incomplete keeps
+            // The r3 re-measurement (#151): an admitted stage that ends incomplete keeps
             // its record the same way, so a stage under a card's admission rates leaves one in summary.json when it completes, here when not.
             if (outcome.summary.admission)
               store.append(jobId, { type: "research_admission", contextId: readerContextId, admission: outcome.summary.admission });

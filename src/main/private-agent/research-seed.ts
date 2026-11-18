@@ -32,10 +32,10 @@ export const ResearchSeedSchema = z.object({
 export type ResearchSeed = z.infer<typeof ResearchSeedSchema>;
 /**
  * The source run's pipeline block, carried into the seeded run's freeze so a registry row still names the pipeline and its planner.
- * 7a.2 (BL-20261116-1203-research-role-policy-design): `roles` is the role policy a non-default serving card set, present only then;
- * the block's protocolSha256 is computed with it. 7b.3 (BL-20261117-1131-research-card-admission-design): `admission` is a card's
+ * 7a.2 (#103): `roles` is the role policy a non-default serving card set, present only then;
+ * the block's protocolSha256 is computed with it. 7b.3 (#137): `admission` is a card's
  * admission rates under a `serving_card` basis, present only then, and the protocol binds the admission policy with it.
- * 10.b (BL-20261117-1202-assist-wiring-design, decision 10): `assist` is the reading
+ * 10.b (#147, decision 10): `assist` is the reading
  * stage's assist, present only when one was configured; its firing binds the block's protocolSha256, and its own protocolSha256 is the
  * assist protocol block's digest.
  */
@@ -163,12 +163,12 @@ export function researchTransferSnapshot(runDirectory: string): string | null { 
 export function researchTransferPresent(runDirectory: string): boolean { return researchTransferSnapshot(runDirectory) !== null; }
 
 /**
- * 7a.2 (BL-20261116-1203-research-role-policy-design): a seeded run writes from a packet read under a role policy, which is part of the
+ * 7a.2 (#103): a seeded run writes from a packet read under a role policy, which is part of the
  * protocol, so the seeding run's own policy (the default without a card) must equal the one its source recorded (the default when absent).
  */
 export function assertSeedRolePolicy(pipeline: Pick<PipelineFreeze, "roles" | "admission">, roles: ResearchRolePolicy | undefined, cardAdmission = false): void {
   if (canonical(pipeline.roles ?? DEFAULT_RESEARCH_ROLE_POLICY) !== canonical(roles ?? DEFAULT_RESEARCH_ROLE_POLICY)) throw new Error("research_seed_protocol_mismatch");
-  // Item (ii)'s review (BL-20261117-1143-research-second-repair-design): a packet read under a `serving_card` admission basis may hold a
+  // Item (ii)'s review (#139): a packet read under a `serving_card` admission basis may hold a
   // second repair, so the seeding run's basis must be its source's. The rates are not compared: they decide no packet.
   if ((pipeline.admission !== undefined) !== cardAdmission) throw new Error("research_seed_protocol_mismatch");
 }

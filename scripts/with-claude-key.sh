@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs one command with the Claude API key in SOAR_CLAUDE_CLOUD_API_KEY, read from the macOS
-# login Keychain at launch (BL-20261030-0620). The key is never written to a file, a .env file,
+# login Keychain at launch (#31). The key is never written to a file, a .env file,
 # the shell history or a command line, and the driver records no key anywhere. The OpenAI key's
 # variable is unset first, so a command run here can only ever send the Claude key.
 #

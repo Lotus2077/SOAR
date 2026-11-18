@@ -1,5 +1,5 @@
 /**
- * Backlog item 10: the assist's attempt and stage records (BL-20261113-0920-assist-wrapper-design, decision 12). They live apart
+ * Backlog item 10: the assist's attempt and stage records (#79, decision 12). They live apart
  * from research-assist.ts so that the ready gate (research-coverage.ts) can parse a stage's record strictly without importing the
  * wrapper, whose scrubber imports research-coverage.ts. research-assist.ts re-exports them. Nothing here is part of an assist
  * protocol block: the records say what happened, never what a packet may hold.
@@ -8,7 +8,7 @@ import { z } from "zod";
 import { canonical, exactText } from "./contracts";
 
 /**
- * 10.b (BL-20261117-1202-assist-wiring-design, decision 9a; the Rayline carry-over (d)): the most characters of the served model
+ * 10.b (#147, decision 9a; the Rayline carry-over (d)): the most characters of the served model
  * string a settled attempt records, as the provider reported it.
  */
 export const ASSIST_SERVED_MODEL_MAX_CHARS = 200;

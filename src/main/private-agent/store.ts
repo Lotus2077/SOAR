@@ -12,7 +12,7 @@ const diagnosticTiming = {
   elapsedMs: z.number().int().nonnegative().max(3_600_000),
   timeoutMs: z.number().int().min(1).max(900_000),
 };
-/** The Anthropic error types a rejected request may record (BL-20261030-0620); no provider text is ever stored. */
+/** The Anthropic error types a rejected request may record (#31); no provider text is ever stored. */
 export const ANTHROPIC_ERROR_TYPES = ["invalid_request_error", "authentication_error", "billing_error", "permission_error", "not_found_error",
   "request_too_large", "rate_limit_error", "api_error", "timeout_error", "overloaded_error"] as const;
 /** Anthropic's opaque per-request id, recorded for reconciliation with the provider's console. */
@@ -150,7 +150,7 @@ export interface DispatchReceipt {
   failure?: UnknownRequestDiagnostic;
   approval?: ExactApproval;
   /**
-   * Plan 11.4 (BL-20261114-1523-registry-columns-design): the destination's kind, the request body's UTF-8 bytes (0 for a GET) and the
+   * Plan 11.4 (#104): the destination's kind, the request body's UTF-8 bytes (0 for a GET) and the
    * bytes the request disclosed (HARN-27: none to a local model or a loopback URL, else a POST's body or a GET's URL). The broker writes
    * all three on every row since; earlier rows lack them. Counts only, outside the packet and destination hashes.
    */

@@ -1,5 +1,5 @@
 /**
- * Calibration step 0 (BL-20261030-0620): the live shape probe of the Anthropic adapter. It sends four requests through the
+ * Calibration step 0 (#31): the live shape probe of the Anthropic adapter. It sends four requests through the
  * real broker, model and transport on wholly synthetic text under a USD 0.30 fee cap, and prints only fixed fields (no
  * model text): a tool-less call, then a three-turn tool loop at the heavy shape whose guidance goes as the final system
  * message, whose thinking blocks are dropped, and whose first tool result is edited before the third turn, as the
@@ -25,7 +25,7 @@ import { buildCloudArm } from "./private-agent-local-screen";
 
 export const PROBE_MAX_FEE_USD = 0.3;
 export const PROBE_MODEL = "claude-sonnet-5-5";
-/** The approved prices (BL-20261030-0745): input, output, cache read, 5-minute write. */
+/** The approved prices (#31): input, output, cache read, 5-minute write. */
 export const PROBE_PRICES = { input: 2, output: 10, cached: 0.1, write: 2.5 };
 
 const SYSTEM = ["You are a careful synthetic arithmetic agent in a test harness. Everything here is synthetic.",

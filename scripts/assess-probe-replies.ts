@@ -3,7 +3,7 @@
  * validates every retained P10 reply with the real zod schemas (the planner through assessResearchPlanReply, bound to the
  * synthetic units and source ids the probe sent; the extractor and synthesis through their reply schemas) and writes the
  * classification and the per-cell counts back into the probe JSON. The order is the probe's: request_rejected, stream_ended_early
- * (a streamed reply whose connection closed with no finish reason, [DONE] or error event, BL-20261116-1217-serving-probe-direct-transport-design), truncated,
+ * (a streamed reply whose connection closed with no finish reason, [DONE] or error event, #123), truncated,
  * invalid_json, then schema_invalid,
  * binding_invalid (planner only) or valid. It reads no endpoint, sends nothing and
  * prints counts only; reply text never leaves the ignored run directory.

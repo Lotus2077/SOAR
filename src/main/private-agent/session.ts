@@ -63,7 +63,8 @@ export interface GeneralSessionOptions {
    * Backlog item 8.2b: K, the serving card's `localStreams` (1 to MAX_LOCAL_STREAMS). The research loops and the claims judge run K
    * calls at a time when their model is zero-risk local, and one at a time otherwise, so a run without a research stage still judges
    * its claims K at a time. No part of the session identity, the protocol hash or the counts. The headless driver passes the card's
-   * value in every run with a card; the desktop passes none (K = 1).
+   * value in every run with a card, and the desktop passes it for a local research task (backlog item 13a); any other desktop task passes
+   * none (K = 1).
    */
   localStreams?: number;
   /**

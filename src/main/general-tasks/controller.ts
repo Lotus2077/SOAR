@@ -256,6 +256,8 @@ interface TaskRecord {
   consultantIdentity?: string;
   /** Version 4 only (backlog item 13a): the local research route and the serving card the task was created on. */
   research?: DesktopResearchRecord;
+  /** Version 4 only (backlog item 13a): the summed wall time of the task's runs (stage, writer and evidence pass), which the stage's events do not record. */
+  wallMs?: number;
   /** The owner's verdict on a submitted task (BL-20261108-0904-owner-verdict-capture-design); absent until recorded, never rewritten. */
   verdict?: GeneralTaskVerdict;
 }
@@ -264,7 +266,9 @@ export const VERDICT_RECEIPT_KEYS = Object.freeze(["version", "taskId", "taskJob
   "modelCalls", "toolCalls", "wallSeconds", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd",
   "unknownDispatches", "retriedDispatches", "failedDispatches", "entailment", "arm", "verdict", "cloudModel", "cloudApi"] as const);
 export type VerdictReceipt = Record<typeof VERDICT_RECEIPT_KEYS[number], unknown>;
-interface Active { promise: Promise<void>; session?: GeneralAgentSession; consultation?: GeneralConsultation; abort: AbortController; pauseRequested: boolean; cancelRequested: boolean }
+interface Active { promise: Promise<void>; session?: GeneralAgentSession; consultation?: GeneralConsultation; abort: AbortController; pauseRequested: boolean; cancelRequested: boolean;
+  /** When the current session run began; a research task adds each run's wall time to its record (wallMs). */
+  runStartedAt?: number }
 export interface GeneralTaskControllerOptions {
   database: Database.Database;
   dataRoot: string;
@@ -344,8 +348,9 @@ export class GeneralTaskController {
         record.version === 3 && (record.routing !== "ask_before_consulting" || !/^[a-f0-9]{64}$/u.test(record.consultantIdentity ?? "")) ||
         record.version !== 3 && (record.routing !== undefined || record.consultantIdentity !== undefined) ||
         // A research task (version 4) runs the heavy profile on its input files alone, with no consultation and no typed URLs yet.
-        (record.version === 4 ? !isDesktopResearchRecord(record.research) || record.profile !== "heavy" || record.publicSources !== undefined
-          : record.research !== undefined)) throw new Error("general_task_record_invalid");
+        (record.version === 4 ? !isDesktopResearchRecord(record.research) || record.profile !== "heavy" || record.publicSources !== undefined ||
+            record.wallMs !== undefined && !(Number.isSafeInteger(record.wallMs) && record.wallMs >= 0)
+          : record.research !== undefined || record.wallMs !== undefined)) throw new Error("general_task_record_invalid");
     if (record.publicSources !== undefined) GeneralTaskPublicSourcesSchema.parse(record.publicSources);
     if (record.verdict !== undefined && !GeneralTaskVerdictSchema.safeParse(record.verdict).success) throw new Error("general_task_record_invalid");
     return record;
@@ -595,8 +600,10 @@ export class GeneralTaskController {
     const contextId = String(start.privateContextId);
     let jobId: string;
     try { jobId = this.runtime.context(contextId).jobId; } catch (error) {
-      // Backlog item 13a: a research stage that stopped before the write phase never made the writer's context, so the task has none yet.
-      if (error instanceof Error && error.message === "private_agent_context_missing" && events.some(event => event.type === "research_input")) return undefined;
+      // Backlog item 13a: a research session (its start names a reader context) whose write phase never began has no writer context yet:
+      // no event and no dispatch carries the writer's id. A writer context missing after the write phase still fails, as before.
+      if (error instanceof Error && error.message === "private_agent_context_missing" && typeof start.readerContextId === "string" &&
+        !events.some(event => event.contextId === contextId) && !this.runtime.dispatches(id).some(row => row.contextId === contextId)) return undefined;
       throw error;
     }
     if (jobId !== id) throw new Error("general_task_context_changed");
@@ -698,7 +705,9 @@ export class GeneralTaskController {
         sources,
         publicFetches: this.runtime.dispatches(id).filter(receipt => receipt.purpose === "public source retrieval").length } : {}),
       artifacts, ...(bundle ? { bundle } : {}), ...(bundleUnavailableReason ? { bundleUnavailableReason } : {}), modelCalls: models, toolCalls: tools,
-      elapsedMs: Math.min(this.budget(record).elapsedMs, record.startedAt === null ? 0 : record.version === 3 ?
+      elapsedMs: Math.min(this.budget(record).elapsedMs, record.startedAt === null ? 0 : record.version === 4 ?
+        // Backlog item 13a: the runs' wall time, the stage's included, and the current run's so far.
+        (record.wallMs ?? 0) + (this.active.get(id)?.runStartedAt !== undefined ? Date.now() - this.active.get(id)!.runStartedAt! : 0) : record.version === 3 ?
         (["queued", "running", "paused"].includes(record.status) || record.status === "incomplete" && isResumableRunReason(record.reason) ? Date.now() : record.updatedAt) - record.startedAt :
         active ? Date.now() - record.startedAt : ended.reduce((sum, event) => sum + Number(event.elapsedMs ?? 0), 0)),
       checks: structuredClone(record.checks), ...(record.entailment ? { entailment: structuredClone(record.entailment) } : {}), cleanupConfirmed,
@@ -816,8 +825,10 @@ export class GeneralTaskController {
           destinationId: consultant.destination.id, maxFeeMicrousd: consultant.maxFeeMicrousd,
           factory: (contextId: string) => { const manager = this.consultationManager(record, contextId, broker); active.consultation = manager; return manager; } } } : {}),
         ...(this.options.testing?.runnerFactory ? { trustedHostRunnerFactory: this.options.testing.runnerFactory } : {}) });
-      active.session = session;
+      active.session = session; active.runStartedAt = Date.now();
       const result = await session.run(active.abort.signal), next = this.record(id);
+      // Backlog item 13a: a research task keeps its runs' wall time, since its stage records none (the receipt and the snapshot read it).
+      if (next.research) next.wallMs = (next.wallMs ?? 0) + (Date.now() - active.runStartedAt);
       const events = this.runtime.events(id), ended = events.filter(event => event.type === "run_ended");
       const preserved = next.configurationIdentity === this.configurationIdentity(next);
       // The session writes session_submitted only after its own synchronous deadline and cancel checks; a later abort or cancel can only shorten the evidence pass.
@@ -846,6 +857,7 @@ export class GeneralTaskController {
       this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
+      if (record.research && active.runStartedAt !== undefined) record.wallMs = (record.wallMs ?? 0) + (Date.now() - active.runStartedAt);
       // Backlog item 6: a configuration change, an integrity failure or missing storage, the session's own codes and the runner's contract refusals
       // are terminal; anything else (Docker down, for example) stays resumable.
       record.reason = caughtRunReason(error, this.root); this.save(record);
@@ -971,7 +983,10 @@ export class GeneralTaskController {
     const snapshot = this.get(id), events = this.runtime.events(id), dispatches = this.runtime.dispatches(id);
     const name = this.profileName(record), coordinator = COORDINATOR_PROFILES[name];
     const finished = events.filter(event => event.type === "model_finished");
-    const usage = finished.map(event => (event.usage && typeof event.usage === "object" ? event.usage : {}) as Record<string, unknown>);
+    // Backlog item 13a: a research task's stage calls, tokens and cut replies count as registry-row.py counts a driver row's (counts_of).
+    const stageRows = record.version === 4 ? events.filter(event => event.type === "research_stage") : [];
+    const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+    const usage = [...finished, ...stageRows].map(event => (event.usage && typeof event.usage === "object" ? event.usage : {}) as Record<string, unknown>);
     const sum = (key: string) => usage.reduce((total, item) => total + (Number.isFinite(Number(item[key] ?? 0)) ? Number(item[key] ?? 0) : 0), 0);
     const counts = record.entailment?.counts;
     const judged = counts ? counts.supported + counts.partial + counts.unsupported + counts.contradicted : 0;
@@ -980,9 +995,10 @@ export class GeneralTaskController {
     const consulted = readConsultation(this.runtime, id)?.status === "settled";
     const receipt: VerdictReceipt = { version: 1, taskId: id, taskJobSha256: record.attestationIdentity,
       date: new Date(record.startedAt ?? record.createdAt).toISOString().slice(0, 10), profile: name, thinking: coordinator.thinking, maxOutputTokens: coordinator.maxOutputTokens,
-      runStatus: record.status, terminalCause: record.reason, modelCalls: snapshot.modelCalls, toolCalls: snapshot.toolCalls, wallSeconds: Math.round(snapshot.elapsedMs / 100) / 10,
+      runStatus: record.status, terminalCause: record.reason, modelCalls: snapshot.modelCalls + stageRows.reduce((total, row) => total + number(row.calls), 0), toolCalls: snapshot.toolCalls,
+      wallSeconds: Math.round(snapshot.elapsedMs / 100) / 10,
       inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"), cachedTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
-      lengthStops: finished.filter(event => event.finishReason === "length").length,
+      lengthStops: finished.filter(event => event.finishReason === "length").length + stageRows.reduce((total, row) => total + number(row.truncatedReplies), 0),
       usd: dispatches.filter(row => row.status === "settled").reduce((total, row) => total + (row.feeMicrousd ?? 0), 0) / 1_000_000,
       unknownDispatches: dispatches.filter(row => row.status === "unknown" || row.status === "committed").length,
       retriedDispatches: dispatches.filter(row => row.status === "superseded").length, failedDispatches: dispatches.filter(row => row.status === "failed").length,

@@ -45,6 +45,11 @@ describe("desktop local research route (backlog item 13a)", () => {
     expect(readDesktopResearchCard(config(writeCard(dir, proposed(), "proposed.json")))).toEqual({ accepted: false, code: "serving_card_not_adopted" });
     const other = config(written); other.vllm.model = "another-model";
     expect(readDesktopResearchCard(other)).toEqual({ accepted: false, code: "serving_card_model_mismatch" });
+    // As the driver refuses before a run: a synthesis attempt whose ceiling cannot hold the 100-word floor (1,148 tokens leave 99 words).
+    const short = adopt(proposed(), undefined, { defaults: true }); short.roles.synthesis.maxOutputTokens = [8192, 1148];
+    const shortCard = config(writeCard(dir, short, "below-floor.json"));
+    expect(readDesktopResearchCard(shortCard)).toEqual({ accepted: false, code: "research_role_policy_invalid" });
+    expect(desktopResearchAvailability(shortCard)).toMatchObject({ available: false, code: "research_role_policy_invalid" });
   });
 
   it("decides the stage's refusals that are knowable before start on the input files, with the pipeline's own functions", () => {

@@ -6,6 +6,8 @@ import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { RESEARCH_TOLERANCE_POLICY } from "../../src/main/private-agent/research-contract";
 import { RESEARCH_SYNTHESIS_DROP_REASONS, correctSynthesisEvidenceIds, synthesisCorrectionCounts, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
 import { RESEARCH_FILES, researchWriteInstructions, runResearchPipeline, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
+import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
+import { hostFlagsEvent } from "../../src/main/private-agent/host-flags";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_V4_TEST_BRIEF, parseResearchUserContent, researchV4TaggedReply, researchV4TaggedSources } from "../helpers/research-v4-fixture";
 
@@ -159,6 +161,17 @@ describe("the synthesis evidence-id tolerance", () => {
     const mixed = correctSynthesisEvidenceIds([row("Q2", "findings", ["E1", "E9", "E2"])] as Parameters<typeof correctSynthesisEvidenceIds>[0], new Set(["E1", "E2"]), quotes);
     expect(mixed).toEqual({ questions: [row("Q2", "findings", ["E2"])], corrections: { dropped: [drop("Q2", NC, ["E9"]), drop("Q2", NT, ["E1"])], downgraded: [] } });
     expect(synthesisCorrectionCounts(mixed.corrections)).toEqual(rowCounts(1, 1, 0));
+  });
+
+  it("tells the host flags how many unresolved questions the host's evidence check downgraded", async () => {
+    const flags = (files: readonly { path: string; bytes: Buffer }[]) => hostFlagsEvent({ store: { dispatches: () => [], events: () => [] } as never, jobId: "j", contextId: "c",
+      checkpoints: { load: () => [] } as never, finalSnapshot: [], phase: { contract: { requiredChecks: [CLAIMS_LEDGER_CHECK_ID], requiredArtifacts: [{ path: "report.md" }] }, files } })!;
+    // Q1 is downgraded from findings; Q2, a conflict, keeps an id.
+    const both = await run((_, t) => reply(t, row("Q1", "findings", ["E999", t.q2a]), row("Q2", "conflict", [t.q1, t.q2a])));
+    expect(flags(both.outcome.files).misses).toMatchObject({ unresolvedQuestions: 1, questionsDowngraded: 1 });
+    // A question the reply itself left unresolved is no downgrade.
+    const own = await run((_, t) => reply(t, row("Q1", "findings", [t.q1]), row("Q2", "unresolved", [])));
+    expect(flags(own.outcome.files).misses).toMatchObject({ unresolvedQuestions: 1, questionsDowngraded: 0 });
   });
 
   it("binds the disclosure in the packet validator: the corrections a model synthesis kept, by reason, and the synthesise row's counts, or the packet is refused", async () => {

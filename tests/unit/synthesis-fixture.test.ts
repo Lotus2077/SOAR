@@ -364,6 +364,7 @@ describe("E0 synthesis fixture: the command line and the committed manifest", ()
       "--cell", "synthesis-8192-repair-thinking-off", "--dry-run"], { cwd: join(__dirname, "..", ".."), encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
     const line = JSON.parse(stdout);
     expect(line).toMatchObject({ dryRun: true, judge: "research_tolerance_v2", cell: "synthesis-8192-repair-thinking-off", trials: 4, packetCount: 2, stageCheckPassed: true, void: false,
+      corrections: { acceptedWithDrops: 0, evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0, allUnresolvedByDrops: 0 },
       stageCheck: [{ bodyBytes: [true, true], packetSha256: [true, true] }, { bodyBytes: [true, true], packetSha256: [true, true] }] });
     // Attempt 2's word cap is printed beside attempt 1's: with thinking off its ceiling rises, unless the brief states a lower limit.
     expect(line.requests.packets.map((pair: { lengthCapWords: number; thinking: string }[]) => pair.map(r => [r.thinking, r.lengthCapWords])))

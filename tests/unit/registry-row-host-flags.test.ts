@@ -81,6 +81,9 @@ describe("the hostFlags registry column (backlog item 7(d), part C)", { timeout:
     // 7d.D: the trimmed counts are miss names like the others, copied as they are.
     const trimmed = { ...research, misses: { questionsWithoutEvidence: 2, questionsTrimmed: 1, quotesLeftByCap: 14, conflictsLeftByCap: 2, fetchFailures: 1, fetchLimitRefusals: 0 } };
     expect(row(["--run-dir", runDirectory(root, "trimmed", { events: [trimmed] })]).hostFlags).toMatchObject({ misses: trimmed.misses });
+    // The synthesis evidence-id tolerance: the unresolved questions the host's evidence check downgraded, a miss name like the others.
+    const downgraded = { ...research, misses: { unresolvedQuestions: 3, questionsDowngraded: 2, fetchFailures: 0, fetchLimitRefusals: 0 } };
+    expect(row(["--run-dir", runDirectory(root, "downgraded", { events: [downgraded] })]).hostFlags).toMatchObject({ misses: downgraded.misses });
     // Not recorded: no event, so null, never a row of zeros.
     expect(row(["--run-dir", runDirectory(root, "plain")]).hostFlags).toBeNull();
     // A run never carries a hit line, a flag position or an edit id into the registry: the numeric, edit and clause lists are dropped.

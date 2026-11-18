@@ -44,6 +44,8 @@ export interface BootstrapController {
   close(): Promise<void>;
   /** True while a general task or a Labs patch run is running or cleaning up. */
   busy(): boolean;
+  /** Backlog item 13a: true while a running general task is inside its research stage, which a pause or a quit ends. */
+  researchStageRunning(): boolean;
 }
 
 function createWindowShell(
@@ -253,6 +255,7 @@ export async function bootstrap(options: { userDataFolder?: UserDataFolder } = {
 
     return Object.freeze({
       busy: () => (generalTasks?.busy() ?? false) || (patchRuns?.busy() ?? false),
+      researchStageRunning: () => generalTasks?.researchStageRunning() ?? false,
       close(): Promise<void> {
         if (closeOperation) return closeOperation;
         closeOperation = (async () => {

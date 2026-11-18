@@ -3,6 +3,17 @@
  * settings, and a lateness check for a periodic heartbeat (a late tick means the machine slept or the process was starved).
  */
 export const QUIT_CLOSE_BOUND_MS = 20_000;
+/**
+ * The quit offer's words while a task runs. Backlog item 13a: a research stage in progress cannot pause and continue, so waiting for it
+ * ends the task as surely as quitting at once; the offer says so instead of promising a resume.
+ */
+export function quitOffer(researchStage: boolean): { message: string; detail: string } {
+  return researchStage
+    ? { message: "Waiting for the research stage to stop",
+      detail: "A research stage is in progress, and a research stage cannot pause and continue. When it stops, this task ends and cannot be resumed; create it again to retry. Quitting now stops it at once, with the same result." }
+    : { message: "Waiting for the running task to pause",
+      detail: "The task pauses after its current step (a model reply or a command can take several minutes) and can be resumed later. Quitting now interrupts that step, and the task will then have to be cancelled instead of resumed." };
+}
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const HEARTBEAT_LATE_THRESHOLD_MS = 5_000;
 export const STREAM_INACTIVITY_TIMEOUT_MS = 120_000;

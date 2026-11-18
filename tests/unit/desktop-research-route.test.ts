@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SoarConfig } from "../../src/main/config";
 import { DESKTOP_RESEARCH_ROUTE, DESKTOP_RESEARCH_WRITE_BOUND, desktopResearchAvailability, desktopResearchSession, isDesktopResearchRecord, readDesktopResearchCard,
-  researchInputsCheck, researchStageView, researchWriteLimits } from "../../src/main/general-tasks/research-route";
+  researchDenialReason, researchInputsCheck, researchStageView, researchWriteLimits } from "../../src/main/general-tasks/research-route";
+import { LOCAL_TOKEN_ADMISSION_CODES } from "../../src/main/private-agent/flash-next-admission";
 import { GENERAL_TASK_BUDGETS } from "../../src/main/private-agent/profiles";
 import { LOCAL_SCREEN_WRITE_BOUNDS } from "../../scripts/private-agent-local-screen";
 import { RESEARCH_COVERAGE_POLICY, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
@@ -120,7 +121,11 @@ describe("desktop local research route (backlog item 13a)", () => {
     const record = { route: DESKTOP_RESEARCH_ROUTE, cardSha256: "a".repeat(64), cardDate: "2026-11-17" }, card = { date: record.cardDate, sha256: record.cardSha256 };
     const input = { type: "research_input", contextId: "reader" };
     expect(researchStageView(record, [], [], false)).toEqual({ route: "local_beta", card, stage: "not_started", stages: [], requests: 0 });
-    expect(researchStageView(record, [input], [], true)).toMatchObject({ stage: "not_started" });
+    // #168's review: a running task that recorded its input is in the stage before its first request has a row, since a pause from
+    // then on ends it; the same records on a task that is not running are a stage that never started.
+    expect(researchStageView(record, [input], [], true)).toMatchObject({ stage: "running" });
+    expect(researchStageView(record, [input], [], false)).toMatchObject({ stage: "not_started" });
+    expect(researchStageView(record, [{ type: "research_input" }], [], true)).toMatchObject({ stage: "not_started" });
     const plan = (calls: number, extra = {}) => ({ type: "research_stage", contextId: "reader", stage: "plan", calls, ...extra });
     const events = [input, { type: "research_stage", contextId: "reader", stage: "index", calls: 1, usage: {} }, plan(1), plan(2, { truncatedReplies: 2, fallback: "host_plan" }),
       { type: "research_stage", contextId: "reader", stage: "extract", calls: 5, chunksPlanned: 3, chunksComplete: 2, fallback: "other" },
@@ -132,7 +137,38 @@ describe("desktop local research route (backlog item 13a)", () => {
     // A refused admission is a stage that stopped before any call.
     expect(researchStageView(record, [input, { type: "research_admission", contextId: "reader", admission: {} }], [], false).stage).toBe("stopped");
     expect(researchStageView(record, [...events, { type: "research_transfer", contextId: "reader" }], dispatches, false).stage).toBe("transferred");
-    // Malformed counts are left out, never shown as numbers.
-    expect(researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "index", calls: -1, truncatedReplies: 1.5 }], [], false).stages).toEqual([{ stage: "index", calls: 0 }]);
+    // Every count a stage records reaches the view, the proposed held counts included; the reserved gap is never set from the records.
+    const all = { chunksPlanned: 7, chunksComplete: 6, repairCalls: 3, secondRepairCalls: 1, secondRepairsComplete: 1, quotesVerified: 9, quotesInPacket: 8, quotesLeftByCap: 1,
+      quotesLeftByPresentation: 1, questionsTrimmed: 1, conflictsNoted: 2, conflictsInPacket: 1, heldChunks: 7, heldKeptUnrepaired: 6 };
+    const full = researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "extract", calls: 9, ...all, gap: { chunks: 1 } }], [], false);
+    expect(full.stages).toEqual([{ stage: "extract", calls: 9, ...all }]); expect(full).not.toHaveProperty("gap");
+    // Malformed counts are left out, never shown as numbers; a row without its calls is left out whole, never shown as zero calls.
+    expect(researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "index", calls: 1, truncatedReplies: 1.5, chunksPlanned: -1 }], [], false).stages).toEqual([{ stage: "index", calls: 1 }]);
+    expect(researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "index", calls: -1 }], [], false).stages).toEqual([]);
+    // A row the stage stopped in says so: its `denied` code, never its passage count, decides what the view shows.
+    const stopped = { type: "research_stage", contextId: "reader", stage: "extract", calls: 3, chunksPlanned: 4, chunksComplete: 0, repairCalls: 1 };
+    expect(researchStageView(record, [input, { ...stopped, denied: "request_failed" }], [], false).stages).toEqual([{ stage: "extract", calls: 3, denied: true, chunksPlanned: 4, chunksComplete: 0, repairCalls: 1 }]);
+    for (const denied of [undefined, true, 1]) expect(researchStageView(record, [input, { ...stopped, denied }], [], false).stages[0]).not.toHaveProperty("denied");
+  });
+
+  it("words a research request denial from the stage's last stopped row: a failed request, the allowance, the clock, the size, the token checks, the scanner, or the code", () => {
+    const tail = " Nothing was handed to the writer. Nothing is uncertain, and this task cannot resume.";
+    const row = (denied: unknown, contextId = "reader", stage = "extract") => ({ type: "research_stage", contextId, stage, calls: 2, ...(denied === undefined ? {} : { denied }) });
+    const reason = (...rows: Record<string, unknown>[]) => researchDenialReason([{ type: "research_input", contextId: "reader" }, ...rows]);
+    // The likeliest desktop cause: a request that was sent and failed (the model unreachable, a timeout, a reply that cannot be read).
+    expect(reason(row("request_failed"))).toBe(`A research stage request to the local model failed after the permitted attempts and returned no usable reply.${tail}`);
+    expect(reason(row("request_failed"))).not.toContain("before it was sent");
+    expect(reason(row("budget_denied"))).toBe(`The research stage's next request was not sent: the task's request allowance or its fee cap was reached.${tail}`);
+    expect(reason(row("deadline_before_request"))).toBe(`The time left was shorter than one research request's limit, so the research stage sent nothing more.${tail}`);
+    for (const code of ["request_body_size_exceeded", "packet_size_exceeded"]) expect(reason(row(code))).toBe(`The research stage's next request exceeded the request size limit and was not sent.${tail}`);
+    for (const code of LOCAL_TOKEN_ADMISSION_CODES) expect(reason(row(code))).toBe(`The research stage's next request could not pass its context and deployment checks and was not sent.${tail}`);
+    expect(reason(row("packet_scan_failed"))).toBe(`The scanner that checks an outbound request was unavailable, so the research stage's next request was not sent.${tail}`);
+    // Any other code is named, and nothing claims whether it was sent; a code that is not an identifier, or no code, is not.
+    expect(reason(row("destination_missing"))).toBe(`The research stage stopped at a request that was refused or failed (destination_missing).${tail}`);
+    for (const odd of ["Not A Code", "x".repeat(81), "constructor"]) expect(reason(row(odd))).toBe(odd === "constructor" ? `The research stage stopped at a request that was refused or failed (constructor).${tail}` : `The research stage stopped at a request that was refused or failed.${tail}`);
+    expect(reason(row(undefined))).toBe(`The research stage stopped at a request that was refused or failed.${tail}`);
+    // The last stopped row of the reader's own context decides: a later row without a code, or another context's row, does not.
+    expect(reason(row("budget_denied", "reader", "plan"), row("request_failed"), row(undefined, "reader", "synthesise"), row("packet_scan_failed", "elsewhere"))).toBe(reason(row("request_failed")));
+    expect(researchDenialReason([row("request_failed")])).toBe(`The research stage stopped at a request that was refused or failed.${tail}`);
   });
 });

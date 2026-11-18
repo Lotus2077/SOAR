@@ -20,6 +20,8 @@ import {
   type GeneralTaskConsultationSummary,
   type GeneralTaskRouting,
   type GeneralTaskInputSelection,
+  type GeneralTaskResearch,
+  type GeneralTaskResearchStage,
   type GeneralTaskSnapshot,
   type SoarGeneralTaskApi,
 } from "../../shared/general-task-contracts";
@@ -33,6 +35,43 @@ const statuses: Record<GeneralTaskSnapshot["status"], string> = {
   queued: "Ready to start", running: "Working", paused: "Paused", submitted: "Submitted for review", incomplete: "Incomplete", cancelled: "Cancelled",
 };
 function title(task: GeneralTaskSnapshot) { const line = task.goal.split("\n")[0]; return line.length > 75 ? `${line.slice(0, 75)}…` : line; }
+// Backlog item 13a: a local research task's deliverable is a document the claims check can read.
+const RESEARCH_DOCUMENT = /\.(md|markdown|txt|html?|docx|pdf)$/iu;
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const STAGE_NAMES: Record<GeneralTaskResearchStage["stage"], string> = { index: "Index", plan: "Plan", extract: "Extraction", synthesise: "Synthesis" };
+/**
+ * The research badge's stage words. "Ready, with a disclosed gap" is reserved for the research protocol's revision now before the
+ * owner (GeneralTaskResearch.gap); nothing sets it yet.
+ */
+function researchState(research: GeneralTaskResearch): string {
+  if (research.stage === "transferred") return research.gap ? `packet ready, with a disclosed gap (${plural(research.gap.chunks, "passage")} not read)` : "packet ready";
+  return research.stage === "running" ? "reading the sources" : research.stage === "stopped" ? "stopped before the writer" : "not started";
+}
+/** One stage's lines, from the counts it recorded and nothing else: no fixed sentence or constant stands in for a count. */
+function researchStageLines(row: GeneralTaskResearchStage): string[] {
+  const cut = row.truncatedReplies ? `, ${row.truncatedReplies} cut at the output limit` : "";
+  const repairs = row.repairCalls ? `; ${plural(row.repairCalls, "repair")}${row.secondRepairCalls ? ` (${row.secondRepairCalls} second${row.secondRepairsComplete !== undefined ? `, ${row.secondRepairsComplete} completing their passage` : ""})` : ""}` : "";
+  // A row the stage stopped in holds the calls that settled before the stop; its passage count is the value it was created with.
+  if (row.denied) {
+    const noun = row.stage === "plan" || row.stage === "synthesise" ? "attempt" : "call";
+    return [`${STAGE_NAMES[row.stage]}: stopped ${row.calls ? `after ${plural(row.calls, noun)}` : `before any ${noun} was answered`}${cut}${repairs}.`];
+  }
+  if (row.stage === "index") return [`Index: ${plural(row.calls, "call")}${cut}.`];
+  if (row.stage === "plan") return [`Plan: ${plural(row.calls, "attempt")}${cut}${row.fallback === "host_plan" ? "; none was accepted, so the host's plan was used" : ""}.`];
+  if (row.stage === "synthesise") return [`Synthesis: ${plural(row.calls, "attempt")}${cut}${row.fallback === "skeleton" ? "; none was accepted, so the writer gets the evidence skeleton" : ""}.`];
+  const read = row.chunksPlanned !== undefined && row.chunksComplete !== undefined ? `${row.chunksComplete} of ${plural(row.chunksPlanned, "source passage")} read` : plural(row.calls, "call");
+  const lines = [`Extraction: ${read}${cut}${repairs}.`];
+  if (row.heldChunks !== undefined && row.heldKeptUnrepaired !== undefined && row.heldChunks > 0) {
+    lines.push(`${row.heldKeptUnrepaired} of ${plural(row.heldChunks, "passage")} held for a repair kept a first reading; the budget had no room for the optional repair.`);
+  }
+  if (row.quotesVerified !== undefined && row.quotesInPacket !== undefined) {
+    const left = [row.quotesLeftByCap ? `${row.quotesLeftByCap} left out at the packet's caps${row.quotesLeftByPresentation ? ` (${row.quotesLeftByPresentation} by the presentation guard)` : ""}` : "",
+      row.questionsTrimmed ? `${plural(row.questionsTrimmed, "question")} left without a quote in the packet` : ""].filter(Boolean);
+    lines.push(`Evidence packet: ${row.quotesInPacket} of ${plural(row.quotesVerified, "verified quote")} kept${left.length ? `; ${left.join("; ")}` : ""}.`);
+  }
+  if (row.conflictsNoted && row.conflictsInPacket !== undefined) lines.push(`Conflicts: ${row.conflictsInPacket} of ${plural(row.conflictsNoted, "noted conflict")} in the packet.`);
+  return lines;
+}
 function size(bytes: number) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
 function duration(ms: number) { const seconds = Math.floor(ms / 1000); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; }
 function money(value: number) { return Number.isSafeInteger(value) && value >= 0 ? `USD ${Math.floor(value / 1000000)}.${String(value % 1000000).padStart(6, "0")}` : "Unavailable"; }
@@ -86,6 +125,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const [retrievalAllowed, setRetrievalAllowed] = useState(false);
   const [routing, setRouting] = useState<GeneralTaskRouting>("local_only");
   const [profile, setProfile] = useState<"" | "standard" | "heavy">("");
+  const [research, setResearch] = useState(false);
   const [action, setAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -130,16 +170,18 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const resetVerdict = useCallback(() => {
     setVerdictDecision(""); setVerdictMinutes(""); setVerdictInterventions(""); setVerdictExported(false);
   }, []);
+  // Backlog item 13a: the research option is on only while the host offers it. Every availability the view takes that does not offer it
+  // unticks the box, so a later check that withdraws it frees the form, and a check that offers it again does not tick it by itself.
   const refreshAvailability = useCallback(async () => {
     if (!api) return;
     const epoch = ++availabilityEpoch.current;
     setCheckingAvailability(true);
     try {
       const next = await api.getGeneralTaskAvailability();
-      if (mounted.current && availabilityEpoch.current === epoch) setAvailability(next);
+      if (mounted.current && availabilityEpoch.current === epoch) { setAvailability(next); if (next.research?.available !== true) setResearch(false); }
     } catch {
       if (mounted.current && availabilityEpoch.current === epoch) {
-        setAvailability(null); setError("Task availability could not be checked. Try checking again.");
+        setAvailability(null); setResearch(false); setError("Task availability could not be checked. Try checking again.");
       }
     } finally { if (mounted.current && availabilityEpoch.current === epoch) setCheckingAvailability(false); }
   }, [api]);
@@ -206,6 +248,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
     ...(routing === "ask_before_consulting" ? { routing } : {}),
     ...(selection ? { inputSelectionId: selection.id } : {}),
     ...(urls.length ? { publicSources: { urls, dnsResolver, allowPublicRetrieval: retrievalAllowed } } : {}),
+    ...(research ? { research: "local_beta" as const } : {}),
   };
   const startNew = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -220,7 +263,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
       accept(created); selectionEpoch.current += 1; selected.current = created.id; setSelectedId(created.id); resetPreview();
       setGoal(""); setSelection(null); setAttested(false); setOutputName("report.md");
       setSourceUrls(""); setDnsResolver("system"); setRetrievalAllowed(false);
-      setRouting("local_only"); resetConsultation();
+      setRouting("local_only"); setResearch(false); resetConsultation();
       const started = await api.startGeneralTask(created.id); accept(started);
     } catch { if (mounted.current) setError(saved ? "The task was saved but could not start. Use Start task to try starting this saved task." : "The task could not be created. Check your inputs and try again."); }
     finally { busy.current = false; if (mounted.current) setAction(null); }
@@ -339,7 +382,9 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   };
   const validOutputName = GeneralTaskCreateInputSchema.shape.outputName.safeParse(outputName).success;
   const validSources = !urls.length || GeneralTaskCreateInputSchema.shape.publicSources.safeParse({ urls, dnsResolver, allowPublicRetrieval: true }).success;
-  const validInput = GeneralTaskCreateInputSchema.safeParse(createInput).success && (routing === "local_only" || availability?.consultation?.available === true);
+  const validInput = GeneralTaskCreateInputSchema.safeParse(createInput).success && (routing === "local_only" || availability?.consultation?.available === true) &&
+    // Backlog item 13a: a research task reads at least one input file and writes a document; the controller refuses anything else.
+    (!research || selection !== null && RESEARCH_DOCUMENT.test(outputName));
   const consultation = task?.consultation;
   const verifiedConsultation = consultationPreview && consultationPreview.id === task?.id && consultation && matchesConsultation(consultationPreview.value, consultation) ? consultationPreview.value : null;
   return <div className="general-workspace">
@@ -351,7 +396,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
       <aside className="general-history" aria-label="Saved general tasks"><h2>Your tasks</h2>
         {loadingHistory ? <p role="status">Loading saved tasks…</p> : !tasks.length ? <p>No tasks yet. Your progress and artifacts will appear here.</p> : null}
         <ul className="general-history-list">{tasks.map(item => <li key={item.id}><button disabled={action === "create"} onClick={() => void selectTask(item.id)} aria-current={selectedId === item.id ? "true" : undefined}>
-          <strong>{title(item)}</strong><small>{statuses[item.status]} · {item.modelCalls} model attempts</small>
+          <strong>{title(item)}</strong><small>{statuses[item.status]} · {item.modelCalls} model attempts{item.research ? " · local research" : ""}</small>
         </button></li>)}</ul>
       </aside>
       <div className="general-main">
@@ -365,7 +410,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
         {!selectedId ? <form className="general-form" aria-label="New general task" onSubmit={startNew}>
           <h2>What would you like to make?</h2>
           <label className="general-field"><span>Task goal</span><textarea value={goal} maxLength={16000} disabled={!!action} placeholder="Describe the result you need. Add files or public sources below if useful." onChange={event => { setGoal(event.target.value); setAttested(false); }} /></label>
-          <label className="general-field"><span id="general-consultation-label">Consultation mode</span><select value={routing} disabled={!!action} onChange={event => setRouting(event.target.value as GeneralTaskRouting)} aria-labelledby="general-consultation-label" aria-describedby="general-consultation-hint">
+          <label className="general-field"><span id="general-consultation-label">Consultation mode</span><select value={routing} disabled={!!action || research} onChange={event => setRouting(event.target.value as GeneralTaskRouting)} aria-labelledby="general-consultation-label" aria-describedby="general-consultation-hint">
             <option value="local_only">Local only</option><option value="ask_before_consulting" disabled={!availability?.consultation?.available}>Ask before consulting</option>
           </select><small id="general-consultation-hint">{availability?.consultation?.available
             ? routing === "ask_before_consulting" ? `The local coordinator may pause once to ask ${availability.consultation.model ?? "the configured consultant"}. You must review its exact packet and charge, approve, then Resume. No automatic consultation.` : "Use only the owned local model. No consultant packet or charge will be proposed."
@@ -374,15 +419,22 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
             <button type="button" className="general-button" disabled={!api || !!action} onClick={() => void chooseInputs()}><FolderOpen aria-hidden="true" />{action === "choose" ? "Opening picker…" : selection ? "Change files" : "Choose files"}</button>
             {selection && <button type="button" className="general-button general-button-quiet" disabled={!!action} onClick={() => { setSelection(null); setAttested(false); }}>Clear files</button>}
           </div>{selection ? <ul className="general-selected-files" aria-label="Selected input files">{selection.files.map(file => <li className="general-file-row" key={file.path}><span>{file.name}</span><small>{size(file.bytes)}</small></li>)}</ul> : <small>No files selected. You can start from a goal alone. Selected originals stay unchanged.</small>}</div>
+          {availability?.research ? <div className="general-field general-research-option">
+            <label className="general-ack"><input type="checkbox" checked={research} disabled={!!action || !availability.research.available} aria-describedby="general-research-hint"
+              onChange={event => { const on = event.target.checked; setResearch(on); setAttested(false); if (on) { setProfile(""); setRouting("local_only"); setSourceUrls(""); setRetrievalAllowed(false); } }} />
+              <span>Local research first (beta): the local model reads every input file in full and builds a cited evidence packet before the writer starts.</span></label>
+            <small id="general-research-hint">{availability.research.reason}{availability.research.card ? ` Serving card of ${availability.research.card.date}.` : ""}{research
+              ? " Heavy profile and local only, with at least one text input file and a document deliverable (.md, .txt, .html, .docx or .pdf). Pausing or quitting while the research stage runs ends the task." : ""}</small>
+          </div> : null}
           <div className="general-public-inputs">
-            <label className="general-field"><span id="general-sources-label">Public source URLs (optional)</span><textarea aria-labelledby="general-sources-label" className="general-source-urls" value={sourceUrls} maxLength={6146} disabled={!!action} aria-invalid={!validSources} aria-describedby="general-source-hint" placeholder="https://example.org/source" onChange={event => { setSourceUrls(event.target.value); setRetrievalAllowed(false); setAttested(false); }} /><small id="general-source-hint">{validSources ? "Up to three exact HTTPS URLs, one per line. Paths and queries are included. URLs in the goal do not grant network permission." : "Use one to three distinct public HTTPS URLs, with no credentials or fragments. Check each complete address."}</small></label>
+            <label className="general-field"><span id="general-sources-label">Public source URLs (optional)</span><textarea aria-labelledby="general-sources-label" className="general-source-urls" value={sourceUrls} maxLength={6146} disabled={!!action || research} aria-invalid={!validSources} aria-describedby="general-source-hint" placeholder="https://example.org/source" onChange={event => { setSourceUrls(event.target.value); setRetrievalAllowed(false); setAttested(false); }} /><small id="general-source-hint">{validSources ? "Up to three exact HTTPS URLs, one per line. Paths and queries are included. URLs in the goal do not grant network permission." : "Use one to three distinct public HTTPS URLs, with no credentials or fragments. Check each complete address."}</small></label>
             {urls.length > 0 ? <>
               <label className="general-field"><span id="general-dns-label">Hostname lookup</span><select aria-labelledby="general-dns-label" value={dnsResolver} disabled={!!action} aria-describedby="general-dns-hint" onChange={event => { setDnsResolver(event.target.value as "system" | "cloudflare_v1"); setRetrievalAllowed(false); }}><option value="system">System resolver</option><option value="cloudflare_v1">Cloudflare public DNS</option></select><small id="general-dns-hint">{dnsResolver === "cloudflare_v1" ? "Cloudflare receives hostname lookups for these sources. Page requests go to the listed sites. This choice is saved with the task." : "Use the system's configured hostname resolver. This choice is saved with the task."}</small></label>
               <label className="general-ack"><input type="checkbox" checked={retrievalAllowed} disabled={!!action || !validSources} onChange={event => setRetrievalAllowed(event.target.checked)} /><span>Allow SOAR to retrieve only these public URLs through the host, with up to five GET attempts and 64 KiB per response. This permits no other browsing or publication.</span></label>
             </> : <p className="general-hint">No public retrieval will be permitted for this task.</p>}
           </div>
           {availability?.profiles?.length ? <label className="general-field"><span id="general-profile-label">Model profile</span>
-            <select value={profile} disabled={!!action} aria-labelledby="general-profile-label" onChange={event => setProfile(event.target.value as "" | "standard" | "heavy")}>
+            <select value={research ? "heavy" : profile} disabled={!!action || research} aria-labelledby="general-profile-label" onChange={event => setProfile(event.target.value as "" | "standard" | "heavy")}>
               <option value="">Default ({availability.profile ?? "heavy"})</option>{availability.profiles.map(name => <option key={name} value={name}>{name === "heavy" ? "heavy — thinking on, long outputs" : "standard — thinking off, short outputs"}</option>)}
             </select><small>The profile sets the model's thinking mode, output limit and the task's allowances. It is fixed once the task is created.</small></label> : null}
           <label className="general-field"><span id="general-output-label">Output filename</span><input value={outputName} maxLength={120} disabled={!!action} aria-labelledby="general-output-label" aria-invalid={!validOutputName} aria-describedby="general-output-hint" onChange={event => { setOutputName(event.target.value); setAttested(false); }} /><small id="general-output-hint">{validOutputName ? "A single filename, such as report.md or presentation.pptx." : "Use one filename starting with a letter or number, with no folders or '..'."}</small></label>
@@ -394,6 +446,11 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
           <div className="general-state" role="status">{task.status === "submitted" ? <CheckCircle aria-hidden="true" /> : <Clock aria-hidden="true" />}{statuses[task.status]}{loadingTask ? " · refreshing…" : ""}</div>
           {task.reason && <p className="general-hint">{task.reason.replaceAll("_", " ")}</p>}
           {task.profile && <p className="general-hint">Model profile: {task.profile}</p>}
+          {task.research && <p className="general-badge" aria-label="Research route">Local research (beta) · serving card of {task.research.card.date} · {researchState(task.research)}</p>}
+          {task.research && <section className="general-section general-research" aria-label="Research stage"><h3>Research stage</h3>
+            {task.research.stages.length ? <ul>{task.research.stages.flatMap(row => researchStageLines(row).map((line, i) => <li key={`${row.stage}-${i}`}>{line}</li>))}</ul>
+              : <p className="general-hint">The research stage has recorded no work yet.</p>}
+            <p className="general-hint">{plural(task.research.requests, "research request")} to the local model, counted apart from the model attempts.</p></section>}
           {task.status === "submitted" && task.reportedIssues?.length ? <section className="general-section general-issues" aria-label="Reported issues"><h3>Submitted with reported issues</h3>
             <p className="general-hint">Host-derived facts about this submission. They do not change its status; judge the deliverable with them in mind.</p>
             <ul>{task.reportedIssues.map(issue => <li key={issue}>{issue}</li>)}</ul></section> : null}
@@ -455,6 +512,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
             <p className="general-hint">Host receipts identify retrieved response bytes. They do not verify the report's claims.</p>
             <ul className="general-source-list">{task.sources.map(source => <li key={source.dispatchId}><span>{source.url}</span><small>{size(source.bytes)} · Retrieved {new Date(source.retrievedAt).toLocaleString()}</small><small>SHA-256 {source.sha256}</small><small>Dispatch {source.dispatchId}</small></li>)}</ul>
           </> : <p className="general-hint">No completed source receipt yet. Approved URLs alone do not mean retrieval succeeded.</p>}</section>}
+          {task.status === "running" && task.research?.stage === "running" && <p className="general-hint general-warning" role="note">Pausing now ends this task: a research stage in progress cannot resume. Once the writer has started, the task pauses as usual.</p>}
           <div className="general-actions">
             {task.status === "queued" && <button className="general-button general-button-primary" disabled={!!action || !availability?.available || checkingAvailability} onClick={() => void control("start")}><Play aria-hidden="true" />Start task</button>}
             {task.status === "running" && <button className="general-button" disabled={!!action} onClick={() => void control("pause")}><Pause aria-hidden="true" />{action === "pause" ? "Requesting pause…" : "Pause task"}</button>}

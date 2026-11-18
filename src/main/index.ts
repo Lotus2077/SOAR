@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { app, BrowserWindow, dialog } from "electron";
 import { loadEnvironmentFiles } from "./config";
-import { startQuit } from "./liveness";
+import { quitOffer, startQuit } from "./liveness";
 import { decideUserDataFolder, type UserDataFolder } from "./user-data-folder";
 
 import type { BootstrapController } from "./bootstrap";
@@ -110,9 +110,10 @@ if (userDataFolder.kind === "refused") {
     quitting = startQuit({
       close: () => current.close(), busy: current.busy(), quit: () => { controller = undefined; app.quit(); },
       askQuitNow: async signal => {
+        // Backlog item 13a: read when the offer opens, since a research stage may have ended or begun since the quit.
+        const offer = quitOffer(current.researchStageRunning());
         const { response } = await dialog.showMessageBox(quitOfferParent(), { type: "info", buttons: ["Keep waiting", "Quit now"], defaultId: 0, cancelId: 0, signal,
-          message: "Waiting for the running task to pause",
-          detail: "The task pauses after its current step (a model reply or a command can take several minutes) and can be resumed later. Quitting now interrupts that step, and the task will then have to be cancelled instead of resumed." });
+          message: offer.message, detail: offer.detail });
         return response === 1;
       },
     });

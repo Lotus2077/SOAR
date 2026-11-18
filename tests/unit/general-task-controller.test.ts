@@ -24,7 +24,7 @@ import { adopt, proposedServingCard, writeCard } from "../helpers/serving-card-f
 import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
 import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
 import { researchModelServer } from "../helpers/desktop-research-server";
-import { RESEARCH_V4_TEST_BRIEF, parseResearchUserContent, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
+import { RESEARCH_V4_TEST_BRIEF, parseResearchUserContent, researchV4Reply, researchV4Sources, researchV4TrimmedReply, researchV4TrimmedSources } from "../helpers/research-v4-fixture";
 import { researchRepairReserve } from "../../src/main/private-agent/research-admission";
 
 const cleanup: (() => Promise<void> | void)[] = [];
@@ -1123,15 +1123,18 @@ describe("desktop general-task host controller", () => {
   it.each([
     ["runtime_contract_drift", GENERIC_INCOMPLETE], ["checkpoint_identity_mismatch", GENERIC_INCOMPLETE], ["host_validation_not_replayed", GENERIC_INCOMPLETE],
     ["repeated_incomplete_tool_arguments_at_output_limit", GENERIC_INCOMPLETE], ["duplicate_tool_call_id", GENERIC_INCOMPLETE],
-    ["bounded_allowance_exhausted", GENERIC_INCOMPLETE],
+    // #168's review: the writer's end at a spent allowance (runner.ts; private-agent-runner-budget.test.ts drives it at a spent request pool).
+    ["bounded_allowance_exhausted", "The task used its whole model-call, tool or request allowance before a submission passed the host's checks. Saved progress is retained; this task cannot resume."],
     // Backlog item 6 follow-up (6.4): still terminal for Resume, but its text names the cure, a Revoke.
     ["consultation_budget_unavailable", "Revoking it lets a resume continue locally within what remains"],
     // Backlog item 6 (A7): a stage that cannot continue has its own text.
     ["public_source_retention_or_text_failed", GENERIC_INCOMPLETE], ["research_stage_not_replayed", "research stage stopped before its evidence was handed to the writer"],
-    ["research_request_denied", GENERIC_INCOMPLETE], ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],
+    // Backlog item 13a: any other research stop names its fixed code and says the task cannot resume.
+    ["research_request_denied", "The research stage stopped at a request that was refused or failed. Nothing was handed to the writer. Nothing is uncertain, and this task cannot resume."], ["research_admission_invalid", "The research stage stopped (research_admission_invalid), so this task cannot resume."],
+    ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],
     ["cancelled_before_completion", GENERIC_INCOMPLETE], ["deadline_before_completion", GENERIC_INCOMPLETE], ["public_session_stopped", GENERIC_INCOMPLETE],
     ["a_reason_no_pull_request_classified", GENERIC_INCOMPLETE], ["constructor", GENERIC_INCOMPLETE],
-    ["deadline_before_request", "The time left was shorter"], ["model_request_denied", "The broker refused"],
+    ["deadline_before_request", "The time left was shorter"], ["model_request_denied", "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume."],
   ] as const)("backlog item 6: keeps the terminal %s and refuses to resume it after reopening", async (reason, text) => {
     const f = fixture(); stopOnce(f, reason);
     const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
@@ -1326,7 +1329,7 @@ describe("desktop general-task host controller", () => {
     expect(transferred.controller.get(task.id)).toMatchObject({ status: "submitted" });
     const failed = fixture(); researchStageOnce(failed, "research_plan_invalid");
     task = failed.create(); failed.controller.start(task.id); await failed.controller.wait(task.id);
-    expect(failed.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, reason: GENERIC_INCOMPLETE });
+    expect(failed.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, reason: "The research stage stopped (research_plan_invalid), so this task cannot resume." });
     const uncertain = fixture(); researchStageOnce(uncertain, "paused", { committedRow: true });
     task = uncertain.create(); uncertain.controller.start(task.id); await uncertain.controller.wait(task.id);
     const blocked = uncertain.controller.get(task.id);
@@ -1615,7 +1618,8 @@ describe("desktop local research tasks (backlog item 13a)", () => {
  * A research task on a loopback endpoint that answers with `reply`: the card with its default roles (no structured output, so the
  * replies are not streamed), two text sources, and fixture()'s scripted writer. `edit` changes the card before it is written.
  */
-async function stageFixture(reply: Parameters<typeof researchModelServer>[0], edit?: (card: ServingCardV1) => void, writeBound?: DesktopResearchWriteBound) {
+async function stageFixture(reply: Parameters<typeof researchModelServer>[0], edit?: (card: ServingCardV1) => void, writeBound?: DesktopResearchWriteBound,
+  sources: { id: string; path: string; bytes: Buffer }[] = researchV4Sources()) {
   const server = await researchModelServer(reply); cleanup.push(server.close);
   const base = fixture(), card = adopt(structuredClone(researchWriterCard ??= proposedServingCard()), undefined, { defaults: true }); edit?.(card);
   // E2's one-line choice, through the controller's test option in place of the shipped constant.
@@ -1624,7 +1628,7 @@ async function stageFixture(reply: Parameters<typeof researchModelServer>[0], ed
   const f = { ...base, controller };
   f.config.vllm.model = SYNTHETIC_P10_REQUEST_SETTINGS.model; f.config.vllm.baseUrl = server.baseUrl; f.config.localResearchBeta = true;
   f.config.vllm.servingCard = writeCard(f.root, card, "stage-card.json");
-  const files = researchV4Sources().map(source => { const path = join(f.root, basename(source.path)); writeFileSync(path, source.bytes); return path; });
+  const files = sources.map(source => { const path = join(f.root, basename(source.path)); writeFileSync(path, source.bytes); return path; });
   const task = f.controller.create({ goal: RESEARCH_V4_TEST_BRIEF, inputSelectionId: f.controller.selectInputs(files).id, outputName: "report.md", publicOrSynthetic: true, research: "local_beta" });
   const run = async () => { f.controller.start(task.id); await f.controller.wait(task.id); return f.controller.get(task.id); };
   const stored = () => JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
@@ -1725,6 +1729,9 @@ describe("desktop local research stage (backlog item 13a, part 2)", () => {
     await vi.waitFor(() => expect(server.requests.length).toBeGreaterThan(0));
     f.controller.pause(task.id); release(); await f.controller.wait(task.id);
     expect(f.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, research: { stage: "stopped" } });
+    // #168's review: the call the pause stopped records its row with the `cancelled` code, and the view marks that row as stopped.
+    expect(new PrivateAgentStore(f.db).events(task.id).filter(event => event.type === "research_stage").at(-1)).toMatchObject({ stage: "index", denied: "cancelled" });
+    expect(f.controller.get(task.id).research!.stages.at(-1)).toMatchObject({ stage: "index", denied: true });
     expect(f.executions).toHaveLength(0);
     // A record a crash left paused: only the unfinished-stage guard can keep Resume closed, and it names the stop.
     write({ ...stored(), status: "paused", reason: "paused" });
@@ -1781,5 +1788,57 @@ describe("desktop local research stage (backlog item 13a, part 2)", () => {
     expect(done.status).toBe("submitted");
     const args = f.executions[0]!, transfer = args.store.events(args.jobId).find(event => event.type === "research_transfer") as { binding: { summary: { admission?: { basis: string; decision: string } } } };
     expect(transfer.binding.summary.admission).toMatchObject({ basis: "serving_card", decision: "admitted" });
+  });
+});
+
+// Backlog item 13a, part 3: what the task view reads from the controller.
+describe("desktop local research task view (backlog item 13a, part 3)", () => {
+  it("reports a stage in progress while its request is open, so a pause or a quit can warn, and not once the writer has the packet", async () => {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const { f, server, task } = await stageFixture(async (system, user) => { if (system.startsWith("You index")) await held; return researchV4Reply(system, user); });
+    expect(f.controller.researchStageRunning()).toBe(false);
+    f.controller.start(task.id);
+    await vi.waitFor(() => expect(server.requests.length).toBeGreaterThan(0));
+    expect(f.controller.researchStageRunning()).toBe(true);
+    expect(f.controller.get(task.id).research).toMatchObject({ stage: "running" });
+    release(); await f.controller.wait(task.id);
+    expect(f.controller.researchStageRunning()).toBe(false);
+    expect(f.controller.get(task.id)).toMatchObject({ status: "submitted", research: { stage: "transferred" } });
+  });
+
+  it("names a research stop in its own words, beside the stage's counts", async () => {
+    const { run } = await stageFixture((system, user) =>
+      system.startsWith("You extract") && parseResearchUserContent(user).source.id === "input/02-beta.md" ? "not an extraction" : researchV4Reply(system, user));
+    const done = await run();
+    expect(done.reason).toBe("The research stage could not read every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were read.");
+    expect(done.research!.stages.find(row => row.stage === "extract")).toMatchObject({ chunksPlanned: 2, chunksComplete: 1, repairCalls: 1 });
+  });
+
+  it("words a stage stopped by a request that failed as a failure, never as a refusal before sending, and marks the extraction row it stopped in", async () => {
+    // #168's review: every stage stop but a cancel is research_request_denied, a request that was sent and failed included. The endpoint
+    // answers 500 for one source's extraction, as an unreachable model does, so after the broker's attempts the row records request_failed.
+    const { f, task, run, stored } = await stageFixture((system, user) => {
+      if (system.startsWith("You extract") && parseResearchUserContent(user).source.id === "input/02-beta.md") throw new Error("synthetic_unreachable_model");
+      return researchV4Reply(system, user);
+    });
+    const done = await run();
+    expect(stored()).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    // The stopped row keeps the passage count it was created with, which is why the view shows its calls instead.
+    expect(new PrivateAgentStore(f.db).events(task.id).filter(event => event.type === "research_stage").at(-1)).toMatchObject({ stage: "extract", denied: "request_failed", chunksComplete: 0 });
+    expect(done.reason).toBe("A research stage request to the local model failed after the permitted attempts and returned no usable reply. Nothing was handed to the writer. Nothing is uncertain, and this task cannot resume.");
+    expect(done).toMatchObject({ canResume: false, research: { stage: "stopped" } });
+    expect(done.research!.stages.find(row => row.stage === "extract")).toMatchObject({ denied: true });
+    expect(f.executions).toHaveLength(0);
+  }, 30_000);
+
+  it("shows how a packet was trimmed from the stage's own counts, on S-pipe's corpus that overflows the packet", async () => {
+    const { run } = await stageFixture(researchV4TrimmedReply, undefined, undefined, researchV4TrimmedSources().slice(0, 16));
+    const done = await run();
+    expect(done.status).toBe("submitted");
+    const extract = done.research!.stages.find(row => row.stage === "extract")!;
+    expect(extract.quotesVerified).toBeGreaterThan(extract.quotesInPacket!);
+    expect(extract.quotesLeftByCap).toBe(extract.quotesVerified! - extract.quotesInPacket!);
+    expect(extract).toMatchObject({ chunksPlanned: 16, chunksComplete: 16 });
   });
 });

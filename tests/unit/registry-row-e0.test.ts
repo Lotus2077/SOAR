@@ -15,7 +15,7 @@ import { CALL_KINDS, CALL_STATES, CallRecordSchema, ENVELOPE_LINE, LABELLER_MODE
   PLANT_REJECTIONS, SECOND_REQUEST_VALUES, TOKEN_FIELDS, UNBILLED_STATUSES, runLabelling, type LabellingSummary } from "../../scripts/judge-labeller";
 import { DEFAULT_CONDITIONS, FIXTURE_CONDITIONS, plannerConditionStreamed, runPlannerFixture } from "../../scripts/planner-fixture";
 import { CELL_CALLS, SYNTHESIS_CALL_CLASSES, SYNTHESIS_CELLS, SYNTHESIS_OUTCOMES, type StageCheck, type SynthesisCallClass, type SynthesisCallRecord, type SynthesisFixtureSummary,
-  type SynthesisRequest, type SynthesisTrialRecord } from "../../scripts/synthesis-fixture";
+  type SynthesisRequest, type SynthesisTrialRecord, SYNTHESIS_JUDGE } from "../../scripts/synthesis-fixture";
 import { syntheticProbe, syntheticStream } from "../helpers/serving-probe-fixture";
 
 /**
@@ -517,7 +517,7 @@ describe("E0 registry modes: the synthesis fixture", () => {
     const count = (values: readonly string[]) => values.reduce<Record<string, number>>((n, value) => ({ ...n, [value]: (n[value] ?? 0) + 1 }), {});
     const outcomes = (items: readonly SynthesisTrialRecord[]) => { const tally = { model_synthesis: 0, skeleton: 0, no_outcome: 0 }; for (const item of items) tally[item.outcome]++; return tally; };
     const written: SynthesisFixtureSummary = { version: 1, kind: "synthesis", startedUtc: "2026-11-18T08:00:00.000Z", finishedUtc: "2026-11-18T08:40:00.000Z", model: SERVED,
-      dryRun: false, protocolSha256: h("7"), requestSettings: { model: SERVED, streaming: true, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
+      dryRun: false, judge: SYNTHESIS_JUDGE, protocolSha256: h("7"), requestSettings: { model: SERVED, streaming: true, localReplyContract: null, localContextTokens: null, profile: "heavy", cacheSalt: true },
       conditions: [CELL], repeats: 6, attempts: CELL_CALLS[CELL], order: "trial_alternating_packets",
       manifest: { sha256: h("a"), name: "e0-synthesis-fixture-secret-name", task: "r3-grid-batteries", exposure: "exposed", briefSha256: h("b"), trialsPerPacket: 3, packetCount: 2,
         packets: RUNS.map((run, i) => ({ run, coverageSha256: h(String(i + 1)), evidenceSha256: h(String(i + 3)), planSha256: h(String(i + 5)) })) },
@@ -526,7 +526,8 @@ describe("E0 registry modes: the synthesis fixture", () => {
         ({ attempt: i === 0 ? 1 : 2, requestSha256: h(String(i + 1)), requestBytes: 95_001 + i, maxTokens: pair.maxOutputTokens, thinking: pair.thinking, lengthCapWords: 1800, streamed: true }))])) } },
       trials: records, calls, counts: { [CELL]: count(calls.map(item => item.classification)) }, outcomes: outcomes(records),
       byPacket: Object.fromEntries(RUNS.map(run => [run, outcomes(records.filter(record => record.packet === run))])),
-      codes: { 1: count(calls.filter(item => item.attempt === 1).flatMap(item => item.codes ?? [])), 2: count(calls.filter(item => item.attempt === 2).flatMap(item => item.codes ?? [])) } };
+      codes: { 1: count(calls.filter(item => item.attempt === 1).flatMap(item => item.codes ?? [])), 2: count(calls.filter(item => item.attempt === 2).flatMap(item => item.codes ?? [])) },
+      corrections: { acceptedWithDrops: 0, evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0, allUnresolvedByDrops: 0 } };
     return JSON.parse(JSON.stringify(written)) as Record<string, any>;
   }
   function synthesisDir(content: Record<string, unknown>) {
@@ -546,8 +547,18 @@ describe("E0 registry modes: the synthesis fixture", () => {
       manifest: { sha256: h("a"), briefSha256: h("b"), trialsPerPacket: 3, packetCount: 2 }, protocolSha256: h("7"), usageMissing: 1, cachedMissing: 1,
       usage: { calls: 6, inputTokens: 6 * 24000, outputTokens: 6 * 3000 },
       classes: { [CELL]: { accepted: 2, invalid: 2, truncated: 2, request_rejected: 1, malformed_reply: 1, transport_failed: 1 } },
-      outcomes: { model_synthesis: 2, skeleton: 1, no_outcome: 3 } });
+      outcomes: { model_synthesis: 2, skeleton: 1, no_outcome: 3 }, judge: "research_tolerance_v2",
+      corrections: { acceptedWithDrops: 0, evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0, allUnresolvedByDrops: 0 } });
     expect(result.inputSha256).toBe(digest(canonical({ [CELL]: h("4") })));
+    // A summary written before the judge field (the three cells of 2026-11-18 08:00, judged under tolerance version 1) rows with none.
+    const before = summary(); delete before.judge; delete before.corrections;
+    expect(JSON.parse(run(synthesis(synthesisDir(before)), "accepted")).fixture).toMatchObject({ judge: null, corrections: null });
+    // The tolerance's corrections on accepted calls, by kind, tallied from the calls: trial 1's reply the drops left all unresolved, trial 2's not.
+    const corrected = summary();
+    Object.assign(corrected.calls[0], { evidenceIdsDroppedNotCitable: 1, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 1, allUnresolvedByDrops: true });
+    Object.assign(corrected.calls[2], { evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 2, questionsDowngraded: 0 });
+    corrected.corrections = { acceptedWithDrops: 2, evidenceIdsDroppedNotCitable: 1, evidenceIdsDroppedNotTagged: 2, questionsDowngraded: 1, allUnresolvedByDrops: 1 };
+    expect(JSON.parse(run(synthesis(synthesisDir(corrected)), "accepted")).fixture.corrections).toEqual(corrected.corrections);
     expectAbsent(line, SERVED, ...RUNS, "e0-synthesis-fixture-secret-name", ".sse", "unknown_evidence_id", "sse_stream_unterminated", "trial_alternating_packets",
       `e0-synthesis-fixture-${CELL}-2026`);
   }, 60_000);
@@ -568,6 +579,8 @@ describe("E0 registry modes: the synthesis fixture", () => {
     const odd = summary(); odd.calls[0].classification = "email jane doe"; odd.counts[CELL] = { ...odd.counts[CELL], accepted: 1, "email jane doe": 1 };
     const repeated = summary(); repeated.calls.splice(1, 0, structuredClone(repeated.calls[0]));
     const trial = (index: number, change: Record<string, unknown>) => ({ ...summary(), trials: summary().trials.map((record: Record<string, unknown>, i: number) => i === index ? { ...record, ...change } : record) });
+    /** A summary with one call's corrections set (call 0 is accepted, call 1 invalid), its own tally left at zero. */
+    const withCorrections = (index: number, fields: Record<string, unknown>) => { const content = summary(); Object.assign(content.calls[index], fields); return content; };
     const cases: [Record<string, any>, string][] = [
       [{ ...summary(), counts: { [CELL]: { ...summary().counts[CELL], accepted: 3 } } }, "counts do not match its calls"],
       [{ ...summary(), outcomes: { model_synthesis: 2, skeleton: 2, no_outcome: 2 } }, "outcomes do not match its trials"],
@@ -593,6 +606,14 @@ describe("E0 registry modes: the synthesis fixture", () => {
       [{ ...summary(), manifest: { ...summary().manifest, briefSha256: "input/brief.md" } }, "manifest does not record its hashes and counts"],
       [{ ...summary(), protocolSha256: "the research protocol" }, "research protocol hash"],
       [{ ...summary(), dryRun: true }, "sent its requests"],
+      [{ ...summary(), judge: "lenient" }, "judge is not a research tolerance version"],
+      [{ ...summary(), corrections: { ...summary().corrections, acceptedWithDrops: 1 } }, "corrections do not match its calls"],
+      [withCorrections(1, { evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 1, questionsDowngraded: 0 }), "corrections are not ones the synthesis fixture writes"],
+      [withCorrections(0, { evidenceIdsDroppedNotCitable: 1 }), "corrections are not ones the synthesis fixture writes"],
+      [withCorrections(0, { evidenceIdsDroppedNotCitable: 1, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0, allUnresolvedByDrops: true }), "corrections are not ones the synthesis fixture writes"],
+      [withCorrections(0, { evidenceIdsDroppedNotCitable: 1, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 1, allUnresolvedByDrops: false }), "corrections are not ones the synthesis fixture writes"],
+      [withCorrections(0, { evidenceIdsDroppedNotCitable: -1, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0 }), "corrections are not ones the synthesis fixture writes"],
+      [{ ...summary(), judge: 2 }, "judge is not a research tolerance version"],
     ];
     for (const [content, message] of cases) expect(refused(synthesis(synthesisDir(content)), "rejected"), message).toContain(message);
     expect(refused(synthesis(scratch()), "incomplete")).toContain("writes summary.json before its first request");

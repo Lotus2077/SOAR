@@ -12,9 +12,9 @@ import { RESEARCH_PRESENTATION_POLICY } from "../../src/main/private-agent/resea
 import { runResearchPipeline, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
-import { CELL_CALLS, RUN_FILES, STAGE_CELL, SYNTHESIS_CELLS, SYNTHESIS_REPAIR_REASON, buildSynthesisRequest, checkStageReceipts, judgeSynthesisReply, parseSynthesisArguments,
+import { CELL_CALLS, RUN_FILES, STAGE_CELL, SYNTHESIS_CELLS, SYNTHESIS_JUDGE, SYNTHESIS_REPAIR_REASON, buildSynthesisRequest, checkStageReceipts, judgeSynthesisReply, parseSynthesisArguments,
   runSynthesisFixture, stageCheckPassed, synthesisCellVoid, synthesisPacketSha256, verifySynthesisInputs, type RunFile, type SynthesisCell, type SynthesisPacket } from "../../scripts/synthesis-fixture";
-import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
+import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources, researchV4TaggedReply, researchV4TaggedSources } from "../helpers/research-v4-fixture";
 
 /**
  * The E0 synthesis fixture (scripts/synthesis-fixture.ts, the E0 card's Amendment 7). The stage itself is the reference: the research pipeline
@@ -32,21 +32,24 @@ type Synth = (attempt: number) => string | { content: string; truncated: boolean
 /** A synthesis reply the stage refuses: it cites an evidence id the packet never had. */
 const refused = () => JSON.stringify({ version: 1, argument: "The source states nothing [E999].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.",
   questions: [{ questionId: "Q1", disposition: "findings", evidenceIds: ["E999"] }] });
-/** The research stage under the driver's local model configuration and a fake broker that records every body; `synth` answers the synthesis calls. */
-async function stage(job: string, synth: Synth, roles?: ResearchRolePolicy) {
+/**
+ * The research stage under the driver's local model configuration and a fake broker that records every body; `synth` answers the synthesis calls.
+ * `tagged` reads researchV4TaggedSources() with researchV4TaggedReply: two questions, whose quotes are each tagged for one of them.
+ */
+async function stage(job: string, synth: Synth, roles?: ResearchRolePolicy, tagged = false) {
   const bodies: { purpose: string; body: string }[] = [], diagnostics: ResearchDiagnostic[] = [];
   let synthesisCalls = 0;
   const request = async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
     bodies.push({ purpose: input.purpose, body: input.body });
     const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string;
-    const output = system.startsWith("You write") ? synth(synthesisCalls++) : researchV4Reply(system, user);
+    const output = system.startsWith("You write") ? synth(synthesisCalls++) : (tagged ? researchV4TaggedReply : researchV4Reply)(system, user);
     const content = typeof output === "string" ? output : output.content, truncated = typeof output !== "string" && output.truncated;
     const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: truncated ? "length" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
     return { bytes, receipt: { feeMicrousd: settle(bytes) } };
   };
   const config = buildLocalScreenModelConfig({ vllm: { model: "Synthetic" } as never, streamingEnabled: true }, COORDINATOR_PROFILES.heavy, true);
   const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, job, "reader");
-  const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: make(), planner: make(), synthesiser: make() },
+  const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: tagged ? researchV4TaggedSources() : researchV4Sources(), models: { reader: make(), planner: make(), synthesiser: make() },
     signal: new AbortController().signal, record: () => undefined, diagnostics: { retain: entry => { diagnostics.push(entry); } }, ...(roles ? { roles } : {}) });
   return { outcome, bodies, synthesisBodies: bodies.filter(b => b.purpose === "research synthesis").map(b => b.body), diagnostics };
 }
@@ -127,18 +130,61 @@ describe("E0 synthesis fixture: the stage's judge", () => {
       truncated: { content: "", truncated: true },
     };
     const accepted: string[] = [];
-    for (const [name, reply] of Object.entries(replies)) {
-      const run = await stage(`e0-synthesis-judge-${name}`, attempt => attempt === 0 ? reply : refused());
-      const summary = JSON.parse(run.outcome.files.find(f => f.path.endsWith("summary.json"))!.bytes.toString());
+    /** The stage on `reply` as its first attempt, against the fixture's verdict: acceptance, reasons, and for an accepted reply the questions and corrections it keeps. */
+    const compare = async (name: string, reply: { content: string; truncated: boolean }, judged: SynthesisPacket, tagged = false) => {
+      const run = await stage(`e0-synthesis-judge-${name}`, attempt => attempt === 0 ? reply : refused(), undefined, tagged);
+      const file = (suffix: string) => JSON.parse(run.outcome.files.find(f => f.path.endsWith(suffix))!.bytes.toString());
+      const summary = file("summary.json"), coverage = file("coverage.json");
       const attempts = summary.stages.find((row: { stage: string }) => row.stage === "synthesise").synthesisAttempts as { accepted: boolean }[];
       const stageReasons = run.diagnostics.find(d => d.stage === "synthesise" && d.ordinal === 1)?.reasons ?? [];
-      const verdict = judgeSynthesisReply(reply, packet, 0);
+      const verdict = judgeSynthesisReply(reply, judged, 0);
       expect({ name, accepted: verdict.accepted, reasons: verdict.reasons }).toEqual({ name, accepted: attempts[0]!.accepted, reasons: stageReasons });
-      if (verdict.accepted) accepted.push(name);
-    }
-    // Two kinds of reply reach acceptance, so the comparison covers both sides of every check.
-    expect(accepted).toEqual(["accepted", "headingsNormalised"]);
-  }, 120_000);
+      if (verdict.accepted) {
+        expect({ name, questions: verdict.questions, corrections: verdict.corrections }).toEqual({ name, questions: coverage.synthesis.questions, corrections: coverage.synthesis.corrections });
+        accepted.push(name);
+      }
+      return verdict;
+    };
+    for (const [name, reply] of Object.entries(replies)) await compare(name, reply, packet);
+    // Three kinds of reply reach acceptance, so the comparison covers both sides of every check. Under the evidence-id tolerance, a reply
+    // whose only listed id is no packet quote keeps its argument, with each question's id dropped and the question downgraded to unresolved.
+    expect(accepted).toEqual(["accepted", "headingsNormalised", "unknownEvidenceId"]);
+    expect(judgeSynthesisReply(replies.unknownEvidenceId!, packet, 0).corrections).toEqual({ dropped: questions.map(q => ({ questionId: q, reason: "not_citable", evidenceIds: ["E999"] })),
+      downgraded: questions.map(q => ({ questionId: q, from: "findings" })) });
+
+    // The tolerance on a packet whose quotes are tagged for different questions: a quote listed under a question it is not tagged for (b), an id
+    // no packet quote has (a), both, a findings and a conflict question the drop leaves with none, and an unresolved one that only loses ids.
+    const taggedBase = await stage("e0-synthesis-job-tagged", refused, undefined, true);
+    const tagged = verifySynthesisInputs(inputsFor(root, manifestFor([runDirectory(root, "run-3", "e0-synthesis-job-tagged", taggedBase, OTHER_BASE)]))).packets[0]!;
+    const taggedFor = (q: string) => tagged.evidence.quotes.filter(quote => quote.questionIds.includes(q)).map(quote => quote.id);
+    const [q1] = taggedFor("Q1"), [q2a, q2b] = taggedFor("Q2");
+    expect([q1, q2a, q2b].every(Boolean)).toBe(true);
+    const row = (questionId: string, disposition: string, evidenceIds: string[]) => ({ questionId, disposition, evidenceIds });
+    const two = (first: object, second: object) => ({ content: JSON.stringify({ version: 1, argument: `A finding [${q1}].${sections}`, questions: [first, second] }), truncated: false });
+    const taggedReplies: Record<string, { content: string; truncated: boolean }> = {
+      caseB: two(row("Q1", "findings", [q1!, q2a!]), row("Q2", "findings", [q2a!, q2b!])),
+      caseA: two(row("Q1", "findings", [q1!, "E999"]), row("Q2", "findings", [q2a!])),
+      bothDowngraded: two(row("Q1", "findings", ["E999", q2a!]), row("Q2", "conflict", [q1!])),
+      unresolvedKept: two(row("Q1", "conflict", [q2b!]), row("Q2", "unresolved", [q1!, q2a!])),
+      duplicateOffending: two(row("Q1", "findings", ["E999", "E999"]), row("Q2", "findings", [q2a!])),
+      offendingAndHeadingMissing: { content: JSON.stringify({ version: 1, argument: `A finding [${q1}].\n\n## Conflicting evidence\nNone.`,
+        questions: [row("Q1", "findings", [q2a!]), row("Q2", "findings", [q2a!])] }), truncated: false },
+    };
+    const verdicts: Record<string, ReturnType<typeof judgeSynthesisReply>> = {};
+    for (const [name, reply] of Object.entries(taggedReplies)) verdicts[name] = await compare(`tagged-${name}`, reply, tagged, true);
+    expect(accepted.slice(3)).toEqual(["tagged-caseB", "tagged-caseA", "tagged-bothDowngraded", "tagged-unresolvedKept"]);
+    const drop = (questionId: string, reason: string, evidenceIds: (string | undefined)[]) => ({ questionId, reason, evidenceIds });
+    expect(verdicts.caseB!.corrections).toEqual({ dropped: [drop("Q1", "not_tagged_for_question", [q2a])], downgraded: [] });
+    expect(verdicts.caseA!.corrections).toEqual({ dropped: [drop("Q1", "not_citable", ["E999"])], downgraded: [] });
+    expect(verdicts.bothDowngraded).toMatchObject({ questions: [row("Q1", "unresolved", []), row("Q2", "unresolved", [])],
+      corrections: { dropped: [drop("Q1", "not_citable", ["E999"]), drop("Q1", "not_tagged_for_question", [q2a]), drop("Q2", "not_tagged_for_question", [q1])],
+        downgraded: [{ questionId: "Q1", from: "findings" }, { questionId: "Q2", from: "conflict" }] } });
+    expect(verdicts.unresolvedKept).toMatchObject({ questions: [row("Q1", "unresolved", []), row("Q2", "unresolved", [q2a!])],
+      corrections: { dropped: [drop("Q1", "not_tagged_for_question", [q2b]), drop("Q2", "not_tagged_for_question", [q1])], downgraded: [{ questionId: "Q1", from: "conflict" }] } });
+    // What the tolerance does not cover is refused as before, and an offending id is never a reason.
+    expect(verdicts.duplicateOffending!.reasons.map(r => r.code)).toEqual(["duplicate_evidence_id"]);
+    expect(verdicts.offendingAndHeadingMissing!.reasons.map(r => r.code)).toEqual(["unanswered_questions_heading_missing"]);
+  }, 180_000);
 });
 
 /** A streamed reply as vLLM sends it: content deltas, the finish reason, the usage chunk, then [DONE]. */
@@ -194,7 +240,8 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
     expect(synthesisCellVoid(summary)).toBe(true);
     expect(summary.byPacket).toEqual({ "run-2": { model_synthesis: 1, skeleton: 1, no_outcome: 0 }, "run-3": { model_synthesis: 1, skeleton: 0, no_outcome: 1 } });
     expect(summary.counts).toEqual({ [STAGE_CELL]: { accepted: 2, invalid: 2, truncated: 1, request_rejected: 1 } });
-    expect(summary.codes).toEqual({ 1: { truncated: 1, unknown_citation: 1, unknown_evidence_id: 1 }, 2: { unknown_citation: 1, unknown_evidence_id: 1 } });
+    // The refused reply's E999 under Q1 is dropped by the evidence-id tolerance; its citation of E999 in the argument still refuses it.
+    expect(summary.codes).toEqual({ 1: { truncated: 1, unknown_citation: 1 }, 2: { unknown_citation: 1 } });
     expect(summary.calls.map(c => [c.trial, c.attempt, c.classification, c.finishReason ?? null, (c.usage as { completion_tokens?: number } | null)?.completion_tokens ?? null])).toEqual([
       [1, 1, "accepted", "stop", 4000], [2, 1, "invalid", "stop", 4000], [2, 2, "accepted", "stop", 4000], [3, 1, "truncated", "length", 8192], [3, 2, "invalid", "stop", 4000],
       [4, 1, "request_rejected", null, null]]);
@@ -209,7 +256,7 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
     const text = readFileSync(join(out, "summary.json"), "utf8");
     expect(statSync(join(out, "summary.json")).mode & 0o777).toBe(0o600);
     for (const needle of ["A bounded finding", "The source states nothing", server.baseUrl, "127.0.0.1", "e0-synthesis-trial-job"]) expect(text).not.toContain(needle);
-    expect(JSON.parse(text)).toMatchObject({ version: 1, kind: "synthesis", dryRun: false, conditions: [STAGE_CELL], repeats: 4, order: "trial_alternating_packets",
+    expect(JSON.parse(text)).toMatchObject({ version: 1, kind: "synthesis", dryRun: false, judge: SYNTHESIS_JUDGE, conditions: [STAGE_CELL], repeats: 4, order: "trial_alternating_packets",
       stageCheck: [{ run: "run-2", bodyBytes: [true, true], packetSha256: [true, true] }, { run: "run-3", bodyBytes: [true, true], packetSha256: [true, true] }] });
     expect(JSON.parse(text).finishedUtc).toEqual(expect.any(String));
     // The registry rows the summary this fixture wrote (scripts/registry-row.py --fixture synthesis), with no run name or reply file.
@@ -231,6 +278,31 @@ describe("E0 synthesis fixture: trials against a loopback endpoint", () => {
     expect(synthesisCellVoid(summary)).toBe(false);
     expect(server.requests.map(r => [r.body.reasoning_effort ?? null, r.body.chat_template_kwargs ?? null])).toEqual([["medium", null], [null, { enable_thinking: false }],
       ["medium", null], [null, { enable_thinking: false }]]);
+  }, 60_000);
+
+  it("records on an accepted call the ids the evidence-id tolerance dropped by kind, its downgrades and a reply the drops left all unresolved, and tallies them", async () => {
+    let packet: SynthesisPacket | undefined;
+    const id = () => [...packet!.packetIds][0]!, sections = "\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.";
+    const reply = (evidenceIds: string[], disposition = "findings") => JSON.stringify({ version: 1, argument: `A bounded finding [${id()}].${sections}`,
+      questions: [...packet!.questions].map(q => ({ questionId: q, disposition, evidenceIds })) });
+    // 1: an id no packet quote has, beside one that stands; 2: the only id, so every question is downgraded and the reply is all unresolved by
+    // the drops (the addendum counts it as no model synthesis); 3: unresolved throughout before the drop, which counts as the stage counts it.
+    const server = await fakeServer(ordinal => ({ sse: sse(ordinal === 1 ? reply([id(), "E999"]) : ordinal === 2 ? reply(["E998"]) : ordinal === 3 ? reply(["E997"], "unresolved") : reply([id()])) }));
+    const { root, packets } = await twoPackets(server.baseUrl), inputs = inputsFor(root, manifestFor(packets, { trialsPerPacket: 2 }));
+    packet = verifySynthesisInputs(inputs).packets[0];
+    const out = join(scratch(), "out");
+    const summary = await runSynthesisFixture({ endpoint: { baseUrl: server.baseUrl }, settings: SETTINGS, inputs, cell: "synthesis-16384", out });
+    expect(summary.outcomes).toEqual({ model_synthesis: 4, skeleton: 0, no_outcome: 0 });
+    expect(summary.calls.map(c => [c.classification, c.evidenceIdsDroppedNotCitable ?? null, c.evidenceIdsDroppedNotTagged ?? null, c.questionsDowngraded ?? null,
+      c.allUnresolvedByDrops ?? null])).toEqual([["accepted", 1, 0, 0, null], ["accepted", 1, 0, 1, true], ["accepted", 1, 0, 0, null], ["accepted", null, null, null, null]]);
+    expect(summary.corrections).toEqual({ acceptedWithDrops: 3, evidenceIdsDroppedNotCitable: 3, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 1, allUnresolvedByDrops: 1 });
+    expect(summary.judge).toBe(SYNTHESIS_JUDGE);
+    // The registry row tallies the same from the calls.
+    const flags = { "--id": "e0-synthesis-x", "--batch": "e0-2026-11", "--task": "synthetic", "--family": "research", "--exposure": "fresh", "--arm": "local",
+      "--verdict-by": "agent_diagnostic", "--lesson": "l", "--outcome": "accepted" };
+    const line = execFileSync("python3", ["-I", join(__dirname, "..", "..", "scripts", "registry-row.py"), "--fixture-dir", out, "--fixture", "synthesis",
+      ...Object.entries(flags).flat()], { cwd: join(__dirname, "..", ".."), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    expect(JSON.parse(line).fixture).toMatchObject({ judge: SYNTHESIS_JUDGE, corrections: summary.corrections });
   }, 60_000);
 
   it("counts a transport failure or a reply the model layer would reject as no outcome, and never sends attempt 2 after one", async () => {
@@ -291,7 +363,8 @@ describe("E0 synthesis fixture: the command line and the committed manifest", ()
     const stdout = execFileSync(process.execPath, ["--import", "tsx", "scripts/synthesis-fixture.ts", "--batch", root, "--brief", join(root, "brief.md"), "--manifest", join(root, "manifest.json"),
       "--cell", "synthesis-8192-repair-thinking-off", "--dry-run"], { cwd: join(__dirname, "..", ".."), encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
     const line = JSON.parse(stdout);
-    expect(line).toMatchObject({ dryRun: true, cell: "synthesis-8192-repair-thinking-off", trials: 4, packetCount: 2, stageCheckPassed: true, void: false,
+    expect(line).toMatchObject({ dryRun: true, judge: "research_tolerance_v2", cell: "synthesis-8192-repair-thinking-off", trials: 4, packetCount: 2, stageCheckPassed: true, void: false,
+      corrections: { acceptedWithDrops: 0, evidenceIdsDroppedNotCitable: 0, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0, allUnresolvedByDrops: 0 },
       stageCheck: [{ bodyBytes: [true, true], packetSha256: [true, true] }, { bodyBytes: [true, true], packetSha256: [true, true] }] });
     // Attempt 2's word cap is printed beside attempt 1's: with thinking off its ceiling rises, unless the brief states a lower limit.
     expect(line.requests.packets.map((pair: { lengthCapWords: number; thinking: string }[]) => pair.map(r => [r.thinking, r.lengthCapWords])))

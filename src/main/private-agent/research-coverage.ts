@@ -20,6 +20,45 @@ export type BriefUnit = z.infer<typeof BriefUnitSchema>;
 /** 7b.2: `evidence_trimmed` is a chunk question whose verified quotes the packet's caps all left out; it has no evidence ids, and an omission names it. */
 const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "evidence_trimmed", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
 const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["findings", "conflict", "unresolved"]), evidenceIds: z.array(eid).max(480) }).strict();
+type SynthesisQuestion = z.infer<typeof synthesisQuestion>;
+/**
+ * The synthesis evidence-id tolerance (RESEARCH_TOLERANCE_POLICY.synthesis.evidenceIds), disclosed by coverage version 6: the ids the
+ * host dropped from each question's list, by reason, and the findings or conflict questions the drops left with none, now unresolved.
+ * `not_citable`: no id the reply could cite (a stage reply's are the packet's quote ids; an assist reply's, the ids its own packet
+ * carried). `not_tagged_for_question`: a citable quote whose questionIds do not name that question.
+ */
+export const RESEARCH_SYNTHESIS_DROP_REASONS = ["not_citable", "not_tagged_for_question"] as const;
+export const ResearchSynthesisCorrectionsSchema = z.object({
+  dropped: z.array(z.object({ questionId: qid, reason: z.enum(RESEARCH_SYNTHESIS_DROP_REASONS), evidenceIds: z.array(eid).min(1).max(480) }).strict()).min(1).max(24),
+  downgraded: z.array(z.object({ questionId: qid, from: z.enum(["findings", "conflict"]) }).strict()).max(12) }).strict();
+export type ResearchSynthesisCorrections = z.infer<typeof ResearchSynthesisCorrectionsSchema>;
+/**
+ * The tolerance itself, shared by the synthesis stage's judge and the E0 synthesis fixture. A question keeps an id only when it is
+ * citable and its quote is tagged for that question. Every other id is dropped from that list, under its reason, and a findings or
+ * conflict question left with none becomes unresolved. The argument is not changed. Without a drop the questions come back as given
+ * and there are no corrections.
+ */
+export function correctSynthesisEvidenceIds(questions: readonly SynthesisQuestion[], citable: ReadonlySet<string>, quotes: readonly { id: string; questionIds: readonly string[] }[]):
+  { questions: SynthesisQuestion[]; corrections?: ResearchSynthesisCorrections } {
+  const dropped: ResearchSynthesisCorrections["dropped"] = [], downgraded: ResearchSynthesisCorrections["downgraded"] = [];
+  const corrected = questions.map((q): SynthesisQuestion => {
+    const tagged = (e: string) => quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId));
+    const notCitable = q.evidenceIds.filter(e => !citable.has(e)), notTagged = q.evidenceIds.filter(e => citable.has(e) && !tagged(e));
+    if (!notCitable.length && !notTagged.length) return q;
+    if (notCitable.length) dropped.push({ questionId: q.questionId, reason: "not_citable", evidenceIds: notCitable });
+    if (notTagged.length) dropped.push({ questionId: q.questionId, reason: "not_tagged_for_question", evidenceIds: notTagged });
+    const kept = q.evidenceIds.filter(e => citable.has(e) && tagged(e));
+    if (kept.length || q.disposition === "unresolved") return { ...q, evidenceIds: kept };
+    downgraded.push({ questionId: q.questionId, from: q.disposition });
+    return { questionId: q.questionId, disposition: "unresolved", evidenceIds: kept };
+  });
+  return dropped.length ? { questions: corrected, corrections: { dropped, downgraded } } : { questions: corrected };
+}
+/** The synthesise row's counts of a synthesis's corrections, by kind: zero without corrections. The stage, the fixture and the validator share it. */
+export function synthesisCorrectionCounts(corrections?: ResearchSynthesisCorrections) {
+  const dropped = (reason: (typeof RESEARCH_SYNTHESIS_DROP_REASONS)[number]) => (corrections?.dropped ?? []).filter(d => d.reason === reason).reduce((n, d) => n + d.evidenceIds.length, 0);
+  return { evidenceIdsDroppedNotCitable: dropped("not_citable"), evidenceIdsDroppedNotTagged: dropped("not_tagged_for_question"), questionsDowngraded: corrections?.downgraded.length ?? 0 };
+}
 /**
  * Version 2 since 7(c) (#93): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`.
  * Version 3 since 7b.2 (#102): an omission names its quote's chunks and locator, so (sourceId,
@@ -28,9 +67,10 @@ const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["find
  */
 /**
  * Item (ii) (#139): version 4, whose chunks may hold a third attempt, a second repair. The owner's answer of 2026-11-18 (#166): version 5,
- * which may hold one declared gap; the stage writes 5, and a version 4 record, which holds none, still reads.
+ * which may hold one declared gap; a version 4 record, which holds none, still reads. The synthesis evidence-id tolerance: version 6,
+ * whose model synthesis may disclose the host's corrections (`synthesis.corrections`); the stage writes 6, and 4 and 5, which hold none, still read.
  */
-export const ResearchCoverageSchema = z.object({ version: z.union([z.literal(4), z.literal(5)]), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
+export const ResearchCoverageSchema = z.object({ version: z.union([z.literal(4), z.literal(5), z.literal(6)]), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
   chunks: z.array(z.object({ id: z.string().min(1).max(80), sourceId: id, sourceSha256: sha256Schema, startByte: integer, endByte: integer, sha256: sha256Schema,
@@ -43,7 +83,8 @@ export const ResearchCoverageSchema = z.object({ version: z.union([z.literal(4),
   /** The owner's answer of 2026-11-18 (#166): the one chunk whose last reply, after every repair, declared these questions unresolved. Absent without one. */
   gaps: z.array(z.object({ chunkId: z.string().min(1).max(80), sourceId: id, questionIds: z.array(qid).min(1).max(12), attempts: z.number().int().min(1).max(3) }).strict()).length(1).optional(),
   unresolved: z.array(z.string().min(1).max(80)).max(4096),
-  synthesis: z.object({ status: z.enum(["pending", "complete", "invalid", "skeleton"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12) }).strict(),
+  synthesis: z.object({ status: z.enum(["pending", "complete", "invalid", "skeleton"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12),
+    corrections: ResearchSynthesisCorrectionsSchema.optional() }).strict(),
   fallbacks: z.object({ plan: z.enum(["none", "host_plan"]), synthesis: z.enum(["none", "skeleton"]) }).strict(),
   status: z.enum(["ready", "incomplete"]), semanticAcceptance: z.literal("not_evaluated"), corpusAbsenceEstablished: z.literal(false) }).strict();
 export type ResearchCoverage = z.infer<typeof ResearchCoverageSchema>;
@@ -189,7 +230,7 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   // chunk a ready packet may hold that is not complete. Its record must be the chunk's own: its source, its status and its attempts.
   // The gap is left only after every repair: a second one under a card's admission rates (the summary records them), else one.
   const gap = coverage.gaps?.[0], gapChunk = gap ? coverage.chunks.find(c => c.id === gap.chunkId) : undefined;
-  if (gap && (coverage.version !== 5 || !gapChunk || gapChunk.sourceId !== gap.sourceId || gapChunk.status !== "needs_followup" || gapChunk.attempts.length !== gap.attempts ||
+  if (gap && (coverage.version < 5 || !gapChunk || gapChunk.sourceId !== gap.sourceId || gapChunk.status !== "needs_followup" || gapChunk.attempts.length !== gap.attempts ||
     gap.attempts !== (summary.admission ? 3 : 2) || gapChunk.attempts.at(-1)?.status !== "needs_followup")) fail("gap");
   if (coverage.status !== "ready" || coverage.unresolved.length || coverage.sources.some(s => !s.readable) ||
     coverage.chunks.some(c => c !== gapChunk && (c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete")) ||
@@ -300,6 +341,22 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   if (read(RESEARCH_FILES.evidenceText) !== renderResearchEvidence(evidence, plan) || byPath.get(RESEARCH_FILES.evidenceText)!.length > RESEARCH_COVERAGE_POLICY.packetBytes) fail("evidence_render");
   const synth = coverage.synthesis.questions;
   if (!unique(synth.map(q => q.questionId)) || canonical(synth.map(q => q.questionId).sort()) !== canonical([...questions].sort()) || synth.some(q => !unique(q.evidenceIds) || q.evidenceIds.some(e => !evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId))) || (q.disposition !== "unresolved" && !q.evidenceIds.length))) fail("synthesis_coverage");
+  // The synthesis evidence-id tolerance (version 6): the corrections a model synthesis kept, and only one. Each names a plan question,
+  // once a reason, and an id once a question. A dropped id is not in its question's list. A `not_tagged_for_question` id is a packet
+  // quote not tagged for that question. A `not_citable` id is no packet quote when the stage's own reply was accepted; an assist reply's
+  // citable ids are its own packet's, which this packet does not record. A downgraded question lost ids and lists none, so the check
+  // above holds it unresolved. The synthesise row counts both, by kind, at version 6 always, and below it not at all.
+  const corrections = coverage.synthesis.corrections, synthesisRow = summary.stages[3] as Record<string, unknown> & { synthesisAttempts?: { slot?: unknown }[] };
+  if (corrections) {
+    const listed = (questionId: string) => synth.find(q => q.questionId === questionId)!.evidenceIds, stageReply = synthesisRow.synthesisAttempts?.at(-1)?.slot === undefined;
+    const isQuote = (e: string) => evidence.quotes.some(quote => quote.id === e), taggedFor = (e: string, questionId: string) => evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(questionId));
+    const droppedFrom = (questionId: string) => corrections.dropped.filter(d => d.questionId === questionId).flatMap(d => d.evidenceIds);
+    if (coverage.version < 6 || coverage.synthesis.status !== "complete" || !unique(corrections.dropped.map(d => `${d.questionId} ${d.reason}`)) ||
+      !unique(corrections.downgraded.map(d => d.questionId)) || corrections.dropped.some(d => !questions.has(d.questionId) || !unique(droppedFrom(d.questionId)) ||
+        d.evidenceIds.some(e => listed(d.questionId).includes(e) || (d.reason === "not_tagged_for_question" ? !isQuote(e) || taggedFor(e, d.questionId) : stageReply && isQuote(e)))) ||
+      corrections.downgraded.some(d => !corrections.dropped.some(x => x.questionId === d.questionId) || listed(d.questionId).length)) fail("synthesis_corrections");
+  }
+  if (Object.entries(synthesisCorrectionCounts(corrections)).some(([key, value]) => coverage.version >= 6 ? synthesisRow[key] !== value : synthesisRow[key] !== undefined)) fail("synthesis_corrections");
   if (!/^## Conflicting evidence\s*$/mu.test(read(RESEARCH_FILES.argument)) || !/^## Unanswered questions\s*$/mu.test(read(RESEARCH_FILES.argument))) fail("argument_sections");
   if (coverage.fallbacks.synthesis === "skeleton") {
     const skeleton = hostSkeletonSynthesis(plan, evidence);

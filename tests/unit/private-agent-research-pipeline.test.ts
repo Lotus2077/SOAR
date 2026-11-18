@@ -68,6 +68,8 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "secondRepairCalls", "secondRepairsComplete",
   // The owner's answer of 2026-11-18 (#166): the held chunks and those kept unrepaired (under a card's admission rates), and a declared gap; counts.
   "heldChunks", "heldKeptUnrepaired", "declaredGaps",
+  // The synthesis evidence-id tolerance: on the synthesise row, the accepted synthesis's ids dropped by kind (with questionsDowngraded above); counts.
+  "evidenceIdsDroppedNotCitable", "evidenceIdsDroppedNotTagged",
   // 10.b (BL-20261117-1202-assist-wiring-design, decision 7): the touchpoint's assist record, schema-validated: counts, fixed codes, enums and the
   // provider's model identifier (no white space, at most 200 characters), never free text.
   "assist"]);
@@ -292,7 +294,8 @@ describe("backlog item 4: the label-keyed diagnostics sink", () => {
     expect(retained[0]!.reasons).toEqual([{ code: "schema_invalid_type", path: ["quotes", 0, "quote"] }, { code: "schema_unrecognized_keys", path: ["quotes", 0] }]);
     expect(JSON.stringify(retained[0]!.reasons)).not.toContain("SECRET_KEY_NAME");
     expect(retained[1]!.reasons).toEqual([{ code: "question_set_mismatch", path: ["questions"] }, { code: "duplicate_question_id", path: ["conflicts", 0, "questionIds"] }]);
-    expect(retained[2]!.reasons).toEqual([{ code: "question_set_mismatch", path: ["questions"] }, { code: "duplicate_evidence_id", path: ["questions", 0, "evidenceIds"] }, { code: "unknown_evidence_id", path: ["questions", 0, "evidenceIds"] },
+    // E9, no packet quote, is no reason: the synthesis evidence-id tolerance drops it from Q1's list. The reply is refused for the rest.
+    expect(retained[2]!.reasons).toEqual([{ code: "question_set_mismatch", path: ["questions"] }, { code: "duplicate_evidence_id", path: ["questions", 0, "evidenceIds"] },
       { code: "disposition_without_evidence", path: ["questions", 1, "evidenceIds"] }, { code: "conflicting_evidence_heading_missing", path: ["argument"] }, { code: "unanswered_questions_heading_missing", path: ["argument"] }]);
   });
   it("pins the frozen research protocol through the shared pin; the sink is no part of it", () => {
@@ -744,7 +747,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // A settled assist is one of the stage's calls, its usage summed with the stage's; a no_reply outcome is counted nowhere.
     expect(stage.usage.inputTokens).toBe(stageCount * 100 + (settledAssist ? usage.inputTokens : 0));
     const coverage = parsed(result, RESEARCH_FILES.coverage), plan = parsed(result, RESEARCH_FILES.plan);
-    expect(coverage.version).toBe(5); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
+    expect(coverage.version).toBe(6); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
     // An accepted assist plan is kept with its aliases translated to the real ids; otherwise the host fallback plan.
     if (kind === "accepted") expect(plan.questions[0].sourceIds).toEqual(["input/corpus/beta.md", "input/corpus/alpha.md"]);
     else expect(plan).toEqual(hostFallbackPlan(coverage.units));
@@ -818,12 +821,38 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     const once = hook("local_first", undefined, synthesisBy("rejected")); await run(rejecting("synthesise"), { assists: once.assists }); expect(once.seen.synthesis).toHaveLength(1);
   });
 
+  it("drops from a question's list an id the synthesis assist's packet did not carry, and the packet binds the drop (the synthesis evidence-id tolerance)", async () => {
+    // Under the forced split the assist answers first. It says its packet carried only the first quote, and lists every quote under Q1.
+    const h = hook("forced_split", undefined, request => {
+      const ids = request.evidence.quotes.map(quote => quote.id);
+      return { kind: "reply", usage, truncated: false, evidenceIds: [ids[0]!], content: JSON.stringify({ version: 1,
+        argument: `A bounded finding [${ids[0]}].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.`,
+        questions: [{ questionId: "Q1", disposition: "findings", evidenceIds: ids }] }) };
+    });
+    const result = await run(models(), { assists: h.assists });
+    expect(result.status).toBe("completed");
+    const ids = h.seen.synthesis[0]!.evidence.quotes.map(quote => quote.id);
+    expect(ids.length).toBeGreaterThan(1);
+    expect(parsed(result, RESEARCH_FILES.coverage).synthesis).toMatchObject({ status: "complete", questions: [{ questionId: "Q1", disposition: "findings", evidenceIds: [ids[0]] }],
+      corrections: { dropped: [{ questionId: "Q1", reason: "not_citable", evidenceIds: ids.slice(1) }], downgraded: [] } });
+    expect(result.summary.stages[3]).toMatchObject({ evidenceIdsDroppedNotCitable: ids.length - 1, evidenceIdsDroppedNotTagged: 0, questionsDowngraded: 0 });
+    expect(result.summary.stages[3]!.synthesisAttempts!.map(a => [a.slot ?? "stage", a.accepted])).toEqual([["assist", true]]);
+    // The dropped ids are packet quotes tagged for Q1, dropped as not citable: the validator accepts that only because an assist's citable ids
+    // are its own packet's.
+    // A dropped id its question still lists is refused whichever reply was kept.
+    const files = copy(result);
+    edit(files, RESEARCH_FILES.coverage, value => { value.synthesis.corrections.dropped[0].evidenceIds.push(ids[0]); });
+    edit(files, RESEARCH_FILES.summary, value => { value.stages[3].evidenceIdsDroppedNotCitable += 1; });
+    expect(() => validateReadyResearchPacket(files)).toThrow("research_packet_synthesis_corrections");
+  });
+
   it("lets a synthesis assist cite only the evidence ids its packet carried", async () => {
     const s = sink(), h = hook("forced_split", undefined, request => ({ kind: "reply", usage, truncated: false, evidenceIds: [], content: goodSynthesis(request) }));
     const result = await run(rejecting("synthesise"), { assists: h.assists, diagnostics: s.diagnostics });
     expect(result.summary.stages[3]).toMatchObject({ calls: 3, invalidReplies: 3, fallback: "skeleton" });
     const assist = s.entries.find(e => e.purpose === SYNTHESIS_ASSIST_PURPOSE)!;
-    expect(assist.reasons.map(r => r.code)).toEqual(expect.arrayContaining(["unknown_evidence_id", "unknown_citation"]));
+    // The ids it lists but its packet did not carry are dropped by the evidence-id tolerance, never a reason; citing them in the argument still refuses it.
+    expect(assist.reasons.map(r => r.code)).toEqual(["unknown_citation"]);
     // The same reply from the stage model, which may cite the whole packet, is accepted.
     const local = await run(models()); expect(local.summary.stages[3]!.synthesisAttempts!.map(a => a.accepted)).toEqual([true]);
   });
@@ -844,7 +873,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     // Synthesis requests differ from 7a.1's only by coverage: its version, `fallbacks` and the protocol hash.
     const clean = models(); await run(clean); const synthesis = clean.calls.find(c => c.stage === "synthesise")!.input;
     expect(Object.keys(synthesis)).toEqual(["brief", "coverage", "evidence", "lengthCap", "plan", "repairReason", "units"]);
-    expect(synthesis.coverage).toMatchObject({ version: 5, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
+    expect(synthesis.coverage).toMatchObject({ version: 6, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
     // With coverage put back in 7a.1's shape (version 1, no fallbacks, 7a.1's protocol), the request is 7a.1's byte for byte
     // (captured at #76's head 2fe1ec8, whose protocol is 05f342b2...).
     const v4 = JSON.parse(clean.calls.find(c => c.stage === "synthesise")!.body.messages[1].content as string);

@@ -36,7 +36,7 @@ export const RESEARCH_PRESENTATION_POLICY = Object.freeze({ version: 1, maxBytes
  * (str.isspace), lines ending at CRLF, CR or LF (universal newlines) with their separators kept, fenced code removed before
  * HTML comments are searched. The pipeline builds its scanner from these values, so the policy is the definition.
  */
-export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
+export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 2,
   extraction: Object.freeze({ incompleteWhen: Object.freeze(["truncated", "invalid_json", "schema_invalid", "question_set_mismatch", "needs_followup"]),
     contributes: "complete_attempt_only",
     quoteDrops: Object.freeze(["quote_length", "quote_unencodable", "quote_not_located", "duplicate_question_id", "unknown_question_id"]),
@@ -48,7 +48,16 @@ export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
     allQuotesOfAFoundQuestionDropped: "first_attempt_held_repaired_after_other_repairs_while_budget_lasts_else_kept" }),
   /** 7(c): a model-written index field canonical() cannot encode makes its row schema-invalid (literal card or repair). */
   index: Object.freeze({ unencodableField: "row_schema_invalid" }),
-  synthesis: Object.freeze({ rejectWhen: Object.freeze(["argument_unencodable"]) }),
+  synthesis: Object.freeze({ rejectWhen: Object.freeze(["argument_unencodable"]),
+    /**
+     * Version 2, the E0 card's Amendment 7 addendum (variant (i) of the E0 synthesis fixture's re-judge): an evidence id a question lists
+     * that is not citable, or whose quote is not tagged for that question, is dropped from that list instead of refusing the reply; a
+     * findings or conflict question left with none becomes unresolved. coverage.synthesis.corrections and the synthesise row disclose
+     * both. A duplicate id and a findings or conflict question the reply itself left without ids are refused as before.
+     */
+    evidenceIds: Object.freeze({ drop: Object.freeze(["not_citable", "not_tagged_for_question"]), emptiedFindingsOrConflict: "downgraded_to_unresolved",
+      stillRefused: Object.freeze(["duplicate_evidence_id", "disposition_without_evidence"]), argument: "unchanged",
+      disclosed: Object.freeze(["coverage_synthesis_corrections", "synthesise_row_counts"]) }) }),
   synthesisHeadings: Object.freeze({ titles: Object.freeze(["Conflicting evidence", "Unanswered questions"]), target: "## {title}",
     /** claims.ts reads a Markdown report with Path.read_text (universal newlines), so CRLF, CR and LF all end a line; separators are kept. */
     lineBreaks: "universal_newlines", separators: "kept",

@@ -201,7 +201,15 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
     const why = trimmed ? `; ${trimmed === total ? (total === 1 ? "it" : "each") : `${trimmed} of them`} had verified evidence, all left out of the packet at its caps` : "";
     issues.push(`${many(total, "research question has", "research questions have")} no retained evidence${why}.`);
   }
-  if (misses.unresolvedQuestions) issues.push(`${many(misses.unresolvedQuestions, "research question was", "research questions were")} left unresolved by the synthesis.`);
+  if (misses.unresolvedQuestions) {
+    // The synthesis evidence-id tolerance: some of them the host's evidence check downgraded, having dropped every id the synthesis listed
+    // for them (coverage.json's synthesis corrections). An event recorded before the tolerance has no such count, and its line reads as before.
+    const total = misses.unresolvedQuestions, host = Math.min(misses.questionsDowngraded ?? 0, total);
+    const removed = (n: number) => `the host's evidence check, which removed every evidence ID the synthesis listed for ${n === 1 ? "it" : "them"}`;
+    issues.push(host === 0 ? `${many(total, "research question was", "research questions were")} left unresolved by the synthesis.`
+      : host === total ? `${many(total, "research question was", "research questions were")} downgraded to unresolved by ${removed(total)}.`
+      : `${many(total, "research question was", "research questions were")} left unresolved, ${host} of them downgraded by ${removed(host)}.`);
+  }
   // The owner's answer of 2026-11-18 (#166): a packet may stand with one passage whose reading stayed unresolved; coverage.json names it.
   if (misses.declaredGaps) issues.push(`One passage of the sources stayed unresolved after its repairs: the reader declared ${many(misses.gapQuestions ?? 0, "research question", "research questions")} unresolved there, and the packet holds no evidence from it.`);
   const left = [...(misses.quotesLeftByCap ? [many(misses.quotesLeftByCap, "verified quote", "verified quotes")] : []),

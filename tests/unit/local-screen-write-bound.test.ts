@@ -40,8 +40,11 @@ function workspace(): string { const root = realpathSync(mkdtempSync(join(tmpdir
  * coverage.json, whose version 4 and new protocol hash change its bytes. It was 047f181ce77830e47681b94ed33c7ec454f13e0740d5201c98ce967b69a1e05f.
  * The owner's answer of 2026-11-18 (#166) moved it again: the seed's coverage.json is version 5 and records the new protocol hash (the seed
  * has no gap), and the writer's instructions gain a sentence on gaps. It was df3b387d51f3627a39690506682a9c2e86909cf4d5b96eae0eefe18f9a9d0c5a.
+ * The synthesis evidence-id tolerance moved it again: the seed's coverage.json is version 6 and records the new protocol hash (the seed's
+ * synthesis has no correction), its summary's synthesise row records the tolerance's counts (all zero), and the writer's instructions gain
+ * a sentence on corrections. It was 7c0193d47f2b0ddb5b8f912c04e952a934b2181089734f30d43ebd4330862841.
  */
-const WRITER_1_PHASE_SHA256 = "7c0193d47f2b0ddb5b8f912c04e952a934b2181089734f30d43ebd4330862841";
+const WRITER_1_PHASE_SHA256 = "5971c658753d09d0187d5c80f2c9f82909dbc807d262f4bbf2b9a059961f8168";
 /** Heavy's limits as freeze.json records them for a seeded local writer. */
 const HEAVY_LIMITS = { requests: 200, modelCalls: 80, toolCalls: 120, outputTokens: 16_384, inputBytes: 640 * 1024, requestTimeoutMs: 900_000, elapsedMs: 5_400_000, feeMicrousd: 0 };
 const environment = (baseUrl: string) => ({ SOAR_PROVIDER_MODE: "local", SOAR_VLLM_BASE_URL: baseUrl, SOAR_VLLM_COST_POLICY: "local_zero_cost", SOAR_VLLM_MODEL: "RM-01 VLM" });

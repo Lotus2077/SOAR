@@ -47,7 +47,8 @@ these places too, until it is restated:
   it. Its serving card is `proposed`, so no run reads it. E1's gate is released. No card
   exists for E5, E2, E6, E3 or E4, and each waits for an owner answer (§4).
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5
-  origin/main` and the log's tail (`grep -n '^### BL-' docs/BUILD_LOG.md | tail -5`).
+  origin/main` and the newest entries (`ls docs/build-log | tail -5`; before
+  2026-11-18, `grep -n '^### BL-' docs/BUILD_LOG.md | tail -5`).
   Ask the owner which of the fourteen open questions (§4: the twelve topics and
   questions 13 and 14) now has an answer. Question 15 is answered (§3). Record each
   answer in an `Approved` entry, quoted, before acting on it.
@@ -133,8 +134,9 @@ tests/helpers/research-protocol-pin.ts.
    (architecture v5), §5.6 (experiments E0-E7, their caps, rules and order), §5.7
    (the backlog) and §5.10 (owner decisions).
 2. [PLAN.md](PLAN.md): the owner-direction note in §1 and the envelope in §4.
-3. [BUILD_LOG.md](BUILD_LOG.md), by grepping these IDs (the file is more than 47,000
-   lines; never read it whole). A correction governs the entry it corrects.
+3. [BUILD_LOG.md](BUILD_LOG.md), the frozen archive to 2026-11-18, by grepping these
+   IDs (the file is more than 47,000 lines; never read it whole), and the entry files
+   in [build-log/](build-log/) since. A correction governs the entry it corrects.
    - BL-20261116-1357-e0-verified, first and in full: what E0 found, what it did not,
      and its Next gate. It cites the run entries. Then
      BL-20261116-1441-e0-card-amendment-4 (Amendment 4) and
@@ -192,7 +194,10 @@ tests/helpers/research-protocol-pin.ts.
   its entries after `main`'s tail at merge, date included, with a `Correction` entry
   that records the original IDs. Train 1's sorted union
   (BL-20261110-1506-merge-train-1-integration) was a one-time exception and is not
-  reopened.
+  reopened. Superseded by decision 3 of
+  BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout once
+  BL-20261118-0428-build-log-entry-files is on `main`: entries are files, and nothing is
+  re-stamped.
 - **E0's card** (2026-11-13; BL-20261113-1003-e0-card-owner-answers), now with
   Amendments 1 to 4.
   - Decision 1: the endpoint serves the model qualified on 2026-11-04, so E0 is a
@@ -518,9 +523,15 @@ the session's choice, and no entry records it.
 
 ### 6. Rules for every step
 
-- Follow `AGENTS.md` and the log rules at the top of BUILD_LOG.md: UTC entry IDs,
-  append-only entries, and corrections only as new `Correction` entries. Keep
-  `Proposed`, `Approved`, `Implemented`, `Verified` and `Released` distinct.
+- Follow `AGENTS.md`'s log rules (BL-20261118-0428-build-log-entry-files).
+  - **One entry file a pull request,** under `docs/build-log/`, named by its UTC ID and
+    about 25 lines. It may be revised until the pull request merges, and must be true
+    then.
+  - **The archive.** `docs/BUILD_LOG.md` is the frozen archive.
+  - **Corrections.** A file on `main` never changes; a correction is a new `Correction`
+    file.
+  - **The log rules at the top of BUILD_LOG.md** are historical.
+  - Keep `Proposed`, `Approved`, `Implemented`, `Verified` and `Released` distinct.
 - The endpoint's address lives only in the owner's ignored `.env.local`
   (`SOAR_VLLM_BASE_URL`, `SOAR_VLLM_MODEL`, `SOAR_VLLM_COST_POLICY=local_zero_cost`);
   the JAO and JAT keys only in the owner's local configuration. scripts/with-cloud-key.sh
@@ -564,12 +575,10 @@ the session's choice, and no entry records it.
 - **The session's practice of 2026-11-13 and 2026-11-14,** not an owner decision:
   - The owner's permission settings refuse a force-push, so bring `main` into a branch
     with a merge, never a rebase that needs one.
-  - When several branches are ready, the lanes re-stamp into reserved, ascending
-    minute blocks and one integration PR lands them with one CI run.
-  - Ready PRs merge one at a time: each branch merges `main` in after the previous
-    merge and re-stamps after its tail. PRs that must land in sequence can each merge
-    the previous PR's head instead of `main`, so their CI runs at once; they then
-    merge strictly in that order.
+  - Re-stamping and its merge order ended with BL-20261118-0428-build-log-entry-files.
+    Entry files never conflict, so ready PRs merge in any order.
+  - A branch merges `main` in only when another file conflicts, or when its checks need
+    `main`'s state.
 - **The session's practice of 2026-11-16,** not an owner decision:
   - The session asks the owner before it merges a PR that is not a lane PR, an E0
     record PR or a handoff restatement.
@@ -638,8 +647,10 @@ the session's choice, and no entry records it.
     scripts/private-agent-local-screen.ts returns, before any loop or E-run, and let
     none span a merge that moves it (decision (3) of
     BL-20261116-1205-correction-research-role-policy-review).
-  - A re-stamp alone can move it: comments in hashed files cite entry IDs
-    (BL-20261116-1127-correction-e0-extractor-fixture-restamp).
+  - Before the switch to entry files, a re-stamp alone could move it, because comments in
+    hashed files cite entry IDs (BL-20261116-1127-correction-e0-extractor-fixture-restamp).
+    Since then the validator refuses a new log ID under `src/` or `scripts/`. The
+    citations already there go in one later PR, which moves the digest once.
 - **The research protocol hash** changed with train 1, with #93 and again with #102.
   A research run directory from before #102 no longer seeds
   (`research_seed_protocol_mismatch`), E0's five r3 runs among them. A research session

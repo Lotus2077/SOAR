@@ -59,12 +59,33 @@ boundary or persisted event.
 5. Keep network-dependent, paid, and real-model tests opt-in.
 6. Update the architecture, readiness, routing, or benchmark docs when their
    contracts change.
-7. Add an entry to [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for a material
+7. Add one entry file under [docs/build-log/](docs/build-log/) for a material
    product, architecture, persisted-contract, provider, cost, security,
-   evaluation, failure, or milestone change. Append corrections; do not rewrite
-   an earlier decision or negative result. Use the collision-resistant ID and
-   concurrent-PR rules in that ledger, rebase before merge, and retain both
-   entries when resolving a tail conflict.
+   evaluation, failure, or milestone change. The rules are in
+   [AGENTS.md](AGENTS.md); `pnpm validate:build-log -- --base-ref origin/main`
+   checks them.
+   - The file is named by its ID, `BL-YYYYMMDD-HHMM-slug.md`, in UTC. Its first
+     line is `### <ID> -- <UTC date> -- <title>`, and the ten fields follow.
+   - It runs about 25 lines, with the detail in the pull request's description.
+   - It may be revised until the pull request merges, and must be true then.
+   - A file on `main` never changes; correct it with a new `Correction` file.
+   - [docs/BUILD_LOG.md](docs/BUILD_LOG.md) is the frozen archive of every entry
+     to 2026-11-18. Nothing edits it.
+   - Entries do not conflict, so they are never re-stamped, and pull requests
+     merge in any order.
+   - A pull request adds no log ID to a file under `src/` or `scripts/`.
+
+   **A branch opened before the switch** moves the entries it appended to the
+   archive into files:
+
+   ```bash
+   git merge origin/main          # if it stops on docs/BUILD_LOG.md, leave that file
+   pnpm build-log:to-files        # moves your entries to docs/build-log/ and restores the archive
+   git add -A docs && git commit --no-edit
+   ```
+
+   Then remove any log ID the branch added under `src/` or `scripts/`; the
+   validator names each one.
 
 An approval-gated plan is not authorized by a merge or by silence. Follow the
 approval record and scope defined by that plan before beginning gated runtime
@@ -130,7 +151,8 @@ The held-out benchmark evaluator and PR6R development canary were removed on
 - include screenshots for renderer changes;
 - call out event/schema, security-boundary, cost, or benchmark-comparability
   changes explicitly;
-- include the required build-log entry for every material change;
+- include the required entry file under `docs/build-log/` for every material
+  change;
 - exclude `.env.local`, databases, caches, run traces, gold data, and generated
   build output.
 

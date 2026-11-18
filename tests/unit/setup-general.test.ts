@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { QUALIFIED_IMAGE } from "../../src/main/private-agent/capabilities";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
-import { parseEnvFile, printableIdentity, profileContextTokens, resolveSettings, runGeneralSetup, userDataEnvFile, type GeneralSetupProbes } from "../../scripts/setup-general";
+import { parseEnvFile, printableIdentity, profileContextTokens, resolveSettings, runGeneralSetup, setupUserDataEnvFile, userDataEnvFile, type GeneralSetupProbes } from "../../scripts/setup-general";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
 const cleanup: (() => void)[] = [];
@@ -46,6 +47,23 @@ describe("pnpm setup:general doctor", () => {
     const f = setup({ userData: "SOAR_VLLM_MODEL=user-data\n", cwd: `SOAR_VLLM_MODEL=cwd\nSOAR_VLLM_BASE_URL=${secretUrl}\n` });
     expect(resolveSettings({ SOAR_VLLM_API_KEY: "env" }, f.userDataFile, join(f.cwd, ".env.local"))).toMatchObject({ SOAR_VLLM_MODEL: "user-data", SOAR_VLLM_BASE_URL: secretUrl, SOAR_VLLM_API_KEY: "env" });
     expect(userDataEnvFile("/Users/x", "darwin")).toBe("/Users/x/Library/Application Support/SOAR/.env.local");
+  });
+  it("writes the beta's own settings file from a checkout with the local research beta on, and refuses what the app refuses (backlog item 13a)", () => {
+    const { root, cwd } = setup(), home = join(root, "home"), plain = userDataEnvFile(home, "darwin");
+    expect(setupUserDataEnvFile({}, cwd, home, "darwin")).toEqual({ file: plain });
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "false" }, cwd, home, "darwin")).toEqual({ file: plain });
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "true" }, cwd, home, "darwin")).toEqual({ file: join(home, "Library", "Application Support", "SOAR Research Beta", ".env.local") });
+    writeFileSync(join(cwd, ".env.local"), "SOAR_ENABLE_LOCAL_RESEARCH_BETA=true\n");
+    expect(setupUserDataEnvFile({}, cwd, home, "darwin")).toEqual({ file: join(home, "Library", "Application Support", "SOAR Research Beta", ".env.local") });
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "yes" }, cwd, home, "darwin")).toEqual({ refused: "SOAR_ENABLE_LOCAL_RESEARCH_BETA must be true or false." });
+  });
+  it("refuses at the command line what the app refuses, before any probe or write (backlog item 13a)", () => {
+    const { root } = setup(), home = join(root, "home");
+    const result = spawnSync(process.execPath, ["--import", "tsx", resolve(__dirname, "..", "..", "scripts", "setup-general.ts"), "--write"],
+      { cwd: resolve(__dirname, "..", ".."), env: { PATH: process.env.PATH ?? "", HOME: home, SOAR_ENABLE_LOCAL_RESEARCH_BETA: "yes" }, encoding: "utf8", timeout: 60_000 });
+    expect(result.status).toBe(2); expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("SOAR_ENABLE_LOCAL_RESEARCH_BETA must be true or false.\n");
+    expect(existsSync(home)).toBe(false);
   });
   it("reports readiness with a redacted endpoint and writes only the absent keys when asked", async () => {
     const f = setup({ cwd: `SOAR_VLLM_BASE_URL=${secretUrl}\nSOAR_VLLM_MODEL=served-model\nSOAR_VLLM_API_KEY=${secretKey}\nSOAR_VLLM_COST_POLICY=local_zero_cost\nSOAR_ALLOW_INSECURE_VLLM_HTTP=true\n` });

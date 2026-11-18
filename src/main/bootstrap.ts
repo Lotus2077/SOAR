@@ -6,6 +6,7 @@ import { SessionRunner, type RuntimeUpdate } from "./agent/run-session";
 import { CloudCredentialStatusService } from "./cloud-credential-service";
 import { withFakeCredentialOperationStatus } from "./cloud-credential-status-test-fixture";
 import { loadConfig } from "./config";
+import { researchBetaFolderIssue, withResearchBetaFolder, type UserDataFolder } from "./user-data-folder";
 import { createCredentialLeaseAuthority } from "./credentials/native-credential-lease-broker";
 import { CredentialOperationJournal } from "./credentials/credential-operation-journal";
 import { createSoarDatabase, type SoarDatabase } from "./database";
@@ -89,8 +90,12 @@ function publish(store: EventStore, update: RuntimeUpdate): void {
   }
 }
 
-/** Called only by the primary process after app readiness and lock admission. */
-export async function bootstrap(): Promise<BootstrapController> {
+/**
+ * Called only by the primary process after app readiness and lock admission. `userDataFolder` is the folder index.ts chose before
+ * the lock (backlog item 13a, requirement A); absent, it is the default folder.
+ */
+export async function bootstrap(options: { userDataFolder?: UserDataFolder } = {}): Promise<BootstrapController> {
+  const userDataFolder = options.userDataFolder ?? { kind: "default" };
   let database: SoarDatabase | undefined;
   let unregisterIpc: (() => void) | undefined;
   let mainWindow: BrowserWindow | undefined;
@@ -144,6 +149,9 @@ export async function bootstrap(): Promise<BootstrapController> {
       appPath: app.getAppPath(),
       userDataPath,
     });
+    // Requirement A: the research beta runs only in its own folder, with its database inside it. Checked before the database opens.
+    const folderIssue = researchBetaFolderIssue({ folder: userDataFolder, localResearchBeta: config.localResearchBeta === true, userDataPath, databasePath: config.databasePath });
+    if (folderIssue !== undefined) throw new Error(folderIssue);
     const databasePath =
       config.databasePath ?? path.join(userDataPath, "soar.sqlite");
     database = createSoarDatabase(databasePath);
@@ -155,7 +163,8 @@ export async function bootstrap(): Promise<BootstrapController> {
     generalTasks = new GeneralTaskController({
       database,
       dataRoot: path.join(path.dirname(databasePath), "general-tasks"),
-      config: () => loadConfig({ appPath: app.getAppPath(), userDataPath }),
+      // Outside the beta folder the research flag stays off, whatever a settings file says after start.
+      config: () => withResearchBetaFolder(loadConfig({ appPath: app.getAppPath(), userDataPath }), userDataFolder),
       imageId: () => loadConfig({ appPath: app.getAppPath(), userDataPath }).generalTaskImageId,
       runtimeIdentity: () => generalTaskRuntimeIdentity(app.getAppPath(), !app.isPackaged && process.env.ELECTRON_RENDERER_URL !== undefined),
       consultantProfile: () => resolveConsultantProfile(),

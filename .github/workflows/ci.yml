@@ -30,10 +30,10 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Verify build log is append-only
+      - name: Verify the build log (frozen archive, new entry files) against the base
         if: github.event_name == 'pull_request'
         run: pnpm validate:build-log -- --base-ref "${{ github.event.pull_request.base.sha }}"
-      - name: Verify pushed build log is append-only
+      - name: Verify the pushed build log (frozen archive, new entry files)
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
         run: pnpm validate:build-log -- --base-ref "${{ github.event.before }}"
       - name: Validate, type-check, test, and build

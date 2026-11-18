@@ -59,7 +59,8 @@
     "check": "pnpm validate:readiness && pnpm validate:build-log && pnpm typecheck && pnpm test && pnpm build",
     "check:release-head": "node --experimental-strip-types scripts/verify-release-head.ts",
     "validate:readiness": "node scripts/validate-readiness.mjs",
-    "validate:build-log": "node --experimental-strip-types scripts/validate-build-log.ts"
+    "validate:build-log": "node --experimental-strip-types scripts/validate-build-log.ts",
+    "build-log:to-files": "node --import tsx scripts/build-log-to-files.ts"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

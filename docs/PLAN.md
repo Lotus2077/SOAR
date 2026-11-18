@@ -134,7 +134,7 @@ section 4. Local runs are unlimited.
 | Change | **Research reliability comes from host checks:** a claims ledger, verbatim-quote verification against sources, and a local entailment pass. Unsupported claims are shown, not hidden. | Owner answer ("deep and reliable"); design §4 |
 | Stop | Per-trial approval entries for zero-fee work; n=1 reruns of already-seen tasks; building new evaluators or qualification layers per task; new routers or export features before the fair test reports. | W8 |
 | Stop | Treating API savings as a design driver (superseded 2026-11-07; see §1's owner-direction note); leading documents with the "Hybrid +4.93%" figure. | W10 |
-| Defer | Deleting *wired* legacy code (flag it off in PR-F, delete later; dead and unshipped code was already removed on 2026-09-29 at the owner's direction); build-log rotation (needs a validator redesign); moving the runner to an always-on host; research search tooling; visual feedback. Each is triggered by a result below. | W6, W9 |
+| Defer | Deleting *wired* legacy code (flag it off in PR-F, delete later; dead and unshipped code was already removed on 2026-09-29 at the owner's direction); build-log rotation (superseded on 2026-11-18 by one file per entry); moving the runner to an always-on host; research search tooling; visual feedback. Each is triggered by a result below. | W6, W9 |
 
 ## 3. Phases
 
@@ -895,7 +895,9 @@ a real requirement (see Later).
 
 - Remove the wired legacy tracks once they have been flagged off and unused for a
   full phase. The dead modules were already removed in Phase 0.
-- Redesign the build-log validator to allow monthly rotation.
+- ~~Redesign the build-log validator to allow monthly rotation.~~ Done differently on
+  2026-11-18: one file per entry, with the archive frozen
+  (BL-20261118-0428-build-log-entry-files).
 
 ## 4. Process reset (effective on approval)
 
@@ -943,7 +945,15 @@ a real requirement (see Later).
   - a one-line lesson.
 - **Build log.** At most one entry per PR or batch, for decision classes only:
   provider, egress, permission, persisted contract, budget, pivot, milestone
-  verdict. Typically ≤ 25 lines. Don't log push mechanics or permission prompts.
+  verdict.
+  - Since 2026-11-18 each entry is one file under `docs/build-log/`, named by its
+    UTC ID (BL-20261118-0428-build-log-entry-files).
+  - It runs about 25 lines, with the detail in the PR's description. The
+    validator warns above 40.
+  - `docs/BUILD_LOG.md` is the frozen archive. A file on `main` never changes, and
+    nothing is re-stamped.
+  - A PR adds no log ID to `src/` or `scripts/`. Don't log push mechanics or
+    permission prompts.
 - **Documents.** This file is the single living plan. HANDOFF is regenerated at each
   phase end. Each batch gets one experiment card (hypothesis, arms, budget, decision
   rule, stop rule). No new per-trial plan-plus-report pairs.

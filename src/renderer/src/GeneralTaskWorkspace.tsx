@@ -39,12 +39,9 @@ function title(task: GeneralTaskSnapshot) { const line = task.goal.split("\n")[0
 const RESEARCH_DOCUMENT = /\.(md|markdown|txt|html?|docx|pdf)$/iu;
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const STAGE_NAMES: Record<GeneralTaskResearchStage["stage"], string> = { index: "Index", plan: "Plan", extract: "Extraction", synthesise: "Synthesis" };
-/**
- * The research badge's stage words. "Ready, with a disclosed gap" is reserved for the research protocol's revision now before the
- * owner (GeneralTaskResearch.gap); nothing sets it yet.
- */
+/** The research badge's stage words: a packet with a disclosed gap names how many passages it left unresolved (GeneralTaskResearch.gap). */
 function researchState(research: GeneralTaskResearch): string {
-  if (research.stage === "transferred") return research.gap ? `packet ready, with a disclosed gap (${plural(research.gap.chunks, "passage")} not read)` : "packet ready";
+  if (research.stage === "transferred") return research.gap ? `packet ready, with a disclosed gap (${plural(research.gap.chunks, "passage")} unresolved)` : "packet ready";
   return research.stage === "running" ? "reading the sources" : research.stage === "stopped" ? "stopped before the writer" : "not started";
 }
 /** One stage's lines, from the counts it recorded and nothing else: no fixed sentence or constant stands in for a count. */
@@ -60,9 +57,13 @@ function researchStageLines(row: GeneralTaskResearchStage): string[] {
   if (row.stage === "plan") return [`Plan: ${plural(row.calls, "attempt")}${cut}${row.fallback === "host_plan" ? "; none was accepted, so the host's plan was used" : ""}.`];
   if (row.stage === "synthesise") return [`Synthesis: ${plural(row.calls, "attempt")}${cut}${row.fallback === "skeleton" ? "; none was accepted, so the writer gets the evidence skeleton" : ""}.`];
   const read = row.chunksPlanned !== undefined && row.chunksComplete !== undefined ? `${row.chunksComplete} of ${plural(row.chunksPlanned, "source passage")} read` : plural(row.calls, "call");
-  const lines = [`Extraction: ${read}${cut}${repairs}.`];
+  const gap = row.declaredGaps ? `; ${plural(row.declaredGaps, "passage")} left unresolved and disclosed` : "";
+  const lines = [`Extraction: ${read}${cut}${repairs}${gap}.`];
+  // A held passage's first reply lost every quote of a question it marked answered; its repair is optional and comes last.
   if (row.heldChunks !== undefined && row.heldKeptUnrepaired !== undefined && row.heldChunks > 0) {
-    lines.push(`${row.heldKeptUnrepaired} of ${plural(row.heldChunks, "passage")} held for a repair kept a first reading; the budget had no room for the optional repair.`);
+    const kept = row.heldKeptUnrepaired;
+    lines.push(kept ? `${kept} of ${plural(row.heldChunks, "passage")} held for a repair kept ${kept === 1 ? "its" : "their"} first reading: the budget had no room for the optional repair.`
+      : `${plural(row.heldChunks, "passage")} held for a repair; ${row.heldChunks === 1 ? "it" : "each"} got its optional repair.`);
   }
   if (row.quotesVerified !== undefined && row.quotesInPacket !== undefined) {
     const left = [row.quotesLeftByCap ? `${row.quotesLeftByCap} left out at the packet's caps${row.quotesLeftByPresentation ? ` (${row.quotesLeftByPresentation} by the presentation guard)` : ""}` : "",

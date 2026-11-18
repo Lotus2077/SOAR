@@ -40,7 +40,7 @@ export function desktopResearchSession(card: LoadedServingCard, models: (context
 const STAGES = ["index", "plan", "extract", "synthesise"] as const;
 /** The stage counts the view shows when a stage recorded them: chunks, repairs and the packet's trim (research-pipeline.ts, ResearchStageCounts). */
 const STAGE_COUNTS = ["chunksPlanned", "chunksComplete", "repairCalls", "secondRepairCalls", "secondRepairsComplete", "quotesVerified", "quotesInPacket",
-  "quotesLeftByCap", "quotesLeftByPresentation", "questionsTrimmed", "conflictsNoted", "conflictsInPacket", "heldChunks", "heldKeptUnrepaired"] as const;
+  "quotesLeftByCap", "quotesLeftByPresentation", "questionsTrimmed", "conflictsNoted", "conflictsInPacket", "heldChunks", "heldKeptUnrepaired", "declaredGaps"] as const;
 const count = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 /** The reader context the stage runs in, from its `research_input`, and that context's stage rows, oldest first. */
 function stageRows(events: readonly Record<string, unknown>[]): { reader?: string; rows: Record<string, unknown>[] } {
@@ -68,9 +68,11 @@ export function researchStageView(record: DesktopResearchRecord, events: readonl
     stages.push({ stage, calls, ...(truncated ? { truncatedReplies: truncated } : {}), ...(typeof row.denied === "string" ? { denied: true as const } : {}),
       ...(row.fallback === "host_plan" || row.fallback === "skeleton" ? { fallback: row.fallback } : {}), ...counts });
   }
+  // A transferred packet with a disclosed gap says so in the stage's state; the extraction row's own line says it of any packet.
+  const gap = transferred ? stages.find(row => row.stage === "extract")?.declaredGaps : undefined;
   return { route: record.route, card: { date: record.cardDate, sha256: record.cardSha256 },
     stage: transferred ? "transferred" : active && reader !== undefined ? "running" : started ? "stopped" : "not_started", stages,
-    requests: reader === undefined ? 0 : dispatches.filter(row => row.contextId === reader).length };
+    requests: reader === undefined ? 0 : dispatches.filter(row => row.contextId === reader).length, ...(gap ? { gap: { chunks: gap } } : {}) };
 }
 
 /**

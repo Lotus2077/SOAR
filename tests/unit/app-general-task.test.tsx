@@ -621,7 +621,8 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
 
   it("shows the route, the card and the stage in a badge, with the gap state kept for the protocol's revision", async () => {
     const cases: [Partial<GeneralTaskResearch>, string][] = [[{ stage: "not_started" }, "not started"], [{ stage: "running" }, "reading the sources"],
-      [{ stage: "transferred" }, "packet ready"], [{ stage: "transferred", gap: { chunks: 2 } }, "packet ready, with a disclosed gap (2 passages not read)"],
+      [{ stage: "transferred" }, "packet ready"], [{ stage: "transferred", gap: { chunks: 1 } }, "packet ready, with a disclosed gap (1 passage unresolved)"],
+      [{ stage: "transferred", gap: { chunks: 2 } }, "packet ready, with a disclosed gap (2 passages unresolved)"],
       [{ stage: "stopped" }, "stopped before the writer"]];
     for (const [overrides, words] of cases) {
       const { api } = fixture([task({ profile: "heavy", research: research(overrides) })]), view = render(<GeneralTaskWorkspace api={api} />);
@@ -632,7 +633,7 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
 
   it("lists each stage's own counts, and warns while the stage runs that a pause ends the task", async () => {
     const stages: GeneralTaskResearchStage[] = [{ stage: "index", calls: 1 }, { stage: "plan", calls: 2, truncatedReplies: 2, fallback: "host_plan" },
-      { stage: "extract", calls: 9, chunksPlanned: 7, chunksComplete: 7, repairCalls: 3, secondRepairCalls: 1, secondRepairsComplete: 1, heldChunks: 7, heldKeptUnrepaired: 6,
+      { stage: "extract", calls: 9, chunksPlanned: 7, chunksComplete: 6, repairCalls: 3, secondRepairCalls: 1, secondRepairsComplete: 1, heldChunks: 7, heldKeptUnrepaired: 6, declaredGaps: 1,
         quotesVerified: 240, quotesInPacket: 120, quotesLeftByCap: 120, quotesLeftByPresentation: 4, questionsTrimmed: 2, conflictsNoted: 3, conflictsInPacket: 1 },
       { stage: "synthesise", calls: 2, fallback: "skeleton" }];
     const { api } = fixture([task({ status: "running", profile: "heavy", research: research({ stage: "running", stages, requests: 14 }) })]);
@@ -640,8 +641,8 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
     const section = await screen.findByRole("region", { name: "Research stage" });
     expect(within(section).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Index: 1 call.",
       "Plan: 2 attempts, 2 cut at the output limit; none was accepted, so the host's plan was used.",
-      "Extraction: 7 of 7 source passages read; 3 repairs (1 second, 1 completing their passage).",
-      "6 of 7 passages held for a repair kept a first reading; the budget had no room for the optional repair.",
+      "Extraction: 6 of 7 source passages read; 3 repairs (1 second, 1 completing their passage); 1 passage left unresolved and disclosed.",
+      "6 of 7 passages held for a repair kept their first reading: the budget had no room for the optional repair.",
       "Evidence packet: 120 of 240 verified quotes kept; 120 left out at the packet's caps (4 by the presentation guard); 2 questions left without a quote in the packet.",
       "Conflicts: 1 of 3 noted conflicts in the packet.", "Synthesis: 2 attempts; none was accepted, so the writer gets the evidence skeleton."]);
     expect(section).toHaveTextContent("14 research requests to the local model, counted apart from the model attempts.");
@@ -656,6 +657,23 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
     expect(within(section).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Extraction: 2 of 2 source passages read."]);
     expect(section).toHaveTextContent("1 research request to the local model");
     expect(screen.queryByText(/Pausing now ends this task/u)).toBeNull();
+  });
+
+  // #172's counts: the held line says how many held passages kept their first reading, and claims the budget only when one did.
+  it("says how the held passages ended, whether or not one kept its first reading, and leaves out a gap of none", async () => {
+    const cases: [Partial<GeneralTaskResearchStage>, string[]][] = [
+      [{ heldChunks: 1, heldKeptUnrepaired: 1 }, ["1 of 1 passage held for a repair kept its first reading: the budget had no room for the optional repair."]],
+      [{ heldChunks: 2, heldKeptUnrepaired: 0 }, ["2 passages held for a repair; each got its optional repair."]],
+      [{ heldChunks: 1, heldKeptUnrepaired: 0 }, ["1 passage held for a repair; it got its optional repair."]],
+      [{ heldChunks: 0, heldKeptUnrepaired: 0, declaredGaps: 0 }, []],
+      [{ declaredGaps: 2 }, []]];
+    for (const [counts, held] of cases) {
+      const { api } = fixture([task({ status: "submitted", profile: "heavy", research: research({ stages: [{ stage: "extract", calls: 4, chunksPlanned: 4, chunksComplete: 4, ...counts }] }) })]);
+      const view = render(<GeneralTaskWorkspace api={api} />);
+      const lines = within(await screen.findByRole("region", { name: "Research stage" })).getAllByRole("listitem").map(item => item.textContent);
+      expect(lines).toEqual([`Extraction: 4 of 4 source passages read${counts.declaredGaps ? `; ${counts.declaredGaps} passages left unresolved and disclosed` : ""}.`, ...held]);
+      view.unmount();
+    }
   });
 
   // #168's review: a stopped row keeps the passage count it was created with (0 for the extraction), so it shows the calls that settled.

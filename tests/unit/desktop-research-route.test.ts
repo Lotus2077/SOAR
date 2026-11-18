@@ -137,11 +137,19 @@ describe("desktop local research route (backlog item 13a)", () => {
     // A refused admission is a stage that stopped before any call.
     expect(researchStageView(record, [input, { type: "research_admission", contextId: "reader", admission: {} }], [], false).stage).toBe("stopped");
     expect(researchStageView(record, [...events, { type: "research_transfer", contextId: "reader" }], dispatches, false).stage).toBe("transferred");
-    // Every count a stage records reaches the view, the proposed held counts included; the reserved gap is never set from the records.
+    // Every count a stage records reaches the view, the held counts and the declared gap included (#172); a row's own `gap` field is not read.
     const all = { chunksPlanned: 7, chunksComplete: 6, repairCalls: 3, secondRepairCalls: 1, secondRepairsComplete: 1, quotesVerified: 9, quotesInPacket: 8, quotesLeftByCap: 1,
-      quotesLeftByPresentation: 1, questionsTrimmed: 1, conflictsNoted: 2, conflictsInPacket: 1, heldChunks: 7, heldKeptUnrepaired: 6 };
-    const full = researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "extract", calls: 9, ...all, gap: { chunks: 1 } }], [], false);
+      quotesLeftByPresentation: 1, questionsTrimmed: 1, conflictsNoted: 2, conflictsInPacket: 1, heldChunks: 7, heldKeptUnrepaired: 6, declaredGaps: 1 };
+    const extract = { type: "research_stage", contextId: "reader", stage: "extract", calls: 9, ...all, gap: { chunks: 3 } }, transfer = { type: "research_transfer", contextId: "reader" };
+    const full = researchStageView(record, [input, extract], [], false);
     expect(full.stages).toEqual([{ stage: "extract", calls: 9, ...all }]); expect(full).not.toHaveProperty("gap");
+    // The stage's state carries the gap only for a transferred packet whose extraction row declared one.
+    expect(researchStageView(record, [input, extract, transfer], [], false)).toMatchObject({ stage: "transferred", gap: { chunks: 1 } });
+    for (const declaredGaps of [0, -1, 1.5, "1", undefined]) {
+      expect(researchStageView(record, [input, { ...extract, declaredGaps }, transfer], [], false), String(declaredGaps)).not.toHaveProperty("gap");
+    }
+    expect(researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "plan", calls: 1, declaredGaps: 1 }, transfer], [], false)).not.toHaveProperty("gap");
+    expect(researchStageView(record, [input, { ...extract, contextId: "elsewhere" }, transfer], [], false)).not.toHaveProperty("gap");
     // Malformed counts are left out, never shown as numbers; a row without its calls is left out whole, never shown as zero calls.
     expect(researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "index", calls: 1, truncatedReplies: 1.5, chunksPlanned: -1 }], [], false).stages).toEqual([{ stage: "index", calls: 1 }]);
     expect(researchStageView(record, [input, { type: "research_stage", contextId: "reader", stage: "index", calls: -1 }], [], false).stages).toEqual([]);

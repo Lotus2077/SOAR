@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { SoarConfig } from "../../src/main/config";
 import { DESKTOP_RESEARCH_ROUTE, desktopResearchAvailability, isDesktopResearchRecord, readDesktopResearchCard, researchInputsCheck } from "../../src/main/general-tasks/research-route";
 import { RESEARCH_COVERAGE_POLICY, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
+import { researchRepairReserve } from "../../src/main/private-agent/research-admission";
 import { loadServingCard, servingCardExpectation, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
@@ -44,17 +45,25 @@ describe("desktop local research route (backlog item 13a)", () => {
   });
 
   it("decides the stage's refusals that are knowable before start on the input files, with the pipeline's own functions", () => {
-    expect(researchInputsCheck([])).toBe("research_inputs_required");
-    expect(researchInputsCheck([text("output/report.md")])).toBe("research_inputs_required");
-    expect(researchInputsCheck([text("input/01-notes.md"), text("input/02-data.csv", "value\n21\n")])).toBe("fit");
-    // The stage requires every source read in full, so one PDF, DOCX or binary input refuses the task.
-    expect(researchInputsCheck([text("input/01-notes.md"), { path: "input/02-paper.pdf", bytes: Buffer.from("%PDF-1.7\n") }])).toBe("research_source_unreadable");
-    expect(researchInputsCheck([text("input/01-notes.md"), { path: "input/02-blob.bin", bytes: Buffer.from([0x41, 0x00, 0x42]) }])).toBe("research_source_unreadable");
-    expect(researchInputsCheck([text("input/01-notes.md"), text("input/01-notes.md")])).toBe("research_input_invalid");
-    // The mandatory work must fit the pipeline's budget: as many extraction chunks as it has calls fit, one more does not.
-    const { chunkBytes, overlapBytes } = RESEARCH_COVERAGE_POLICY, fits = chunkBytes + (RESEARCH_PIPELINE_BUDGET.extractionCalls - 1) * (chunkBytes - overlapBytes);
-    expect(researchInputsCheck([{ path: "input/01-long.txt", bytes: Buffer.alloc(fits, 0x61) }])).toBe("fit");
-    expect(researchInputsCheck([{ path: "input/01-long.txt", bytes: Buffer.alloc(fits + 1, 0x61) }])).toBe("research_mandatory_budget_exceeded");
+    for (const cardAdmission of [false, true]) {
+      expect(researchInputsCheck([], cardAdmission)).toBe("research_inputs_required");
+      expect(researchInputsCheck([text("output/report.md")], cardAdmission)).toBe("research_inputs_required");
+      expect(researchInputsCheck([text("input/01-notes.md"), text("input/02-data.csv", "value\n21\n")], cardAdmission)).toBe("fit");
+      // The stage requires every source read in full, so one PDF, DOCX or binary input refuses the task.
+      expect(researchInputsCheck([text("input/01-notes.md"), { path: "input/02-paper.pdf", bytes: Buffer.from("%PDF-1.7\n") }], cardAdmission)).toBe("research_source_unreadable");
+      expect(researchInputsCheck([text("input/01-notes.md"), { path: "input/02-blob.bin", bytes: Buffer.from([0x41, 0x00, 0x42]) }], cardAdmission)).toBe("research_source_unreadable");
+      expect(researchInputsCheck([text("input/01-notes.md"), text("input/01-notes.md")], cardAdmission)).toBe("research_input_invalid");
+    }
+    // The mandatory work must fit the pipeline's budget: as many extraction chunks as it has calls, or, under a card whose admission basis is
+    // serving_card, as many as leave room for the stage's repair reserve (researchCardAdmission). One chunk more is refused either way.
+    const { chunkBytes, overlapBytes } = RESEARCH_COVERAGE_POLICY, calls = RESEARCH_PIPELINE_BUDGET.extractionCalls;
+    const long = (chunks: number, extra = 0) => [{ path: "input/01-long.txt", bytes: Buffer.alloc(chunkBytes + (chunks - 1) * (chunkBytes - overlapBytes) + extra, 0x61) }];
+    let reserved = calls; while (reserved + researchRepairReserve(reserved) > calls) reserved--;
+    expect(reserved).toBeLessThan(calls);
+    expect(researchInputsCheck(long(calls), false)).toBe("fit");
+    expect(researchInputsCheck(long(calls, 1), false)).toBe("research_mandatory_budget_exceeded");
+    expect(researchInputsCheck(long(reserved), true)).toBe("fit");
+    expect(researchInputsCheck(long(reserved, 1), true)).toBe("research_mandatory_budget_exceeded");
   });
 
   it("offers the beta only while the flag is on, and says why it is or is not available without naming the card's path", () => {

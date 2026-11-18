@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -22,6 +22,8 @@ import { readDesktopResearchCard } from "../../src/main/general-tasks/research-r
 import type { ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 import { SYNTHETIC_P10_REQUEST_SETTINGS } from "../helpers/serving-probe-fixture";
+import { RESEARCH_COVERAGE_POLICY, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-contract";
+import { researchRepairReserve } from "../../src/main/private-agent/research-admission";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -1531,8 +1533,14 @@ describe("desktop local research tasks (backlog item 13a)", () => {
     const { f, card, written, createResearch } = researchFixture(), task = createResearch();
     f.config.localResearchBeta = false;
     expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
+    f.config.localResearchBeta = true;
+    // The creation card refused in place: its file's bytes change under the same pair, and the pinned read refuses it.
+    const bytes = readFileSync(written.path); writeFileSync(written.path, Buffer.from(`${JSON.stringify(card)}\n`));
+    expect(readDesktopResearchCard(f.config)).toEqual({ accepted: false, code: "serving_card_pin_drift" });
+    expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
+    writeFileSync(written.path, bytes);
     // The same card in other bytes is another card: the task runs only on the very card it was created on.
-    f.config.localResearchBeta = true; f.config.vllm.servingCard = writeCard(f.root, Buffer.from(`${JSON.stringify(card)}\n`), "compact.json");
+    f.config.vllm.servingCard = writeCard(f.root, Buffer.from(`${JSON.stringify(card)}\n`), "compact.json");
     expect(readDesktopResearchCard(f.config)).toMatchObject({ accepted: true, card: { date: card.date } });
     expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
     f.config.vllm.servingCard = written;
@@ -1558,6 +1566,18 @@ describe("desktop local research tasks (backlog item 13a)", () => {
     expect(f.controller.list()).toEqual([]);
     f.config.localResearchBeta = true;
     expect(createResearch({ profile: "heavy" })).toMatchObject({ status: "queued", profile: "heavy" });
+  });
+
+  it("keeps room at create for the stage's repair reserve under a card whose admission basis is serving_card", () => {
+    const { f, createResearch } = researchFixture(), card = adopt(structuredClone(researchWriterCard!), undefined, { defaults: true });
+    (card as { admission: { basis: string } }).admission.basis = "serving_card";
+    f.config.vllm.servingCard = writeCard(f.root, card, "admission.json");
+    expect(readDesktopResearchCard(f.config)).toMatchObject({ accepted: true, card: { policy: { admission: { basis: "serving_card" } } } });
+    const { chunkBytes, overlapBytes } = RESEARCH_COVERAGE_POLICY, calls = RESEARCH_PIPELINE_BUDGET.extractionCalls, long = join(f.root, "long.txt");
+    let reserved = calls; while (reserved + researchRepairReserve(reserved) > calls) reserved--;
+    const select = (chunks: number) => { writeFileSync(long, Buffer.alloc(chunkBytes + (chunks - 1) * (chunkBytes - overlapBytes), 0x61)); return f.controller.selectInputs([long]).id; };
+    expect(() => createResearch({ inputSelectionId: select(reserved + 1) })).toThrow("general_task_research_mandatory_budget_exceeded");
+    expect(createResearch({ inputSelectionId: select(reserved) })).toMatchObject({ status: "queued", profile: "heavy" });
   });
 
   it("reads a version-4 record only with the exact route, the heavy profile and no typed URLs, and no other version with a route", () => {

@@ -2,7 +2,7 @@ import type { SoarConfig } from "../config";
 import type { GeneralTaskAvailability } from "../../shared/general-task-contracts";
 import { loadServingCard, servingCardExpectation, servingCardRefusal, type LoadedServingCard } from "../private-agent/serving-card";
 import { inventoryResearchSources } from "../private-agent/research-coverage";
-import { planResearchIndexBatches, researchMandatoryWorkFits } from "../private-agent/research-admission";
+import { planResearchIndexBatches, researchMandatoryWorkFits, researchRepairReserve } from "../private-agent/research-admission";
 import { RESEARCH_PIPELINE_BUDGET } from "../private-agent/research-contract";
 
 /**
@@ -40,17 +40,19 @@ export function readDesktopResearchCard(config: Pick<SoarConfig, "vllm" | "strea
 export type ResearchInputsCheck = "fit" | "research_inputs_required" | "research_input_invalid" | "research_source_unreadable" | "research_mandatory_budget_exceeded";
 /**
  * The stage's refusals that are knowable before start, decided with the pipeline's own functions on the task's input files. Every
- * source must be readable text, because the stage requires full coverage, and all mandatory work must fit the pipeline's budget. The
- * card's clock admission stays the stage's own decision at start.
+ * source must be readable text, because the stage requires full coverage, and all mandatory work must fit the pipeline's budget: under a
+ * card whose admission basis is `serving_card`, with the repair reserve the stage keeps (researchCardAdmission). The card's clock
+ * admission stays the stage's own decision at start.
  */
-export function researchInputsCheck(files: readonly { path: string; bytes: Buffer }[]): ResearchInputsCheck {
+export function researchInputsCheck(files: readonly { path: string; bytes: Buffer }[], cardAdmission: boolean): ResearchInputsCheck {
   const sources = files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes }));
   if (!sources.length) return "research_inputs_required";
   let inventory: ReturnType<typeof inventoryResearchSources>;
   try { inventory = inventoryResearchSources(sources); } catch { return "research_input_invalid"; }
   if (inventory.sources.some(source => !source.readable)) return "research_source_unreadable";
   const ordered = inventory.sources.map(source => sources.find(item => item.id === source.id)!);
-  return researchMandatoryWorkFits({ batches: planResearchIndexBatches(ordered).length, chunks: inventory.chunks.length }, RESEARCH_PIPELINE_BUDGET)
+  const chunks = inventory.chunks.length, reserve = cardAdmission ? researchRepairReserve(chunks) : 0;
+  return researchMandatoryWorkFits({ batches: planResearchIndexBatches(ordered).length, chunks: chunks + reserve }, RESEARCH_PIPELINE_BUDGET)
     ? "fit" : "research_mandatory_budget_exceeded";
 }
 

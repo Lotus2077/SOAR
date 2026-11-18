@@ -528,10 +528,10 @@ export class GeneralTaskController {
     // The stage's refusals that are knowable before start, and the card the task is created on (the pinned read, at this moment).
     let research: DesktopResearchRecord | undefined;
     if (input.research) {
-      const fit = researchInputsCheck(selection.files);
-      if (fit !== "fit") throw new Error(`general_task_${fit}`);
       const read = readDesktopResearchCard(this.options.config());
       if (!read.accepted) throw new Error("general_task_research_unavailable");
+      const fit = researchInputsCheck(selection.files, read.card.policy.admission.basis === "serving_card");
+      if (fit !== "fit") throw new Error(`general_task_${fit}`);
       research = { route: DESKTOP_RESEARCH_ROUTE, cardSha256: read.card.sha256, cardDate: read.card.date };
     }
     const { research: _route, ...plain } = input, task = research ? { ...plain, profile: "heavy" as const, research } : plain;

@@ -38,6 +38,7 @@ function title(task: GeneralTaskSnapshot) { const line = task.goal.split("\n")[0
 // Backlog item 13a: a local research task's deliverable is a document the claims check can read.
 const RESEARCH_DOCUMENT = /\.(md|markdown|txt|html?|docx|pdf)$/iu;
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const STAGE_NAMES: Record<GeneralTaskResearchStage["stage"], string> = { index: "Index", plan: "Plan", extract: "Extraction", synthesise: "Synthesis" };
 /**
  * The research badge's stage words. "Ready, with a disclosed gap" is reserved for the research protocol's revision now before the
  * owner (GeneralTaskResearch.gap); nothing sets it yet.
@@ -46,14 +47,19 @@ function researchState(research: GeneralTaskResearch): string {
   if (research.stage === "transferred") return research.gap ? `packet ready, with a disclosed gap (${plural(research.gap.chunks, "passage")} not read)` : "packet ready";
   return research.stage === "running" ? "reading the sources" : research.stage === "stopped" ? "stopped before the writer" : "not started";
 }
-/** One stage's lines, from the counts it recorded and nothing else: no fixed sentence stands in for a count. */
+/** One stage's lines, from the counts it recorded and nothing else: no fixed sentence or constant stands in for a count. */
 function researchStageLines(row: GeneralTaskResearchStage): string[] {
   const cut = row.truncatedReplies ? `, ${row.truncatedReplies} cut at the output limit` : "";
+  const repairs = row.repairCalls ? `; ${plural(row.repairCalls, "repair")}${row.secondRepairCalls ? ` (${row.secondRepairCalls} second${row.secondRepairsComplete !== undefined ? `, ${row.secondRepairsComplete} completing their passage` : ""})` : ""}` : "";
+  // A row the stage stopped in holds the calls that settled before the stop; its passage count is the value it was created with.
+  if (row.denied) {
+    const noun = row.stage === "plan" || row.stage === "synthesise" ? "attempt" : "call";
+    return [`${STAGE_NAMES[row.stage]}: stopped ${row.calls ? `after ${plural(row.calls, noun)}` : `before any ${noun} was answered`}${cut}${repairs}.`];
+  }
   if (row.stage === "index") return [`Index: ${plural(row.calls, "call")}${cut}.`];
   if (row.stage === "plan") return [`Plan: ${plural(row.calls, "attempt")}${cut}${row.fallback === "host_plan" ? "; none was accepted, so the host's plan was used" : ""}.`];
   if (row.stage === "synthesise") return [`Synthesis: ${plural(row.calls, "attempt")}${cut}${row.fallback === "skeleton" ? "; none was accepted, so the writer gets the evidence skeleton" : ""}.`];
-  const read = row.chunksPlanned !== undefined ? `${row.chunksComplete ?? 0} of ${plural(row.chunksPlanned, "source passage")} read` : plural(row.calls, "call");
-  const repairs = row.repairCalls ? `; ${plural(row.repairCalls, "repair")}${row.secondRepairCalls ? ` (${row.secondRepairCalls} second, ${row.secondRepairsComplete ?? 0} completing their passage)` : ""}` : "";
+  const read = row.chunksPlanned !== undefined && row.chunksComplete !== undefined ? `${row.chunksComplete} of ${plural(row.chunksPlanned, "source passage")} read` : plural(row.calls, "call");
   const lines = [`Extraction: ${read}${cut}${repairs}.`];
   if (row.heldChunks !== undefined && row.heldKeptUnrepaired !== undefined && row.heldChunks > 0) {
     lines.push(`${row.heldKeptUnrepaired} of ${plural(row.heldChunks, "passage")} held for a repair kept a first reading; the budget had no room for the optional repair.`);
@@ -63,7 +69,7 @@ function researchStageLines(row: GeneralTaskResearchStage): string[] {
       row.questionsTrimmed ? `${plural(row.questionsTrimmed, "question")} left without a quote in the packet` : ""].filter(Boolean);
     lines.push(`Evidence packet: ${row.quotesInPacket} of ${plural(row.quotesVerified, "verified quote")} kept${left.length ? `; ${left.join("; ")}` : ""}.`);
   }
-  if (row.conflictsNoted) lines.push(`Conflicts: ${row.conflictsInPacket ?? 0} of ${plural(row.conflictsNoted, "noted conflict")} in the packet.`);
+  if (row.conflictsNoted && row.conflictsInPacket !== undefined) lines.push(`Conflicts: ${row.conflictsInPacket} of ${plural(row.conflictsNoted, "noted conflict")} in the packet.`);
   return lines;
 }
 function size(bytes: number) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
@@ -164,16 +170,18 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const resetVerdict = useCallback(() => {
     setVerdictDecision(""); setVerdictMinutes(""); setVerdictInterventions(""); setVerdictExported(false);
   }, []);
+  // Backlog item 13a: the research option is on only while the host offers it. Every availability the view takes that does not offer it
+  // unticks the box, so a later check that withdraws it frees the form, and a check that offers it again does not tick it by itself.
   const refreshAvailability = useCallback(async () => {
     if (!api) return;
     const epoch = ++availabilityEpoch.current;
     setCheckingAvailability(true);
     try {
       const next = await api.getGeneralTaskAvailability();
-      if (mounted.current && availabilityEpoch.current === epoch) setAvailability(next);
+      if (mounted.current && availabilityEpoch.current === epoch) { setAvailability(next); if (next.research?.available !== true) setResearch(false); }
     } catch {
       if (mounted.current && availabilityEpoch.current === epoch) {
-        setAvailability(null); setError("Task availability could not be checked. Try checking again.");
+        setAvailability(null); setResearch(false); setError("Task availability could not be checked. Try checking again.");
       }
     } finally { if (mounted.current && availabilityEpoch.current === epoch) setCheckingAvailability(false); }
   }, [api]);
@@ -376,7 +384,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const validSources = !urls.length || GeneralTaskCreateInputSchema.shape.publicSources.safeParse({ urls, dnsResolver, allowPublicRetrieval: true }).success;
   const validInput = GeneralTaskCreateInputSchema.safeParse(createInput).success && (routing === "local_only" || availability?.consultation?.available === true) &&
     // Backlog item 13a: a research task reads at least one input file and writes a document; the controller refuses anything else.
-    (!research || availability?.research?.available === true && selection !== null && RESEARCH_DOCUMENT.test(outputName));
+    (!research || selection !== null && RESEARCH_DOCUMENT.test(outputName));
   const consultation = task?.consultation;
   const verifiedConsultation = consultationPreview && consultationPreview.id === task?.id && consultation && matchesConsultation(consultationPreview.value, consultation) ? consultationPreview.value : null;
   return <div className="general-workspace">

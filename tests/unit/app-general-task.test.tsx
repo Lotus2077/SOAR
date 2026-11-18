@@ -657,5 +657,83 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
     expect(section).toHaveTextContent("1 research request to the local model");
     expect(screen.queryByText(/Pausing now ends this task/u)).toBeNull();
   });
+
+  // #168's review: a stopped row keeps the passage count it was created with (0 for the extraction), so it shows the calls that settled.
+  it("shows a stopped row's settled calls, never its passage count, and no count a row does not hold", async () => {
+    const stages: GeneralTaskResearchStage[] = [{ stage: "index", calls: 0, denied: true }, { stage: "plan", calls: 1, denied: true },
+      { stage: "extract", calls: 3, truncatedReplies: 1, denied: true, chunksPlanned: 4, chunksComplete: 0, repairCalls: 2, secondRepairCalls: 1, secondRepairsComplete: 0,
+        heldChunks: 2, heldKeptUnrepaired: 0, quotesVerified: 0, quotesInPacket: 0, conflictsNoted: 1, conflictsInPacket: 0 },
+      { stage: "synthesise", calls: 2, denied: true }];
+    const stopped = fixture([task({ status: "incomplete", profile: "heavy", research: research({ stage: "stopped", stages, requests: 9 }) })]), view = render(<GeneralTaskWorkspace api={stopped.api} />);
+    const section = await screen.findByRole("region", { name: "Research stage" });
+    expect(within(section).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Index: stopped before any call was answered.", "Plan: stopped after 1 attempt.",
+      "Extraction: stopped after 3 calls, 1 cut at the output limit; 2 repairs (1 second, 0 completing their passage).", "Synthesis: stopped after 2 attempts."]);
+    view.unmount();
+    // A row that did not stop, missing the counts that would complete a sentence, shows its calls and leaves those sentences out.
+    const partial = fixture([task({ status: "incomplete", profile: "heavy", research: research({ stage: "stopped", requests: 4,
+      stages: [{ stage: "extract", calls: 4, chunksPlanned: 4, repairCalls: 1, secondRepairCalls: 1, conflictsNoted: 2, quotesVerified: 3 }] }) })]);
+    render(<GeneralTaskWorkspace api={partial.api} />);
+    expect(within(await screen.findByRole("region", { name: "Research stage" })).getAllByRole("listitem").map(item => item.textContent)).toEqual(["Extraction: 4 calls; 1 repair (1 second)."]);
+  });
+
+  it("gives the form back when the option is unticked, and then sends a plain task", async () => {
+    const user = userEvent.setup(), { api } = fixture([], { ...researchReady, profiles: ["standard", "heavy"], consultation: { available: true, reason: "Configured", model: "test-consultant" } });
+    render(<GeneralTaskWorkspace api={api} />);
+    await screen.findByText("Ready for a general task");
+    await user.type(screen.getByRole("textbox", { name: "Task goal" }), "Summarize the notes");
+    const option = screen.getByRole("checkbox", { name: researchOption });
+    await user.click(option); expect(option).toBeChecked();
+    await user.click(option); expect(option).not.toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Consultation mode" })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "Model profile" })).toBeEnabled();
+    expect(screen.getByRole("combobox", { name: "Model profile" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Public source URLs (optional)" })).toBeEnabled();
+    expect(screen.queryByText(/Pausing or quitting while the research stage runs ends the task/u)).toBeNull();
+    // A plain task needs no input file and writes any deliverable.
+    await user.selectOptions(screen.getByRole("combobox", { name: "Model profile" }), "standard");
+    const output = screen.getByRole("textbox", { name: "Output filename" });
+    await user.clear(output); await user.type(output, "deck.pptx");
+    await user.click(screen.getByRole("checkbox", { name: attestation }));
+    await user.click(screen.getByRole("button", { name: "Create and start task" }));
+    expect(api.createGeneralTask).toHaveBeenCalledWith({ goal: "Summarize the notes", outputName: "deck.pptx", publicOrSynthetic: true, profile: "standard" });
+  });
+
+  it("frees the form when a later availability check withdraws the option, refused or absent, and sends a plain task", async () => {
+    const refused: GeneralTaskAvailability = { ...ready, profiles: ["standard", "heavy"], research: { available: false, code: "serving_card_pin_drift", reason: "Local research (beta) is off: the serving card was refused (serving_card_pin_drift)." } };
+    for (const later of [refused, { ...ready, profiles: ["standard", "heavy"] }, "failed"] as const) {
+      const user = userEvent.setup(), { api } = fixture([], { ...researchReady, profiles: ["standard", "heavy"] });
+      const view = render(<GeneralTaskWorkspace api={api} />);
+      await screen.findByText("Ready for a general task");
+      await user.type(screen.getByRole("textbox", { name: "Task goal" }), "Summarize the notes");
+      await user.click(screen.getByRole("checkbox", { name: researchOption }));
+      expect(screen.getByRole("textbox", { name: "Public source URLs (optional)" })).toBeDisabled();
+      if (later === "failed") api.getGeneralTaskAvailability.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ ...researchReady, profiles: ["standard", "heavy"] });
+      else api.getGeneralTaskAvailability.mockResolvedValue(later);
+      await user.click(screen.getByRole("button", { name: "Check availability again" }));
+      if (later === "failed") {
+        // A failed check leaves no availability; the next check that offers research again does not tick the box by itself.
+        await screen.findByText("Task availability could not be checked. Try checking again.");
+        await user.click(screen.getByRole("button", { name: "Check availability again" }));
+        await screen.findByText("Ready for a general task");
+        expect(screen.getByRole("checkbox", { name: researchOption })).not.toBeChecked();
+      } else {
+        await waitFor(() => expect(screen.getByRole("textbox", { name: "Public source URLs (optional)" })).toBeEnabled());
+        if (later === refused) { expect(screen.getByRole("checkbox", { name: researchOption })).not.toBeChecked(); expect(screen.getByRole("checkbox", { name: researchOption })).toBeDisabled(); }
+        else expect(screen.queryByRole("checkbox", { name: researchOption })).toBeNull();
+        // A check that offers it again does not tick the box by itself.
+        api.getGeneralTaskAvailability.mockResolvedValue({ ...researchReady, profiles: ["standard", "heavy"] });
+        await user.click(screen.getByRole("button", { name: "Check availability again" }));
+        await waitFor(() => expect(screen.getByRole("checkbox", { name: researchOption })).toBeEnabled());
+        expect(screen.getByRole("checkbox", { name: researchOption })).not.toBeChecked();
+      }
+      expect(screen.getByRole("textbox", { name: "Public source URLs (optional)" })).toBeEnabled();
+      expect(screen.getByRole("combobox", { name: "Consultation mode" })).toBeEnabled();
+      expect(screen.getByRole("combobox", { name: "Model profile" })).toBeEnabled();
+      await user.click(screen.getByRole("checkbox", { name: attestation }));
+      await user.click(screen.getByRole("button", { name: "Create and start task" }));
+      expect(api.createGeneralTask).toHaveBeenCalledWith({ goal: "Summarize the notes", outputName: "report.md", publicOrSynthetic: true });
+      view.unmount();
+    }
+  });
 });
 

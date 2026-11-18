@@ -59,11 +59,11 @@ describe("liveness helpers (PR-B)", () => {
 
 describe("the quit offer's words (backlog item 13a)", () => {
   it("promises a resume only outside a research stage, which ends the task whether the owner waits or quits", () => {
-    expect(quitOffer(false)).toEqual({ message: "Waiting for the running task to pause", detail: expect.stringContaining("can be resumed later") });
-    const research = quitOffer(true);
-    expect(research.message).toBe("Waiting for the research stage to stop");
-    expect(research.detail).toContain("this task ends and cannot be resumed");
-    expect(research.detail).not.toContain("can be resumed later");
+    // The plain offer is main's dialog text, word for word; the research offer is pinned whole too (#168's review).
+    expect(quitOffer(false)).toEqual({ message: "Waiting for the running task to pause",
+      detail: "The task pauses after its current step (a model reply or a command can take several minutes) and can be resumed later. Quitting now interrupts that step, and the task will then have to be cancelled instead of resumed." });
+    expect(quitOffer(true)).toEqual({ message: "Waiting for the research stage to stop",
+      detail: "A research stage is in progress, and a research stage cannot pause and continue. When it stops, this task ends and cannot be resumed; create it again to retry. Quitting now stops it at once, with the same result." });
   });
 });
 

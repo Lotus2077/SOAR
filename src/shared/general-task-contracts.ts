@@ -178,6 +178,11 @@ export interface GeneralTaskResearch {
  */
 export interface GeneralTaskResearchStage {
   stage: "index" | "plan" | "extract" | "synthesise"; calls: number; truncatedReplies?: number; fallback?: "host_plan" | "skeleton";
+  /**
+   * The stage stopped in this row at a refused, failed or cancelled call (its `denied` code). Such a row's calls and repairs are what
+   * settled; its passage count is the value the row was created with, so the view shows calls, never passages, for it.
+   */
+  denied?: true;
   chunksPlanned?: number; chunksComplete?: number; repairCalls?: number; secondRepairCalls?: number; secondRepairsComplete?: number;
   quotesVerified?: number; quotesInPacket?: number; quotesLeftByCap?: number; quotesLeftByPresentation?: number; questionsTrimmed?: number;
   conflictsNoted?: number; conflictsInPacket?: number;

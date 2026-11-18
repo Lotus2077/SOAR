@@ -213,7 +213,11 @@ Recompute both before any run.
     decision 3) and handoff restatements (BL-20261117-0530-owner-merge-go-handoff-restatements)
     merge with a merge commit once the review is clean and CI is green.
 - **The session's practice,** not an owner decision.
-  - It asks the owner before merging any other PR.
+  - Since the owner's delegation, the session merges its own and the lanes' pull requests,
+    records and amendments included, once the review is clean and CI is green. It records each
+    decision in an entry before acting on it and reports it to the owner, and it asks the owner
+    by name only for the items under "Not without the owner" (In brief; BL-20261117-0940,
+    decision 5; BL-20261118-0418).
   - The owner's permission settings refuse a force-push: bring `main` into a branch with a merge.
     Entry files never conflict, so ready PRs merge in any order.
   - Merge with `gh pr merge N --merge --match-head-commit <sha>`. GitHub auto-merge is not

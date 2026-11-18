@@ -17,7 +17,7 @@ import { ASSIST_WORST_CASE_ROWS } from "../../src/main/private-agent/research-as
 import { RESEARCH_FALLBACK_POLICY } from "../../src/main/private-agent/research-fallback";
 import { DEFAULT_RESEARCH_ROLE_POLICY, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import type { ResearchAdmissionRates } from "../../src/main/private-agent/research-admission";
-import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
+import { researchV4Reply, researchV4TrimmedReply, researchV4TrimmedSources } from "../helpers/research-v4-fixture";
 import { ASSIST_FEE_CAP_MICROUSD, assistModelConfig } from "../helpers/research-assist-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -229,12 +229,9 @@ describe("H2b/H2c: the research stage inside a session", () => {
   });
   it("7b.2: a packet the priority trim cut reaches the writer, with its omissions and trimmed outcomes in the presentation (BL-20261115-1939-research-priority-trim-design)", async () => {
     // Twenty sources of twelve rows, every row a quote with a 200-character note: 240 verified quotes overflow the 64 KiB packet.
-    const corpus = Array.from({ length: 20 }, (_, i) => ({ path: `input/corpus/trim-${String(i).padStart(2, "0")}.md`,
-      bytes: Buffer.from(Array.from({ length: 12 }, (_, j) => `Source ${i} row ${j} ${"records a synthetic observation with a bounded uncertainty. ".repeat(4)}`).join("\n")) }));
+    const corpus = researchV4TrimmedSources().map(({ path, bytes }) => ({ path, bytes }));
     const base = phase(), trimmedPhase: SessionPhase = { ...base, files: [...corpus, ...base.files.filter(file => !file.path.startsWith("input/"))] };
-    const f = await fixture({ reply: (system, user) => { if (!system.startsWith("You extract")) return undefined; const input = parseResearchUserContent(user);
-      return JSON.stringify({ questions: input.plan.questions.map((q: { id: string }) => ({ questionId: q.id, status: "evidence_found" })), conflicts: [],
-        quotes: String(input.chunk.text).split("\n").map(quote => ({ quote, questionIds: input.plan.questions.map((q: { id: string }) => q.id), note: "n".repeat(200) })) }); } });
+    const f = await fixture({ reply: researchV4TrimmedReply });
     const runs: Run[] = [];
     expect(await new GeneralAgentSession(options(f, "job-trimmed", runs, "model", trimmedPhase)).run()).toMatchObject({ status: "submitted" });
     expect(runs).toHaveLength(1);

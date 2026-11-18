@@ -36,6 +36,9 @@ export function desktopResearchSession(card: LoadedServingCard, models: (context
 }
 
 const STAGES = ["index", "plan", "extract", "synthesise"] as const;
+/** The stage counts the view shows when a stage recorded them: chunks, repairs and the packet's trim (research-pipeline.ts, ResearchStageCounts). */
+const STAGE_COUNTS = ["chunksPlanned", "chunksComplete", "repairCalls", "secondRepairCalls", "secondRepairsComplete", "quotesVerified", "quotesInPacket",
+  "quotesLeftByCap", "quotesLeftByPresentation", "questionsTrimmed", "conflictsNoted", "conflictsInPacket", "heldChunks", "heldKeptUnrepaired"] as const;
 const count = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 /**
  * What the snapshot shows of a research task's stage, read from the stage's own events only: whether it started, transferred its
@@ -50,10 +53,10 @@ export function researchStageView(record: DesktopResearchRecord, events: readonl
   for (const stage of STAGES) {
     const row = [...events].reverse().find(event => event.type === "research_stage" && event.contextId === reader && event.stage === stage);
     if (!row) continue;
-    const truncated = count(row.truncatedReplies), planned = count(row.chunksPlanned), complete = count(row.chunksComplete);
+    const truncated = count(row.truncatedReplies), counts: Partial<Record<(typeof STAGE_COUNTS)[number], number>> = {};
+    for (const key of STAGE_COUNTS) { const value = count(row[key]); if (value !== undefined) counts[key] = value; }
     stages.push({ stage, calls: count(row.calls) ?? 0, ...(truncated ? { truncatedReplies: truncated } : {}),
-      ...(row.fallback === "host_plan" || row.fallback === "skeleton" ? { fallback: row.fallback } : {}),
-      ...(planned !== undefined ? { chunksPlanned: planned } : {}), ...(complete !== undefined ? { chunksComplete: complete } : {}) });
+      ...(row.fallback === "host_plan" || row.fallback === "skeleton" ? { fallback: row.fallback } : {}), ...counts });
   }
   return { route: record.route, card: { date: record.cardDate, sha256: record.cardSha256 },
     stage: transferred ? "transferred" : !started ? "not_started" : active ? "running" : "stopped", stages,

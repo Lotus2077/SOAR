@@ -25,6 +25,10 @@ describe("main startup ordering", () => {
     expect(folder).toBeLessThan(lock);
     expect(entry).toContain('const primaryInstance = userDataFolder.kind !== "refused" && app.requestSingleInstanceLock();');
     expect(entry).toContain("controller = await bootstrap({ userDataFolder });");
+    // Backlog item 13a: the quit offer reads the research stage when it opens, and shows only quitOffer's words.
+    expect(entry).toContain("const offer = quitOffer(current.researchStageRunning());");
+    expect(entry).toContain("message: offer.message, detail: offer.detail");
+    expect(entry).not.toContain("can be resumed later");
   });
 
   it("refuses the research beta outside its folder before the database opens, and keeps its flag off there at run time (backlog item 13a)", () => {
@@ -34,6 +38,8 @@ describe("main startup ordering", () => {
     expect(config).toBeGreaterThanOrEqual(0); expect(issue).toBeGreaterThan(config); expect(database).toBeGreaterThan(issue);
     expect(bootstrap).toContain("config: () => withResearchBetaFolder(loadConfig({ appPath: app.getAppPath(), userDataPath }), userDataFolder),");
     expect(bootstrap.match(/\bloadConfig\(/gu)).toHaveLength(3);
+    // The quit offer asks the general-task controller whether a research stage is in progress (backlog item 13a, part 3).
+    expect(bootstrap).toContain("researchStageRunning: () => generalTasks?.researchStageRunning() ?? false,");
   });
 
   it("creates the renderer shell, installs required IPC authority, then loads", () => {

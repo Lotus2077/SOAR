@@ -82,6 +82,12 @@ const fixedReasons: Record<string, string> = {
   // Backlog item 6 (finding A7, BL-20261109-0501): a research stage that started and never transferred cannot continue. No certainty is claimed:
   // uncertain() skips another context's unknown assist rows, and an uncertain request shows its own text first.
   research_stage_not_replayed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume.",
+  // Backlog item 13a: a local research task's stops, each terminal (run-reasons.ts); the task's research section shows the stage's own counts.
+  research_extraction_incomplete: "The research stage could not read every source passage, even after its repairs, so nothing was handed to the writer. This task cannot resume; its research section shows how many passages were read.",
+  research_mandatory_budget_exceeded: "The input files need more reading calls than the research stage allows, so it sent nothing. This task cannot resume; fewer or shorter text files may fit.",
+  research_infeasible_in_clock: "By the serving card's measured speeds, the research stage could not finish within this task's time, so it sent nothing. This task cannot resume.",
+  research_source_unreadable: "An input file is not readable text, and the research stage reads every input in full, so it sent nothing. This task cannot resume; use text files.",
+  research_no_evidence: "The research stage verified no quote in the sources for its questions, so nothing was handed to the writer. This task cannot resume.",
   task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
   consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
   // Backlog item 6 follow-up (6.4, BL-20261114-2309): terminal for Resume, which repeats it; a Revoke removes its cause and re-opens the task.
@@ -314,6 +320,16 @@ export class GeneralTaskController {
   private closing = false;
   /** True while any task runs or cleans up: a quit then waits for it to reach a resumable boundary. */
   busy(): boolean { return this.active.size > 0; }
+  /** Backlog item 13a: whether a running task is inside its research stage, which a pause or a quit ends rather than pauses. */
+  researchStageRunning(): boolean {
+    for (const id of this.active.keys()) {
+      try {
+        const record = this.record(id);
+        if (record.research && researchStageView(record.research, this.runtime.events(id), this.runtime.dispatches(id), true).stage === "running") return true;
+      } catch { /* An unreadable record shows no stage. */ }
+    }
+    return false;
+  }
 
   constructor(private readonly options: GeneralTaskControllerOptions) {
     const selectedRoot = resolve(options.dataRoot); mkdirSync(selectedRoot, { recursive: true, mode: 0o700 });
@@ -684,7 +700,9 @@ export class GeneralTaskController {
       catch { bundleUnavailableReason = "These filenames cannot be combined into a portable ZIP. Export files individually."; }
     }
     return { id, goal: record.goal, outputName: record.outputName, status: record.status,
-      reason: reason === "interrupted_unknown" ? this.unknownReason(id) : (Object.hasOwn(fixedReasons, reason) ? fixedReasons[reason] : undefined) ?? fixedReasons.incomplete!,
+      reason: reason === "interrupted_unknown" ? this.unknownReason(id) : (Object.hasOwn(fixedReasons, reason) ? fixedReasons[reason] : undefined) ??
+        // Backlog item 13a: any other research stop names its fixed code, which is a host identifier, never model or source text.
+        (/^research_[a-z0-9_]{1,80}$/u.test(reason) ? `The research stage stopped (${reason}), so this task cannot resume.` : undefined) ?? fixedReasons.incomplete!,
       createdAt: record.createdAt, updatedAt: record.updatedAt,
       revision: record.revision + events.length + (record.version === 3 ? dispatches.reduce((sum, row) => sum + (row.status === "committed" ? 1 : 2), 0) : 0),
       inputs: structuredClone(record.inputs),

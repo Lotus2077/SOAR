@@ -163,8 +163,26 @@ export interface GeneralTaskResearch {
   route: "local_beta";
   card: { date: string; sha256: string };
   stage: "not_started" | "running" | "transferred" | "stopped";
-  stages: { stage: "index" | "plan" | "extract" | "synthesise"; calls: number; truncatedReplies?: number; fallback?: "host_plan" | "skeleton"; chunksPlanned?: number; chunksComplete?: number }[];
+  stages: GeneralTaskResearchStage[];
   requests: number;
+  /**
+   * Reserved, never set yet: a packet the stage handed over ready with a disclosed gap (the chunks it could not read), for the
+   * research protocol's revision now before the owner. The view already shows it; the stage's records will set it once adopted.
+   */
+  gap?: { chunks: number };
+}
+/**
+ * One stage's latest recorded counts, only those the stage recorded. The extraction row also carries its repairs (and, under a card's
+ * admission rates, its second repairs) and how its evidence packet was trimmed: verified quotes, those kept, those left out at the
+ * packet's size cap or by the presentation guard, the plan questions left without a quote in the packet, and conflict notes.
+ */
+export interface GeneralTaskResearchStage {
+  stage: "index" | "plan" | "extract" | "synthesise"; calls: number; truncatedReplies?: number; fallback?: "host_plan" | "skeleton";
+  chunksPlanned?: number; chunksComplete?: number; repairCalls?: number; secondRepairCalls?: number; secondRepairsComplete?: number;
+  quotesVerified?: number; quotesInPacket?: number; quotesLeftByCap?: number; quotesLeftByPresentation?: number; questionsTrimmed?: number;
+  conflictsNoted?: number; conflictsInPacket?: number;
+  /** Shown once the stage records them (a proposed extract count): first replies held for a repair, and those that kept their first reading. */
+  heldChunks?: number; heldKeptUnrepaired?: number;
 }
 export interface GeneralTaskArtifactPreview extends GeneralTaskArtifactRef {
   bytes: number;

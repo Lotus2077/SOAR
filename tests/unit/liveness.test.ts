@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { QUIT_CLOSE_BOUND_MS, boundedClose, heartbeatLateness, startQuit } from "../../src/main/liveness";
+import { QUIT_CLOSE_BOUND_MS, boundedClose, heartbeatLateness, quitOffer, startQuit } from "../../src/main/liveness";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -56,3 +56,14 @@ describe("liveness helpers (PR-B)", () => {
     expect(await busy.outcome).toBe("closed"); expect(busyQuit).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("the quit offer's words (backlog item 13a)", () => {
+  it("promises a resume only outside a research stage, which ends the task whether the owner waits or quits", () => {
+    expect(quitOffer(false)).toEqual({ message: "Waiting for the running task to pause", detail: expect.stringContaining("can be resumed later") });
+    const research = quitOffer(true);
+    expect(research.message).toBe("Waiting for the research stage to stop");
+    expect(research.detail).toContain("this task ends and cannot be resumed");
+    expect(research.detail).not.toContain("can be resumed later");
+  });
+});
+

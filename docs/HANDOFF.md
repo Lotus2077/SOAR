@@ -6,7 +6,7 @@ This section is the entrypoint for the next session. It replaces every earlier "
 this file; the rest of the file is the September 2026 record. "The session" is the coordinating
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
 next session takes that role. The sources are the entry files of 2026-11-18 under
-`docs/build-log/`, pull requests #155 to #183, and `main` at b17a590.
+`docs/build-log/`, pull requests #155 to #184, and `main` at b17a590.
 
 **In brief.**
 - **The measure.** The MVP exit is at least 6 of 8 real owner jobs accepted in each of two
@@ -14,11 +14,11 @@ next session takes that role. The sources are the entry files of 2026-11-18 unde
   (BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout, decision 4).
 - **The order.** The owner approved local research in the desktop before the paid experiments
   E3 and E4 (the same entry, #155).
-- **The state.** 13a.1 is complete on `main`, and no beta build is cut. E0's Amendment 8
-  re-probe ran (#183), and the owner is asked for the revised card's adoption.
+- **The state.** 13a.1 is complete on `main`, and no beta build is cut. On the owner's go, #184
+  adopts E0's revised serving card (BL-20261118-1232); the three r3 runs under it come next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. Then see whether the owner has given the adoption go (§4, item 2).
-- **Not without the owner, each asked by name:** the revised card's adoption commit (Amendment 8,
+  `ls docs/build-log | tail`. Then see how far the three r3 runs have got (§5, item 1).
+- **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); the push of the tag `owner-v0.2.1`, a new outside destination and real private data
   (BL-20261117-0940-owner-direction-decisions-delegated, decision 5); #105's residues
   (BL-20261117-0941-group-a-decided-under-delegation, decision 1). E5's jobs and verdicts, lines
@@ -27,9 +27,9 @@ next session takes that role. The sources are the entry files of 2026-11-18 unde
 
 ### 1. Get the work
 
-`main` is at b17a590, the merge of #180; work from it. Select Node 22.22.2 and pnpm 10.12.4
-first ("Setup and safe verification" below): `.npmrc` sets `engine-strict=true`, so another
-Node major fails the install.
+`main` was at b17a590, the merge of #180, when this was written; #183 and #184 follow it. Select
+Node 22.22.2 and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
+`engine-strict=true`, so another Node major fails the install.
 
 ```sh
 git fetch origin main
@@ -37,25 +37,25 @@ git checkout main
 pnpm install --frozen-lockfile
 ```
 
-CI runs on pull requests and on pushes to `main`. These merged on 2026-11-18, between 04:31 and
-11:26 UTC; #183 and the draft #86 are open, and #181 is closed unmerged (§4).
+CI runs on pull requests and on pushes to `main`. These merged on 2026-11-18, from 04:31 UTC to
+#184's merge; the draft #86 is open, and #181 is closed unmerged (§4).
 
 | Area | Pull requests |
 | --- | --- |
 | The order and the log | #155 (the owner's approval, and E0's Amendment 6), #159 (one file per entry), #157 (source comments cite pull requests) |
 | 13a, local research in the desktop | #156 (the design), #158, #160, #162, #164, #168, #170, #175 |
-| E0 and the research protocol | #163 (r3), #166 (the owner's gap decision), #171 (Amendment 7), #172 (the gap), #173 (card-writer options), #176 (the tolerant check), #178 (Amendment 7's result), #180 (Amendment 8) |
+| E0 and the research protocol | #163 (r3), #166 (the owner's gap decision), #171 (Amendment 7), #172 (the gap), #173 (card-writer options), #176 (the tolerant check), #178 (Amendment 7's result), #180 (Amendment 8), #183 (the re-probe's result), #184 (the adoption) |
 | E6 | #177 (the grading brief), #179 (the scorer's re-pin) |
 | Tests and git | #161, #165 and #169 (test timeouts), #167 (the e2e diagnostic), #174 (the git deadline) |
 
 **Values at b17a590.** #180, the one merge since 6e3879e, changed no code, so they are those of
 BL-20261118-1114-e0-card-amendment-8, decision 5. The first and third lines were recomputed here:
 - the default research protocol hash `4bb74c03…`, and `0160d8f3…` under admission;
-- `6d6dbf43…` under the adopted card's roles with admission;
+- `6d6dbf43…` under the 2026-11-17 card's roles with admission;
 - the harness source freeze `0b896d92…`, over 62 files.
 
 The freeze moved today with #157, #164, #172 and #176, and the hash with #172 and #176.
-Recompute both before any run.
+Recompute both before any run. Under the 2026-11-18 card the run hash is `99bbc0e6…` (#184).
 
 ### 2. Read, in this order
 
@@ -63,7 +63,8 @@ Recompute both before any run.
 2. `AGENTS.md` and `CONTRIBUTING.md`, for the log's layout and rules (#159).
 3. docs/PLAN.md §1 for the measure and §4 for the process. Then, in the frozen archive
    `docs/BUILD_LOG.md`, the owner's delegation (BL-20261117-0940) and approval (BL-20261118-0418).
-4. The E0 card, docs/experiments/e0-card-2026-11-13.md, with its Amendments 6, 7 and 8.
+4. The E0 card, docs/experiments/e0-card-2026-11-13.md, with its Amendments 6, 7 and 8, and the
+   adopted serving card, docs/experiments/serving-card-2026-11-18.json.
 5. 13a's design (BL-20261118-0438-desktop-local-research-13a-design, in the archive) and
    13a.1's entry files. #170's description holds the beta-cut checklist.
 6. The E2, E5 and E6 cards (docs/experiments/e2-, e5- and e6-card-2026-11-17.md), and E6's
@@ -105,6 +106,8 @@ Recompute both before any run.
   met. Synthesis gave 0, 2 and 3 of 10, and the plan cells 7, 6 and 5 of 10.
 - **Amendment 8's values** (#180, the amendment's item 0): synthesis caps become
   [16384, 16384], with thinking on both attempts; the plan row is unchanged.
+- **The serving card of 2026-11-18 is adopted** on the owner's "Yes, adopt" (#184,
+  BL-20261118-1232-serving-card-2026-11-18-adopted), from Amendment 8's re-probe (#183).
 - **13a.1 is complete:** #160 (the contract, and the beta flag, off by default), #162 (the
   beta's own user-data folder), #164 (the stage), #168 (the task view), #170 (the gated
   end-to-end case, `Verified`, and the beta-cut checklist) and #175 (the disclosed gap in the
@@ -115,14 +118,14 @@ Recompute both before any run.
 - **The tests.** The Git-review e2e failures came from the 5 s per-command git deadline, now
   15 s, below the inspection's 20 s (#167, #174). Every test has a 30 s default timeout (#169).
 - **Still in force from 2026-11-17:** the owner's delegation (BL-20261117-0940) and the
-  session's choices under it (BL-20261117-0941); E5's, E2's and E6's cards, `Approved`; the
-  serving card of 2026-11-17, adopted (BL-20261117-1616-serving-card-2026-11-17-adopted).
+  session's choices under it (BL-20261117-0941); E5's, E2's and E6's cards, `Approved`. The
+  2026-11-17 serving card (BL-20261117-1616) stays as committed; no run reads it now (#184).
 
 ### 4. Still open, and what each blocks
 
-1. **E0's Amendment 8 re-probe** (#180) ran, and the owner's adoption go is asked. Until the
-   adoption, the reader refuses the adopted card (`serving_card_p10_protocol_drift`, #172), and
-   the three r3 runs under the revised card, E2's runs and the beta cut wait.
+1. **E0's Amendment 8** (#180). The re-probe ran (#183), the owner gave the adoption go (item 2),
+   and the three r3 runs under the adopted card come next, at #184's merge commit (Amendment 8,
+   item 6), then E2.
 
    The re-probe ran at b17a590 from 11:27 to 12:04 UTC: all twelve probes ran, none failed, and
    P10 at `4bb74c03…` gave plan 20 and 20, extract 19 and 20, synthesis 17 and 20 valid of 20.
@@ -130,10 +133,11 @@ Recompute both before any run.
    and extract rows and moves synthesis to [16384, 16384] with thinking on both attempts; its
    synthesis flag is for thinking off only, so no format is sent and #181 was closed unmerged.
    Amendment 5's check holds, and the session asked the owner for the adoption commit at about
-   12:05 UTC. The adopted file's sha256 will be `9cd65c4e…`, and the run hash under it
+   12:05 UTC. The adopted file's sha256 is `9cd65c4e…`, and the run hash under it
    `99bbc0e6…` (BL-20261118-1206-e0-amendment-8-reprobe-result, #183).
-2. **The owner's adoption go** was asked by name at about 12:05 UTC. The adoption commit edits
-   only the revised card's `decision` and `admission.basis` (Amendment 8, item 5).
+2. **The owner gave the adoption go,** "Yes, adopt", between 12:12 and 12:31 UTC. #184 adopts
+   the card, editing only its `decision` and `admission.basis`
+   (BL-20261118-1232-serving-card-2026-11-18-adopted).
 3. **#181,** E0's `synthesis-16384-structured` fixture cell, is closed unmerged: the revised
    card sends synthesis no format (Amendment 8, item 4).
 4. **E2.** Its amendment is drafted and held until the revised card; its runbook is in the
@@ -143,8 +147,7 @@ Recompute both before any run.
 5. **E6.** The grading brief (#177), the scorer's pin (#179) and the runbook (in the session's
    notes) are ready. How a grader is started is not chosen (the brief, Part A, "Graders"); it
    blocks the grading, not the runs.
-6. **Waiting on the owner:**
-   - the adoption go, asked at about 12:05 UTC;
+6. **Waiting on the owner,** now that the adoption go is given (item 2):
    - how many real jobs a week the owner can run in the desktop build (BL-20261118-0418,
      decision 6);
    - the push of the local tag `owner-v0.2.1` (BL-20261117-1157-e5-owner-build-cut);
@@ -159,21 +162,19 @@ Recompute both before any run.
 
 ### 5. Act next, in this order
 
-1. **The adoption.** #183 holds the re-probe's result and the revised card. On the owner's go,
-   asked at about 12:05 UTC, the adoption commit follows (§4, item 2; Amendment 8, item 5).
-2. **After the adoption,** run the three r3 runs under the revised card, one at a time, by the
-   endpoint rules below. Write their result entry with the gap, held-chunk and
+1. **The three r3 runs** under the adopted card, at #184's merge commit, one at a time by the
+   endpoint rules below; then their result entry with the gap, held-chunk and
    synthesis-correction counts (Amendment 8, item 6).
-3. **E2.** Release its amendment against the revised card, announce the window, and run its
+2. **E2.** Release its amendment against the revised card, announce the window, and run its
    graded runs by its runbook.
-4. **If E2's runs accept the writer,** 13a's gate is met. Cut the beta build with the owner by
+3. **If E2's runs accept the writer,** 13a's gate is met. Cut the beta build with the owner by
    #170's checklist; no beta build is cut before then
    (BL-20261118-0659-desktop-research-e2e-and-beta-cut-plan).
-5. **E6.** Choose how a grader is started, then run the batch by its card and runbook, and grade
+4. **E6.** Choose how a grader is started, then run the batch by its card and runbook, and grade
    it by the brief.
-6. **Ask the owner** for each item of §4, item 6, by name. Record each answer in an `Approved`
+5. **Ask the owner** for each item of §4, item 6, by name. Record each answer in an `Approved`
    entry, quoted, before acting on it.
-7. **Lanes.** S-pipe: the research protocol. S-desk: the beta cut, when the session says so.
+6. **Lanes.** S-pipe: the research protocol. S-desk: the beta cut, when the session says so.
    S-harn: the harness and the log's tools. S-e1: E2's and E6's fixtures and their gold, which
    only it opens. S-assist: the next failed electron-e2e run, read before anyone re-runs it
    (BL-20261118-0800-git-command-deadline-15s).
@@ -244,8 +245,8 @@ Recompute both before any run.
 - **The Git-review e2e flake** is diagnosed (run 44260413394: `inspect_git_changes` failed after
   5,609 ms) and its deadline raised (#174). It is not shown gone, against a base rate near 3%
   (BL-20261118-0800-git-command-deadline-15s).
-- **The adopted card is refused** by the reader until a revised card binds the new hash, so no
-  run that reads a card can start before the adoption.
+- **The adopted card rests on one probe run,** on the export's synthetic payloads, and no run has
+  read it yet (BL-20261118-1232-serving-card-2026-11-18-adopted, limitations).
 
 ## September 2026 record
 

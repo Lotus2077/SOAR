@@ -49,8 +49,10 @@ This folder holds the committed, sanitized record of live trials (see
     the model, the reply contract or its context, or `SOAR_STREAMING`, re-export,
     re-run P1, P10, P11 and the adapter together, and adopt a new card.
   - **Adoption** is a reviewed commit that sets `decision` to `{status: adopted,
-    entry: <the BL entry that records E0's result>}`. It is made only once that
-    entry's ID is final on `main`, since IDs are re-stamped at merge. The owner then
+    entry: <the BL entry that records E0's result>}`. It was made only once that
+    entry's ID was final on `main`, since IDs were re-stamped at merge before entry
+    files (BL-20261118-0428-build-log-entry-files); an entry file's ID is final once
+    its pull request merges. The owner then
     computes the sha256 and sets the pair `SOAR_SERVING_CARD_FILE` and
     `SOAR_SERVING_CARD_SHA256` in the ignored `.env.local`.
   - **Audit.** A reviewer re-runs the writer on the retained probe with the same
@@ -283,7 +285,7 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 
 [Phase 4 experiment record through November 5](PHASE4_EXPERIMENT_RECORD_2026-11-05.md)
 links the recovery, calibration, serving qualification, pilot and research-trial
-sequence to the append-only build log. It separates standalone request accounting,
+sequence to the build log's archive. It separates standalone request accounting,
 historical H4 attempts and Claude calibration charges, including failed and
 unresolved outcomes. H4/H5 acceptance remains unestablished.
 

@@ -33,8 +33,9 @@ next session takes that role. The sources are the entry files of 2026-11-18 and 
 ### 1. Get the work
 
 `main` was at 734e702, the merge of #195, when this was written; the docs pull requests after it
-(#197, #198, E6's batch state and this sync) follow it. The main checkout is held at 734e702 for E2's second batch and E6: never pull it until
-both are done. Select
+(#197, #198, #199 and this sync) follow it. The main checkout is held at 734e702 for E2's second
+batch and E6: never pull it until both are done, and do any other work in a separate worktree.
+Select
 Node 22.22.2 and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
 `engine-strict=true`, so another Node major fails the install.
 
@@ -58,7 +59,8 @@ the evening of 2026-11-19; the draft #86 is open, and #181 is closed unmerged (�
 | Other | #189 (the morning's handoff sync), #191 (criterion 6 restated, on the owner's yes), #192 (a stage-resume design, `Proposed`) |
 | Tests and git | #161, #165, #169 and #188 (test timeouts and waits), #167 (the e2e diagnostic), #174 (the git deadline) |
 
-**Values at 734e702.** #195 changed the writer, not the research stage:
+**Values at 734e702.** #195 changed the writer, not the research stage. The earlier values
+`0160d8f3…` and `6d6dbf43…` are superseded: no run reads them now.
 - the default research protocol hash `4bb74c03…`, and `99bbc0e6…` under the 2026-11-18 card's
   roles with admission, both pinned by tests/unit/research-protocol-adopted-card.test.ts;
 - the harness source freeze `86732c63…`, now over 63 files (#195 added one), recomputed on a
@@ -102,7 +104,7 @@ E2's second batch and E6 are made at 734e702.
 - **The r3 re-measurement** (#163, BL-20261118-0606-e0-r3-remeasurement-result, `Verified`).
   2 of 3 runs reached the packet, each only through the second repair, which stays. That meets
   the first half of 13a's gate. No card value moved.
-- **The owner's two decisions today:**
+- **The owner's two decisions on 2026-11-18:**
   - **One disclosed unresolved chunk.** A packet may stand when one chunk's last reply declared
     its questions unresolved. The gap is disclosed in coverage and the report; an invalid,
     cut-off or refused chunk still ends the run (#166,
@@ -146,7 +148,7 @@ E2's second batch and E6 are made at 734e702.
   figures corrected by #196, BL-20261119-1701). Not approved: thinking off after a cut-off, or
   any change to Heavy's clock, calls or per-reply cap.
 - **The writer fixes** (#195, BL-20261119-1620-writer-ledger-feedback-and-length-nudge): the
-  claims check accepts arguments and its failures come back as codes; under the twelve-call bound
+  claims check accepts and ignores arguments, and its failures come back as codes; under the twelve-call bound
   the host checks the ledger once when it first appears; the length nudge says when a cut came
   while reasoning and that write_file replaces the file. Any paused runner task from before it,
   desktop plain tasks included, fails closed on Resume.
@@ -154,6 +156,10 @@ E2's second batch and E6 are made at 734e702.
   734e702, its 12 writer runs seeded from the first batch's packets, read as counts of 4. s1 and
   s2 are `exposed`; grading them "on exposed tasks" departs from review rule 3 as worded. Its
   reading supersedes the first batch's for the E3/E4 writer and the beta's gate reading.
+  - The amendment let the owner choose a strict or a fresh reading before the first writer run.
+    That run started at 17:36 UTC while the owner was away, before #198 merged at 17:57, so the
+    owner did not get that choice. The owner keeps point 6's decision, and may still replace
+    the reading by an entry of their own, which the session would follow.
 - **E6's grader start and batch state** (#197, BL-20261119-1705; BL-20261119-1732): a
   headless grader with a sandboxed shell, confined for user data and with no network; the batch
   at 734e702 under the adopted card, by S-harn's runbook (sha256 `019cb926…`); "fresh at the
@@ -188,7 +194,8 @@ E2's second batch and E6 are made at 734e702.
    - #105's residues, the session's choice put to the owner by name (BL-20261117-0941,
      decision 1);
    - the rehearsal and E5's day 1 (BL-20261117-1157, decision 4);
-   - whether a reading "on exposed tasks" may open the beta (Amendment 2, point 6);
+   - whether a reading "on exposed tasks" may open the beta (Amendment 2, point 6), and whether to
+     replace the batch's reading, since the choice before its first run passed unasked (§3);
    - the session's readings the owner may replace: s1's kept packet (#193, decision 4) and E6's
      "fresh at the start" (BL-20261119-1732).
 4. **E3 and E4** have no cards. They stay as the paid assist question (BL-20261118-0418). A
@@ -281,8 +288,9 @@ E2's second batch and E6 are made at 734e702.
 - **Nothing measures research quality yet.** #163 covers no report's quality. The stage's checks
   are not a verdict on content (#178). The desktop stage has run only against loopback endpoints
   with scripted replies, and the gated case once, on one machine, outside CI (#164, #170).
-- **Counts, not rates.** Today's runs are a few runs of one exposed task on one endpoint on one
-  day; three runs estimate no rate (Amendment 8, item 6). E0's inherited limits are in
+- **Counts, not rates.** E0's r3 runs and E2's batches are a few runs of three tasks, two of them
+  exposed for the second batch, on one endpoint over two days; they estimate no rate (Amendment 8,
+  item 6; E2's card). E0's inherited limits are in
   BL-20261116-1357-e0-verified.
 - **One paid run since 2026-11-07:** E0's judge labelling on 2026-11-16, USD 0.067876 by the
   tool's ledger (BL-20261116-1013-e0-judge-labelling-and-pin). E2's graders ran on the owner's

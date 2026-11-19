@@ -17,6 +17,7 @@ import { READ_OBSERVATION_TOOL, readObservationArguments, ObservationIntegrityEr
 import { capabilitiesForImage } from "./capabilities";
 import { CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsVerifiedClaimSchema,
   encodeRetainedClaimsSources, isEntailmentDispatch, publicSourceWorkspacePath, type RetainedClaimsSource } from "./claims";
+import { claimsLedgerFeedback, type ClaimsLedgerFeedback } from "./claims-feedback";
 import { EXECUTION_PROGRESS_POLICY, EXECUTION_PROGRESS_STOP, deriveExecutionProgress, executionProgressBlocks,
   executionProgressStop, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "./progress";
 import { researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
@@ -55,6 +56,11 @@ export interface GeneralJobOptions {
   consultation?: GeneralConsultation;
   /** Host-only shared-session deadline in performance.now() milliseconds; never grants more phase time. */
   sessionDeadlineMs?: number;
+  /**
+   * A twelve-call writer's phase: once output/claims.json first appears in a captured snapshot, the host runs its claims-ledger check
+   * on the live workspace and returns the result after that action's tool result, without spending a model call or a tool action.
+   */
+  claimsCheckOnFirstLedger?: boolean;
 }
 export interface GeneralJobResult {
   status: "completed" | "paused" | "incomplete";
@@ -94,7 +100,6 @@ const CONSULTATION_TOOL: GeneralToolDefinition = { type: "function", function: {
 const consultationArguments = z.object({ question: z.string().min(1).max(4000), artifactPaths: z.array(z.string().min(1).max(240)).max(8) }).strict();
 const CLAIMS_TOOL: GeneralToolDefinition = { type: "function", function: { name: "check_claims", description: "Run the host's claims-ledger check on output/claims.json and the report without changing any file. Returns each claim's quote verification and host-computed locator plus citation and section results, so you can repair before finish.",
   parameters: { type: "object", properties: {}, additionalProperties: false } } };
-const noArguments = z.object({}).strict();
 /** A host-owned check as one sandbox command; the script is a host value, never a workspace file. The claims check also receives the host's retained sources, and at finish asks for source windows. */
 export function checkCommand(check: ArtifactCheck, retained?: RetainedClaimsSource[], context = false): string {
   const env = check.id === CLAIMS_LEDGER_CHECK_ID ? `${CLAIMS_RETAINED_ENV}='${encodeRetainedClaimsSources(retained ?? [])}' ${context ? `${CLAIMS_CONTEXT_ENV}='1' ` : ""}` : "";
@@ -134,8 +139,23 @@ const NUDGE_LIMIT = 3;
 const LENGTH_LIMIT = 2;
 const NUDGE_NO_ACTION = "No tool was called, so nothing happened and one model call was used. Respond with exactly one tool call from the available tools; plain text alone does not act.";
 const NUDGE_MULTI = "More than one tool call was returned and none was executed. Return exactly one tool call per response.";
-function lengthFeedback(maxOutputTokens: number): string {
-  return `The response reached the ${maxOutputTokens}-token output limit; nothing was executed and its tool calls were dropped (any partial text above was not acted on). Split the work: write files in pieces with write_file and append_file (about 1500 characters each), keep reasoning brief, and continue from the saved workspace.`;
+/**
+ * The output-limit feedback, in two forms. The limit counts reasoning: a cut reply whose visible text and tool-call arguments stay under
+ * one byte per token of the limit (about a quarter of it, at four bytes a token) was cut while reasoning. Every cut-off in E2's first
+ * batch was (22 of 22, at most 126 visible bytes), and the earlier advice to write pieces of about 1500 characters with write_file and
+ * append_file led to small pieces that each replaced the file. Both forms say how write_file and append_file differ.
+ */
+export type LengthCut = "reasoning" | "output";
+const LENGTH_PIECES = "write_file replaces the whole file, so write a long file's first piece with write_file and every later piece with append_file.";
+export function lengthFeedback(maxOutputTokens: number, cut: LengthCut): string {
+  return cut === "reasoning"
+    ? `The response reached the ${maxOutputTokens}-token output limit while still reasoning: no tool call was complete, so nothing was executed (any partial text above was not acted on). Reason briefly and return one complete tool call now, continuing from the saved workspace. ${LENGTH_PIECES}`
+    : `The response reached the ${maxOutputTokens}-token output limit before its tool call was complete, so nothing was executed and its tool calls were dropped (any partial text above was not acted on). Keep reasoning brief, write long content in pieces and continue from the saved workspace: ${LENGTH_PIECES}`;
+}
+export function lengthCut(response: { content?: string | null; toolCalls: readonly { function: { name: string; arguments?: string } }[] }, maxOutputTokens: number): LengthCut {
+  const visible = Buffer.byteLength(response.content ?? "") +
+    response.toolCalls.reduce((sum, call) => sum + Buffer.byteLength(call.function.name) + Buffer.byteLength(call.function.arguments ?? ""), 0);
+  return visible < maxOutputTokens ? "reasoning" : "output";
 }
 /** One model command's in-container deadline; the container survives a timeout as an observation. */
 const COMMAND_TIMEOUT_MS = 180_000;
@@ -200,6 +220,27 @@ type CaptureOutcome = { ok: true; snapshot: WorkspaceSnapshot; files: { path: st
  * #43, 3).
  */
 const DENIED_WITHOUT_RESUME: ReadonlySet<BrokerDenialCode> = new Set<BrokerDenialCode>(["packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing", "cloud_after_assist_unknown"]);
+/** What a twelve-call writer's first-ledger check records on its tool_finished: the check's feedback, or that it could not run. */
+type ClaimsLedgerCheckRecord = ClaimsLedgerFeedback | { unavailable: true };
+/** A verification at finish or at the allowance's end: each check's verdict, a passing ledger's output for the entailment pass, a failing ledger's feedback. */
+type Verification = { checks: GeneralJobResult["checks"]; claimsOutput?: string; claimsFeedback?: ClaimsLedgerFeedback };
+const hasLedger = (files: readonly { path: string; bytes: number }[]) => files.some(file => file.path === CLAIMS_LEDGER_PATH && file.bytes > 0);
+/**
+ * The host notice after the tool result of the action that first left output/claims.json in a twelve-call writer's workspace: the
+ * claims-ledger check's result, a pure function of the recorded `tool_finished` field, so the live turn and every replay send the same
+ * user message. Host-authored, never bound into the prompt protocol; pinned by tests/unit/private-agent-tool-errors-golden.test.ts.
+ */
+export function claimsCheckNotice(event: Record<string, unknown>): string | undefined {
+  const check = event.claimsLedgerCheck as ClaimsLedgerCheckRecord | undefined;
+  if (!check) return;
+  const ran = "No model call or tool action was spent on it.";
+  if ("unavailable" in check) return canonical({ hostCheck: CLAIMS_LEDGER_CHECK_ID, trigger: "claims_ledger_first_written", unavailable: true,
+    instruction: `${CLAIMS_LEDGER_PATH} now exists, but the host could not run its claims-ledger check on it. ${ran} Call check_claims to run it.` });
+  return canonical({ hostCheck: CLAIMS_LEDGER_CHECK_ID, trigger: "claims_ledger_first_written", result: check,
+    instruction: check.passed
+      ? `${CLAIMS_LEDGER_PATH} now exists, and the host's claims-ledger check passes on the workspace as it is. ${ran} Keep the ledger and the report consistent if you change either; finish, or the end of your allowance, checks them again.`
+      : `${CLAIMS_LEDGER_PATH} now exists, and the host's claims-ledger check fails on the workspace as it is. ${ran} Fix every problem listed in result before your allowance ends; check_claims runs the check again, and finish, or the end of your allowance, checks again.` });
+}
 /**
  * The host notice that follows a tool result whose capture failed or left entries out: a pure function of the recorded `tool_finished`
  * fields, so the live turn and every replay send the same user message. Host-authored, never bound into the prompt protocol; its objects
@@ -289,7 +330,8 @@ export function promptProtocol(options: PromptProtocolOptions, layoutVersion: Pr
     argumentFeedback: definitions.map(tool => argumentFeedback(tool.function.name)),
     outputLimitFeedback: outputLimitFeedback(options.model.config.maxOutputTokens), incompleteExecuteLimit: INCOMPLETE_EXECUTE_LIMIT,
     incompleteExecuteStop: INCOMPLETE_EXECUTE_STOP,
-    nudges: { noAction: NUDGE_NO_ACTION, multi: NUDGE_MULTI, limit: NUDGE_LIMIT, length: lengthFeedback(options.model.config.maxOutputTokens), lengthLimit: LENGTH_LIMIT },
+    nudges: { noAction: NUDGE_NO_ACTION, multi: NUDGE_MULTI, limit: NUDGE_LIMIT, length: lengthFeedback(options.model.config.maxOutputTokens, "reasoning"),
+      lengthOutput: lengthFeedback(options.model.config.maxOutputTokens, "output"), lengthLimit: LENGTH_LIMIT },
     commandTimeoutMs: COMMAND_TIMEOUT_MS,
     ...(layout.version === 1 ? {} : { promptLayout: { version: layout.version, systemMessage: "static_prompt", turnMessage: "trailing_user_progress_and_budget" } }) };
   const promptProtocolSha256 = digest(canonical(protocol));
@@ -497,6 +539,7 @@ export class GeneralAgentRunner {
           messages.push({ role: "tool", tool_call_id: String(event.toolCallId), content: event.consultationProposalId && consultationOutput !== undefined ? consultationOutput : String(event.output) });
           // The host notice about a failed or partial capture follows its tool result on replay exactly as it did live (#43, A).
           const notice = captureNotice(event); if (notice) messages.push({ role: "user", content: notice });
+          const ledgerNotice = claimsCheckNotice(event); if (ledgerNotice) messages.push({ role: "user", content: ledgerNotice });
         }
         else if (event.type === "steering") messages.push({ role: "user", content: String(event.message) });
         else if (event.type === "nudge") messages.push({ role: "user", content: String(event.message) });
@@ -507,6 +550,8 @@ export class GeneralAgentRunner {
       if (remaining <= 0) return finish("incomplete", "cancelled_or_deadline");
       const timer = AbortSignal.timeout(remaining);
       const boundedSignal = AbortSignal.any([signal, timer, this.activeAbort.signal]);
+      // Pending until a captured snapshot first holds the ledger; a resumed run whose snapshot already holds it does not check again.
+      let firstLedgerPending = this.options.claimsCheckOnFirstLedger === true && claimsCheck !== undefined && !hasLedger(snapshot);
       while (calls < contract.maxModelCalls && tools < contract.maxToolCalls) {
         if (!sandbox) return finish("incomplete", "execution_context_unavailable");
         if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
@@ -621,7 +666,7 @@ export class GeneralAgentRunner {
           // A truncated response executes nothing; it becomes durable feedback.
           lengthStreak++; noActionStreak = 0;
           if (lengthStreak > LENGTH_LIMIT) return finish("incomplete", "model_output_incomplete");
-          const message = lengthFeedback(model.config.maxOutputTokens);
+          const message = lengthFeedback(model.config.maxOutputTokens, lengthCut(response, model.config.maxOutputTokens));
           this.record({ type: "nudge", operationId, kind: "length", message });
           messages.push({ role: "user", content: message });
           continue;
@@ -737,13 +782,11 @@ export class GeneralAgentRunner {
               ...(response.bytes.length > PUBLIC_SOURCE_OBSERVATION_BYTES ? { instruction: "Only this prefix was observed. Complete original bytes are retained by the host. Do not claim facts from unseen content; report the research incomplete where those facts are required." } : {}) });
           } else if (action.function.name === "check_claims") {
             if (!claimsCheck) throw new ToolError("tool_unknown");
-            validatedArguments(action.function.arguments || "{}", noArguments, "check_claims");
-            // The host restores its retained public sources first, so the check reads host bytes even after a stray edit.
-            const retained = this.retainedSources();
-            for (const source of retained) await execution.editFile("write", source.path, source.bytes);
+            // The tool takes no arguments, and the host ignores any that a reply carries: the local model may never send an empty
+            // object (E2's first batch refused all 41 of its calls), so the advertised schema stays as it is and nothing is validated.
             // The check prints one bounded JSON object; it is returned directly rather than through
             // execution-observation retention, which belongs to model-authored commands.
-            const checked = await execution.execute(checkCommand(claimsCheck, retained), { signal: boundedSignal, timeoutMs: COMMAND_TIMEOUT_MS });
+            const checked = await this.liveClaimsCheck(execution, claimsCheck, boundedSignal);
             output = canonical({ passed: checked.exitCode === 0, exitCode: checked.exitCode, result: checked.stdout.slice(0, 32768), stderr: checked.stderr.slice(0, 2048) });
           } else if (action.function.name === "finish") {
             validatedArguments(action.function.arguments, finishArguments, "finish");
@@ -757,14 +800,16 @@ export class GeneralAgentRunner {
               // exactly these immutable bytes, never a second mutable capture.
               const frozen = execution; sandbox = undefined;
               const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-              let verified: { checks: GeneralJobResult["checks"]; claimsOutput?: string };
+              let verified: Verification;
               // The snapshot has advanced to this capture, so a failure from here on loses nothing: the model is told that verification did not
               // run, never that the workspace was recreated from an older checkpoint (#43, 5).
               try { await frozen.close(); verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint); }
               catch (error) { if (error instanceof ObservationIntegrityError) throw error; throw new ToolError("verification_unavailable"); }
               checks = verified.checks;
               complete = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
-              output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks });
+              // A failed ledger check says what failed (claim ids, codes, citations, sections), so a repair can follow.
+              output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks,
+                ...(verified.claimsFeedback ? { claimsLedger: verified.claimsFeedback } : {}) });
               if (complete) this.recordVerifiedClaims(verified.claimsOutput);
               // The container for a repair is recreated below, once the result is recorded (#43, A).
             }
@@ -799,10 +844,25 @@ export class GeneralAgentRunner {
         let captureFailure: { code: CaptureFailureCode } | undefined;
         if (captured?.ok) { snapshot = captured.snapshot; captureFailures = 0; }
         else if (captured) { captureFailure = { code: captured.code }; captureFailures++; }
+        // A twelve-call writer's ledger check: once, when output/claims.json first appears in a captured snapshot, on the live workspace,
+        // with no model call or tool action spent. Its result rides on this action's tool_finished, so every replay sends the same notice.
+        let claimsLedgerCheck: ClaimsLedgerCheckRecord | undefined;
+        if (firstLedgerPending && captured?.ok && sandbox && claimsCheck && hasLedger(snapshot)) {
+          firstLedgerPending = false;
+          try {
+            const checked = await this.liveClaimsCheck(sandbox, claimsCheck, boundedSignal);
+            claimsLedgerCheck = claimsLedgerFeedback(checked.stdout.slice(0, 32768), checked.exitCode === 0);
+          } catch (error) {
+            if (error instanceof ObservationIntegrityError) throw error;
+            claimsLedgerCheck = { unavailable: true };
+            // As after an action: a sandbox failure inside a call destroyed the container, which is recreated below.
+            if (error instanceof SandboxError && error.code !== "invalid_input" && error.code !== "busy") sandbox = undefined;
+          }
+        }
         const extras = { ...(executionCapture ? { executionCapture } : {}), ...(executionObservation ? { executionObservation } : {}),
           ...(observationCapture ? { observationCapture } : {}), ...(observationRead ? { observationRead } : {}),
           ...(captureFailure ? { captureFailure } : {}), ...(recheckCaptureFailure ? { recheckCaptureFailure } : {}),
-          ...(captured?.ok && captured.omitted ? { captureOmitted: captured.omitted } : {}) };
+          ...(captured?.ok && captured.omitted ? { captureOmitted: captured.omitted } : {}), ...(claimsLedgerCheck ? { claimsLedgerCheck } : {}) };
         if (consultationRequest) {
           try {
             store.atomic(() => {
@@ -820,6 +880,7 @@ export class GeneralAgentRunner {
         });
         messages.push({ role: "tool", tool_call_id: action.id, content: output });
         const notice = captureNotice(extras); if (notice) messages.push({ role: "user", content: notice });
+        const ledgerNotice = claimsCheckNotice(extras); if (ledgerNotice) messages.push({ role: "user", content: ledgerNotice });
         incompleteExecuteStreak = invalidExecuteAtOutputLimit ? incompleteExecuteStreak + 1 : 0;
         if (incompleteExecuteStreak >= INCOMPLETE_EXECUTE_LIMIT) return finish("incomplete", INCOMPLETE_EXECUTE_STOP);
         if (complete) { readPublicSources(store, checkpoints, jobId, contextId); verifyExecutionObservations(observationScope); completionPending = true; return finish("completed", "critical_checks_passed"); }
@@ -855,7 +916,7 @@ export class GeneralAgentRunner {
         const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
         // #43 (12): the checkpoint is recorded, so a failure from here on loses nothing and closes the validation with a fixed code
         // instead of leaving it open; a later run then finds a finished validation (host_validation_not_replayed), never an uncertain one.
-        let verified: { checks: GeneralJobResult["checks"]; claimsOutput?: string } | undefined, verificationFailure: VerificationFailureCode | undefined;
+        let verified: Verification | undefined, verificationFailure: VerificationFailureCode | undefined;
         try {
           const frozen = sandbox; sandbox = undefined; await frozen.close();
           if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) verificationFailure = "cancelled_or_deadline";
@@ -871,7 +932,8 @@ export class GeneralAgentRunner {
         }
         checks = verified.checks;
         const passed = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
-        this.record({ type: "host_validation_finished", operationId, passed, checks,
+        // A failed ledger check records what failed (claim ids, codes, citations, sections), as finish returns it to the model.
+        this.record({ type: "host_validation_finished", operationId, passed, checks, ...(verified.claimsFeedback ? { claimsLedger: verified.claimsFeedback } : {}),
           missingArtifacts: missing.map(artifact => artifact.path), verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
         if (passed) this.recordVerifiedClaims(verified.claimsOutput);
         if (passed) { readPublicSources(store, checkpoints, jobId, contextId); verifyExecutionObservations(observationScope); completionPending = true; return finish("completed", "critical_checks_passed_at_allowance"); }
@@ -962,6 +1024,16 @@ export class GeneralAgentRunner {
   }
 
   /**
+   * The claims-ledger check on the live workspace, as check_claims runs it and as a twelve-call writer gets it when its ledger first
+   * appears: the host restores its retained public sources first, so the check reads host bytes even after a stray edit.
+   */
+  private async liveClaimsCheck(execution: DockerSandbox, claimsCheck: ArtifactCheck, signal: AbortSignal) {
+    const retained = this.retainedSources();
+    for (const source of retained) await execution.editFile("write", source.path, source.bytes);
+    return execution.execute(checkCommand(claimsCheck, retained), { signal, timeoutMs: COMMAND_TIMEOUT_MS });
+  }
+
+  /**
    * Records the claims the finish-time check verified (with their source windows) for the session's entailment
    * pass, which runs only after this job's completion is durable. Judging never happens inside the loop.
    */
@@ -980,24 +1052,27 @@ export class GeneralAgentRunner {
     } catch { this.record({ type: "claims_verified", version: 1, claims: [], reason: "claims_output_invalid" }); }
   }
 
-  private async verify(files: { path: string; bytes: Buffer }[], signal: AbortSignal, endpoint: string): Promise<{ checks: GeneralJobResult["checks"]; claimsOutput?: string }> {
+  private async verify(files: { path: string; bytes: Buffer }[], signal: AbortSignal, endpoint: string): Promise<Verification> {
     // The frozen snapshot's sources/ copies are replaced by the host's retained bytes: a model edit there never reaches a check.
     const retained = this.retainedSources(), retainedPaths = new Set(retained.map(source => source.path));
     const verified = [...files.filter(file => !retainedPaths.has(file.path)), ...retained.map(source => ({ path: source.path, bytes: source.bytes }))];
     const verifier = await DockerSandbox.create({ imageId: this.options.imageId, jobId: this.options.jobId,
       contextId: this.options.contextId, endpoint, files: verified, lifetimeSeconds: Math.min(PRIVATE_SANDBOX_LIMITS.lifetimeSeconds, 120 + 110 * this.options.checks.length) });
     try {
-      const results: GeneralJobResult["checks"] = []; let claimsOutput: string | undefined;
+      const results: GeneralJobResult["checks"] = []; let claimsOutput: string | undefined, claimsFeedback: ClaimsLedgerFeedback | undefined;
       for (const check of this.options.checks) {
         // -I excludes candidate modules/PYTHONPATH and user-site packages. The
         // embedded script is a host-owned value, not a mutable workspace file.
         try {
           const response = await verifier.execute(checkCommand(check, retained, check.id === CLAIMS_LEDGER_CHECK_ID), { signal, timeoutMs: 90000 });
           results.push({ id: check.id, passed: response.exitCode === 0 });
+          // A passing ledger's output (with source windows) feeds the entailment pass; a failing one's is read into feedback, which
+          // carries ids, codes and limits only, never a sentence, a quote or a window.
           if (check.id === CLAIMS_LEDGER_CHECK_ID && response.exitCode === 0) claimsOutput = response.stdout.slice(0, CLAIMS_OUTPUT_MAX_BYTES);
+          else if (check.id === CLAIMS_LEDGER_CHECK_ID) claimsFeedback = claimsLedgerFeedback(response.stdout.slice(0, CLAIMS_OUTPUT_MAX_BYTES), false);
         } catch { results.push({ id: check.id, passed: false }); }
       }
-      return { checks: results, ...(claimsOutput === undefined ? {} : { claimsOutput }) };
+      return { checks: results, ...(claimsOutput === undefined ? {} : { claimsOutput }), ...(claimsFeedback === undefined ? {} : { claimsFeedback }) };
     } finally { await verifier.close(); }
   }
 }

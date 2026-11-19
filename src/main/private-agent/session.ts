@@ -27,6 +27,8 @@ export interface SessionPhase {
   checks: ArtifactCheck[];
   /** Complete, host-validated research data; kept separate from the owner's bounded goal. */
   initialEvidence?: ResearchPresentationV1;
+  /** A twelve-call writer's phase: the host checks the claims ledger once when it first appears (runner.ts, claimsCheckOnFirstLedger). */
+  claimsCheckOnFirstLedger?: boolean;
 }
 export interface PublicSessionPhase extends SessionPhase {
   /** Bind the complete public contract/checks/files; metadata can also enter model context. */
@@ -143,7 +145,9 @@ export function sessionFileManifest(files: SessionFile[]): { path: string; sha25
 }
 export function sessionPhaseIdentity(phase: SessionPhase): string {
   return digest(canonical({ contract: phase.contract, files: sessionFileManifest(phase.files), checks: phase.checks,
-    ...(phase.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(phase.initialEvidence) } : {}) }));
+    ...(phase.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(phase.initialEvidence) } : {}),
+    // Only a twelve-call writer's phase carries it, so every other phase keeps its identity.
+    ...(phase.claimsCheckOnFirstLedger ? { claimsCheckOnFirstLedger: true } : {}) }));
 }
 /**
  * Backlog item 6, finding A7 (#85): true when a research stage started and never transferred:
@@ -170,7 +174,8 @@ function copyPhase(phase: SessionPhase): SessionPhase {
       phase.files.reduce((sum, file) => sum + file.bytes.length, 0) > 128 * 1024 * 1024 ||
       contract.requiredArtifacts.some(artifact => !safePath(artifact.path))) throw new Error("session_phase_invalid");
   return { contract, checks: phase.checks.map(check => ({ ...check })), files: phase.files.map(file => ({ path: file.path, bytes: Buffer.from(file.bytes) })),
-    ...(phase.initialEvidence ? { initialEvidence: validateResearchPresentation(phase.initialEvidence, phase.files) } : {}) };
+    ...(phase.initialEvidence ? { initialEvidence: validateResearchPresentation(phase.initialEvidence, phase.files) } : {}),
+    ...(phase.claimsCheckOnFirstLedger ? { claimsCheckOnFirstLedger: true as const } : {}) };
 }
 
 /** Sequential isolated contexts with one durable network-request and wall-clock allowance. */

@@ -501,7 +501,9 @@ configOptions?: LoadConfigOptions): Promise<GeneralSessionResult | LocalScreenDr
   // E2: a named write bound replaces the profile's three write-phase limits; the session keeps `budget.maxRequests` and `budget.maxElapsedMs`.
   const phaseLimits = input.writeBound ? LOCAL_SCREEN_WRITE_BOUNDS[input.writeBound] : budget;
   // The prepared task binds the September contract caps; the profile's budget, or the named bound, replaces them for this run only.
-  const budgetedPhase = { ...task.phase, contract: { ...task.phase.contract, maxModelCalls: phaseLimits.maxModelCalls, maxToolCalls: phaseLimits.maxToolCalls, maxElapsedMs: phaseLimits.maxElapsedMs } };
+  const contractPhase = { ...task.phase, contract: { ...task.phase.contract, maxModelCalls: phaseLimits.maxModelCalls, maxToolCalls: phaseLimits.maxToolCalls, maxElapsedMs: phaseLimits.maxElapsedMs } };
+  // Under the twelve-call bound the ledger is written in the last calls, so the host checks it once when it first appears (runner.ts).
+  const budgetedPhase = input.writeBound === "twelve-call" ? { ...contractPhase, claimsCheckOnFirstLedger: true } : contractPhase;
   if (input.documentReview && (input.claimsLedger || input.publicRetrieval)) throw new Error("local_screen_document_review_closed_corpus");
   // H4: a task whose deliverables include a deck gets the OOXML validity check beside its other finish checks.
   const modePhase = withDeckValidity(input.claimsLedger ? withClaimsLedger(budgetedPhase, input.publicRetrieval === true)

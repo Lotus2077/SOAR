@@ -9,7 +9,7 @@ import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError, RETRY_WAIT_CANC
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
-import { GeneralAgentRunner, capturePinnedPaths, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
+import { GeneralAgentRunner, capturePinnedPaths, claimsCheckNotice, lengthCut, lengthFeedback, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX_ENTRIES, WORKSPACE_LISTING_MAX_OMITTED_PATHS, type SandboxErrorCode, type WorkspaceListing } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
@@ -19,6 +19,7 @@ import { listedByLister, workspaceListing } from "../helpers/workspace-listing";
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, verifyExecutionObservations } from "../../src/main/private-agent/observations";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/main/private-agent/progress";
 import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck } from "../../src/main/private-agent/claims";
+import { CLAIMS_LEDGER_CODE_TEXT } from "../../src/main/private-agent/claims-feedback";
 import { researchTransferPhase, type SessionPhase } from "../../src/main/private-agent/session";
 import { researchPresentationIdentity } from "../../src/main/private-agent/research-presentation";
 import { researchV4Packet } from "../helpers/research-v4-packet";
@@ -29,7 +30,8 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; toolStderr?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean } = {}) {
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; toolStderr?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean;
+  claimsReply?: (run: "live" | "verify") => { exitCode: number; stdout: string } | undefined; firstLedgerCheck?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const dbPath = join(directory, "state.sqlite"), db = new Database(dbPath); cleanup.push(() => db.close());
@@ -50,6 +52,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     inputUsdPerMillion: limits.priced ? 2 : 0, outputUsdPerMillion: limits.priced ? 10 : 0, thinking: "disabled" }, jobId, contextId);
   const options: GeneralJobOptions = { jobId, contextId, store, broker, model, files, contract,
     ...(limits.phase?.initialEvidence ? { initialEvidence: limits.phase.initialEvidence } : {}),
+    ...(limits.firstLedgerCheck ? { claimsCheckOnFirstLedger: true } : {}),
     imageId: `sha256:${"a".repeat(64)}`, checkpoints: new PrivateCheckpointStore(join(directory, "checkpoints"), jobId),
     checks: limits.phase?.checks ?? [{ id: "fixture_check", python: "# fixed synthetic host check" }, ...(claimsCheck ? [claimsCheck] : [])] };
   let clock = 0;
@@ -75,6 +78,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     return { async execute(command: string) {
       guard(); clock += 50; commands.push(command);
       if (command === "write result") contents.set("output.txt", Buffer.from("computed fixture result"));
+      if (command === "write ledger") contents.set("output/claims.json", Buffer.from('{"version":1,"claims":[]}'));
+      if (command === "rewrite ledger") contents.set("output/claims.json", Buffer.from('{"version":1,"claims":[],"rewritten":true}'));
       if (command === "write empty") contents.set("output.txt", Buffer.alloc(0));
       if (command === "fail with progress") contents.set("diagnostic.txt", Buffer.from(String(commands.length)));
       if (command === "throw failure") throw new Error("PRIVATE-HOST-PATH-AND-DIAGNOSTIC");
@@ -84,6 +89,10 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
         throw new SandboxError(code);
       }
       afterExecute(command);
+      // A claims-ledger check's own reply, when the test gives one: "verify" for the finish and allowance verifier (which asks for source
+      // windows), "live" for check_claims and the first-ledger check.
+      const claims = command.includes("SOAR_CLAIMS_RETAINED=") ? limits.claimsReply?.(command.includes("SOAR_CLAIMS_CONTEXT='1'") ? "verify" : "live") : undefined;
+      if (claims) return { ...claims, stderr: "" };
       return { exitCode: command.startsWith("fail ") ? 1 : command.includes("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: limits.toolStderr ?? "" };
     }, async listFiles(pinned: readonly string[] = []) { guard(); beforeListFiles(); listedWith.push([...pinned]); return lister ? lister(contents, pinned) : workspaceListing(contents, listingExtra); },
     async readFile(path: string) { guard(); return Buffer.from(contents.get(path)!); },
@@ -1007,11 +1016,28 @@ describe("general runner tolerant loop", () => {
     const f = fixture([cut, write, finish], { maxModelCalls: 6 });
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
     expect(f.options.store.events(f.options.jobId).filter(event => event.type === "nudge")).toEqual([expect.objectContaining({ kind: "length", message: expect.stringContaining("4096-token output limit") })]);
-    expect(f.requests[1]!.at(-2)).toMatchObject({ role: "user", content: expect.stringContaining("write_file and append_file") });
+    // A cut reply that shows almost nothing was cut while reasoning; the feedback says so, and how write_file and append_file differ.
+    expect(f.requests[1]!.at(-2)).toEqual({ role: "user", content: lengthFeedback(4096, "reasoning") });
+    expect(f.requests[1]!.at(-2)!.content).toContain("while still reasoning");
+    expect(f.requests[1]!.at(-2)!.content).toContain("write_file replaces the whole file, so write a long file's first piece with write_file and every later piece with append_file.");
+    expect(f.requests[1]!.at(-2)!.content).not.toContain("1500");
     expect(f.requests[1]!.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("Current host budget") });
     const g = fixture([cut, cut, cut, write], { maxModelCalls: 6 });
     expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ status: "incomplete", reason: "model_output_incomplete", modelCalls: 3 });
     expect(g.commands).toEqual([]);
+  });
+  it("tells a reply cut while still reasoning from one cut inside a long tool call, by the visible bytes against the limit", async () => {
+    // At least one visible byte per token of the limit: the reply was cut writing, and the feedback asks for pieces instead.
+    const long: Action = { name: "write_file", arguments: JSON.stringify({ path: "output.txt", content: "x".repeat(4096) }), reply: "length", outputTokens: 4096 };
+    const f = fixture([long, write, finish], { maxModelCalls: 6 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "nudge")).toEqual([expect.objectContaining({ kind: "length", message: lengthFeedback(4096, "output") })]);
+    expect(lengthFeedback(4096, "output")).toContain("before its tool call was complete");
+    expect(lengthFeedback(4096, "output")).toContain("write_file replaces the whole file");
+    expect(lengthFeedback(4096, "output")).not.toContain("1500");
+    expect(lengthCut({ content: "", toolCalls: [{ function: { name: "execute", arguments: "x".repeat(4096 - 8) } }] }, 4096)).toBe("reasoning");
+    expect(lengthCut({ content: "", toolCalls: [{ function: { name: "execute", arguments: "x".repeat(4096 - 7) } }] }, 4096)).toBe("output");
+    expect(lengthCut({ content: "y".repeat(4096), toolCalls: [] }, 4096)).toBe("output");
   });
   it("writes, appends and replaces file content through the sandbox protocol and reports soft refusals", async () => {
     const f = fixture([
@@ -1241,6 +1267,91 @@ describe("general runner claims ledger tool", () => {
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted" });
     const finished = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
     expect(finished.at(-1)).toMatchObject({ complete: false, checks: [{ id: "fixture_check", passed: false }, { id: CLAIMS_LEDGER_CHECK_ID, passed: false }] });
+  });
+
+  // E2's first batch: the model never sent check_claims an empty object, so all 41 of its calls were refused; finish said only which
+  // check failed; and a twelve-call writer wrote its ledger in its last calls, with no check before its allowance ran out.
+  const passing = '{"passed":true,"claims":[]}';
+  const isLiveCheck = (command: string) => command.includes("ledgerPath") && !command.includes("SOAR_CLAIMS_CONTEXT='1'");
+  it("runs check_claims whatever arguments a reply carries, and never refuses it as invalid", async () => {
+    const carried = ['{"path":"output.txt","old":"a","new":"b"}', '{"__unparsedToolInput":"<parameter=none>"}', "", "not json", "{}"];
+    const f = fixture([...carried.map(text => ({ name: "check_claims", arguments: text })), write, finish], { maxModelCalls: 8, maxToolCalls: 8, claimsLedger: true, toolStdout: passing });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 7 });
+    const outputs = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
+    expect(outputs.slice(0, carried.length)).toEqual(carried.map(() => ({ passed: true, exitCode: 0, result: passing, stderr: "" })));
+    expect(f.commands.filter(isLiveCheck)).toHaveLength(carried.length);
+  });
+
+  const failing = JSON.stringify({ passed: false, claims: [
+    { id: "C1", found: true, locator: "line 1", sentence: "SENTENCE-TEXT-ONE", quote: "QUOTE-TEXT-ONE", context: "WINDOW-TEXT-ONE" },
+    { id: "C2", found: false, code: "quote_not_found", sentence: "SENTENCE-TEXT-TWO", quote: "QUOTE-TEXT-TWO" }],
+  report: { citations: { missing: [], unknown: ["C40"] }, sections: { "Conflicting evidence": true, "Unanswered questions": false } } });
+  const failingFeedback = { passed: false, failedClaims: [{ id: "C2", code: "quote_not_found" }], citedWithoutClaim: ["C40"], missingSections: ["Unanswered questions"],
+    codes: { quote_not_found: CLAIMS_LEDGER_CODE_TEXT.quote_not_found } };
+  it("returns a failing ledger's claim codes, citations and sections at finish, and records them at a bounded run's end, never its text", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, claimsReply: () => ({ exitCode: 1, stdout: failing }) });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted" });
+    const finished = String(f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").at(-1)!.output);
+    expect(JSON.parse(finished)).toEqual({ complete: false, missingArtifacts: [], checks: [{ id: "fixture_check", passed: true }, { id: CLAIMS_LEDGER_CHECK_ID, passed: false }],
+      claimsLedger: failingFeedback });
+    expect(finished).not.toMatch(/SENTENCE-TEXT|QUOTE-TEXT|WINDOW-TEXT|line 1/u);
+    const g = fixture([write], { maxModelCalls: 1, claimsLedger: true, claimsReply: () => ({ exitCode: 1, stdout: failing }) });
+    expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted" });
+    const validation = g.options.store.events(g.options.jobId).find(event => event.type === "host_validation_finished")!;
+    expect(validation).toMatchObject({ passed: false, claimsLedger: failingFeedback });
+    expect(JSON.stringify(validation)).not.toMatch(/SENTENCE-TEXT|QUOTE-TEXT|WINDOW-TEXT/u);
+    // A passing ledger adds nothing.
+    const h = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, claimsReply: () => ({ exitCode: 0, stdout: passing }) });
+    expect(await new GeneralAgentRunner(h.options).run()).toMatchObject({ status: "completed" });
+    expect(JSON.parse(String(h.options.store.events(h.options.jobId).filter(event => event.type === "tool_finished").at(-1)!.output))).not.toHaveProperty("claimsLedger");
+  });
+
+  const writeLedger: Action = { name: "execute", arguments: '{"command":"write ledger"}' };
+  const rewriteLedger: Action = { name: "execute", arguments: '{"command":"rewrite ledger"}' };
+  const liveFailing = JSON.stringify({ passed: false, claims: [], code: "claim_sentence", report: {} });
+  it("checks a twelve-call writer's ledger once, when it first appears, with no model call or tool action, and tells the model", async () => {
+    const f = fixture([write, writeLedger, rewriteLedger, finish], { maxModelCalls: 4, maxToolCalls: 4, claimsLedger: true, firstLedgerCheck: true,
+      claimsReply: run => run === "live" ? { exitCode: 1, stdout: liveFailing } : { exitCode: 0, stdout: passing } });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 4 });
+    const live = f.commands.filter(isLiveCheck);
+    expect(live).toHaveLength(1);
+    expect(f.commands.indexOf(live[0]!)).toBe(f.commands.indexOf("write ledger") + 1);
+    const events = f.options.store.events(f.options.jobId), finished = events.filter(event => event.type === "tool_finished");
+    expect(finished.map(event => event.claimsLedgerCheck)).toEqual([undefined,
+      { passed: false, stoppedBy: "claim_sentence", stoppedAtEntry: 1, codes: { claim_sentence: CLAIMS_LEDGER_CODE_TEXT.claim_sentence } }, undefined, undefined]);
+    expect(events.filter(event => event.type === "tool_started")).toHaveLength(4);
+    // The notice follows the tool result of the write that made the ledger, and stays in every later request.
+    const notice = claimsCheckNotice(finished[1]!)!;
+    expect(JSON.parse(notice)).toMatchObject({ hostCheck: CLAIMS_LEDGER_CHECK_ID, trigger: "claims_ledger_first_written", result: { passed: false, stoppedBy: "claim_sentence" } });
+    expect(f.requests[2]!.at(-3)).toMatchObject({ role: "tool", tool_call_id: "tool_1" });
+    expect(f.requests[2]!.at(-2)).toEqual({ role: "user", content: notice });
+    expect(f.requests[3]!.filter(message => message.content === notice)).toHaveLength(1);
+    // Without the twelve-call phase's flag nothing runs on its own.
+    const g = fixture([write, writeLedger, finish], { maxModelCalls: 3, maxToolCalls: 3, claimsLedger: true, claimsReply: () => ({ exitCode: 0, stdout: passing }) });
+    expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    expect(g.commands.filter(isLiveCheck)).toEqual([]);
+    expect(g.options.store.events(g.options.jobId).some(event => event.claimsLedgerCheck !== undefined)).toBe(false);
+  });
+  it("replays a first-ledger notice after a pause exactly as it was sent, and does not check again", async () => {
+    const f = fixture([writeLedger, write, finish], { maxModelCalls: 4, maxToolCalls: 4, claimsLedger: true, firstLedgerCheck: true, claimsReply: () => ({ exitCode: 0, stdout: passing }) });
+    const first = new GeneralAgentRunner(f.options);
+    f.afterExecute(command => { if (command === "write ledger") first.pause(); });
+    expect(await first.run()).toMatchObject({ status: "paused", modelCalls: 1 });
+    const recorded = f.options.store.events(f.options.jobId).find(event => event.type === "tool_finished")!;
+    expect(recorded.claimsLedgerCheck).toEqual({ passed: true });
+    const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
+    expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    expect(f.requests[1]!.at(-2)).toEqual({ role: "user", content: claimsCheckNotice(recorded) });
+    expect(f.commands.filter(isLiveCheck)).toHaveLength(1);
+  });
+  it("says so when the first-ledger check cannot run, and continues on a recreated container", async () => {
+    const f = fixture([writeLedger, write, finish], { maxModelCalls: 4, maxToolCalls: 4, claimsLedger: true, firstLedgerCheck: true,
+      claimsReply: run => { if (run === "live") throw new SandboxError("command_timeout"); return { exitCode: 0, stdout: passing }; } });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    const recorded = f.options.store.events(f.options.jobId).find(event => event.type === "tool_finished")!;
+    expect(recorded.claimsLedgerCheck).toEqual({ unavailable: true });
+    expect(JSON.parse(claimsCheckNotice(recorded)!)).toMatchObject({ unavailable: true, instruction: expect.stringContaining("Call check_claims") });
+    expect(f.create.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 });
 

@@ -521,11 +521,14 @@ export class GeneralTaskController {
     const claimSources = record.inputs.map(({ path }) => ({ id: path, path })), retrieval = record.publicSources !== undefined;
     const ledger = retrieval || record.research !== undefined ? { instructions: `\n${claimsInstructions(target, claimSources, retrieval)}`,
       check: claimsLedgerCheck({ reportPath: target, sources: claimSources, publicSources: retrieval }) } : undefined;
+    // Under the twelve-call research bound the ledger is written in the last calls, so the host checks it once when it first appears.
+    const firstLedgerCheck = ledger !== undefined && record.research !== undefined && (this.options.testing?.researchWriteBound ?? DESKTOP_RESEARCH_WRITE_BOUND) === "twelve-call";
     return { contract: { version: 1, goal: `${record.goal}\nPreserve every provided input file byte-for-byte. Write the required deliverable to ${JSON.stringify(target)}.${publicInstructions}${ledger?.instructions ?? ""}`,
       requiredArtifacts: [{ path: target, description: "The user's requested deliverable." }, ...(ledger ? [{ path: CLAIMS_LEDGER_PATH, description: "Claims ledger: one verbatim source quote per material claim." }] : [])],
       requiredChecks: ["desktop_artifact_structure", ...(ledger ? [CLAIMS_LEDGER_CHECK_ID] : [])],
       maxModelCalls: this.writeLimits(record).modelCalls, maxToolCalls: this.writeLimits(record).toolCalls, maxElapsedMs: this.writeLimits(record).elapsedMs }, files,
-    checks: [...(ledger ? [ledger.check] : []), { id: "desktop_artifact_structure", python: `import base64, hashlib, json\nfrom pathlib import Path\nspec=json.loads(base64.b64decode('${expected}'))\nfor item in spec['inputs']:\n    p=Path(item['path'])\n    assert p.is_file() and not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256']\np=Path(spec['target'])\nassert p.is_file() and not p.is_symlink() and p.stat().st_size>0` }] };
+    checks: [...(ledger ? [ledger.check] : []), { id: "desktop_artifact_structure", python: `import base64, hashlib, json\nfrom pathlib import Path\nspec=json.loads(base64.b64decode('${expected}'))\nfor item in spec['inputs']:\n    p=Path(item['path'])\n    assert p.is_file() and not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256']\np=Path(spec['target'])\nassert p.is_file() and not p.is_symlink() and p.stat().st_size>0` }],
+      ...(firstLedgerCheck ? { claimsCheckOnFirstLedger: true as const } : {}) };
   }
   private attestation(record: Pick<TaskRecord, "version" | "goal" | "phaseIdentity" | "inputSnapshot" | "publicSources" | "routing" | "consultantIdentity" | "research">): string {
     return digest(canonical({ publicOrSynthetic: true, goal: record.goal, phaseIdentity: record.phaseIdentity, inputSnapshot: record.inputSnapshot,

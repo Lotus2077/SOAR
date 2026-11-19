@@ -51,3 +51,10 @@ export const RESEARCH_PROTOCOL_SHA256_ASSIST = Object.freeze({ forced_split: "15
   local_first: "c020b75e06dd1fe4571857a30b0ddc9946bb788b7886f821b02968b22dfea3bd" });
 export const RESEARCH_PROTOCOL_SHA256_ADMISSION_ASSIST = Object.freeze({ forced_split: "ac059d632984cc1cf2bbaa85cebfcf2b77f72531c9a2df202fe4680237376769",
   local_first: "a2685a5994da3409da747eac64bbf0107b7d6a80cf78e708f74cede7c116a536" });
+/**
+ * The research protocol a run binds under the adopted serving card of 2026-11-18 (docs/experiments/serving-card-2026-11-18.json, sha256
+ * 9cd65c4e…): the card's roles and its `serving_card` admission basis on the default budget, as the driver's localScreenCardResearch
+ * builds it. A change that moves it refuses the adopted card's runs and voids E2's packets of 2026-11-19 as seeds, so the writer fixes
+ * that followed E2 keep it, and tests/unit/research-protocol-adopted-card.test.ts checks it.
+ */
+export const ADOPTED_CARD_RESEARCH_PROTOCOL_SHA256 = "99bbc0e682ec0decdcffd9bb3c1ead52e6ba84f938e31587e5657b0f90a1d78d";

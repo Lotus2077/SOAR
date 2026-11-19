@@ -142,12 +142,13 @@ describe("E2's write bound and the driver's dry run (BL-20261117-1049-e2-write-b
     const { limits: _l1, privatePhaseSha256: phase1, ...rest1 } = writer1, { limits: _l2, privatePhaseSha256: phase2, ...rest2 } = writer2;
     expect(rest2).toEqual(rest1);
     expect(phase2).not.toBe(phase1);
-    // Both phases are today's construction; the contract's three numbers are the one difference.
+    // Both phases are today's construction; the contract's three numbers, and the twelve-call phase's first-ledger check, are the differences.
     const seed = loadResearchSeed(resolve(source), loaded.binding);
     const phase = (limits: { maxModelCalls: number; maxToolCalls: number; maxElapsedMs: number }) =>
       researchTransferPhase(withDeckValidity(withClaimsLedger({ ...loaded.phase, contract: { ...loaded.phase.contract, ...limits } }, false)), seed.files);
     expect(sessionPhaseIdentity(phase({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 }))).toBe(WRITER_1_PHASE_SHA256);
-    expect(sessionPhaseIdentity(phase(LOCAL_SCREEN_WRITE_BOUNDS["twelve-call"]))).toBe(phase2);
+    expect(sessionPhaseIdentity({ ...phase(LOCAL_SCREEN_WRITE_BOUNDS["twelve-call"]), claimsCheckOnFirstLedger: true })).toBe(phase2);
+    expect(sessionPhaseIdentity(phase(LOCAL_SCREEN_WRITE_BOUNDS["twelve-call"]))).not.toBe(phase2);
     // The values item 1 and item 2 fix, and the profile and budgets they leave alone.
     expect(LOCAL_SCREEN_WRITE_BOUNDS).toEqual({ "twelve-call": { maxModelCalls: 12, maxToolCalls: 12, maxElapsedMs: 1_200_000 } });
     expect(Object.isFrozen(LOCAL_SCREEN_WRITE_BOUNDS) && Object.isFrozen(LOCAL_SCREEN_WRITE_BOUNDS["twelve-call"])).toBe(true);
@@ -186,6 +187,9 @@ describe("E2's write bound and the driver's dry run (BL-20261117-1049-e2-write-b
     expect(source.split("privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },")).toHaveLength(2);
     expect(source.split("maxModelCalls: phaseLimits.maxModelCalls, maxToolCalls: phaseLimits.maxToolCalls, maxElapsedMs: phaseLimits.maxElapsedMs } };")).toHaveLength(2);
     expect(source.match(/phaseLimits\.\w+/gu)?.length).toBe(6);
+    // Only the twelve-call bound's phase carries the host's first-ledger check.
+    expect(source.split('const budgetedPhase = input.writeBound === "twelve-call" ? { ...contractPhase, claimsCheckOnFirstLedger: true } : contractPhase;')).toHaveLength(2);
+    expect(source.match(/claimsCheckOnFirstLedger/gu)?.length).toBe(1);
     // A run's mkdir needs a new path under an existing directory: an existing directory, a dangling link and a missing parent are refused.
     mkdirSync(join(root, "runs", "existing")); symlinkSync(join(root, "nowhere"), join(root, "runs", "dangling"));
     for (const outputDirectory of [join(root, "runs", "existing"), join(root, "runs", "dangling"), join(root, "missing", "writer")])

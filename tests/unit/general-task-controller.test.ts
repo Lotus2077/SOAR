@@ -1649,6 +1649,8 @@ describe("desktop local research stage (backlog item 13a, part 2)", () => {
     const { f, server, run } = await stageFixture(researchV4Reply), done = await run();
     expect(done.status).toBe("submitted");
     expect(done.research).toMatchObject({ route: "local_beta", stage: "transferred" });
+    // The profile's own write phase: no first-ledger check (that is the twelve-call bound's).
+    expect(f.executions[0]!.claimsCheckOnFirstLedger).toBeUndefined();
     expect(done.research!.stages.map(row => row.stage)).toEqual(["index", "plan", "extract", "synthesise"]);
     for (const row of done.research!.stages) { expect(row.calls, row.stage).toBeGreaterThan(0); expect(row.fallback, row.stage).toBeUndefined(); }
     for (const prefix of STAGE_PROMPTS) expect(server.requests.some(request => request.system.startsWith(prefix)), prefix).toBe(true);
@@ -1691,9 +1693,12 @@ describe("desktop local research stage (backlog item 13a, part 2)", () => {
     const { f, run } = await stageFixture(researchV4Reply, undefined, "twelve-call"), done = await run();
     expect(done).toMatchObject({ status: "submitted", research: { stage: "transferred" } });
     expect(f.executions[0]!.contract).toMatchObject({ maxModelCalls: 12, maxToolCalls: 12, maxElapsedMs: 1_200_000 });
+    // Under that bound the host also checks the writer's claims ledger once, when it first appears; no other phase asks for it.
+    expect(f.executions[0]!.claimsCheckOnFirstLedger).toBe(true);
     const plain = f.controller.create({ goal: "Make a small report.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true, profile: "heavy" });
     f.controller.start(plain.id); await f.controller.wait(plain.id);
     expect(f.executions[1]!.contract).toMatchObject({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 });
+    expect(f.executions[1]!.claimsCheckOnFirstLedger).toBeUndefined();
   });
 
   it("sends each role's cap from the card, without a response format under default structured output", async () => {

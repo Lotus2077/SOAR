@@ -1,12 +1,12 @@
 # SOAR handoff
 
-## Start here (2026-11-18)
+## Start here (2026-11-19)
 
 This section is the entrypoint for the next session. It replaces every earlier "next step" in
 this file; the rest of the file is the September 2026 record. "The session" is the coordinating
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
 next session takes that role. The sources are the entry files of 2026-11-18 under
-`docs/build-log/`, pull requests #155 to #184, and `main` at b17a590.
+`docs/build-log/`, pull requests #155 to #188, and `main` at 9b171de.
 
 **In brief.**
 - **The measure.** The MVP exit is at least 6 of 8 real owner jobs accepted in each of two
@@ -15,9 +15,11 @@ next session takes that role. The sources are the entry files of 2026-11-18 unde
 - **The order.** The owner approved local research in the desktop before the paid experiments
   E3 and E4 (the same entry, #155).
 - **The state.** 13a.1 is complete on `main`, and no beta build is cut. On the owner's go, #184
-  adopts E0's revised serving card (BL-20261118-1232); the three r3 runs under it come next.
+  adopted E0's revised serving card (BL-20261118-1232). E0's three r3 runs under it are done:
+  2 of 3 reached the packet, both through the one disclosed gap and with a model synthesis
+  (#186). E2's Amendment 1 is merged (#187), and E2's runs come next, at 2996218.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. Then see how far the three r3 runs have got (§5, item 1).
+  `ls docs/build-log | tail`. Then see how far E2's runs have got (§5, item 1).
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); the push of the tag `owner-v0.2.1`, a new outside destination and real private data
   (BL-20261117-0940-owner-direction-decisions-delegated, decision 5); #105's residues
@@ -27,7 +29,7 @@ next session takes that role. The sources are the entry files of 2026-11-18 unde
 
 ### 1. Get the work
 
-`main` was at b17a590, the merge of #180, when this was written; #183 and #184 follow it. Select
+`main` was at 9b171de, the merge of #188, when this was written. Select
 Node 22.22.2 and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
 `engine-strict=true`, so another Node major fails the install.
 
@@ -37,25 +39,27 @@ git checkout main
 pnpm install --frozen-lockfile
 ```
 
-CI runs on pull requests and on pushes to `main`. These merged on 2026-11-18, from 04:31 UTC to
-#184's merge; the draft #86 is open, and #181 is closed unmerged (§4).
+CI runs on pull requests and on pushes to `main`. These merged from 04:31 UTC on 2026-11-18 to
+#188's merge on 2026-11-19; the draft #86 is open, and #181 is closed unmerged (§4).
 
 | Area | Pull requests |
 | --- | --- |
 | The order and the log | #155 (the owner's approval, and E0's Amendment 6), #159 (one file per entry), #157 (source comments cite pull requests) |
-| 13a, local research in the desktop | #156 (the design), #158, #160, #162, #164, #168, #170, #175 |
-| E0 and the research protocol | #163 (r3), #166 (the owner's gap decision), #171 (Amendment 7), #172 (the gap), #173 (card-writer options), #176 (the tolerant check), #178 (Amendment 7's result), #180 (Amendment 8), #183 (the re-probe's result), #184 (the adoption) |
+| 13a, local research in the desktop | #156 (the design), #158, #160, #162, #164, #168, #170, #175, #185 ("resolved", not "read") |
+| E0 and the research protocol | #163 (r3), #166 (the owner's gap decision), #171 (Amendment 7), #172 (the gap), #173 (card-writer options), #176 (the tolerant check), #178 (Amendment 7's result), #180 (Amendment 8), #183 (the re-probe's result), #184 (the adoption), #186 (the r3 runs under the adopted card) |
+| E2 | #187 (Amendment 1) |
 | E6 | #177 (the grading brief), #179 (the scorer's re-pin) |
-| Tests and git | #161, #165 and #169 (test timeouts), #167 (the e2e diagnostic), #174 (the git deadline) |
+| Tests and git | #161, #165, #169 and #188 (test timeouts and waits), #167 (the e2e diagnostic), #174 (the git deadline) |
 
-**Values at b17a590.** #180, the one merge since 6e3879e, changed no code, so they are those of
-BL-20261118-1114-e0-card-amendment-8, decision 5. The first and third lines were recomputed here:
+**Values at 9b171de.** Since 6e3879e no file in the source freeze changed (#185 touched two
+desktop files outside it), so they are those of BL-20261118-1114-e0-card-amendment-8, decision 5:
 - the default research protocol hash `4bb74c03…`, and `0160d8f3…` under admission;
 - `6d6dbf43…` under the 2026-11-17 card's roles with admission;
 - the harness source freeze `0b896d92…`, over 62 files.
 
-The freeze moved today with #157, #164, #172 and #176, and the hash with #172 and #176.
+The freeze moved on 2026-11-18 with #157, #164, #172 and #176, and the hash with #172 and #176.
 Recompute both before any run. Under the 2026-11-18 card the run hash is `99bbc0e6…` (#184).
+E0's r3 runs and E2's runs are made at 2996218, the adoption's merge, whose code is the same.
 
 ### 2. Read, in this order
 
@@ -108,6 +112,18 @@ Recompute both before any run. Under the 2026-11-18 card the run hash is `99bbc0
   [16384, 16384], with thinking on both attempts; the plan row is unchanged.
 - **The serving card of 2026-11-18 is adopted** on the owner's "Yes, adopt" (#184,
   BL-20261118-1232-serving-card-2026-11-18-adopted), from Amendment 8's re-probe (#183).
+- **E0's r3 runs under the adopted card** (#186,
+  BL-20261118-1604-e0-amendment-8-remeasurement-result, `Verified`): 2 of 3 reached the packet,
+  each only through the second repair and the one disclosed gap, both with a model synthesis;
+  the third ended with two unresolved chunks. The unresolved chunk differed in every run. The
+  first half of 13a's gate is met again, and no card value changed.
+- **E2's Amendment 1** (#187, BL-20261118-1605-e2-card-amendment-1): E2's runs read the adopted
+  card and are made at 2996218, which the amendment names (freeze `0b896d92…`); packet attempts
+  carry admission, the second repair, the gap and the tolerant judge; writer-2 runs under
+  `--write-bound twelve-call`; a 3-of-4 reading is added for the beta's gate; the card's 3 days
+  stand.
+- **The desktop speaks of "resolved" passages** (#185): a passage read and left unresolved is
+  never called unread.
 - **13a.1 is complete:** #160 (the contract, and the beta flag, off by default), #162 (the
   beta's own user-data folder), #164 (the stage), #168 (the task view), #170 (the gated
   end-to-end case, `Verified`, and the beta-cut checklist) and #175 (the disclosed gap in the
@@ -123,29 +139,19 @@ Recompute both before any run. Under the 2026-11-18 card the run hash is `99bbc0
 
 ### 4. Still open, and what each blocks
 
-1. **E0's Amendment 8** (#180). The re-probe ran (#183), the owner gave the adoption go (item 2),
-   and the three r3 runs under the adopted card come next, at #184's merge commit (Amendment 8,
-   item 6), then E2.
-
-   The re-probe ran at b17a590 from 11:27 to 12:04 UTC: all twelve probes ran, none failed, and
-   P10 at `4bb74c03…` gave plan 20 and 20, extract 19 and 20, synthesis 17 and 20 valid of 20.
-   The writer's card, docs/experiments/serving-card-2026-11-18.json (`proposed`), keeps the plan
-   and extract rows and moves synthesis to [16384, 16384] with thinking on both attempts; its
-   synthesis flag is for thinking off only, so no format is sent and #181 was closed unmerged.
-   Amendment 5's check holds, and the session asked the owner for the adoption commit at about
-   12:05 UTC. The adopted file's sha256 is `9cd65c4e…`, and the run hash under it
-   `99bbc0e6…` (BL-20261118-1206-e0-amendment-8-reprobe-result, #183).
-2. **The owner gave the adoption go,** "Yes, adopt", between 12:12 and 12:31 UTC. #184 adopts
-   the card, editing only its `decision` and `admission.basis`
-   (BL-20261118-1232-serving-card-2026-11-18-adopted).
+1. **E0's Amendment 8 is done:** the re-probe (#183), the owner's adoption go and #184, and the
+   three r3 runs (#186). The adopted card is docs/experiments/serving-card-2026-11-18.json,
+   sha256 `9cd65c4e…`, with entry BL-20261118-1206-e0-amendment-8-reprobe-result; runs take its
+   pair from their own environment.
+2. **Nothing else of E0 is open.** A second unresolved chunk in one run is beyond the owner's
+   rule of one disclosed gap (run 3 of #186 ended so); any change to that rule is the owner's.
 3. **#181,** E0's `synthesis-16384-structured` fixture cell, is closed unmerged: the revised
    card sends synthesis no format (Amendment 8, item 4).
-4. **E2.** Its amendment is drafted and held until the revised card; its runbook is in the
-   session's notes, outside Git. Its first run stays held until the session announces it
-   (Amendment 8, item 7). Its graded runs are the second half of 13a's gate, so they block the
-   beta cut.
+4. **E2.** Its Amendment 1 is merged (#187). Its runbook for the adopted card is in the
+   session's notes, outside Git (`S-pipe-e2-runbook-a8.sh`, sha256 `df23710d…`). No E2 run has
+   started. Its graded runs are the second half of 13a's gate, so they block the beta cut.
 5. **E6.** The grading brief (#177), the scorer's pin (#179) and the runbook (in the session's
-   notes) are ready. How a grader is started is not chosen (the brief, Part A, "Graders"); it
+   notes; it takes the adopted card's digest and entry) are ready. How a grader is started is not chosen (the brief, Part A, "Graders"); it
    blocks the grading, not the runs.
 6. **Waiting on the owner,** now that the adoption go is given (item 2):
    - how many real jobs a week the owner can run in the desktop build (BL-20261118-0418,
@@ -162,11 +168,14 @@ Recompute both before any run. Under the 2026-11-18 card the run hash is `99bbc0
 
 ### 5. Act next, in this order
 
-1. **The three r3 runs** under the adopted card, at #184's merge commit, one at a time by the
-   endpoint rules below; then their result entry with the gap, held-chunk and
-   synthesis-correction counts (Amendment 8, item 6).
-2. **E2.** Release its amendment against the revised card, announce the window, and run its
-   graded runs by its runbook.
+1. **E2's runs,** after announcing the window to the lanes and the owner: from the main checkout
+   held at 2996218, by its runbook, with `EXPECTED_FREEZE` `0b896d92…` on the batch's first
+   invocation and `E2_AMENDMENT_ENTRY` BL-20261118-1605-e2-card-amendment-1. The card's order:
+   r3 first, then the two synthetic tasks; within a task the packet, then writer-1, writer-2,
+   writer-2, writer-1, mirrored on the first synthetic task. One at a time, when the owner is not
+   using the endpoint.
+2. **E2's grading,** after its last run: Phase 2's procedure, with blind graders and lane S-e1
+   scoring with the gold it holds.
 3. **If E2's runs accept the writer,** 13a's gate is met. Cut the beta build with the owner by
    #170's checklist; no beta build is cut before then
    (BL-20261118-0659-desktop-research-e2e-and-beta-cut-plan).
@@ -230,8 +239,8 @@ Recompute both before any run. Under the 2026-11-18 card the run hash is `99bbc0
 
 ### 7. Known limits
 
-- **What is `Verified` today:** the r3 result (#163); 13a.1's gated end-to-end case (#170); the
-  tolerant check and its cell (#176); Amendment 7's result (#178). #166 and #177 are `Approved`,
+- **What is `Verified`:** the r3 results (#163 and #186); 13a.1's gated end-to-end case (#170);
+  the tolerant check and its cell (#176); Amendment 7's result (#178); the re-probe (#183). #166 and #177 are `Approved`,
   and today's other entry files are `Implemented`.
 - **Nothing measures research quality yet.** #163 covers no report's quality. The stage's checks
   are not a verdict on content (#178). The desktop stage has run only against loopback endpoints
@@ -245,8 +254,8 @@ Recompute both before any run. Under the 2026-11-18 card the run hash is `99bbc0
 - **The Git-review e2e flake** is diagnosed (run 44260413394: `inspect_git_changes` failed after
   5,609 ms) and its deadline raised (#174). It is not shown gone, against a base rate near 3%
   (BL-20261118-0800-git-command-deadline-15s).
-- **The adopted card rests on one probe run,** on the export's synthetic payloads, and no run has
-  read it yet (BL-20261118-1232-serving-card-2026-11-18-adopted, limitations).
+- **The adopted card rests on one probe run,** on the export's synthetic payloads; E0's three r3
+  runs are its only live use so far (#186).
 
 ## September 2026 record
 

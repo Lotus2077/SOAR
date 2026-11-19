@@ -25,6 +25,6 @@ Limitations and non-claims: Nothing is built or measured. The journal stores loc
 
 Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
-Next gate: The coordinating session's or the owner's read before part (a) starts.
+Next gate: The coordinating session read this design on 2026-11-19 at d5bdd38 and found no blocker in its text; the read is no approval to build. Part (a)'s five files (broker.ts, model.ts, session.ts, store.ts, research-producer.ts) are in the source freeze of E2's and E6's runs, so no part (a) code starts before the coordinating session says both windows are closed. The work is off the MVP's critical path (E2's gate, then the beta cut, then the owner's jobs). Decision 8's clock question goes to the owner before part (a) starts. If the owner keeps the clock, part (a) waits until the owner's first desktop jobs show that pauses matter. Once released, lane S-pipe builds (a), with the skeptic, and lane S-desk builds (b).
 
 References: BL-20261109-0501-research-stage-pause-design; BL-20261118-0438-desktop-local-research-13a-design; BL-20261118-0652-desktop-research-task-view; BL-20261118-0606-e0-r3-remeasurement-result; BL-20261109-0336-desktop-resume-reasons-design.

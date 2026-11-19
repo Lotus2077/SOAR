@@ -26,6 +26,12 @@ import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } fr
 import { researchModelServer } from "../helpers/desktop-research-server";
 import { RESEARCH_V4_TEST_BRIEF, parseResearchUserContent, researchV4Reply, researchV4Sources, researchV4TrimmedReply, researchV4TrimmedSources } from "../helpers/research-v4-fixture";
 import { researchRepairReserve } from "../../src/main/private-agent/research-admission";
+/**
+ * vi.waitFor gives up after 1 s by default. A loaded CI runner can take longer for the controller's own async work, and far longer for a
+ * research task's loopback stage, which runs before the writer starts (CI run 44345993652 gave up at 1.7 s). Every wait here allows
+ * 15 s, still inside the 30 s test timeout.
+ */
+const WAIT = { timeout: 15_000 } as const;
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -100,7 +106,7 @@ function fixture(cleanupConfirmed = true) {
 
 async function interruptedCleanupFixture() {
   const f = fixture(false), task = f.create(); f.hold(); f.controller.start(task.id);
-  await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+  await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
   f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
   const args = f.executions[0]!, ownerId = "old-desktop-owner";
   args.store.acquireRun(args.contextId, ownerId, "unix:///tmp/soar-unit-docker.sock", 234567);
@@ -525,7 +531,7 @@ describe("desktop general-task host controller", () => {
   it("resumes a task paused before streaming was switched on, and streams from then on", async () => {
     const f = fixture(); f.config.streamingEnabled = false;
     const task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     expect(f.controller.get(task.id).status).toBe("paused");
     f.config.streamingEnabled = true; f.resetPaused();
@@ -558,7 +564,7 @@ describe("desktop general-task host controller", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     try {
       const f = fixture(); const task = f.create(); f.hold(); f.controller.start(task.id);
-      await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+      await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
       // The wall clock jumps 90 s past the schedule (the machine slept); the monotonic clock did not move.
       vi.setSystemTime(Date.now() + 90_000); vi.advanceTimersByTime(30_000);
       const late = f.executions[0]!.store.events(task.id).filter(event => event.type === "host_heartbeat");
@@ -579,7 +585,7 @@ describe("desktop general-task host controller", () => {
   it("does not resume a paused task under a different profile or reset its deadline", async () => {
     const f = fixture();
     const task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const paused = f.controller.get(task.id); f.config.generalTaskProfile = "heavy";
     expect(() => f.controller.resume(task.id)).toThrow("general_task_configuration_changed");
@@ -748,7 +754,7 @@ describe("desktop general-task host controller", () => {
   });
   it("pauses at an action boundary and reconstructs the same phase and counters after reopening", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const paused = f.controller.get(task.id); expect(paused).toMatchObject({ status: "paused", canResume: true, modelCalls: 1 });
     const before = JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
@@ -762,7 +768,7 @@ describe("desktop general-task host controller", () => {
   });
   it("keeps a paused task resumable past a skipped assist row, but not past any other unknown row (backlog item 10)", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const args = f.executions[0]!;
     // The reading stage's context, where a sealed cloud one-shot's row would sit; the writer's own context is args.contextId.
     args.store.createContext({ id: "reader", jobId: task.id, sources: [{ id: "corpus", version: digest("synthetic corpus"), classification: "public", synthetic: true }] });
@@ -780,7 +786,7 @@ describe("desktop general-task host controller", () => {
   });
   it("never resumes an unknown dispatch or cancelled task", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     f.executions[0]!.store.append(task.id, { type: "model_started", contextId: f.executions[0]!.contextId, operationId: "uncertain" });
     expect(f.controller.get(task.id).reason).toContain("uncertain outcome");
     expect(f.controller.get(task.id).canResume).toBe(false); expect(() => f.controller.resume(task.id)).toThrow("resume_denied");
@@ -797,7 +803,7 @@ describe("desktop general-task host controller", () => {
     ["settlement", "fee_settlement_failed", "charge could not be verified"],
   ] as const)("explains %s/%s from safe retained diagnostics without permitting replay", async (phase, code, text) => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const args = f.executions[0]!;
     const { text: _packet, ...preview } = args.broker.preview({ jobId: task.id, contextId: args.contextId,
@@ -815,7 +821,7 @@ describe("desktop general-task host controller", () => {
   });
   it("keeps absent or malformed historical failure metadata generic and inert", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const args = f.executions[0]!;
     const { text: _packet, ...preview } = args.broker.preview({ jobId: task.id, contextId: args.contextId,
@@ -832,16 +838,16 @@ describe("desktop general-task host controller", () => {
   });
   it("distinguishes an expired paused task from an uncertain operation without granting more time", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const future = Date.now() + 900001; vi.spyOn(Date, "now").mockReturnValue(future);
     expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: "The task reached its time limit." });
     expect(() => f.controller.resume(task.id)).toThrow("resume_denied"); expect(f.executions).toHaveLength(1);
   });
   it("denies artifact reads during cancellation until the active session has closed", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const artifact = f.controller.get(task.id).artifacts[0]!; f.resetPaused(); f.hold(); f.controller.resume(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(2)); f.controller.cancel(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(2), WAIT); f.controller.cancel(task.id);
     expect(f.controller.get(task.id).status).toBe("cancelled");
     expect(() => f.controller.artifact({ id: task.id, path: artifact.path, sha256: artifact.sha256 })).toThrow("artifact_busy");
     f.release(); await f.controller.wait(task.id);
@@ -855,7 +861,7 @@ describe("desktop general-task host controller", () => {
   });
   it.each(["dead", "alive", "uncertain", "changed"] as const)("cleanup-only cancellation handles a %s interrupted owner without request replay", async state => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const args = f.executions[0]!, oldOwner = "old-desktop-owner";
     args.store.acquireRun(args.contextId, oldOwner, "unix:///tmp/soar-unit-docker.sock", 234567);
     args.store.append(task.id, { type: "model_started", contextId: args.contextId, operationId: "unresolved-original" });
@@ -975,7 +981,7 @@ describe("desktop general-task host controller", () => {
     });
     const clean = vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockImplementation(() => new Promise<void>(resolve => { complete = resolve; }));
     f.controller.cancel(f.task.id);
-    await vi.waitFor(() => expect(clean).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(clean).toHaveBeenCalledOnce(), WAIT);
     const cleaningClaim = f.args.store.runClaim(f.args.contextId)!;
     expect(f.controller.cancel(f.task.id)).toMatchObject({ status: "cancelled", cleanupInProgress: true, canRetryCleanup: false });
     const concurrent = new GeneralTaskController(f.options); cleanup.push(() => concurrent.close());
@@ -989,7 +995,7 @@ describe("desktop general-task host controller", () => {
   });
   it("admits only one desktop execution at a time and close requests pause instead of extra work", async () => {
     const f = fixture(), first = f.create(), second = f.create(); f.hold(); f.controller.start(first.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); expect(() => f.controller.start(second.id)).toThrow("busy");
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT); expect(() => f.controller.start(second.id)).toThrow("busy");
     const closing = f.controller.close(); f.release(); await closing;
     expect(f.controller.get(first.id).status).toBe("paused"); expect(f.controller.get(second.id).status).toBe("queued"); expect(f.executions).toHaveLength(1);
   });
@@ -1006,7 +1012,7 @@ describe("desktop general-task host controller", () => {
     const verdict = { id: task.id, decision: "accept" as const, ownerMinutes: 8, interventions: 1, exportedThroughApp: true };
     // Queued, running (active), paused: no verdict yet.
     expect(() => controller.recordVerdict(verdict)).toThrow("general_task_verdict_denied");
-    f.hold(); controller.start(task.id); await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    f.hold(); controller.start(task.id); await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     expect(() => controller.recordVerdict(verdict)).toThrow("general_task_verdict_denied");
     controller.pause(task.id); f.release(); await controller.wait(task.id);
     expect(controller.get(task.id).status).toBe("paused");
@@ -1188,7 +1194,7 @@ describe("desktop general-task host controller", () => {
   });
   it("backlog item 6: records runtime_unavailable as resumable when the runtime is down on resume, and resumes once it is back", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     expect(f.controller.get(task.id).status).toBe("paused");
     f.options.testing!.readiness = async () => { throw new Error("synthetic docker unavailable"); }; f.resetPaused();
     f.controller.resume(task.id); await f.controller.wait(task.id);
@@ -1252,7 +1258,7 @@ describe("desktop general-task host controller", () => {
   });
   it("backlog item 6: keeps a paused task whose run ended while the configuration changed for launch() to decide, as before", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     f.changeRuntime(); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     expect(storedRecord(f, task.id)).toMatchObject({ status: "paused", reason: "configuration_changed" });
     expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: "The runtime or model configuration changed. Create a new task." });
@@ -1726,7 +1732,7 @@ describe("desktop local research stage (backlog item 13a, part 2)", () => {
     const held = new Promise<void>(resolve => { release = resolve; });
     const { f, server, task, stored, write } = await stageFixture(async (system, user) => { if (system.startsWith("You index")) await held; return researchV4Reply(system, user); });
     f.controller.start(task.id);
-    await vi.waitFor(() => expect(server.requests.length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(server.requests.length).toBeGreaterThan(0), WAIT);
     f.controller.pause(task.id); release(); await f.controller.wait(task.id);
     expect(f.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, research: { stage: "stopped" } });
     // #168's review: the call the pause stopped records its row with the `cancelled` code, and the view marks that row as stopped.
@@ -1773,7 +1779,7 @@ describe("desktop local research stage (backlog item 13a, part 2)", () => {
   it("pauses in the writer and resumes from the transferred packet, with no second stage request", async () => {
     const { f, server, task } = await stageFixture(researchV4Reply);
     f.hold(); f.controller.start(task.id);
-    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1), WAIT);
     const stageCount = stageRequests(server.requests).length;
     f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, research: { stage: "transferred" } });
@@ -1799,7 +1805,7 @@ describe("desktop local research task view (backlog item 13a, part 3)", () => {
     const { f, server, task } = await stageFixture(async (system, user) => { if (system.startsWith("You index")) await held; return researchV4Reply(system, user); });
     expect(f.controller.researchStageRunning()).toBe(false);
     f.controller.start(task.id);
-    await vi.waitFor(() => expect(server.requests.length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(server.requests.length).toBeGreaterThan(0), WAIT);
     expect(f.controller.researchStageRunning()).toBe(true);
     expect(f.controller.get(task.id).research).toMatchObject({ stage: "running" });
     release(); await f.controller.wait(task.id);

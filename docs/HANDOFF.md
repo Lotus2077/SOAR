@@ -18,7 +18,8 @@ next session takes that role. The sources are the entry files of 2026-11-18 and 
   (#193): Heavy stays by case 1, and the beta's 3-of-4 reading is not met. A read-only diagnosis
   found two faults in the writer's code; the owner chose "Fix first" (#194), and the fixes merged
   as #195 (734e702). E2's second batch (Amendment 2, #198) runs at 734e702 from the first batch's
-  packets, and E6 follows at the same commit (#197; BL-20261119-1732).
+  packets; its first run started at 17:36 UTC, 21 minutes before #198 merged, with the amendment
+  committed and reviewed. E6 follows at the same commit (#197; BL-20261119-1732).
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
   `ls docs/build-log | tail`. Then see how far E2's second batch has got:
   `.soar/experiments/e2/e2-2026-11-19-b2/runbook.log` (§5, item 1).

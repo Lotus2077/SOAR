@@ -20,7 +20,7 @@ Evidence: The figures are those of the merged entries BL-20261119-1454-e2-result
 
 Failures or blockers: None.
 
-Limitations and non-claims: No run of E2's second batch or of E6 had started when this was written. Later merges are read from `gh pr list` and `docs/build-log/`, as the section's first step says.
+Limitations and non-claims: E2's second batch started at 17:36 UTC, before #198 merged at 17:57 UTC; no E6 run has started. Later merges are read from `gh pr list` and `docs/build-log/`, as the section's first step says.
 
 Paid exposure: None.
 

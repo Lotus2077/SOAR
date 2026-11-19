@@ -140,22 +140,22 @@ const LENGTH_LIMIT = 2;
 const NUDGE_NO_ACTION = "No tool was called, so nothing happened and one model call was used. Respond with exactly one tool call from the available tools; plain text alone does not act.";
 const NUDGE_MULTI = "More than one tool call was returned and none was executed. Return exactly one tool call per response.";
 /**
- * The output-limit feedback, in two forms. The limit counts reasoning: a cut reply whose visible text and tool-call arguments stay under
- * one byte per token of the limit (about a quarter of it, at four bytes a token) was cut while reasoning. Every cut-off in E2's first
- * batch was (22 of 22, at most 126 visible bytes), and the earlier advice to write pieces of about 1500 characters with write_file and
- * append_file led to small pieces that each replaced the file. Both forms say how write_file and append_file differ.
+ * The output-limit feedback, in two forms. The limit counts reasoning: a cut reply with no tool call and under 1 KiB of text is treated
+ * as cut while reasoning, and any other as cut in its output, whose tool calls are dropped. In E2's first batch 18 of the 22 cut-offs
+ * were of the first kind, and 4 carried a dropped tool call of 1 to 7 KB; in all 22 reasoning took most of the 16,384 tokens. The
+ * earlier advice to write pieces of about 1500 characters with write_file and append_file led to small pieces that each replaced the
+ * file, so both forms say how write_file and append_file differ.
  */
 export type LengthCut = "reasoning" | "output";
+const LENGTH_REASONING_TEXT_BYTES = 1024;
 const LENGTH_PIECES = "write_file replaces the whole file, so write a long file's first piece with write_file and every later piece with append_file.";
 export function lengthFeedback(maxOutputTokens: number, cut: LengthCut): string {
   return cut === "reasoning"
     ? `The response reached the ${maxOutputTokens}-token output limit while still reasoning: no tool call was complete, so nothing was executed (any partial text above was not acted on). Reason briefly and return one complete tool call now, continuing from the saved workspace. ${LENGTH_PIECES}`
-    : `The response reached the ${maxOutputTokens}-token output limit before its tool call was complete, so nothing was executed and its tool calls were dropped (any partial text above was not acted on). Keep reasoning brief, write long content in pieces and continue from the saved workspace: ${LENGTH_PIECES}`;
+    : `The response reached the ${maxOutputTokens}-token output limit, so nothing was executed and its tool calls were dropped (any partial text above was not acted on). The limit counts reasoning too: keep reasoning brief, write long content in pieces and continue from the saved workspace. ${LENGTH_PIECES}`;
 }
-export function lengthCut(response: { content?: string | null; toolCalls: readonly { function: { name: string; arguments?: string } }[] }, maxOutputTokens: number): LengthCut {
-  const visible = Buffer.byteLength(response.content ?? "") +
-    response.toolCalls.reduce((sum, call) => sum + Buffer.byteLength(call.function.name) + Buffer.byteLength(call.function.arguments ?? ""), 0);
-  return visible < maxOutputTokens ? "reasoning" : "output";
+export function lengthCut(response: { content?: string | null; toolCalls: readonly unknown[] }): LengthCut {
+  return response.toolCalls.length === 0 && Buffer.byteLength(response.content ?? "") < LENGTH_REASONING_TEXT_BYTES ? "reasoning" : "output";
 }
 /** One model command's in-container deadline; the container survives a timeout as an observation. */
 const COMMAND_TIMEOUT_MS = 180_000;
@@ -550,8 +550,10 @@ export class GeneralAgentRunner {
       if (remaining <= 0) return finish("incomplete", "cancelled_or_deadline");
       const timer = AbortSignal.timeout(remaining);
       const boundedSignal = AbortSignal.any([signal, timer, this.activeAbort.signal]);
-      // Pending until a captured snapshot first holds the ledger; a resumed run whose snapshot already holds it does not check again.
-      let firstLedgerPending = this.options.claimsCheckOnFirstLedger === true && claimsCheck !== undefined && !hasLedger(snapshot);
+      // Pending until a captured snapshot first holds the ledger. A resumed run whose snapshot holds it, or whose history records the
+      // check, does not check again, even if the ledger was removed since.
+      let firstLedgerPending = this.options.claimsCheckOnFirstLedger === true && claimsCheck !== undefined && !hasLedger(snapshot) &&
+        !history.some(event => event.type === "tool_finished" && event.claimsLedgerCheck !== undefined);
       while (calls < contract.maxModelCalls && tools < contract.maxToolCalls) {
         if (!sandbox) return finish("incomplete", "execution_context_unavailable");
         if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
@@ -666,7 +668,7 @@ export class GeneralAgentRunner {
           // A truncated response executes nothing; it becomes durable feedback.
           lengthStreak++; noActionStreak = 0;
           if (lengthStreak > LENGTH_LIMIT) return finish("incomplete", "model_output_incomplete");
-          const message = lengthFeedback(model.config.maxOutputTokens, lengthCut(response, model.config.maxOutputTokens));
+          const message = lengthFeedback(model.config.maxOutputTokens, lengthCut(response));
           this.record({ type: "nudge", operationId, kind: "length", message });
           messages.push({ role: "user", content: message });
           continue;
@@ -846,9 +848,12 @@ export class GeneralAgentRunner {
         else if (captured) { captureFailure = { code: captured.code }; captureFailures++; }
         // A twelve-call writer's ledger check: once, when output/claims.json first appears in a captured snapshot, on the live workspace,
         // with no model call or tool action spent. Its result rides on this action's tool_finished, so every replay sends the same notice.
+        // The first capture that holds the ledger ends the wait, finish's included. The check runs only on a live container, and only
+        // while calls and actions remain: after the last one, the allowance's own validation checks the ledger at once.
         let claimsLedgerCheck: ClaimsLedgerCheckRecord | undefined;
-        if (firstLedgerPending && captured?.ok && sandbox && claimsCheck && hasLedger(snapshot)) {
-          firstLedgerPending = false;
+        const ledgerCheckDue = firstLedgerPending && captured?.ok === true && hasLedger(snapshot);
+        if (ledgerCheckDue) firstLedgerPending = false;
+        if (ledgerCheckDue && sandbox && claimsCheck && calls < contract.maxModelCalls && tools < contract.maxToolCalls) {
           try {
             const checked = await this.liveClaimsCheck(sandbox, claimsCheck, boundedSignal);
             claimsLedgerCheck = claimsLedgerFeedback(checked.stdout.slice(0, 32768), checked.exitCode === 0);

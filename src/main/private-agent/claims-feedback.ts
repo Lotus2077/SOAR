@@ -32,7 +32,7 @@ export const CLAIMS_LEDGER_CODE_TEXT: Readonly<Record<string, string>> = Object.
   invalid_file: "A file the check reads (the ledger, the report or a source) is missing, linked or unreadable.",
   ledger_size_limit: "The ledger is larger than 262144 bytes.",
   ledger_schema: `The ledger must be {"version":1,"claims":[...]} with 1 to ${CLAIMS_MAX} claims.`,
-  ledger_invalid: "The ledger is not valid UTF-8 JSON.",
+  ledger_invalid: "The ledger is not valid UTF-8 JSON, or a file the check reads could not be parsed.",
   claim_id: "Each claim needs its own id, C1 to C999.",
   claim_sentence: `Each claim's sentence must be a non-empty string of at most ${CLAIMS_SENTENCE_MAX_CHARS} characters.`,
   claim_quote: `Each claim's quote must be a non-empty string of at most ${CLAIMS_QUOTE_MAX_CHARS} characters.`,

@@ -39,8 +39,8 @@ const HISTORICAL_V1 = {
  * and public a63e0bb5…/78e41f93…; a task started under them fails closed rather than resume under the new nudge.
  */
 const PINNED_V1 = {
-  plain: { promptProtocolSha256: "fc50c44925180da9f5753ccf4bc496124175f4570ca3ed82f6631bd7c4d51a93", identity: "5bd6278989d81a7f14f8c603060c3308958974171be34974e72897fb99758cda" },
-  public: { promptProtocolSha256: "841d8f4428785f877d9cf66c36f170898f6d3c6dd1ac775b4b01f77b4d6246b2", identity: "bd0208e818f7de5d67435fd709c1832ff5b83073d3e0c8bcc0c94c4ffca07b0b" },
+  plain: { promptProtocolSha256: "9d61aade0dae66df5ba9bdc9d7d00575a03dadf355a5d21b0f3e21c2ccc7101a", identity: "0278ff1f4d91f980baf1ba50c0474b0ae2528363db6f1e69524376b191a2e760" },
+  public: { promptProtocolSha256: "bbc3963e4d91ded6bb4400796436c9bb53ffdd7b01a7071d2f78a4d75261f1c1", identity: "7f877952b7b2824a31c37b7335d7486e4c194f4228b71aa2a0f0a8de0e1f5961" },
 };
 
 /** The same synthetic job the pin was taken from: fixed contract, input, image, checks and model configuration. */

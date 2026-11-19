@@ -33,10 +33,14 @@ const HISTORICAL_V1 = {
 };
 
 
-/** New pins for the explicitly approved draft-first policy; historical pins remain above. */
+/**
+ * New pins for the explicitly approved draft-first policy; historical pins remain above. Re-pinned for the writer fixes after E2
+ * (the owner's "Fix first"): the length nudge's two forms changed the protocol. The draft-first values were plain 11f6322b…/111cc1ae…
+ * and public a63e0bb5…/78e41f93…; a task started under them fails closed rather than resume under the new nudge.
+ */
 const PINNED_V1 = {
-  plain: { promptProtocolSha256: "11f6322b402cd549f47d890168443c4dc7fedad3bac1e787d284864026157e3f", identity: "111cc1ae7465aaa64d69714d9d83dd262829259ee80979e6bbcbe5da8ced9074" },
-  public: { promptProtocolSha256: "a63e0bb5e14d86c5cbce3634f637523e9613695cd56c443abe9c38cd7cfd1fc7", identity: "78e41f930c61b167d4f7dc5e92a94aa5a010b2c0acd7af6acd008633b461e1d8" },
+  plain: { promptProtocolSha256: "9d61aade0dae66df5ba9bdc9d7d00575a03dadf355a5d21b0f3e21c2ccc7101a", identity: "0278ff1f4d91f980baf1ba50c0474b0ae2528363db6f1e69524376b191a2e760" },
+  public: { promptProtocolSha256: "bbc3963e4d91ded6bb4400796436c9bb53ffdd7b01a7071d2f78a4d75261f1c1", identity: "7f877952b7b2824a31c37b7335d7486e4c194f4228b71aa2a0f0a8de0e1f5961" },
 };
 
 /** The same synthetic job the pin was taken from: fixed contract, input, image, checks and model configuration. */

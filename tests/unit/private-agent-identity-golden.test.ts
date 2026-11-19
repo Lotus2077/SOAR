@@ -34,8 +34,9 @@ describe("identities that existed before the Anthropic adapter", () => {
     const { promptProtocol, ...unchanged } = await goldenValues();
     const { promptProtocol: historicalProtocol, ...before } = BEFORE_ADAPTER;
     expect(unchanged).toEqual(before);
-    expect(promptProtocol).toEqual({ sha256: "76f77ad3f5ffae1b627402dda710bd84a3ded9a91d638709173be4cce76f5b5f",
-      identity: "92a8ee81f61ba1b2f36c2c97398dddabc91223c494b648f445feaaec3aef92b6" });
+    // Re-pinned for the writer fixes after E2 (the length nudge's two forms); before them sha256 76f77ad3… and identity 92a8ee81….
+    expect(promptProtocol).toEqual({ sha256: "a1327cf707693547faeaa6be1ba417b4c531248bcb5cf5d36c719f05cb92f3e7",
+      identity: "ffaf38939e0dfdbb74b6f587618b0138642a5ac6822bfab33bdab4938126e301" });
     expect(promptProtocol).not.toEqual(historicalProtocol);
   });
 

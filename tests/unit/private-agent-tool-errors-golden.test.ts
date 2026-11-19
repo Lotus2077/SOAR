@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { GENERIC_TOOL_FAILURE, HOST_TOOL_ERROR_CODES, SANDBOX_TOOL_ERROR_CODES, TOOL_ERROR_FEEDBACK } from "../../src/main/private-agent/tool-errors";
-import { captureNotice } from "../../src/main/private-agent/runner";
+import { captureNotice, claimsCheckNotice } from "../../src/main/private-agent/runner";
 
 /**
  * BL-20261107-1006 (8): the fixed tool-error table is accepted by the observation verifier byte for byte, and the capture notice is
@@ -37,5 +37,20 @@ describe("the fixed tool-error table and the capture notice are pinned (backlog 
     const all = captureNotice({ captureFailure: { code: "capture_failed" }, recheckCaptureFailure: { code: "sandbox_busy" }, captureOmitted: omitted })!;
     expect(all).toBe(canonical(JSON.parse(all)));
     expect(Object.keys(JSON.parse(all))).toEqual(["actionInvoked", "code", "completed", "error", "instruction", "omitted", "recheck", "warning"]);
+  });
+
+  // E2's writer fixes: the first-ledger check's notice is regenerated from its tool_finished field on every replay of a twelve-call
+  // writer's conversation, as the capture notice is; no other phase records the field.
+  it("keeps the first-ledger check notice objects", () => {
+    expect(claimsCheckNotice({})).toBeUndefined();
+    expect(JSON.parse(claimsCheckNotice({ claimsLedgerCheck: { passed: true } })!)).toEqual({ hostCheck: "research_claims_ledger", trigger: "claims_ledger_first_written", result: { passed: true },
+      instruction: "output/claims.json now exists, and the host's claims-ledger check passes on the workspace as it is. No model call or tool action was spent on it. Keep the ledger and the report consistent if you change either; finish, or the end of your allowance, checks them again." });
+    const failed = { passed: false, citedWithoutClaim: ["C40"] };
+    expect(JSON.parse(claimsCheckNotice({ claimsLedgerCheck: failed })!)).toEqual({ hostCheck: "research_claims_ledger", trigger: "claims_ledger_first_written", result: failed,
+      instruction: "output/claims.json now exists, and the host's claims-ledger check fails on the workspace as it is. No model call or tool action was spent on it. Fix every problem listed in result before your allowance ends; check_claims runs the check again, and finish, or the end of your allowance, checks again." });
+    expect(JSON.parse(claimsCheckNotice({ claimsLedgerCheck: { unavailable: true } })!)).toEqual({ hostCheck: "research_claims_ledger", trigger: "claims_ledger_first_written", unavailable: true,
+      instruction: "output/claims.json now exists, but the host could not run its claims-ledger check on it. No model call or tool action was spent on it. Call check_claims to run it." });
+    const notice = claimsCheckNotice({ claimsLedgerCheck: failed })!;
+    expect(notice).toBe(canonical(JSON.parse(notice)));
   });
 });

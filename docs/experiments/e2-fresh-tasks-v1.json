@@ -1,0 +1,265 @@
+{
+ "schemaVersion": 1,
+ "name": "e2-fresh-tasks-v1",
+ "proposedFreezeTag": "e2-fresh-tasks-v1",
+ "createdUtc": "2026-11-20T07:42:23Z",
+ "taskRoot": ".soar/experiments/e2-fresh-v1/tasks",
+ "goldRoot": ".soar/experiments/e2-fresh-v1/gold",
+ "qualifiedImageId": "sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f",
+ "scorer": {
+  "version": 1,
+  "files": [
+   {
+    "path": "make_fake_run.py",
+    "sha256": "954bc261e024c81df011d371c435f917c7acf9e6f61a19b177f940f6e434ef81"
+   },
+   {
+    "path": "run_unittest.py",
+    "sha256": "30ac3a9673705f813b51c77c78db179592789d4c7bc6be19ced07a76f1bf07fd"
+   },
+   {
+    "path": "score.py",
+    "sha256": "d9b00b601953bf8b2ce029c3fdae2e4970b379e3191803f21511d524b55f4cdd"
+   }
+  ],
+  "treeSha256": "89f0207a0282b87da67528f4ec7e0c938fea8ce010be5ba67b1bbad14a212900",
+  "readmeSha256": "1637144743e7f03f4526ba2b5c9a9556d7d95e966b91526446679cd213ace78d"
+ },
+ "totals": {
+  "tasks": 2,
+  "criticalChecks": 14
+ },
+ "tasks": [
+  {
+   "id": "s3-museum-collection-store",
+   "family": "research",
+   "exposure": "fresh",
+   "jobId": "e2-s3-museum-collection-store",
+   "driverModeFlags": [
+    "--claims-ledger",
+    "true",
+    "--pipeline",
+    "research",
+    "--profile",
+    "heavy"
+   ],
+   "jobSha256": "aed398dc389ea7707b2f9e9ed798ebd5863b3ee95a6f9e8558804b0d2d9bb027",
+   "briefSha256": "d24fefb6a3a96817501d9401f722623523c2bfe9261cbf1caa0441d20aa0faa5",
+   "inputs": [
+    {
+     "path": "input/corpus/collections-review-2026.md",
+     "sha256": "4b2ffb728b73c8c7a3d4f2cad00d099bd0ba5dd8152611b24ad52b9dd224b51c",
+     "bytes": 1430,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/contractor-letter-plot-7.md",
+     "sha256": "830215846810fec074e52126a81418983da801b380be580c0a656895aea6496e",
+     "bytes": 1325,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/corvell-offer-letter.md",
+     "sha256": "3dd249f7143709ca693f830b6f2f527d1b5e97bd0736de8a1af43568e1139cc2",
+     "bytes": 1436,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/energy-and-environment-model.md",
+     "sha256": "d197e0c60db003dcd5a080ff881209c5a696d1b849f4bfdbd9805d04c2c56727",
+     "bytes": 1678,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/finance-note-capital-and-revenue.md",
+     "sha256": "f00f1f1e8b94c57044e58862f03c1199185ef28f696c5215e216d16858cd0201",
+     "bytes": 1442,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/hawsley-mill-structural-survey.md",
+     "sha256": "3b9879da6c55fef39c5255636408736b9dae5ef8026c8d38a890ea46729e16bf",
+     "bytes": 1273,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/plot-7-heads-of-terms.md",
+     "sha256": "eaa9dfd63a88eda300e7d58128d815949b3c5292864f4498ff6b3759939c8e0a",
+     "bytes": 1097,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/site-appraisal-summary.md",
+     "sha256": "b0cb18b920ea0391e7c46a01ec3d030326d41d10d375ded46c6f99eb7f1eb5bb",
+     "bytes": 2454,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/staff-and-researcher-survey.md",
+     "sha256": "0c37f3f52ad3ebca970a4e5a625f6bac55487498a8762be46c7024b986ec5477",
+     "bytes": 1068,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/stores-fund-guidance.md",
+     "sha256": "567bb32753266cd3505f70b45c87844f275df610ee98be0668d07000a60b271d",
+     "bytes": 1463,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/trustees-minutes-extract.md",
+     "sha256": "460bde38f3c1939d2137bfee1af04a3351c8be69226f159abcbc550371d62d48",
+     "bytes": 1141,
+     "label": "public"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/report.md"
+   ],
+   "inputLicence": "synthetic: invented for SOAR's E2 by the authoring session (lane S-e1); its organisations, places, figures and dates are invented and drawn from no real record, and any likeness to a real body's name is coincidental",
+   "checksSha256": "7203b2e800f8ce00d597dbf4bfd383075ee045abe7245615509ca7fb37351047",
+   "checksVersion": 1,
+   "checkCount": 7,
+   "conflictsSha256": "fe388dff38ff225554603e13a7381b30f54734e4e237a57c0df5f9ee0b20c413",
+   "goldFiles": [
+    {
+     "path": "checks.json",
+     "sha256": "7203b2e800f8ce00d597dbf4bfd383075ee045abe7245615509ca7fb37351047"
+    },
+    {
+     "path": "conflicts.json",
+     "sha256": "fe388dff38ff225554603e13a7381b30f54734e4e237a57c0df5f9ee0b20c413"
+    },
+    {
+     "path": "key-facts.json",
+     "sha256": "6386e2ed87d9dfbd7c5a2447b7eb9a21d7467bb64e87808bc5ccee1bfaefee71"
+    },
+    {
+     "path": "reference/output/claims.json",
+     "sha256": "9f7c71ea8546715a823c4d82cb5cb84ba156dc5263bea6ffb9e972d521705237"
+    },
+    {
+     "path": "reference/output/report.md",
+     "sha256": "2f4a0c77218cabebea7e7d11cdf83cc53da480aa6ce9ce964d5397d18d3d38c0"
+    }
+   ],
+   "goldTreeSha256": "419449647c3632aacfd68c9f8adb3833c2d68e37a8a3a3d3a1f4f2841d3d6be3"
+  },
+  {
+   "id": "s4-school-meals-service",
+   "family": "research",
+   "exposure": "fresh",
+   "jobId": "e2-s4-school-meals-service",
+   "driverModeFlags": [
+    "--claims-ledger",
+    "true",
+    "--pipeline",
+    "research",
+    "--profile",
+    "heavy"
+   ],
+   "jobSha256": "ccda0c2b5af34d3fb77328f01e46a11e430044520e88a729db7102529a933bed",
+   "briefSha256": "3748475fe8cdb6d1620a7c28d82a221ca6e87923577f8a46a82ad94dede00ab9",
+   "inputs": [
+    {
+     "path": "input/corpus/cabinet-briefing-school-meals.md",
+     "sha256": "c1e4877854359beab7c97255a6248edf15d8cc2d3ba6845c1866907d61485653",
+     "bytes": 1195,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/central-kitchen-logistics-study.md",
+     "sha256": "ff703631036d734e674f98a6e107c8c9f655228f1bcb62eb516a4d51fee3a09b",
+     "bytes": 1182,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/cost-model-delivery-options.md",
+     "sha256": "4d11d4d2b1d71e341b36fb5fc21351a4c52c357004e6348b8466025dadb68ea6",
+     "bytes": 1279,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/depot-planning-advice.md",
+     "sha256": "ad2ee20daf92d1e3b98fe930621c84026879a93f4659802fa2cd54c6fa45d83d",
+     "bytes": 1115,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/finance-note-meal-costs.md",
+     "sha256": "f411fb0edee14519dae7adbc804219f252aa2916d8e933189750258aad4ce470",
+     "bytes": 1058,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/food-safety-code-fs7-extract.md",
+     "sha256": "4a64c9a798240c52bca4c0241940f7decbd132b7515eabd76ed0c8ab75e35a5a",
+     "bytes": 923,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/headteachers-forum-notes.md",
+     "sha256": "e5e1b3c13cb8147758037d46a671c443cc0b5e871d55691dbaae00248ebe9b29",
+     "bytes": 1107,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/kitchen-condition-survey-2026.md",
+     "sha256": "88977a230b4ff0586173bac2de45f8e25c12eb1ac72df9686ad4cb2273c8f333",
+     "bytes": 1286,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/market-test-summary.md",
+     "sha256": "b220a8983b20a157a183b2eace073c521f643b23288d79cecdd31b4e99f9a4cd",
+     "bytes": 1081,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/parent-survey-2026.md",
+     "sha256": "ff44e95349a9be4973d5dd6378c657ea850ff979819881c370250af9b335e61e",
+     "bytes": 745,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/union-letter-catering-staff.md",
+     "sha256": "19ab172593a4419b1d63f203416574ce935c898df35074998c439c43fde933ef",
+     "bytes": 1183,
+     "label": "public"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/report.md"
+   ],
+   "inputLicence": "synthetic: invented for SOAR's E2 by the authoring session (lane S-e1); its organisations, places, figures and dates are invented and drawn from no real record, and any likeness to a real body's name is coincidental",
+   "checksSha256": "68d20457e60ae443d928ab7d2bd93e4fbd858a76950a01f1201644a346469536",
+   "checksVersion": 1,
+   "checkCount": 7,
+   "conflictsSha256": "92c9aeb51036462231139031017214c03d5afb43775262cf4cceb19d6a21475e",
+   "goldFiles": [
+    {
+     "path": "checks.json",
+     "sha256": "68d20457e60ae443d928ab7d2bd93e4fbd858a76950a01f1201644a346469536"
+    },
+    {
+     "path": "conflicts.json",
+     "sha256": "92c9aeb51036462231139031017214c03d5afb43775262cf4cceb19d6a21475e"
+    },
+    {
+     "path": "key-facts.json",
+     "sha256": "ed80c7b6d42e6ef3232696bda8af6093222295422914238cb69ca4d5e7df0d98"
+    },
+    {
+     "path": "reference/output/claims.json",
+     "sha256": "2fd52a707dd4c822128c08089a7e7c6186459e9dd049143e87ff078300498628"
+    },
+    {
+     "path": "reference/output/report.md",
+     "sha256": "3342784bcf93a9a355c36bb0177dce8259616da68cee39e90237f5ff7d99cb26"
+    }
+   ],
+   "goldTreeSha256": "b0eb236f093f55939839b46326dd1037784b412c38855efcfea3fdcd324182f3"
+  }
+ ],
+ "tasksSha256": "e63bf3a37424f765cac666348db7cc8042cfbea2c93ccc2f6fefa03cc83cc89c"
+}

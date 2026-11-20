@@ -205,9 +205,12 @@ E2's second batch and E6 are made at 734e702.
      decision 1);
    - the rehearsal and E5's day 1 (BL-20261117-1157, decision 4);
    - the session's readings the owner may replace: s1's kept packet (#193, decision 4) and E6's
-     "fresh at the start" (BL-20261119-1732).
+     "fresh at the start" (BL-20261119-1732);
+   - the six questions of 13b's design (#203).
 2. **13b, the staged document review in the desktop,** comes after E6 (BL-20261118-0418). E6
-   leaves its route as the single sample, which the driver applies today. It has no design yet.
+   leaves its route as the single sample, which the driver applies today. Lane S-desk's design is
+   #203, `Proposed`, with no code: a beta flag off by default as 13a's, one .docx, local only, the
+   six deliverables exported and the flags file kept out, and six questions for the owner.
 3. **The selection rule's tie step.** In every E6 loop both steps chose sample a on a tie, and in
    one loop that kept a rejected draft over an accepted repair. It may ground a later card, "a
    later lever under its own entry"; none is planned.
@@ -227,8 +230,8 @@ E2's second batch and E6 are made at 734e702.
    `Approved` entry first. No beta build is cut before then
    (BL-20261118-0659-desktop-research-e2e-and-beta-cut-plan). If the owner declines, register a
    further E2 batch on fresh tasks by an amendment before any run.
-3. **13b's design,** by lane S-desk: a design entry, `Proposed`, before any code, putting the
-   staged document review in the desktop with E6's single-sample route.
+3. **13b's design** (#203): one light review, then merge it as `Proposed`. Its code waits for the
+   owner's answers to the design's questions that bear on it.
 4. **Lanes.** S-pipe: the research protocol and the writer, and #192's part (a) when its other
    conditions are met. S-desk: 13b's design, the beta cut when the owner says so, and #192's part
    (b). S-harn: the harness, the log's tools and the runbooks. S-e1: E2's and E6's fixtures and

@@ -9,7 +9,7 @@ Decisions:
    - The date, the sources and the state: E2's second batch and E6 are done, the endpoint is free, and no beta build is cut.
    - §1: the main checkout follows `main` again, and the merges gain #199 to #202.
    - §3 gains E2's second batch (#201) and E6's result (#202). #192's code is no longer held by the E2 and E6 windows.
-   - §4 and §5 now read the owner's items first, with the beta decision leading, then 13b's design by lane S-desk. The selection rule's tie step is listed, with no card planned.
+   - §4 and §5 now read the owner's items first, with the beta decision leading, then 13b's design, lane S-desk's #203 (`Proposed`). The selection rule's tie step is listed, with no card planned.
    - §7 counts #201 and #202 among what is `Verified` and in its limits.
 2. **13b's design comes next** under the order the owner approved (BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout), with E6's single-sample route. That is the session's reading of the order, not a new decision.
 3. **What does not change:** the rules in §6, the owner's standing items, and every decision already in force.

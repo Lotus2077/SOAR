@@ -2,33 +2,27 @@
 
 Status: `Proposed`
 
-Scope or hypothesis: This designs backlog item 13b (decision 2 of BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout). E6 showed no difference between one sample and two samples with critique and repair (BL-20261120-0233-e6-result), so by E6's card the route stays review-1, the single sample the headless driver applies today. Only the driver calls `withDocumentReview`; the desktop reviews documents through the plain agent loop. There is no code. The pull request's description holds the detail, the file references and the open questions.
+Scope or hypothesis: This designs backlog item 13b (decision 2 of BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout). E6 showed no difference between one sample and two (BL-20261120-0233-e6-result), so the route is review-1: the single sample the headless driver applies with `withDocumentReview`, which only the driver calls today. There is no code. The pull request's description holds the detail, the file references and how each point of the review was met.
 
 Decisions: Each is this lane's recommendation, not yet approved.
-1. **Route.** It follows 13a's pattern (BL-20261118-0438-desktop-local-research-13a-design).
-   - A settings flag, off by default, makes the review beta available; a checkbox on each task turns it on.
-   - The task's phase is the driver's `withDocumentReview(phase)` unchanged: the pinned applier, its instructions, the six required outputs and the `document_review_fidelity` check.
-   - The task is heavy, local only, with exactly one .docx; URLs, research and consultation are refused.
-   - No serving card is needed. The record stores the route. A badge names it.
-   - The review beta shares 13a's beta build and user-data folder, so E5's build and database stay as they are.
-2. **What the owner sees and exports.** The six deliverables are the task's artifacts and its bundle, by an allowlist that adds `review/edits.json`. `output/review-flags.json` never leaves, by single export, bundle or receipt, as the blind bundles left it out. Its counts show under Reported issues, and a review task that has no host-flags event says so. The receipt's arm is E6's `local-heavy-review1`.
-3. **Pause and resume.** A review run is one writer phase with no stage of its own, so it pauses and resumes as a plain task does: at an action boundary, from the last checkpoint. #192's journal does not apply. #195's fail-closed rule does: the runner's identity binds the instructions, the check and its applier, so a resume after any of them changes is refused. As for a research task, a paused review resumes only while the beta is on.
-4. **Tests and `Verified`.**
-   - Unit tests without Docker, a window or an endpoint.
-   - One gated Playwright case, announced, with a scripted writer and the real applier in the installed image.
-   - Before an owner build: those, then one announced review-1 run through the desktop on the owned model, on a synthetic document with no gold.
-5. **Open owner questions** are listed in the pull request; none is decided here.
+1. **Route and record.** 13a's pattern: a flag that is off by default, and an option on each task. The phase is the driver's `withDocumentReview` unchanged: heavy, local only, exactly one .docx, a fixed `output/review-summary.md`, and the owner's goal as the brief. There are no URLs, research, consultation or card. A new record version 5 carries the route; the loader, the configuration identity (which needs the flag) and the receipt's arm `local-heavy-review1` all read it.
+2. **Beta build and folder.** The review shares 13a's beta build and user-data folder, which is chosen when either flag is on (the owner may replace this).
+3. **Exports.** The six deliverables, by an allowlist. For review tasks only, the artifact ref, the bundle's file names and its count of output files change, to admit `review/edits.json` and to keep `output/review-flags.json` out of every export, the bundle and the receipt. Host flags show once the task is submitted, and a missing record of them is reported.
+4. **Inputs.** A real .docx passes today's credential scan, but the scan cannot see inside one. A review task also scans the document's text.
+5. **Pause and resume** work as for a plain task. #192's journal does not apply. #195's identity guard binds the instructions, the check and the applier. A paused review resumes only while the flag is on.
+6. **Tests and `Verified`.** Unit tests, and one gated Playwright case, announced, with a document the test builds. Before an owner build, one announced desktop review-1 run on the owned model, on a synthetic document.
+7. **For the owner:** real documents (the build is unusable on private ones while the public-or-synthetic rule stands), the bundle's contents, and whether one synthetic desktop run is enough.
 
 Changes: this entry. No code.
 
-Evidence: Lane S-desk and two read-only agents read `main` c570f0c and E6's result branch. Each fact the design rests on was checked against the code. The figures are E6's rows: 20 to 32 calls and 371 to 1,347 s per review-1 run, on the heavy profile. Nothing was run.
+Evidence: Lane S-desk checked each point against `main` 9812bd8. The run figures are the six `local-heavy-review1` rows on `main`: 20 to 32 calls and 6 to 22 minutes a run. The scan was checked locally with the repository's own document builders and secret patterns. Nothing else was run.
 
 Failures or blockers: None.
 
-Limitations and non-claims: This is `Proposed` only. Nothing is built or measured. The size (about 3.5 days) is this lane's estimate.
+Limitations and non-claims: This is `Proposed`, and nothing is built or measured. E6's quality figures came from prepared briefs and do not carry over to an owner's free goal. The size, 5 to 7 days, is this lane's estimate.
 
 Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
-Next gate: One light review, then the owner's answers and the coordinating session's approval, before 13b.1's code.
+Next gate: The coordinating session's re-check, then the owner's three answers before any 13b code.
 
 References: BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout; BL-20261118-0438-desktop-local-research-13a-design; BL-20261120-0233-e6-result; BL-20261119-0612-research-stage-resume-design; BL-20261119-1620-writer-ledger-feedback-and-length-nudge; docs/experiments/e6-card-2026-11-17.md.

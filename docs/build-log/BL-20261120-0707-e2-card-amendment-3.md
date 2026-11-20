@@ -20,7 +20,7 @@ Evidence: The runbook's test passes 43 of 43: 41 on a synthetic manifest, and 2 
 
 Failures or blockers: None.
 
-Limitations and non-claims: Four runs on two small synthetic tasks give no rate, and a miss is reported, not read as the writer failing in general. The fresh tasks are synthetic, like s1 and s2, and E3's tasks stay the test on real work.
+Limitations and non-claims: Four runs on two small synthetic tasks give no rate, and a miss is reported, not read as the writer failing in general. The fresh tasks are synthetic, like s1 and s2, and E3's tasks stay the test on real work. s3's decision follows s1's pattern, with a new topic and new figures (BL-20261120-0745-e2-fresh-tasks-frozen), and the writer's fix was designed from s1's and s2's runs; the result says so beside the reading.
 
 Paid exposure: None. The runs are zero-fee on the owned endpoint, and the graders run on the owner's Claude subscription.
 

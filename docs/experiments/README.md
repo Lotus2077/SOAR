@@ -294,6 +294,10 @@ This folder holds the committed, sanitized record of live trials (see
   (Phase 4's fields, plus each task's exposure), authored by a separate session (lane S-e1)
   that holds their gold and scorer; tasks, gold and scorer stay under the ignored
   `.soar/experiments/e2-v1/`.
+- `e2-fresh-tasks-v1.json`: the hashes-only manifest of the two fresh synthetic research
+  tasks of E2's fresh-task check (Amendment 3), in `e2-tasks-v1.json`'s shape and with its
+  scorer, authored by lane S-e1, which holds their gold; tasks and gold stay under the
+  ignored `.soar/experiments/e2-fresh-v1/`.
 - `e6-tasks-v1.json`: the hashes-only manifest of E6's three fresh planted-defect review
   tasks (Phase 2's document-review fields, plus exposure, the planted counts by class, the
   control count and the pinned scorer), authored by a separate session (lane S-e1) that

@@ -230,7 +230,7 @@ E2's second batch and E6 are made at 734e702.
    `Approved` entry first. No beta build is cut before then
    (BL-20261118-0659-desktop-research-e2e-and-beta-cut-plan). If the owner declines, register a
    further E2 batch on fresh tasks by an amendment before any run.
-3. **13b's design** (#203): one light review, then merge it as `Proposed`. Its code waits for the
+3. **13b's design** (#203) merges as `Proposed` after one light review. Its code waits for the
    owner's answers to the design's questions that bear on it.
 4. **Lanes.** S-pipe: the research protocol and the writer, and #192's part (a) when its other
    conditions are met. S-desk: 13b's design, the beta cut when the owner says so, and #192's part
@@ -299,8 +299,8 @@ E2's second batch and E6 are made at 734e702.
   are not a verdict on content (#178). The desktop stage has run only against loopback endpoints
   with scripted replies, and the gated case once, on one machine, outside CI (#164, #170).
 - **Counts, not rates.** E0's r3 runs and E2's batches are a few runs of three tasks, two of them
-  exposed for the second batch, and E6's 12 runs are on three synthetic files, all on one
-  endpoint over three days; they estimate no rate (Amendment 8,
+  exposed for the second batch, and E6's 12 runs are on three synthetic files; all ran on one
+  endpoint between 2026-11-18 and 2026-11-20, and they estimate no rate (Amendment 8,
   item 6; E2's card). E0's inherited limits are in
   BL-20261116-1357-e0-verified.
 - **One paid run since 2026-11-07:** E0's judge labelling on 2026-11-16, USD 0.067876 by the

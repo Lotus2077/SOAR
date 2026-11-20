@@ -1,12 +1,12 @@
 # SOAR handoff
 
-## Start here (2026-11-19)
+## Start here (2026-11-20)
 
 This section is the entrypoint for the next session. It replaces every earlier "next step" in
 this file; the rest of the file is the September 2026 record. "The session" is the coordinating
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
-next session takes that role. The sources are the entry files of 2026-11-18 and 2026-11-19 under
-`docs/build-log/`, pull requests #155 to #198, and `main` at 734e702 with the docs merges that follow it.
+next session takes that role. The sources are the entry files of 2026-11-18 to 2026-11-20 under
+`docs/build-log/`, pull requests #155 to #202, and `main` after the merge of #202.
 
 **In brief.**
 - **The measure.** The MVP exit is at least 6 of 8 real owner jobs accepted in each of two
@@ -14,15 +14,16 @@ next session takes that role. The sources are the entry files of 2026-11-18 and 
   (BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout, decision 4).
 - **The order.** The owner approved local research in the desktop before the paid experiments
   E3 and E4 (the same entry, #155).
-- **The state.** 13a.1 is complete on `main`, and no beta build is cut. E2's first batch is done
-  (#193): Heavy stays by case 1, and the beta's 3-of-4 reading is not met. A read-only diagnosis
-  found two faults in the writer's code; the owner chose "Fix first" (#194), and the fixes merged
-  as #195 (734e702). E2's second batch (Amendment 2, #198) runs at 734e702 from the first batch's
-  packets; its first run started at 17:36 UTC, 21 minutes before #198 merged, with the amendment
-  committed and reviewed. E6 follows at the same commit (#197; BL-20261119-1732).
+- **The state.** 13a.1 is complete on `main`, and no beta build is cut. E2 and E6 are done, and
+  the endpoint is free.
+  - E2's second batch (#201), at 734e702 after the writer fixes (#195): Heavy stays by case 1
+    again, and Heavy had 4 of 4 graded runs accepted. That meets the beta's 3-of-4 reading, but on
+    exposed tasks, so whether it opens the beta is the owner's decision (Amendment 2, point 6).
+  - E6 (#202): no difference shown between one sample and two samples with critique and repair
+    (4 and 5 of 6 accepted), so the document-review route stays the single sample. Every loop
+    delivered its sample a on a tie.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. Then see how far E2's second batch has got:
-  `.soar/experiments/e2/e2-2026-11-19-b2/runbook.log` (§5, item 1).
+  `ls docs/build-log | tail`. Then ask the owner the items of §4, item 1, by name.
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); the push of the tag `owner-v0.2.1`, a new outside destination and real private data
   (BL-20261117-0940-owner-direction-decisions-delegated, decision 5); #105's residues
@@ -32,10 +33,9 @@ next session takes that role. The sources are the entry files of 2026-11-18 and 
 
 ### 1. Get the work
 
-`main` was at 734e702, the merge of #195, when this was written; the docs pull requests after it
-(#197, #198, #199 and this sync) follow it. The main checkout is held at 734e702 for E2's second
-batch and E6: never pull it until both are done, and do any other work in a separate worktree.
-Select
+`main` is past 734e702, the merge of #195, only by docs pull requests (#196 to #202 and this
+sync). The main checkout was held at 734e702 for E2's second batch and E6; both are done, and it
+follows `main` again. Do other work in a separate worktree. Select
 Node 22.22.2 and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
 `engine-strict=true`, so another Node major fails the install.
 
@@ -46,17 +46,17 @@ pnpm install --frozen-lockfile
 ```
 
 CI runs on pull requests and on pushes to `main`. These merged from 04:31 UTC on 2026-11-18 to
-the evening of 2026-11-19; the draft #86 is open, and #181 is closed unmerged (§4).
+the morning of 2026-11-20; the draft #86 is open, and #181 is closed unmerged (§4).
 
 | Area | Pull requests |
 | --- | --- |
 | The order and the log | #155 (the owner's approval, and E0's Amendment 6), #159 (one file per entry), #157 (source comments cite pull requests) |
 | 13a, local research in the desktop | #156 (the design), #158, #160, #162, #164, #168, #170, #175, #185 ("resolved", not "read") |
 | E0 and the research protocol | #163 (r3), #166 (the owner's gap decision), #171 (Amendment 7), #172 (the gap), #173 (card-writer options), #176 (the tolerant check), #178 (Amendment 7's result), #180 (Amendment 8), #183 (the re-probe's result), #184 (the adoption), #186 (the r3 runs under the adopted card) |
-| E2 | #187 (Amendment 1), #190 (the grading brief), #193 (the first batch's result), #194 (the owner's "Fix first"), #196 (a Correction to it), #198 (Amendment 2, the second batch) |
+| E2 | #187 (Amendment 1), #190 (the grading brief), #193 (the first batch's result), #194 (the owner's "Fix first"), #196 (a Correction to it), #198 (Amendment 2, the second batch), #201 (the second batch's result) |
 | The writer | #195 (ledger feedback and the length nudge) |
-| E6 | #177 (the grading brief), #179 (the scorer's re-pin), #197 (the grader start), the batch state (BL-20261119-1732) |
-| Other | #189 (the morning's handoff sync), #191 (criterion 6 restated, on the owner's yes), #192 (a stage-resume design, `Proposed`) |
+| E6 | #177 (the grading brief), #179 (the scorer's re-pin), #197 (the grader start), #199 (the batch state), #202 (the result) |
+| Other | #189 and #200 (the handoff syncs of 2026-11-19), #191 (criterion 6 restated, on the owner's yes), #192 (a stage-resume design, `Proposed`) |
 | Tests and git | #161, #165, #169 and #188 (test timeouts and waits), #167 (the e2e diagnostic), #174 (the git deadline) |
 
 **Values at 734e702.** #195 changed the writer, not the research stage. The earlier values
@@ -83,7 +83,7 @@ E2's second batch and E6 are made at 734e702.
 6. The E2, E5 and E6 cards (docs/experiments/e2-, e5- and e6-card-2026-11-17.md), E2's
    Amendments 1 and 2, and the grading briefs, docs/experiments/e2-grading-brief.md and
    e6-grading-brief.md.
-7. The entry files of 2026-11-19 under `docs/build-log/`, newest first.
+7. The entry files of 2026-11-19 and 2026-11-20 under `docs/build-log/`, newest first.
 
 ### 3. Decided
 
@@ -164,10 +164,20 @@ E2's second batch and E6 are made at 734e702.
   headless grader with a sandboxed shell, confined for user data and with no network; the batch
   at 734e702 under the adopted card, by S-harn's runbook (sha256 `019cb926…`); "fresh at the
   start" read as no change tuned on E6's tasks.
+- **E2's second batch** (#201, BL-20261119-2128-e2-batch-2-result, `Verified`): 11 of 12 writer
+  runs submitted. s1's writer-2 run 2 ended at its bound with no ledger, so Heavy stays by case 1
+  again. Heavy had 4 of 4 graded runs accepted and writer-2 3 of 4 (p 1.0). The beta's 3-of-4
+  reading is met on exposed tasks, and the owner decides whether that opens the beta. On r3 the
+  grader and the gold disagree on all 8 runs across both batches; on s1 and s2 they agree on all 8.
+- **E6's result** (#202, BL-20261120-0233-e6-result, `Verified`): review-1 had 4 of 6 and review-2
+  5 of 6 delivered reviews accepted (p 1.0), so the route stays the single sample. Every loop chose
+  and delivered sample a on a tie, so question 1 compared single samples. In pd3's second loop the
+  repair (8 of 8 defects, accepted) lost on that tie to its draft (6 of 8, rejected). Planted
+  defects: 46 against 44 of 48 (p 0.694); no control changed; kind guesses 12 of 24.
 - **Two other pull requests:** #191 restates criterion 6 of the review's depth bar, on the
   owner's yes; it is an input to E3's and E4's rules. #192 designs resuming a paused research
   stage, `Proposed`; the owner kept the 90-minute clock running through a pause ("Keep it for
-  now"), and no code starts before E2's and E6's windows close.
+  now"); the E2 and E6 windows that held its code closed on 2026-11-20.
 - **13a.1 is complete:** #160 (the contract, and the beta flag, off by default), #162 (the
   beta's own user-data folder), #164 (the stage), #168 (the task view), #170 (the gated
   end-to-end case, `Verified`, and the beta-cut checklist) and #175 (the disclosed gap in the
@@ -183,21 +193,27 @@ E2's second batch and E6 are made at 734e702.
 
 ### 4. Still open, and what each blocks
 
-1. **E2's second batch** (#198). Its 12 writer runs, then its grading, scoring and result. Its
-   reading decides the E3/E4 writer and the beta's gate reading. The runbook is lane S-pipe's a9
-   (sha256 `789057c9…`), in the shared notes outside Git.
-2. **E6.** Its runs follow E2's second batch at 734e702; then the grader gate and the grading.
-3. **Waiting on the owner:**
+1. **Waiting on the owner:**
+   - whether E2's second batch, a reading on exposed tasks, opens the beta (Amendment 2, point 6),
+     and whether to replace the batch's reading, since the choice before its first run passed
+     unasked (§3). A yes leads to the beta cut by #170's checklist, with the owner's hands; a no
+     leads to a further batch on fresh tasks, which lane S-e1 would author (about a day);
    - how many real jobs a week the owner can run in the desktop build (BL-20261118-0418,
      decision 6);
    - the push of the local tag `owner-v0.2.1` (BL-20261117-1157-e5-owner-build-cut);
    - #105's residues, the session's choice put to the owner by name (BL-20261117-0941,
      decision 1);
    - the rehearsal and E5's day 1 (BL-20261117-1157, decision 4);
-   - whether a reading "on exposed tasks" may open the beta (Amendment 2, point 6), and whether to
-     replace the batch's reading, since the choice before its first run passed unasked (§3);
    - the session's readings the owner may replace: s1's kept packet (#193, decision 4) and E6's
-     "fresh at the start" (BL-20261119-1732).
+     "fresh at the start" (BL-20261119-1732);
+   - the six questions of 13b's design (#203).
+2. **13b, the staged document review in the desktop,** comes after E6 (BL-20261118-0418). E6
+   leaves its route as the single sample, which the driver applies today. Lane S-desk's design is
+   #203, `Proposed`, with no code: a beta flag off by default as 13a's, one .docx, local only, the
+   six deliverables exported and the flags file kept out, and six questions for the owner.
+3. **The selection rule's tie step.** In every E6 loop both steps chose sample a on a tie, and in
+   one loop that kept a rejected draft over an accepted repair. It may ground a later card, "a
+   later lever under its own entry"; none is planned.
 4. **E3 and E4** have no cards. They stay as the paid assist question (BL-20261118-0418). A
    reviewer of #191 read E3's frozen f1-f3 briefs, which #191 discloses; this goes to the owner
    with E3's items.
@@ -208,25 +224,19 @@ E2's second batch and E6 are made at 734e702.
 
 ### 5. Act next, in this order
 
-1. **E2's second batch,** after announcing the window to the lanes and the owner: from the main
-   checkout held at 734e702, by runbook a9, with `SEED_BATCH=e2-2026-11-19`, `EXPECTED_FREEZE`
-   `86732c63…` and `E2_AMENDMENT_ENTRY` BL-20261119-1702-e2-card-amendment-2. Order: r3 writer-1,
-   writer-2, writer-2, writer-1; s1 mirrored; s2 as r3. One at a time, when the owner is not using
-   the endpoint. Grade r3's bundle after its four runs, as the brief says.
-2. **Its grading and result:** fresh graders and a fresh decoy by the brief, lane S-e1 scoring,
-   then the result entry and 12 rows (ids `e2-<task>-<run>-b2`), checked by a read-only recompute.
-3. **E6:** announce its window, run its batch by its card and runbook at 734e702, then the grader
-   gate and the grading by its brief.
-4. **If the writer in force has 3 of 4 graded runs accepted** and the owner allows a reading on
-   exposed tasks, cut the beta build with the owner by #170's checklist. No beta build is cut
-   before then (BL-20261118-0659-desktop-research-e2e-and-beta-cut-plan).
-5. **Ask the owner** for each item of §4, item 3, by name. Record each answer in an `Approved`
-   entry, quoted, before acting on it.
-6. **Lanes.** S-pipe: the research protocol and the writer. S-desk: the beta cut, when the
-   session says so, and #192's part (b) when released. S-harn: the harness, the log's tools and
-   E6's runbook. S-e1: E2's and E6's fixtures and their gold, which only it opens, and their
-   scoring. S-assist: the next failed electron-e2e run, read before anyone re-runs it
-   (BL-20261118-0800-git-command-deadline-15s).
+1. **Ask the owner** for each item of §4, item 1, by name, the beta first. Record each answer in an
+   `Approved` entry, quoted, before acting on it.
+2. **If the owner opens the beta,** cut it with the owner by #170's checklist, recorded in an
+   `Approved` entry first. No beta build is cut before then
+   (BL-20261118-0659-desktop-research-e2e-and-beta-cut-plan). If the owner declines, register a
+   further E2 batch on fresh tasks by an amendment before any run.
+3. **13b's design** (#203) merges as `Proposed` after one light review. Its code waits for the
+   owner's answers to the design's questions that bear on it.
+4. **Lanes.** S-pipe: the research protocol and the writer, and #192's part (a) when its other
+   conditions are met. S-desk: 13b's design, the beta cut when the owner says so, and #192's part
+   (b). S-harn: the harness, the log's tools and the runbooks. S-e1: E2's and E6's fixtures and
+   their gold, which only it opens. S-assist: the next failed electron-e2e run, read before
+   anyone re-runs it (BL-20261118-0800-git-command-deadline-15s).
 
 ### 6. Rules for every step
 
@@ -284,24 +294,26 @@ E2's second batch and E6 are made at 734e702.
 
 - **What is `Verified`:** the r3 results (#163 and #186); 13a.1's gated end-to-end case (#170);
   the tolerant check and its cell (#176); Amendment 7's result (#178); the re-probe (#183); E2's
-  first batch (#193).
+  two batches (#193, #201); E6 (#202).
 - **Nothing measures research quality yet.** #163 covers no report's quality. The stage's checks
   are not a verdict on content (#178). The desktop stage has run only against loopback endpoints
   with scripted replies, and the gated case once, on one machine, outside CI (#164, #170).
 - **Counts, not rates.** E0's r3 runs and E2's batches are a few runs of three tasks, two of them
-  exposed for the second batch, on one endpoint over two days; they estimate no rate (Amendment 8,
+  exposed for the second batch, and E6's 12 runs are on three synthetic files; all ran on one
+  endpoint between 2026-11-18 and 2026-11-20, and they estimate no rate (Amendment 8,
   item 6; E2's card). E0's inherited limits are in
   BL-20261116-1357-e0-verified.
 - **One paid run since 2026-11-07:** E0's judge labelling on 2026-11-16, USD 0.067876 by the
-  tool's ledger (BL-20261116-1013-e0-judge-labelling-and-pin). E2's graders ran on the owner's
-  Claude subscription; no entry of 2026-11-19 records a fee.
-- **The proxy grades are weak evidence.** E2's graders read for about a minute each, and they
-  disagreed with the gold scorer on every r3 run (#193).
+  tool's ledger (BL-20261116-1013-e0-judge-labelling-and-pin). E2's and E6's graders ran on the
+  owner's Claude subscription; no entry since records a fee.
+- **The proxy grades are weak evidence.** E2's graders read for about a minute each and
+  disagreed with the gold on every r3 run in both batches (#193, #201). E6's graders read for one
+  to two minutes, and a repair and its draft went to different graders (#202).
 - **The Git-review e2e flake** is diagnosed (run 44260413394: `inspect_git_changes` failed after
   5,609 ms) and its deadline raised (#174). It is not shown gone, against a base rate near 3%
   (BL-20261118-0800-git-command-deadline-15s).
 - **The adopted card rests on one probe run,** on the export's synthetic payloads; E0's three r3
-  runs and E2's first batch are its live uses so far (#186, #193).
+  runs, E2's two batches and E6 are its live uses so far (#186, #193, #201, #202).
 
 ## September 2026 record
 

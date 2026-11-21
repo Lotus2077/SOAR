@@ -743,6 +743,14 @@ The driver verifies the tagged checkout, runs the daily doctor and checks endpoi
 
 After `receipt_ready`, use `rehearsal/receipt.json` from the operator folder in the command below. Print the row to standard output. The rehearsal contributes zero registry rows and zero jobs to either trial measure. Keep the metered proxy fee in the private spend record. The receipt's USD field covers local desktop dispatches.
 
+For a sampled job, make the blind copy in a fresh grader-only directory. Supply the digest of the admitted need text, the acceptance digest recorded before dispatch and the digest of each actual app export. The grader receives just those files under neutral names. Give additional standalone deliverables by repeating `--deliverable`.
+
+```sh
+python3 -I scripts/e5-proxy-grader-copy.py \
+  --need "$need" "$need_sha256" --criteria "$criteria" "$criteria_sha256" \
+  --deliverable "$exported" "$export_sha256" --out "$new_grader_bundle" < "$policy"
+```
+
 ### Printing a row
 
 E5 Amendment 1 uses the version 1 receipt exported by the `owner-v0.2.1` desktop build on the plain local Heavy route. The operator identifies the proxy when recording its receipt. The app's receipt carries the estimate in its historical `ownerMinutes` field. The writer puts this value in `proxyMinutes` on the registry row.

@@ -16,7 +16,7 @@ Evidence: On main 2e83fd5 plus this change, typecheck passes, and the full `pnpm
 
 Failures or blockers: None.
 
-Limitations and non-claims: Nothing ran in a window or against a real model; the review's requests reached a loopback endpoint only. broker.ts and config.ts are in the headless driver's source freeze, so the freeze moves; no E-run window is open. With the waiver, nothing here protects a private document: it reaches the owner's endpoint over plain HTTP, on a machine SOAR does not check.
+Limitations and non-claims: Nothing ran in a window or against a real model; the review's requests reached a loopback endpoint only. broker.ts and config.ts are in the headless driver's source freeze, so the freeze moves; no E-run window is open. With the waiver, nothing here protects a private document: it reaches the owner's endpoint over plain HTTP, on a machine SOAR does not check. A version-5 record in the beta folder makes any build from before 13b that opens that folder fail with "Saved tasks could not be loaded", since such a build loads versions 1 to 4; the cut owner-v0.3.0-research-beta.1 is one, so this is settled before part 6's run or any owner build. A review's dispatch rows record `disclosedBytes: 0` and the scan `not_required_inside_boundary`, as every local-model row does, although the document goes in cleartext to the owner's endpoint by the waiver; a later disclosure report must not read them as no disclosure.
 
 Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 

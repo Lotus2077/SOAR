@@ -18,8 +18,10 @@ describe("desktop document review route (backlog item 13b, part 1)", () => {
     // The summary E6 graded, as its grading brief lists the six deliverables; the arm E6's six review-1 rows carry.
     expect(DESKTOP_REVIEW_OUTPUT_NAME).toBe("review-summary.md");
     expect(readFileSync(resolve(root, "docs/experiments/e6-grading-brief.md"), "utf8")).toContain("`output/review-summary.md`");
-    const rows = readFileSync(resolve(root, "docs/experiments/registry.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line) as { batch?: string; arm?: string });
-    expect(rows.filter(row => row.batch === "e6-20261119" && row.arm === DESKTOP_REVIEW_ARM)).toHaveLength(6);
+    // Pinned by id, so a later --supersedes row (a correction appended beside the original) cannot change what is checked.
+    const rows = readFileSync(resolve(root, "docs/experiments/registry.jsonl"), "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line) as { id?: string; batch?: string; arm?: string });
+    const ids = ["pd1-maintenance-contract", "pd2-expenses-policy", "pd3-programme-report"].flatMap(task => ["r1", "r2"].map(repeat => `e6-${task}-review1-${repeat}`));
+    for (const id of ids) expect(rows.find(row => row.id === id), id).toMatchObject({ batch: "e6-20261119", arm: DESKTOP_REVIEW_ARM });
   });
 
   it("reviews exactly one .docx among a task's input files", () => {
@@ -36,7 +38,7 @@ describe("desktop document review route (backlog item 13b, part 1)", () => {
     expect(desktopReviewAvailability(http)).toBeUndefined();
     expect(desktopReviewAvailability({ ...http, documentReviewBeta: false })).toBeUndefined();
     const plain = desktopReviewAvailability({ ...http, documentReviewBeta: true })!;
-    expect(plain).toEqual({ available: true, reason: expect.stringContaining("to your own model endpoint over plain HTTP, and to nothing else: no cloud and no consultation") });
+    expect(plain).toEqual({ available: true, reason: expect.stringContaining("sends the .docx, with any other file you add, in full, to your own model endpoint over plain HTTP, and to nothing else: no cloud and no consultation") });
     expect(plain.reason).toContain("by your waiver of PLAN.md's Tier O safeguards for this review, so SOAR gives it no privacy protection");
     expect(desktopReviewAvailability({ ...https, documentReviewBeta: true })!.reason).toContain("over HTTPS, and to nothing else");
     for (const reason of [plain.reason, desktopReviewAvailability({ ...https, documentReviewBeta: true })!.reason]) {

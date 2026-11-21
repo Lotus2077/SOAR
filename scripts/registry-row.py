@@ -74,7 +74,8 @@ EXPOSURES = ("fresh", "exposed")
 VERDICTS = ("owner", "agent_diagnostic", "none")
 REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_REGISTRY = os.path.join(REPOSITORY_ROOT, "docs", "experiments", "registry.jsonl")
-# The desktop verdict receipt (src/main/general-tasks/controller.ts, VERDICT_RECEIPT_KEYS): exactly these keys, nothing else.
+# The desktop verdict receipt, version 1 (src/main/general-tasks/controller.ts, VERDICT_RECEIPT_KEYS): exactly these keys, nothing else. A document
+# review's receipt is version 2 (VERDICT_RECEIPT_REVIEW_KEYS), RECEIPT_REVIEW_KEYS below.
 RECEIPT_KEYS = frozenset(("version", "taskId", "taskJobSha256", "date", "profile", "thinking", "maxOutputTokens", "runStatus", "terminalCause",
                           "modelCalls", "toolCalls", "wallSeconds", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd",
                           "unknownDispatches", "retriedDispatches", "failedDispatches", "entailment", "arm", "verdict", "cloudModel", "cloudApi"))
@@ -852,7 +853,7 @@ def receipt_row(args) -> dict:
         row["transport"] = receipt["transport"]
     row.update(derived)
     row["exportedThroughApp"] = verdict["exportedThroughApp"]
-    # Backlog item 7(d), part C: receipt version 1 carries no host flags, so they are not recorded on this row.
+    # Backlog item 7(d), part C: a receipt, version 1 or 2, carries no host flags, so they are not recorded on this row.
     row["hostFlags"] = None
     return row
 

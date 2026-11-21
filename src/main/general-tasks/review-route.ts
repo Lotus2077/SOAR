@@ -39,5 +39,5 @@ export function reviewInputsCheck(files: readonly { path: string }[]): "fit" | "
 export function desktopReviewAvailability(config: Pick<SoarConfig, "documentReviewBeta"> & { vllm: Pick<SoarConfig["vllm"], "baseUrl"> }): GeneralTaskAvailability["review"] {
   if (config.documentReviewBeta !== true) return undefined;
   const transport = new URL(config.vllm.baseUrl).protocol === "https:" ? "HTTPS" : "plain HTTP";
-  return { available: true, reason: `Document review (beta) sends one .docx, in full, to your own model endpoint over ${transport}, and to nothing else: no cloud and no consultation. It runs by your waiver of PLAN.md's Tier O safeguards for this review, so SOAR gives it no privacy protection and does not check the endpoint's logging or the machine it runs on.` };
+  return { available: true, reason: `Document review (beta) sends the .docx, with any other file you add, in full, to your own model endpoint over ${transport}, and to nothing else: no cloud and no consultation. It runs by your waiver of PLAN.md's Tier O safeguards for this review, so SOAR gives it no privacy protection and does not check the endpoint's logging or the machine it runs on.` };
 }

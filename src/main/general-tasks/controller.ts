@@ -1076,7 +1076,7 @@ export class GeneralTaskController {
       usd: dispatches.filter(row => row.status === "settled").reduce((total, row) => total + (row.feeMicrousd ?? 0), 0) / 1_000_000,
       unknownDispatches: dispatches.filter(row => row.status === "unknown" || row.status === "committed").length,
       retriedDispatches: dispatches.filter(row => row.status === "superseded").length, failedDispatches: dispatches.filter(row => row.status === "failed").length,
-      // A research task is always heavy and never consulted; its rows are kept apart by their own arm.
+      // A research task (version 4) and a document review (version 5) are always heavy and never consulted; each one's rows are kept apart by its own arm.
       entailment, arm: record.version === 4 ? "local-heavy-research" : record.version === 5 ? DESKTOP_REVIEW_ARM : `local-${name}${consulted ? "-consulted" : ""}`,
       verdict: { decision: record.verdict.decision, ownerMinutes: record.verdict.ownerMinutes, interventions: record.verdict.interventions,
         exportedThroughApp: record.verdict.exportedThroughApp, recordedAt: new Date(record.verdict.recordedAt).toISOString() },

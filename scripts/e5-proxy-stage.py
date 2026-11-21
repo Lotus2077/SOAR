@@ -38,11 +38,11 @@ BLOCKED = [re.compile(rule) for _, rule in RULES] + [
     re.compile(r"(?:\blocalhost|\.(?:local|internal|localhost|lan|intranet|home\.arpa))\b", re.I),
     re.compile(r'''https?://(?:[a-z0-9-]+(?=[:/?#\s<>"']|$)|[^\s/<>"']{1,253}:\d{1,5}(?=[/?#\s<>"']|$))''', re.I),
     re.compile(r"(?<!\w)(?:file:/|~[/\\]|[a-z]:[/\\]|\\\\|\.{1,2}[/\\])", re.I),
-    re.compile(r"(?:^|[\s=\"'(\[])/(?![/\s>])", re.M),
     re.compile(r"(?<![\w/])/(?:Users|home|private|tmp|var|etc|opt|mnt|Volumes|Applications|Library|usr|root)(?:/|\b)", re.I),
     re.compile(r'''\b(?:authorization["']?\s*:\s*["']?(?:bearer|basic)\s+|(?:api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key|password)["']?\s*[:=]\s*["']?)[^\s"'<>]{4,}''', re.I),
     re.compile(r"\b(?:xox[baprs]-[a-z0-9-]{10,}|glpat-[\w-]{16,})\b|-----BEGIN PGP PRIVATE KEY BLOCK-----", re.I),
 ]
+ABSOLUTE_PATH = re.compile(r"(?:^|[\s=\"'(\[])/(?![/\s>])", re.M)
 # Encoded blobs and embedded files have no inspected text representation.
 OPAQUE = re.compile(r"(?:\bdata\s*:[^\s,]{0,160},|\bbase64(?:binary\b|\s*[:,])|[A-Za-z0-9+/_-]{128,}={0,2})", re.I)
 IPV6 = re.compile(r"(?<![\w:])[0-9a-f:]{2,45}(?![\w:])", re.I)
@@ -61,7 +61,7 @@ HTML_TAGS = set("""
 """.split())
 HTML_ATTRS = set("""
     class id title lang dir role hidden style charset name content colspan rowspan headers scope
-    span width height align valign start reversed type value datetime
+    span width height align valign start reversed type value datetime tabindex
 """.split())
 CSS_FUNCTIONS = set("""
     rgb rgba hsl hsla hwb lab lch oklab oklch color color-mix var calc min max clamp repeat
@@ -70,6 +70,7 @@ CSS_FUNCTIONS = set("""
     nth-child nth-of-type nth-last-child not is where has and or media supports selector
     counter counters rect
 """.split())
+CSS_TOKENS = re.compile(r'''"[^"\r\n]*"|'[^'\r\n]*'|/\*(.*?)\*/|/\*|\*/|["']''', re.S)
 
 
 class Refusal(Exception):
@@ -143,7 +144,7 @@ def read_policy():
     return terms, roots
 
 
-def scan_text(text, terms):
+def scan_text(text, terms, css_openers=False):
     # Inspect both the bytes' literal text and representations used by browsers, URLs and Office.
     for _ in range(4):
         require(not any(unicodedata.category(ch) in ("Cc", "Cf") and ch not in "\r\n\t" for ch in text), "opaque_content")
@@ -153,6 +154,9 @@ def scan_text(text, terms):
         require(not any(term in folded for term in terms["sensitive_content"]), "sensitive_content")
         require(not OPAQUE.search(text), "opaque_content")
         require(not any(rule.search(text) or rule.search(folded) for rule in BLOCKED), "sensitive_content")
+        # Raw markup is checked again in the parsed CSS/text/attribute/comment contexts below.
+        path_text = folded.replace("/*", " *") if css_openers else folded
+        require(not ABSOLUTE_PATH.search(path_text), "sensitive_content")
         if ":" in text:
             for match in IPV6.finditer(folded):
                 if match[0].count(":") >= 2:
@@ -171,10 +175,23 @@ def scan_text(text, terms):
 def scan_css(css):
     # Limit the grammar to static styling. CSS can fetch even bare quoted strings in @import/image-set.
     require("\\" not in css, "opaque_content")
-    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
-    require("/*" not in css and not re.search(r"@(?!media\b|page\b|supports\b|layer\b)", css, re.I), "opaque_content")
-    for function in re.finditer(r"([\w-]+)\s*\(", css):
-        require(function[1].lower() in CSS_FUNCTIONS, "opaque_content")
+
+    def privacy_view(match):
+        token, comment = match[0], match[1]
+        if comment is not None:
+            require("/*" not in comment, "opaque_content")
+            return " " + comment + " "
+        # Reject unmatched delimiters and comment markup inside a quoted string.
+        require(len(token) >= 2 and token[0] in "\"'" and "/*" not in token and "*/" not in token, "opaque_content")
+        return token
+
+    text = CSS_TOKENS.sub(privacy_view, css)
+    for separator in ("", " "):
+        code = CSS_TOKENS.sub(lambda m: separator if m[1] is not None else m[0], css)
+        require(not re.search(r"@(?!media\b|page\b|supports\b|layer\b)", code, re.I), "opaque_content")
+        for function in re.finditer(r"([\w-]+)\s*\(", code):
+            require(function[1].lower() in CSS_FUNCTIONS, "opaque_content")
+    return text
 
 
 class VisibleHTML(HTMLParser):
@@ -190,9 +207,12 @@ class VisibleHTML(HTMLParser):
     def handle_pi(self, data):
         raise Refusal("opaque_content")
 
+    def handle_comment(self, data):
+        scan_text(data, self.terms)
+
     def handle_data(self, data):
         if self.in_style:
-            scan_css(data)
+            data = scan_css(data)
         self.parts.append(data)
 
     def handle_starttag(self, tag, attrs):
@@ -204,10 +224,11 @@ class VisibleHTML(HTMLParser):
                 require(value and (value.startswith("#") or
                         (value.startswith("https://") and urlsplit(value).hostname and "@" not in urlsplit(value).netloc)), "opaque_content")
             else:
-                require(name in HTML_ATTRS or name.startswith("aria-"), "opaque_content")
+                require(name in HTML_ATTRS or name.startswith("aria-")
+                        or re.fullmatch(r"data-[a-z0-9]+(?:-[a-z0-9]+)*", name), "opaque_content")
             if value:
                 if name == "style":
-                    scan_css(value)
+                    value = scan_css(value)
                 scan_text(value, self.terms)
                 require(not value.lstrip().lower().startswith("javascript:"), "opaque_content")
 
@@ -227,10 +248,11 @@ def scan_json(value, terms):
 def scan_plain(raw, ext, terms):
     require(not raw.startswith((b"%PDF-", b"{\\rtf")), "unsupported_format")
     text = raw.decode("utf-8-sig", "strict")
-    scan_text(text, terms)
+    scan_text(text, terms, css_openers=ext in (".css", ".htm", ".html", ".md"))
     if ext == ".css":
-        scan_css(text)
-    elif ext == ".json":
+        scan_text(scan_css(text), terms)
+        return
+    if ext == ".json":
         # object_pairs_hook also inspects overwritten duplicate keys and their values.
         scan_json(json.loads(text, object_pairs_hook=list), terms)
     elif ext in (".htm", ".html", ".md"):

@@ -730,6 +730,8 @@ python3 -I scripts/e5-proxy-stage.py --source "$material" --out "$new_bundle" < 
 
 The scanner accepts UTF-8 text, Markdown, CSV, JSON, static HTML/CSS and supported text-only Office packages. Opaque content, links in the filesystem and unsupported formats are refused. The operator still establishes that the material is public or synthetic and free of personal details.
 
+Static HTML may use accessibility attributes such as `role`, `aria-label`, `aria-describedby`, `scope`, `headers` and `tabindex`. Inert `data-*` names may contain lowercase letters, digits and hyphen-separated segments. The scanner checks attribute values and the text of complete CSS comments against the private policy. It refuses ambiguous comment delimiters and CSS that would load another resource.
+
 For the website rehearsal, the sourcing proxy prepares `brief.txt`, `input.txt` and `acceptance.txt` before dispatch. Stage those three files as `intake` inside the role folder. Run the trusted driver from the implementation checkout using the pinned Node version, during the exclusive endpoint window. The two private roots must already exist.
 
 ```sh

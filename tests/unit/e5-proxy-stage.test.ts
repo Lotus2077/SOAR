@@ -157,6 +157,37 @@ describe("E5 proxy material staging", () => {
     expect(readFileSync(join(out, "schedule.docx"))).toEqual(readFileSync(file));
   });
 
+  it("preserves complete static CSS comments and scanned accessibility and data attributes", () => {
+    const { source, out } = fixture();
+    const css = "/* Print layout\n   for the sample */\n@media print { p { color: navy; } }";
+    const html = '<style>\n/* Table layout */\ntable { width: 100%; }</style>'
+      + '<section role="region" aria-label="Schedule" data-view-name="weekly" tabindex="0" '
+      + 'style="/* Accent */ color: navy">Timetable</section>';
+    for (const [name, body] of [["layout.css", css], ["report.html", html]]) writeFileSync(join(source, name), body);
+    expect(stage(source, out).status).toBe(0);
+    expect(readFileSync(join(out, "layout.css"), "utf8")).toBe(css);
+    expect(readFileSync(join(out, "report.html"), "utf8")).toBe(html);
+  });
+
+  it.each([
+    ["layout.css", "/* /nonstandard/private-file */"],
+    ["layout.css", "p { /* unfinished"],
+    ["layout.css", "/* nested /* comment */"],
+    ["layout.css", "p { color: navy; } */"],
+    ["layout.css", 'p { content: "/*"; }'],
+    ["layout.css", "p { background: u/**/rl(https://assets.example.test/image.png); }"],
+    ["layout.css", '@im/**/port "https://assets.example.test/layout.css";'],
+    ["report.html", '<style>/* sample.reader@example.invalid */ table { width: 100%; }</style>'],
+    ["report.html", '<div aria-label="Schedule" data-view-name="sample.reader@example.invalid">Read</div>'],
+    ["report.html", "<!-- /*/private-file -->"],
+    ["report.html", "<p>/*/private-file</p>"],
+  ])("refuses private content and ambiguous or loading CSS around comments in %s", (name, content) => {
+    const { root, source, out } = fixture();
+    writeFileSync(join(source, name), content);
+    expectRefusal(stage(source, out), [root, name, content, "sample.reader@example.invalid"]);
+    expect(existsSync(out)).toBe(false);
+  });
+
   it.each([
     ["deck.pptx", "ppt/presentation.xml", "presentationml.presentation", '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>'],
     ["schedule.xlsx", "xl/workbook.xml", "spreadsheetml.sheet", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>'],

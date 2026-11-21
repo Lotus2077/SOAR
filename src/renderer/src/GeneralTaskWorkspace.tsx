@@ -429,16 +429,16 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
         </div>
         {!selectedId ? <form className="general-form" aria-label="New general task" onSubmit={startNew}>
           <h2>What would you like to make?</h2>
-          <label className="general-field"><span>Task goal</span><textarea value={goal} maxLength={16000} disabled={!!action} placeholder="Describe the result you need. Add files or public sources below if useful." onChange={event => { setGoal(event.target.value); setAttested(false); }} /></label>
+          <label className="general-field"><span>Task goal</span><textarea value={goal} maxLength={16000} disabled={!!action} placeholder={review ? "Describe what to review in your document." : "Describe the result you need. Add files or public sources below if useful."} onChange={event => { setGoal(event.target.value); setAttested(false); }} /></label>
           <label className="general-field"><span id="general-consultation-label">Consultation mode</span><select value={routing} disabled={!!action || research || review} onChange={event => setRouting(event.target.value as GeneralTaskRouting)} aria-labelledby="general-consultation-label" aria-describedby="general-consultation-hint">
             <option value="local_only">Local only</option><option value="ask_before_consulting" disabled={!availability?.consultation?.available}>Ask before consulting</option>
           </select><small id="general-consultation-hint">{availability?.consultation?.available
             ? routing === "ask_before_consulting" ? `The local coordinator may pause once to ask ${availability.consultation.model ?? "the configured consultant"}. You must review its exact packet and charge, approve, then Resume. No automatic consultation.` : "Use only the owned local model. No consultant packet or charge will be proposed."
             : availability?.consultation?.reason ?? "Consultation is unavailable. Configure an explicit host consultant profile to enable it; local-only tasks remain available."}</small></label>
-          <div className="general-field"><span>Input files (optional)</span><div className="general-actions">
+          <div className="general-field"><span>{review ? "Document to review (required)" : "Input files (optional)"}</span><div className="general-actions">
             <button type="button" className="general-button" disabled={!api || !!action} onClick={() => void chooseInputs()}><FolderOpen aria-hidden="true" />{action === "choose" ? "Opening picker…" : selection ? "Change files" : "Choose files"}</button>
             {selection && <button type="button" className="general-button general-button-quiet" disabled={!!action} onClick={() => { setSelection(null); setAttested(false); }}>Clear files</button>}
-          </div>{selection ? <ul className="general-selected-files" aria-label="Selected input files">{selection.files.map(file => <li className="general-file-row" key={file.path}><span>{file.name}</span><small>{size(file.bytes)}</small></li>)}</ul> : <small>No files selected. You can start from a goal alone. Selected originals stay unchanged.</small>}</div>
+          </div>{selection ? <ul className="general-selected-files" aria-label="Selected input files">{selection.files.map(file => <li className="general-file-row" key={file.path}><span>{file.name}</span><small>{size(file.bytes)}</small></li>)}</ul> : <small>{review ? "Choose one .docx to start the review." : "No files selected. You can start from a goal alone."} Selected originals stay unchanged.</small>}</div>
           {availability?.research ? <div className="general-field general-research-option">
             <label className="general-ack"><input type="checkbox" checked={research} disabled={!!action || !availability.research.available || review} aria-describedby="general-research-hint"
               onChange={event => { const on = event.target.checked; setResearch(on); setAttested(false); if (on) { setProfile(""); setRouting("local_only"); setSourceUrls(""); setRetrievalAllowed(false); } }} />
@@ -469,7 +469,9 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
           {/* Backlog item 13b: a document review runs by the owner's waiver and declares nothing public or synthetic. */}
           {!review && <label className="general-ack"><input type="checkbox" checked={attested} disabled={!!action} onChange={event => setAttested(event.target.checked)} /><span>I confirm that my task goal, any selected files and source URLs contain only public or synthetic material. Real private data is not qualified for this pilot.</span></label>}
           <button className="general-button general-button-primary" type="submit" disabled={!api || !availability?.available || checkingAvailability || !!action || !validInput}><Play aria-hidden="true" />{action === "create" ? "Saving and starting…" : "Create and start task"}</button>
-          {availability && <p className="general-hint">Up to {availability.limits.modelCalls} model attempts, {availability.limits.toolCalls} tool actions and {duration(availability.limits.elapsedMs)}. Submission still needs your review.</p>}
+          {availability && <p className="general-hint">{review && availability.profile !== "heavy"
+            ? "Heavy profile limits apply."
+            : `Up to ${availability.limits.modelCalls} model attempts, ${availability.limits.toolCalls} tool actions and ${duration(availability.limits.elapsedMs)}.`} Submission still needs your review.</p>}
         </form> : task ? <article aria-label="Selected general task">
           <h2>{title(task)}</h2><p className="general-goal">{task.goal}</p>
           <div className="general-state" role="status">{task.status === "submitted" ? <CheckCircle aria-hidden="true" /> : <Clock aria-hidden="true" />}{statuses[task.status]}{loadingTask ? " · refreshing…" : ""}</div>

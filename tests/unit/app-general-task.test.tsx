@@ -813,6 +813,25 @@ describe("document review in the task view (backlog item 13b, part 3)", () => {
     expect(screen.getByText(/to your own model endpoint at 192\.0\.2\.10:8000 over plain HTTP/u)).toBeVisible();
   });
 
+  it("shows the required document and only the limits that apply when starting a review", async () => {
+    const user = userEvent.setup(), { api } = fixture([], { ...reviewReady, profile: "standard" });
+    render(<GeneralTaskWorkspace api={api} />);
+    const option = await screen.findByRole("checkbox", { name: reviewOption });
+    expect(screen.getByText(/Up to 20 model attempts, 30 tool actions/u)).toBeVisible();
+    await user.click(option);
+    expect(screen.getByText("Document to review (required)")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Task goal" })).toHaveAttribute("placeholder", "Describe what to review in your document.");
+    expect(screen.getByText(/Choose one \.docx to start the review/u)).toBeVisible();
+    expect(screen.queryByText(/You can start from a goal alone/u)).toBeNull();
+    expect(screen.getByText(/Heavy profile limits apply/u)).toBeVisible();
+    expect(screen.queryByText(/Up to 20 model attempts/u)).toBeNull();
+    await user.click(option);
+    expect(screen.getByText("Input files (optional)")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Task goal" })).toHaveAttribute("placeholder", expect.stringContaining("Add files or public sources"));
+    expect(screen.getByText(/You can start from a goal alone/u)).toBeVisible();
+    expect(screen.getByText(/Up to 20 model attempts, 30 tool actions/u)).toBeVisible();
+  });
+
   it("creates a review with no declaration and the fixed summary name, heavy and local only, from one .docx chosen through the review's picker", async () => {
     const user = userEvent.setup(), { api } = fixture([], { ...reviewReady, profiles: ["standard", "heavy"], consultation: { available: true, reason: "Configured", model: "test-consultant" } });
     api.chooseGeneralTaskInputs.mockResolvedValue(reviewFiles);

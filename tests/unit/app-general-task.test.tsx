@@ -6,8 +6,8 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GeneralTaskWorkspace } from "../../src/renderer/src/GeneralTaskWorkspace";
 import { App } from "../../src/renderer/src/App";
-import type { GeneralTaskArtifactPreview, GeneralTaskAvailability, GeneralTaskConsultationPreview, GeneralTaskInputSelection, GeneralTaskResearch, GeneralTaskResearchStage,
-  GeneralTaskSnapshot, SoarGeneralTaskApi } from "../../src/shared/general-task-contracts";
+import { GENERAL_TASK_REVIEW_DELIVERABLES, type GeneralTaskArtifactPreview, type GeneralTaskAvailability, type GeneralTaskConsultationPreview, type GeneralTaskInputSelection,
+  type GeneralTaskResearch, type GeneralTaskResearchStage, type GeneralTaskSnapshot, type SoarGeneralTaskApi } from "../../src/shared/general-task-contracts";
 afterEach(cleanup);
 const id = "00000000-0000-4000-8000-000000000101";
 const otherId = "00000000-0000-4000-8000-000000000102";
@@ -788,6 +788,168 @@ describe("local research in the task view (backlog item 13a, part 3)", () => {
       expect(api.createGeneralTask).toHaveBeenCalledWith({ goal: "Summarize the notes", outputName: "report.md", publicOrSynthetic: true });
       view.unmount();
     }
+  });
+});
+
+// Backlog item 13b, part 3: the document review in the view.
+const reviewReady: GeneralTaskAvailability = { ...ready, publicOrSyntheticOnly: false, review: { available: true,
+  reason: "Document review (beta) sends the .docx, with any other file you add, in full, to your own model endpoint at 192.0.2.10:8000 over plain HTTP, and to nothing else." } };
+const reviewOption = /Review one document \(beta\)/u;
+const reviewFiles: GeneralTaskInputSelection = { id: "00000000-0000-4000-8000-000000000105", files: [
+  { name: "notes.md", path: "input/01-notes.md", bytes: 12, sha256: "c".repeat(64) }, { name: "contract.docx", path: "input/02-contract.docx", bytes: 2048, sha256: "d".repeat(64) }] };
+const twoDocuments: GeneralTaskInputSelection = { id: "00000000-0000-4000-8000-000000000106", files: [
+  { name: "a.docx", path: "input/01-a.docx", bytes: 10, sha256: "e".repeat(64) }, { name: "b.DOCX", path: "input/02-b.DOCX", bytes: 10, sha256: "f".repeat(64) }] };
+const reviewRoute = { route: "local_beta", transport: "owner_waived" } as const;
+const sixSaved = GENERAL_TASK_REVIEW_DELIVERABLES.map((item, i) => ({ path: item.path, bytes: 100 + i, sha256: "abcdef"[i]!.repeat(64) }));
+
+describe("document review in the task view (backlog item 13b, part 3)", () => {
+  it("offers the review only when the host reports it, and shows where the document goes", async () => {
+    const plain = fixture(), first = render(<GeneralTaskWorkspace api={plain.api} />);
+    await screen.findByText("Ready for a general task");
+    expect(screen.queryByRole("checkbox", { name: reviewOption })).toBeNull();
+    first.unmount();
+    render(<GeneralTaskWorkspace api={fixture([], reviewReady).api} />);
+    expect(await screen.findByRole("checkbox", { name: reviewOption })).toBeEnabled();
+    expect(screen.getByText(/to your own model endpoint at 192\.0\.2\.10:8000 over plain HTTP/u)).toBeVisible();
+  });
+
+  it("creates a review with no declaration and the fixed summary name, heavy and local only, from one .docx chosen through the review's picker", async () => {
+    const user = userEvent.setup(), { api } = fixture([], { ...reviewReady, profiles: ["standard", "heavy"], consultation: { available: true, reason: "Configured", model: "test-consultant" } });
+    api.chooseGeneralTaskInputs.mockResolvedValue(reviewFiles);
+    render(<GeneralTaskWorkspace api={api} />);
+    await screen.findByText("Ready for a general task");
+    await user.type(screen.getByRole("textbox", { name: "Task goal" }), "Review the contract for missing dates");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Consultation mode" }), "ask_before_consulting");
+    await user.type(screen.getByRole("textbox", { name: "Public source URLs (optional)" }), "https://example.org/a");
+    await user.click(screen.getByRole("checkbox", { name: reviewOption }));
+    // A review's rules: no declaration, the fixed summary name, heavy and local only, and no URLs.
+    expect(screen.queryByRole("checkbox", { name: attestation })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Output filename" })).toHaveValue("review-summary.md");
+    expect(screen.getByRole("textbox", { name: "Output filename" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Consultation mode" })).toHaveValue("local_only");
+    expect(screen.getByRole("combobox", { name: "Consultation mode" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Public source URLs (optional)" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Public source URLs (optional)" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Model profile" })).toHaveValue("heavy");
+    expect(screen.getByRole("combobox", { name: "Model profile" })).toBeDisabled();
+    expect(screen.getByText(/You make no public-or-synthetic declaration for a review/u)).toBeVisible();
+    // The readiness words no longer call the goal and files public or synthetic.
+    expect(screen.queryByText(/Your public or synthetic goal/u)).toBeNull();
+    expect(screen.getByText(/A document review sends your goal and its files to the configured owned model server/u)).toBeVisible();
+    // No file yet, then exactly one .docx among them.
+    expect(screen.getByRole("button", { name: "Create and start task" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
+    expect(api.chooseGeneralTaskInputs).toHaveBeenLastCalledWith({ review: true });
+    expect(screen.getByRole("button", { name: "Create and start task" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Create and start task" }));
+    expect(api.createGeneralTask).toHaveBeenCalledWith({ goal: "Review the contract for missing dates", outputName: "review-summary.md", inputSelectionId: reviewFiles.id, review: "local_beta" });
+    // The next new task starts plain: the option is unticked and the declaration is asked for again.
+    await user.click(screen.getByRole("button", { name: "New general task" }));
+    expect(await screen.findByRole("checkbox", { name: reviewOption })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: attestation })).not.toBeChecked();
+    expect(screen.getByRole("textbox", { name: "Output filename" })).toBeEnabled();
+  });
+
+  it("refuses a review on no .docx or on two, and never beside local research", async () => {
+    const user = userEvent.setup(), { api } = fixture([], { ...reviewReady, research: researchReady.research });
+    render(<GeneralTaskWorkspace api={api} />);
+    await screen.findByText("Ready for a general task");
+    await user.type(screen.getByRole("textbox", { name: "Task goal" }), "Review the contract");
+    await user.click(screen.getByRole("checkbox", { name: reviewOption }));
+    expect(screen.getByRole("checkbox", { name: researchOption })).toBeDisabled();
+    for (const [selection, enabled] of [[selectedFiles, false], [twoDocuments, false], [reviewFiles, true]] as const) {
+      api.chooseGeneralTaskInputs.mockResolvedValueOnce(selection);
+      await user.click(screen.getByRole("button", { name: /Choose files|Change files/u }));
+      await screen.findByText(selection.files[0]!.name);
+      if (enabled) expect(screen.getByRole("button", { name: "Create and start task" })).toBeEnabled();
+      else expect(screen.getByRole("button", { name: "Create and start task" })).toBeDisabled();
+    }
+    // Unticked, research is offered again, and ticking it holds the review option off.
+    await user.click(screen.getByRole("checkbox", { name: reviewOption }));
+    await user.click(screen.getByRole("checkbox", { name: researchOption }));
+    expect(screen.getByRole("checkbox", { name: reviewOption })).toBeDisabled();
+  });
+
+  it("gives the form back when the option is unticked: the declaration, the owner's own output name, the plain picker and a plain task", async () => {
+    const user = userEvent.setup(), { api } = fixture([], { ...reviewReady, profiles: ["standard", "heavy"] });
+    render(<GeneralTaskWorkspace api={api} />);
+    await screen.findByText("Ready for a general task");
+    await user.type(screen.getByRole("textbox", { name: "Task goal" }), "Summarize the notes");
+    const output = screen.getByRole("textbox", { name: "Output filename" });
+    await user.clear(output); await user.type(output, "notes.md");
+    const option = screen.getByRole("checkbox", { name: reviewOption });
+    await user.click(option); expect(output).toHaveValue("review-summary.md");
+    await user.click(option); expect(option).not.toBeChecked();
+    expect(output).toHaveValue("notes.md"); expect(output).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: attestation })).not.toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Model profile" })).toBeEnabled();
+    expect(screen.getByText(/Your public or synthetic goal and any files go to the configured owned model server/u)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Choose files" }));
+    expect(api.chooseGeneralTaskInputs.mock.lastCall).toEqual([]);
+    await user.click(screen.getByRole("checkbox", { name: attestation }));
+    await user.click(screen.getByRole("button", { name: "Create and start task" }));
+    expect(api.createGeneralTask).toHaveBeenCalledWith({ goal: "Summarize the notes", outputName: "notes.md", publicOrSynthetic: true, inputSelectionId: selectedFiles.id });
+  });
+
+  it("frees the form when a later availability check withdraws the review, and does not tick it again by itself", async () => {
+    const user = userEvent.setup(), { api } = fixture([], reviewReady);
+    render(<GeneralTaskWorkspace api={api} />);
+    await screen.findByText("Ready for a general task");
+    await user.click(screen.getByRole("checkbox", { name: reviewOption }));
+    expect(screen.queryByRole("checkbox", { name: attestation })).toBeNull();
+    api.getGeneralTaskAvailability.mockResolvedValue(ready);
+    await user.click(screen.getByRole("button", { name: "Check availability again" }));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: reviewOption })).toBeNull());
+    expect(screen.getByRole("checkbox", { name: attestation })).not.toBeChecked();
+    expect(screen.getByRole("textbox", { name: "Output filename" })).toHaveValue("report.md");
+    api.getGeneralTaskAvailability.mockResolvedValue(reviewReady);
+    await user.click(screen.getByRole("button", { name: "Check availability again" }));
+    expect(await screen.findByRole("checkbox", { name: reviewOption })).not.toBeChecked();
+    // A failed check unticks it too, and the next check that offers it does not tick it by itself.
+    await user.click(screen.getByRole("checkbox", { name: reviewOption }));
+    api.getGeneralTaskAvailability.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(reviewReady);
+    await user.click(screen.getByRole("button", { name: "Check availability again" }));
+    await screen.findByText("Task availability could not be checked. Try checking again.");
+    await user.click(screen.getByRole("button", { name: "Check availability again" }));
+    expect(await screen.findByRole("checkbox", { name: reviewOption })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: attestation })).toBeVisible();
+  });
+
+  it("shows a review's badge, its six deliverables and which are saved, and says the flags file is never exported", async () => {
+    const cases: [GeneralTaskSnapshot["status"], string][] = [["queued", "not started"], ["running", "reviewing"], ["paused", "paused"], ["submitted", "deliverables ready"],
+      ["incomplete", "stopped"], ["cancelled", "stopped"]];
+    for (const [status, words] of cases) {
+      const view = render(<GeneralTaskWorkspace api={fixture([task({ status, profile: "heavy", review: reviewRoute })]).api} />);
+      expect(await screen.findByLabelText("Review route")).toHaveTextContent(new RegExp(`^Document review \\(beta\\) · single sample · ${words}$`, "u"));
+      view.unmount();
+    }
+    const done = task({ status: "submitted", profile: "heavy", review: reviewRoute, artifacts: sixSaved, cleanupConfirmed: true,
+      bundle: { manifestSha256: "f".repeat(64), fileCount: 6, totalBytes: sixSaved.reduce((total, file) => total + file.bytes, 0) } });
+    const first = render(<GeneralTaskWorkspace api={fixture([done]).api} />);
+    const list = await screen.findByRole("region", { name: "Review deliverables" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows.map(row => row.textContent)).toEqual(GENERAL_TASK_REVIEW_DELIVERABLES.map(item => `${item.label} · ${item.path}saved`));
+    expect(within(list).getByText(/The host flags file stays in this task's record and is never exported/u)).toBeVisible();
+    expect(within(list).getByText(/by your waiver of the Tier O safeguards; SOAR gives the document no privacy protection/u)).toBeVisible();
+    expect(screen.getByText(/ZIP contains the review's six deliverables, the edit plan in its review folder; the host flags file is never exported\./u)).toBeVisible();
+    expect(screen.queryByText(/ZIP contains all output files/u)).toBeNull();
+    expect(screen.getByRole("button", { name: /Audit the invoice batch/u })).toHaveTextContent(/· document review$/u);
+    expect(screen.getByText(/A document review sends your goal and its files/u)).toBeVisible();
+    first.unmount();
+    // Running, with the summary alone saved: one saved, five not.
+    render(<GeneralTaskWorkspace api={fixture([task({ status: "running", profile: "heavy", review: reviewRoute, artifacts: sixSaved.slice(0, 1), cleanupConfirmed: false })]).api} />);
+    const partial = within(await screen.findByRole("region", { name: "Review deliverables" })).getAllByRole("listitem").map(row => row.textContent);
+    expect(partial.filter(text => text?.endsWith("not saved"))).toHaveLength(5);
+    expect(partial[0]).toBe(`Review summary · output/review-summary.mdsaved`);
+  });
+
+  it("leaves a plain task's view as it was: no review badge, no deliverables list, and the plain ZIP words", async () => {
+    const plain = task({ status: "submitted", artifacts: [artifact], bundle: { manifestSha256: "f".repeat(64), fileCount: 1, totalBytes: artifact.bytes } });
+    render(<GeneralTaskWorkspace api={fixture([plain]).api} />);
+    await screen.findByText(/ZIP contains all output files with their folder structure\./u);
+    expect(screen.queryByLabelText("Review route")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Review deliverables" })).toBeNull();
+    expect(screen.getByText(/Your public or synthetic goal and any files go to the configured owned model server/u)).toBeVisible();
   });
 });
 

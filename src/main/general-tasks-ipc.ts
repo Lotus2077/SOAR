@@ -6,7 +6,7 @@ import { dialog, ipcMain } from "electron";
 import type { z } from "zod";
 import {
   GENERAL_TASK_IPC_CHANNELS as channels,
-  GeneralTaskArtifactRefSchema, GeneralTaskBundleRefSchema, GeneralTaskCreateInputSchema, GeneralTaskIdSchema,
+  GeneralTaskArtifactRefSchema, GeneralTaskBundleRefSchema, GeneralTaskChooseInputsOptionsSchema, GeneralTaskCreateInputSchema, GeneralTaskIdSchema,
   GeneralTaskConsultationRefSchema, GeneralTaskConsultationDecisionSchema, GeneralTaskVerdictInputSchema,
   type GeneralTaskArtifactPreview,
 } from "../shared/general-task-contracts";
@@ -57,8 +57,11 @@ export function registerGeneralTaskIpc({ controller, authority }: {
   };
   handle(channels.availability, value => { noPayload(value); return controller.availability(); });
   handle(channels.chooseInputs, async (value, assertCurrent) => {
-    noPayload(value);
-    const result = await dialog.showOpenDialog({ title: "Choose public or synthetic inputs", buttonLabel: "Use files", properties: ["openFile", "multiSelections"] });
+    // Backlog item 13b: a document review takes the owner's own document, by the owner's waiver, so its picker asks for no public or synthetic files.
+    const review = value !== undefined && GeneralTaskChooseInputsOptionsSchema.safeParse(value).success;
+    if (!review) noPayload(value);
+    const result = await dialog.showOpenDialog({ title: review ? "Choose the .docx to review, and any context files" : "Choose public or synthetic inputs", buttonLabel: "Use files",
+      properties: ["openFile", "multiSelections"] });
     assertCurrent();
     if (result.canceled || !result.filePaths.length) return null;
     return controller.selectInputs(result.filePaths);

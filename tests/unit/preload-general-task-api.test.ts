@@ -24,5 +24,10 @@ describe("preload general-task bridge", () => {
     expect(electron.invoke).toHaveBeenLastCalledWith(channels.exportVerdictReceipt, verdict.id);
     api.exportGeneralTaskBundle({ id: verdict.id, manifestSha256: "a".repeat(64) });
     expect(electron.invoke).toHaveBeenLastCalledWith(channels.exportBundle, { id: verdict.id, manifestSha256: "a".repeat(64) });
+    // Backlog item 13b, part 3: the picker's one option goes through when given, and a plain call stays without a payload.
+    api.chooseGeneralTaskInputs({ review: true });
+    expect(electron.invoke).toHaveBeenLastCalledWith(channels.chooseInputs, { review: true });
+    api.chooseGeneralTaskInputs();
+    expect(electron.invoke.mock.lastCall).toEqual([channels.chooseInputs]);
   });
 });

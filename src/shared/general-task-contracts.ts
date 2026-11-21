@@ -43,12 +43,22 @@ export const GeneralTaskCreateInputSchema = z.object({
   outputName: z.string().trim().min(1).max(120)
     .regex(/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u)
     .refine(value => !value.includes("..") && new TextEncoder().encode(value).length <= 200),
-  publicOrSynthetic: z.literal(true),
+  /**
+   * The owner's declaration that the goal and every input are public or synthetic. Every task carries it except a document review
+   * (backlog item 13b), which the owner allowed on real private documents and which therefore never carries it.
+   */
+  publicOrSynthetic: z.literal(true).optional(),
   /** Coordinator profile for this task; absent means the configured default. Bound into the task identity. */
   profile: z.enum(["standard", "heavy"]).optional(),
   /** Backlog item 13a: run the local research pipeline before the writer (beta). Offered only while the flag is on and the serving card is accepted. */
   research: z.literal("local_beta").optional(),
-}).strict();
+  /** Backlog item 13b: review one .docx with the staged document review (beta). Offered only while its flag is on. */
+  review: z.literal("local_beta").optional(),
+}).strict().superRefine((value, context) => {
+  if (value.review === undefined ? value.publicOrSynthetic !== true : value.publicOrSynthetic !== undefined)
+    context.addIssue({ code: "custom", path: ["publicOrSynthetic"], message: "A document review carries no public-or-synthetic declaration; every other task does." });
+  if (value.review !== undefined && value.research !== undefined) context.addIssue({ code: "custom", path: ["review"], message: "A task is a review or a research task, not both." });
+});
 export type GeneralTaskCreateInput = z.infer<typeof GeneralTaskCreateInputSchema>;
 
 export const GeneralTaskArtifactRefSchema = z.object({
@@ -99,6 +109,8 @@ export interface GeneralTaskAvailability {
   consultation?: { available: boolean; reason: string; model?: string };
   /** Backlog item 13a: absent while the beta flag is off; otherwise whether the local research route is offered, with the reader's code or the card's date and sha256. */
   research?: { available: boolean; reason: string; code?: string; card?: { date: string; sha256: string } };
+  /** Backlog item 13b: present only while the document review beta's flag is on. */
+  review?: { available: boolean; reason: string };
 }
 export type GeneralTaskEntailmentVerdict = "supported" | "partial" | "unsupported" | "contradicted" | "not_judged";
 export interface GeneralTaskEntailment {
@@ -152,6 +164,8 @@ export interface GeneralTaskSnapshot {
   fees?: { reservedMicrousd: number; settledMicrousd: number };
   /** Backlog item 13a: a local research task's route, the card it runs on and what its stage did. Absent on every other task. */
   research?: GeneralTaskResearch;
+  /** Backlog item 13b: present on a document review task (record version 5), with the owner's transport waiver it ran under. */
+  review?: { route: "local_beta"; transport: "owner_waived" };
 }
 /**
  * Backlog item 13a: a local research task's stage, from the stage's own events. `stage` is not_started (no stage work yet), running,

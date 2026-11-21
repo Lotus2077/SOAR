@@ -61,6 +61,8 @@ const environmentSchema = z.object({
   SOAR_ENABLE_LABS: booleanString,
   /** Backlog item 13a: offers the local research route (beta) on new general tasks, and only with an accepted serving card. Off by default. */
   SOAR_ENABLE_LOCAL_RESEARCH_BETA: booleanString,
+  /** Backlog item 13b: offers the staged document review (beta) on new general tasks, in the beta's own user-data folder. Off by default. */
+  SOAR_ENABLE_DOCUMENT_REVIEW_BETA: booleanString,
   SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO: z
     .enum(["success", "provider_error"])
     .default("success"),
@@ -122,6 +124,8 @@ export interface SoarConfig {
   labsEnabled?: boolean;
   /** Backlog item 13a: the local research route (beta) is offered on new general tasks. */
   localResearchBeta?: boolean;
+  /** Backlog item 13b: the staged document review (beta) is offered on new general tasks. */
+  documentReviewBeta?: boolean;
   fakeCloudScenario: "success" | "provider_error";
   fakeDelayMs: number;
   vllm: {
@@ -254,6 +258,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     hybridSimulationEnabled: env.SOAR_ENABLE_HYBRID_SIMULATION,
     labsEnabled: env.SOAR_ENABLE_LABS,
     localResearchBeta: env.SOAR_ENABLE_LOCAL_RESEARCH_BETA,
+    documentReviewBeta: env.SOAR_ENABLE_DOCUMENT_REVIEW_BETA,
     fakeCloudScenario:
       env.SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO,
     fakeDelayMs: env.SOAR_FAKE_DELAY_MS,

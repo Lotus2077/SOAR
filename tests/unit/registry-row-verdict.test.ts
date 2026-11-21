@@ -128,6 +128,10 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
     expect(() => run(["--verdict-file", path, "--id", "x", "--verdict-by", "owner", "--lesson", "l"])).toThrow(/missing --batch, --task, --family, --exposure/u);
     // A desktop local research task (backlog item 13a) rows under its own arm, on the heavy profile.
     expect(run(["--verdict-file", receiptFile(receipt({ arm: "local-heavy-research" })), ...operator])).toMatchObject({ arm: "local-heavy-research", profile: "heavy", outcome: "accepted" });
+    // A desktop document review (backlog item 13b) is a version-2 receipt whose row keeps the owner's transport waiver; a version-1 row has no such key.
+    const review = run(["--verdict-file", receiptFile(receipt({ version: 2, arm: "local-heavy-review1", transport: "owner_waived" })), ...operator]);
+    expect(review).toMatchObject({ arm: "local-heavy-review1", profile: "heavy", outcome: "accepted", transport: "owner_waived" });
+    expect(run(["--verdict-file", path, ...operator])).not.toHaveProperty("transport");
   });
 
   it("refuses a receipt with any other key, a wrong version, a missing or malformed verdict, or content that is not a hash, count or enum", () => {
@@ -136,7 +140,17 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
       [receipt({ path: "/Users/someone/Documents/contract.docx" }), /unknown key 'path'/u],
       [receipt({ url: "https://example.org/source" }), /unknown key 'url'/u],
       [receipt({ outputName: "report.md" }), /unknown key 'outputName'/u],
-      [receipt({ version: 2 }), /version is not 1/u],
+      [receipt({ version: 3 }), /version is not 1 or 2/u],
+      [receipt({ version: true }), /version is not 1 or 2/u],
+      [receipt({ version: "1" }), /version is not 1 or 2/u],
+      // Backlog item 13b: version 2 is a document review's receipt alone, with the owner's transport waiver on the heavy profile.
+      [receipt({ version: 2 }), /missing key 'transport'/u],
+      [receipt({ transport: "owner_waived" }), /unknown key 'transport'/u],
+      [receipt({ version: 2, transport: "owner_waived" }), /a local-heavy-review1 receipt, and only one, is version 2/u],
+      [receipt({ arm: "local-heavy-review1" }), /a local-heavy-review1 receipt, and only one, is version 2/u],
+      [receipt({ version: 2, arm: "local-heavy-review1", transport: "tls" }), /records the owner's transport waiver on the heavy profile/u],
+      [receipt({ version: 2, arm: "local-heavy-review1", transport: "owner_waived", profile: "standard" }), /records the owner's transport waiver on the heavy profile/u],
+      [receipt({ version: 2, arm: "local-heavy-review2", transport: "owner_waived" }), /arm is not local/u],
       [receipt({ verdict: null }), /verdict is missing/u],
       [receipt({ verdict: { decision: "accept", ownerMinutes: 8, interventions: 1, exportedThroughApp: true, recordedAt: "2026-11-07T09:00:00Z", note: "free text" } }), /verdict is missing or carries other keys/u],
       [receipt({ verdict: { decision: "maybe", ownerMinutes: 8, interventions: 1, exportedThroughApp: true, recordedAt: "2026-11-07T09:00:00Z" } }), /decision is not accept or reject/u],

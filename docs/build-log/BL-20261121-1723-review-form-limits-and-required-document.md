@@ -10,7 +10,7 @@ Decisions:
 
 Changes: The general task form and its renderer regression test.
 
-Evidence: Under a Standard default the renderer regression checks the heading, placeholder, file requirement and limits in review and plain modes. The updated regression, typecheck, branch-aware build-log validator and `pnpm check` passed, with 4,157 tests passing and 89 skipped in the full suite. One light review identified the heading and placeholder, both corrected and tested.
+Evidence: Under a Standard default the renderer regression checks the heading, placeholder, file requirement and limits in review and plain modes. The final four-worker `pnpm check` passed with 4,158 tests passing, 88 skipped and a successful production build. The branch-aware build-log validator passed. One light review identified the heading and placeholder, both corrected and tested.
 
 Failures or blockers: Two repeat runs timed out in separate suites outside the renderer, once during temporary-file cleanup and once in a Python subprocess. Both suites and the renderer suite then passed together with one worker (100 passed, one skipped).
 

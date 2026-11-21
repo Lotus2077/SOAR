@@ -1912,8 +1912,8 @@ async function reviewFixture(names: string[] = ["contract.docx"]) {
 
 describe("desktop document review (backlog item 13b, part 1)", () => {
   it("offers the review only while its flag is on, and creates it as record version 5 on the heavy profile with no public-or-synthetic declaration", async () => {
-    const { f, create, stored } = await reviewFixture();
-    expect((await f.controller.availability()).review).toEqual({ available: true, reason: expect.stringContaining("to your own model endpoint over plain HTTP, and to nothing else") });
+    const { f, server, create, stored } = await reviewFixture();
+    expect((await f.controller.availability()).review).toEqual({ available: true, reason: expect.stringContaining(`to your own model endpoint at ${new URL(server.baseUrl).host} over plain HTTP, and to nothing else`) });
     const task = create();
     expect(task.review).toEqual({ route: "local_beta", transport: "owner_waived" });
     const record = stored(task.id);
@@ -2110,6 +2110,44 @@ describe("desktop document review inputs (backlog item 13b, part 4)", () => {
     expect(count()).toBe(0);
     expect(review(join(f.root, "contract.docx")).review).toEqual({ route: "local_beta", transport: "owner_waived" });
     expect(count()).toBe(1);
+  });
+});
+
+// Backlog item 13b, part 3: what the view is told about a review: the readiness line, and host flags expected on a submitted review.
+describe("desktop document review in the view (backlog item 13b, part 3)", () => {
+  it("says not every task takes public or synthetic inputs while a review is offered, and says so whether or not the runtime is ready", async () => {
+    const { f } = await reviewFixture();
+    // A real runtime (no scripted runner) gives the readiness line; the fixture's scripted runner would give its own.
+    f.options.testing!.runnerFactory = undefined;
+    expect(await f.controller.availability()).toMatchObject({ available: true, executionMode: "local", publicOrSyntheticOnly: false,
+      reason: "Local execution is ready. A plain task takes declared public or synthetic inputs; a document review (beta) takes your own document, by your waiver." });
+    f.config.documentReviewBeta = false;
+    expect(await f.controller.availability()).toMatchObject({ available: true, publicOrSyntheticOnly: true, reason: "Local execution is ready for declared public or synthetic inputs." });
+    // An unready runtime says the same of its inputs.
+    f.removeImage();
+    expect(await f.controller.availability()).toMatchObject({ available: false, executionMode: "unavailable", publicOrSyntheticOnly: true });
+    f.config.documentReviewBeta = true;
+    expect(await f.controller.availability()).toMatchObject({ available: false, executionMode: "unavailable", publicOrSyntheticOnly: false, review: { available: true } });
+  });
+
+  it("expects host flags on a submitted review: a lost event says they were not recorded, as a research task's does", async () => {
+    const { f, create } = await reviewFixture();
+    const recorded = create(); f.controller.start(recorded.id); await f.controller.wait(recorded.id);
+    const view = f.controller.get(recorded.id);
+    expect(view.status).toBe("submitted");
+    expect(view.events.some(event => event.type === "host_flags")).toBe(true);
+    expect(view.reportedIssues).not.toContain("The host flags of this submission were not recorded.");
+    const append = PrivateAgentStore.prototype.append;
+    const spy = vi.spyOn(PrivateAgentStore.prototype, "append").mockImplementation(function (this: PrivateAgentStore, jobId: string, event: Record<string, unknown>) {
+      if (event.type === "host_flags") throw new Error("store unavailable");
+      return append.call(this, jobId, event);
+    });
+    try {
+      const lost = create(); f.controller.start(lost.id); await f.controller.wait(lost.id);
+      expect(f.controller.get(lost.id)).toMatchObject({ status: "submitted" });
+      expect(f.controller.get(lost.id).events.some(event => event.type === "host_flags")).toBe(false);
+      expect(f.controller.get(lost.id).reportedIssues).toContain("The host flags of this submission were not recorded.");
+    } finally { spy.mockRestore(); }
   });
 });
 

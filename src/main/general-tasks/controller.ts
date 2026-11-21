@@ -168,7 +168,8 @@ const HOST_FLAG_REVIEW_RULES = Object.freeze({ numeric: "table check", edits: "e
 /**
  * Backlog item 7(d), part C (#99): the issue lines of a submission's `host_flags` event (7d.B), built
  * only from its counts, rule ids, lines, positions, edit ids and the flags file's error class names, never from report, model or document text. A research task (public sources, so a
- * claims-ledger phase) without an event says its flags were not recorded, since silence would read as "no flags". The flags decide nothing.
+ * claims-ledger phase) or a document review (backlog item 13b) without an event says its flags were not recorded, since silence would read
+ * as "no flags". The flags decide nothing.
  */
 export function hostFlagIssues(events: readonly Record<string, unknown>[], expected: boolean): string[] {
   const recorded = events.filter(event => event.type === "host_flags");
@@ -485,11 +486,14 @@ export class GeneralTaskController {
     // Backlog item 13b: present only while the document review beta's flag is on; it needs no serving card.
     let review: GeneralTaskAvailability["review"];
     try { review = desktopReviewAvailability(this.options.config()); } catch { review = undefined; }
+    // Backlog item 13b: while a review is offered, not every task takes public or synthetic inputs, and the readiness line says which do.
+    const publicOrSyntheticOnly = review?.available !== true;
     try {
       const profile = this.profile(); await this.readiness(profile.imageId);
       const scripted = Boolean(this.options.testing?.runnerFactory);
-      return { available: !this.closing, reason: this.closing ? "The app is closing." : scripted ? "Scripted host fixture; mechanics only." : "Local execution is ready for declared public or synthetic inputs.", limits: this.budget(), profiles: ["standard", "heavy"], labs: this.options.config().labsEnabled === true, profile: this.profileName(), publicOrSyntheticOnly: true, executionMode: scripted ? "scripted" : "local", consultation, ...(research ? { research } : {}), ...(review ? { review } : {}) };
-    } catch { return { available: false, reason: "Configure the owned local model and a pinned, already installed Linux Docker image. No image is downloaded automatically.", limits: this.budget(), profiles: ["standard", "heavy"], labs: this.options.config().labsEnabled === true, profile: this.profileName(), publicOrSyntheticOnly: true, executionMode: "unavailable", consultation, ...(research ? { research } : {}), ...(review ? { review } : {}) }; }
+      return { available: !this.closing, reason: this.closing ? "The app is closing." : scripted ? "Scripted host fixture; mechanics only." : publicOrSyntheticOnly ? "Local execution is ready for declared public or synthetic inputs." :
+        "Local execution is ready. A plain task takes declared public or synthetic inputs; a document review (beta) takes your own document, by your waiver.", limits: this.budget(), profiles: ["standard", "heavy"], labs: this.options.config().labsEnabled === true, profile: this.profileName(), publicOrSyntheticOnly, executionMode: scripted ? "scripted" : "local", consultation, ...(research ? { research } : {}), ...(review ? { review } : {}) };
+    } catch { return { available: false, reason: "Configure the owned local model and a pinned, already installed Linux Docker image. No image is downloaded automatically.", limits: this.budget(), profiles: ["standard", "heavy"], labs: this.options.config().labsEnabled === true, profile: this.profileName(), publicOrSyntheticOnly, executionMode: "unavailable", consultation, ...(research ? { research } : {}), ...(review ? { review } : {}) }; }
   }
 
   /** Paths come only from the native picker. Read once, then discard host paths. */
@@ -800,7 +804,7 @@ export class GeneralTaskController {
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
       ...(record.review ? { review: { route: record.review.route, transport: record.review.transport } } : {}),
       ...(record.research ? { research: researchStageView(record.research, events, dispatches, active, researchTransferGaps(events, snapshot => this.checkpoints(id).load(snapshot))) } : {}),
-      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined) } : {}),
+      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined || record.review !== undefined) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :

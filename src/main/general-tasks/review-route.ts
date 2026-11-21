@@ -1,7 +1,5 @@
 import type { SoarConfig } from "../config";
-import type { GeneralTaskAvailability } from "../../shared/general-task-contracts";
-import { DOCUMENT_REVIEW_ARTIFACTS } from "../private-agent/document-review";
-import { DOCUMENT_REVIEW_FLAGS_PATH } from "../private-agent/document-review-flags";
+import { GENERAL_TASK_REVIEW_DELIVERABLES, GENERAL_TASK_REVIEW_OUTPUT_NAME, type GeneralTaskAvailability } from "../../shared/general-task-contracts";
 
 /**
  * Backlog item 13b: the desktop's staged document review. It is review-1, the single sample the headless driver applies
@@ -19,13 +17,13 @@ export const DESKTOP_REVIEW_TRANSPORT = "owner_waived" as const;
 /** What a review task records at creation (record version 5): the route and the transport waiver, nothing else. */
 export interface DesktopReviewRecord { route: DesktopReviewRoute; transport: typeof DESKTOP_REVIEW_TRANSPORT }
 /** The review's own deliverable, the summary E6 graded: a review task's output name is fixed to it. */
-export const DESKTOP_REVIEW_OUTPUT_NAME = "review-summary.md";
+export const DESKTOP_REVIEW_OUTPUT_NAME = GENERAL_TASK_REVIEW_OUTPUT_NAME;
 /**
  * A review's artifacts, exactly: the six deliverables E6 graded, its summary and the driver's five other outputs, the edit plan under
- * review/ among them. The host flags file is not one: it stays in the task's own record, never exported, zipped or put in a receipt.
+ * review/ among them. The view lists the same six (the shared contract), and a test pins them to the driver's own list. The host flags
+ * file is not one: it stays in the task's own record, never exported, zipped or put in a receipt.
  */
-export const DESKTOP_REVIEW_DELIVERABLES: readonly string[] = Object.freeze([`output/${DESKTOP_REVIEW_OUTPUT_NAME}`,
-  ...DOCUMENT_REVIEW_ARTIFACTS.map(artifact => artifact.path).filter(path => path !== DOCUMENT_REVIEW_FLAGS_PATH)]);
+export const DESKTOP_REVIEW_DELIVERABLES: readonly string[] = Object.freeze(GENERAL_TASK_REVIEW_DELIVERABLES.map(item => item.path));
 /** The receipt's arm, the name E6's rows give this route. */
 export const DESKTOP_REVIEW_ARM = "local-heavy-review1";
 
@@ -46,6 +44,7 @@ export function reviewInputsCheck(files: readonly { path: string }[]): "fit" | "
  */
 export function desktopReviewAvailability(config: Pick<SoarConfig, "documentReviewBeta"> & { vllm: Pick<SoarConfig["vllm"], "baseUrl"> }): GeneralTaskAvailability["review"] {
   if (config.documentReviewBeta !== true) return undefined;
-  const transport = new URL(config.vllm.baseUrl).protocol === "https:" ? "HTTPS" : "plain HTTP";
-  return { available: true, reason: `Document review (beta) sends the .docx, with any other file you add, in full, to your own model endpoint over ${transport}, and to nothing else: no cloud and no consultation. It runs by your waiver of PLAN.md's Tier O safeguards for this review, so SOAR gives it no privacy protection and does not check the endpoint's logging or the machine it runs on.` };
+  // The endpoint named by its host and port only: the owner sees where the document goes, and no path or key is shown.
+  const endpoint = new URL(config.vllm.baseUrl), transport = endpoint.protocol === "https:" ? "HTTPS" : "plain HTTP";
+  return { available: true, reason: `Document review (beta) sends the .docx, with any other file you add, in full, to your own model endpoint at ${endpoint.host} over ${transport}, and to nothing else: no cloud and no consultation. It runs by your waiver of PLAN.md's Tier O safeguards for this review, so SOAR gives it no privacy protection and does not check the endpoint's logging or the machine it runs on.` };
 }

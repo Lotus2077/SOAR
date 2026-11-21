@@ -66,6 +66,23 @@ export type GeneralTaskCreateInput = z.infer<typeof GeneralTaskCreateInputSchema
  * DOCUMENT_REVIEW_EDITS_PATH). It is the one path outside output/ an artifact may have, and only a review task lists it.
  */
 export const GENERAL_TASK_REVIEW_EDITS_PATH = "review/edits.json";
+/** Backlog item 13b: a document review's own deliverable, the summary E6 graded. A review task's output name is fixed to it. */
+export const GENERAL_TASK_REVIEW_OUTPUT_NAME = "review-summary.md";
+/**
+ * Backlog item 13b: a document review's six deliverables, the files E6 graded, in its grading brief's order, with the words the view
+ * gives each. A review exports exactly these (main/general-tasks/review-route.ts); a test pins them to the driver's own list.
+ */
+export const GENERAL_TASK_REVIEW_DELIVERABLES: readonly { readonly path: string; readonly label: string }[] = Object.freeze([
+  { path: `output/${GENERAL_TASK_REVIEW_OUTPUT_NAME}`, label: "Review summary" },
+  { path: GENERAL_TASK_REVIEW_EDITS_PATH, label: "Edit plan" },
+  { path: "output/redline.docx", label: "Redline, each edit a tracked change with a comment" },
+  { path: "output/clean.docx", label: "Clean copy, every edit accepted" },
+  { path: "output/issues.xlsx", label: "Issues list" },
+  { path: "output/hygiene.json", label: "Hygiene report: authors, comments, revisions and hidden text" },
+].map(item => Object.freeze(item)));
+/** Backlog item 13b: the file picker's one option. For a document review it names the document to choose; nothing else changes. */
+export const GeneralTaskChooseInputsOptionsSchema = z.object({ review: z.literal(true) }).strict();
+export type GeneralTaskChooseInputsOptions = z.infer<typeof GeneralTaskChooseInputsOptionsSchema>;
 export const GeneralTaskArtifactRefSchema = z.object({
   id: GeneralTaskIdSchema,
   path: z.string().min(1).max(240).refine(value => (value.startsWith("output/") || value === GENERAL_TASK_REVIEW_EDITS_PATH) &&
@@ -109,7 +126,11 @@ export interface GeneralTaskAvailability {
   profiles?: ("standard" | "heavy")[];
   /** Legacy tracks (investigator, change review, coding pilot, hybrid simulation) are shown only when the Labs flag is on. */
   labs?: boolean;
-  publicOrSyntheticOnly: true;
+  /**
+   * Whether every task offered takes declared public or synthetic inputs only. False while a document review (beta) is offered
+   * (backlog item 13b): a review takes the owner's own document, by the owner's waiver.
+   */
+  publicOrSyntheticOnly: boolean;
   executionMode: "local" | "scripted" | "unavailable";
   consultation?: { available: boolean; reason: string; model?: string };
   /** Backlog item 13a: absent while the beta flag is off; otherwise whether the local research route is offered, with the reader's code or the card's date and sha256. */
@@ -223,7 +244,8 @@ export interface GeneralTaskArtifactPreview extends GeneralTaskArtifactRef {
 }
 export interface SoarGeneralTaskApi {
   getGeneralTaskAvailability(): Promise<GeneralTaskAvailability>;
-  chooseGeneralTaskInputs(): Promise<GeneralTaskInputSelection | null>;
+  /** Backlog item 13b: `{ review: true }` only retitles the picker for a document review. */
+  chooseGeneralTaskInputs(options?: GeneralTaskChooseInputsOptions): Promise<GeneralTaskInputSelection | null>;
   createGeneralTask(input: GeneralTaskCreateInput): Promise<GeneralTaskSnapshot>;
   listGeneralTasks(): Promise<GeneralTaskSnapshot[]>;
   getGeneralTask(id: string): Promise<GeneralTaskSnapshot>;

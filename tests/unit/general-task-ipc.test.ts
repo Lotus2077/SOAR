@@ -120,6 +120,24 @@ describe("general task host IPC boundary", () => {
     expect(JSON.stringify(selection)).not.toContain("/native/");
   });
 
+  it("titles the picker for a document review only when asked, and refuses any other payload before the dialog (backlog item 13b, part 3)", async () => {
+    const selection = { id: selectionId, files: [{ path: "input/01-contract.docx", name: "contract.docx", bytes: 4, sha256 }] };
+    electron.dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: ["/native/selected/contract.docx"] });
+    controller.selectInputs.mockReturnValue(selection);
+    await expect(invoke(channels.chooseInputs, { review: true })).resolves.toEqual(selection);
+    expect(electron.dialog.showOpenDialog).toHaveBeenLastCalledWith({ title: "Choose the .docx to review, and any context files", buttonLabel: "Use files",
+      properties: ["openFile", "multiSelections"] });
+    // A plain task's picker keeps its words.
+    await expect(invoke(channels.chooseInputs)).resolves.toEqual(selection);
+    expect(electron.dialog.showOpenDialog).toHaveBeenLastCalledWith({ title: "Choose public or synthetic inputs", buttonLabel: "Use files", properties: ["openFile", "multiSelections"] });
+    expect(electron.dialog.showOpenDialog).toHaveBeenCalledTimes(2);
+    for (const value of [{}, { review: false }, { review: "true" }, { review: true, paths: ["/renderer/private.txt"] }, "review", true, null]) {
+      await expect(invoke(channels.chooseInputs, value), JSON.stringify(value)).rejects.toThrow("does not accept");
+    }
+    expect(electron.dialog.showOpenDialog).toHaveBeenCalledTimes(2);
+    expect(controller.selectInputs).toHaveBeenCalledTimes(2);
+  });
+
   it("does not import after native selection cancellation or authority loss during the dialog", async () => {
     electron.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
     await expect(invoke(channels.chooseInputs)).resolves.toBeNull();

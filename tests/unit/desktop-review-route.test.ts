@@ -4,9 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DESKTOP_REVIEW_ARM, DESKTOP_REVIEW_DELIVERABLES, DESKTOP_REVIEW_OUTPUT_NAME, DESKTOP_REVIEW_ROUTE, DESKTOP_REVIEW_TRANSPORT, desktopReviewAvailability,
   isDesktopReviewRecord, reviewInputsCheck } from "../../src/main/general-tasks/review-route";
-import { DOCUMENT_REVIEW_EDITS_PATH } from "../../src/main/private-agent/document-review";
+import { DOCUMENT_REVIEW_ARTIFACTS, DOCUMENT_REVIEW_EDITS_PATH } from "../../src/main/private-agent/document-review";
 import { DOCUMENT_REVIEW_FLAGS_PATH } from "../../src/main/private-agent/document-review-flags";
-import { GENERAL_TASK_REVIEW_EDITS_PATH, GeneralTaskArtifactRefSchema, GeneralTaskCreateInputSchema } from "../../src/shared/general-task-contracts";
+import { GENERAL_TASK_REVIEW_DELIVERABLES, GENERAL_TASK_REVIEW_EDITS_PATH, GENERAL_TASK_REVIEW_OUTPUT_NAME, GeneralTaskArtifactRefSchema,
+  GeneralTaskChooseInputsOptionsSchema, GeneralTaskCreateInputSchema } from "../../src/shared/general-task-contracts";
 
 const root = resolve(__dirname, "..", "..");
 
@@ -41,9 +42,13 @@ describe("desktop document review route (backlog item 13b, part 1)", () => {
     expect(desktopReviewAvailability(http)).toBeUndefined();
     expect(desktopReviewAvailability({ ...http, documentReviewBeta: false })).toBeUndefined();
     const plain = desktopReviewAvailability({ ...http, documentReviewBeta: true })!;
-    expect(plain).toEqual({ available: true, reason: expect.stringContaining("sends the .docx, with any other file you add, in full, to your own model endpoint over plain HTTP, and to nothing else: no cloud and no consultation") });
+    expect(plain).toEqual({ available: true, reason: expect.stringContaining("sends the .docx, with any other file you add, in full, to your own model endpoint at 192.0.2.10:8000 over plain HTTP, and to nothing else: no cloud and no consultation") });
     expect(plain.reason).toContain("by your waiver of PLAN.md's Tier O safeguards for this review, so SOAR gives it no privacy protection");
-    expect(desktopReviewAvailability({ ...https, documentReviewBeta: true })!.reason).toContain("over HTTPS, and to nothing else");
+    expect(desktopReviewAvailability({ ...https, documentReviewBeta: true })!.reason).toContain("to your own model endpoint at models.example.test over HTTPS, and to nothing else");
+    // Part 3: the endpoint is named by its host and port alone, never its path or any user name or key in the address.
+    const keyed = new URL("http://192.0.2.10:8000/v1/"); keyed.username = "owner"; keyed.password = "k".repeat(12);
+    const named = desktopReviewAvailability({ vllm: { baseUrl: keyed.href }, documentReviewBeta: true })!.reason;
+    expect(named).toContain("at 192.0.2.10:8000 over plain HTTP"); expect(named).not.toContain("/v1"); expect(named).not.toContain("owner"); expect(named).not.toContain("k".repeat(12));
     for (const reason of [plain.reason, desktopReviewAvailability({ ...https, documentReviewBeta: true })!.reason]) {
       expect(reason).not.toMatch(/\b(secure|encrypted|protected|safe|private)\b/iu);
     }
@@ -90,3 +95,26 @@ describe("desktop document review exports (backlog item 13b, part 2)", () => {
     }
   });
 });
+
+describe("desktop document review in the view (backlog item 13b, part 3)", () => {
+  it("lists for the view the same six deliverables the exports take, which are the summary and the driver's own outputs less the flags file", () => {
+    expect(GENERAL_TASK_REVIEW_OUTPUT_NAME).toBe(DESKTOP_REVIEW_OUTPUT_NAME);
+    expect(GENERAL_TASK_REVIEW_DELIVERABLES.map(item => item.path)).toEqual([...DESKTOP_REVIEW_DELIVERABLES]);
+    // Pinned to the driver: a change to what the review phase requires fails here before it changes what a review exports.
+    expect([...DESKTOP_REVIEW_DELIVERABLES]).toEqual([`output/${DESKTOP_REVIEW_OUTPUT_NAME}`,
+      ...DOCUMENT_REVIEW_ARTIFACTS.map(artifact => artifact.path).filter(path => path !== DOCUMENT_REVIEW_FLAGS_PATH)]);
+    expect(Object.isFrozen(GENERAL_TASK_REVIEW_DELIVERABLES)).toBe(true);
+    expect(GENERAL_TASK_REVIEW_DELIVERABLES.every(item => Object.isFrozen(item))).toBe(true);
+    const labels = GENERAL_TASK_REVIEW_DELIVERABLES.map(item => item.label);
+    expect(new Set(labels).size).toBe(6);
+    for (const label of labels) { expect(label.length).toBeGreaterThan(0); expect(label).not.toMatch(/\b(secure|encrypted|protected|safe|private)\b/iu); }
+  });
+
+  it("gives the file picker one option, a review, and nothing else", () => {
+    expect(GeneralTaskChooseInputsOptionsSchema.safeParse({ review: true }).success).toBe(true);
+    for (const value of [undefined, {}, { review: false }, { review: "true" }, { review: true, paths: ["/a"] }, { paths: ["/a"] }, "review", true, null]) {
+      expect(GeneralTaskChooseInputsOptionsSchema.safeParse(value).success, JSON.stringify(value)).toBe(false);
+    }
+  });
+});
+

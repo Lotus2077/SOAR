@@ -11,6 +11,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  GENERAL_TASK_REVIEW_DELIVERABLES,
+  GENERAL_TASK_REVIEW_OUTPUT_NAME,
   GeneralTaskCreateInputSchema,
   GeneralTaskVerdictInputSchema,
   type GeneralTaskArtifact,
@@ -43,6 +45,12 @@ const STAGE_NAMES: Record<GeneralTaskResearchStage["stage"], string> = { index: 
 function researchState(research: GeneralTaskResearch): string {
   if (research.stage === "transferred") return research.gap ? `packet ready, with a disclosed gap (${plural(research.gap.chunks, "passage")} not resolved)` : "packet ready";
   return research.stage === "running" ? "reading the sources" : research.stage === "stopped" ? "stopped before the writer" : "not started";
+}
+// Backlog item 13b: a document review takes exactly one .docx among its input files, as the host checks at creation.
+const REVIEW_DOCUMENT = /\.docx$/iu;
+/** The review badge's state, from the task's status alone; the deliverables list says which files exist. */
+function reviewState(status: GeneralTaskSnapshot["status"]): string {
+  return status === "queued" ? "not started" : status === "running" ? "reviewing" : status === "paused" ? "paused" : status === "submitted" ? "deliverables ready" : "stopped";
 }
 /** One stage's lines, from the counts it recorded and nothing else: no fixed sentence or constant stands in for a count. */
 function researchStageLines(row: GeneralTaskResearchStage): string[] {
@@ -127,6 +135,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const [routing, setRouting] = useState<GeneralTaskRouting>("local_only");
   const [profile, setProfile] = useState<"" | "standard" | "heavy">("");
   const [research, setResearch] = useState(false);
+  const [review, setReview] = useState(false);
   const [action, setAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -173,16 +182,19 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   }, []);
   // Backlog item 13a: the research option is on only while the host offers it. Every availability the view takes that does not offer it
   // unticks the box, so a later check that withdraws it frees the form, and a check that offers it again does not tick it by itself.
+  // Backlog item 13b: the document review option follows the same rule.
   const refreshAvailability = useCallback(async () => {
     if (!api) return;
     const epoch = ++availabilityEpoch.current;
     setCheckingAvailability(true);
     try {
       const next = await api.getGeneralTaskAvailability();
-      if (mounted.current && availabilityEpoch.current === epoch) { setAvailability(next); if (next.research?.available !== true) setResearch(false); }
+      if (mounted.current && availabilityEpoch.current === epoch) {
+        setAvailability(next); if (next.research?.available !== true) setResearch(false); if (next.review?.available !== true) setReview(false);
+      }
     } catch {
       if (mounted.current && availabilityEpoch.current === epoch) {
-        setAvailability(null); setResearch(false); setError("Task availability could not be checked. Try checking again.");
+        setAvailability(null); setResearch(false); setReview(false); setError("Task availability could not be checked. Try checking again.");
       }
     } finally { if (mounted.current && availabilityEpoch.current === epoch) setCheckingAvailability(false); }
   }, [api]);
@@ -238,24 +250,27 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const chooseInputs = async () => {
     if (!api || busy.current) return;
     busy.current = true; setAction("choose"); setError(null);
-    try { const value = await api.chooseGeneralTaskInputs(); if (mounted.current && value) { setSelection(value); setAttested(false); } }
+    // Backlog item 13b: a review's picker asks for the document to review, not for public or synthetic files.
+    try { const value = await (review ? api.chooseGeneralTaskInputs({ review: true }) : api.chooseGeneralTaskInputs()); if (mounted.current && value) { setSelection(value); setAttested(false); } }
     catch { if (mounted.current) setError("Files could not be selected. Try opening the file picker again."); }
     finally { busy.current = false; if (mounted.current) setAction(null); }
   };
   const urls = sourceUrls.split(/\r?\n/u).map(value => value.trim()).filter(Boolean);
+  // Backlog item 13b: a document review carries no public-or-synthetic declaration, and its output name is fixed to the summary E6 graded.
   const createInput = {
-    goal, outputName, publicOrSynthetic: attested,
+    goal, outputName: review ? GENERAL_TASK_REVIEW_OUTPUT_NAME : outputName, ...(review ? {} : { publicOrSynthetic: attested }),
     ...(profile ? { profile } : {}),
     ...(routing === "ask_before_consulting" ? { routing } : {}),
     ...(selection ? { inputSelectionId: selection.id } : {}),
     ...(urls.length ? { publicSources: { urls, dnsResolver, allowPublicRetrieval: retrievalAllowed } } : {}),
     ...(research ? { research: "local_beta" as const } : {}),
+    ...(review ? { review: "local_beta" as const } : {}),
   };
   const startNew = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!api || busy.current || !availability?.available || checkingAvailability || (routing === "ask_before_consulting" && !availability.consultation?.available)) return;
     const input = GeneralTaskCreateInputSchema.safeParse(createInput);
-    if (!input.success) { setError("Enter a goal and valid output filename, confirm the public or synthetic declaration, and check any public URLs and retrieval permission."); return; }
+    if (!input.success) { setError(review ? "Enter a goal, and choose exactly one .docx file to review." : "Enter a goal and valid output filename, confirm the public or synthetic declaration, and check any public URLs and retrieval permission."); return; }
     busy.current = true; setAction("create"); setError(null); setNotice(null);
     let saved = false;
     try {
@@ -264,7 +279,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
       accept(created); selectionEpoch.current += 1; selected.current = created.id; setSelectedId(created.id); resetPreview();
       setGoal(""); setSelection(null); setAttested(false); setOutputName("report.md");
       setSourceUrls(""); setDnsResolver("system"); setRetrievalAllowed(false);
-      setRouting("local_only"); setResearch(false); resetConsultation();
+      setRouting("local_only"); setResearch(false); setReview(false); resetConsultation();
       const started = await api.startGeneralTask(created.id); accept(started);
     } catch { if (mounted.current) setError(saved ? "The task was saved but could not start. Use Start task to try starting this saved task." : "The task could not be created. Check your inputs and try again."); }
     finally { busy.current = false; if (mounted.current) setAction(null); }
@@ -385,7 +400,9 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const validSources = !urls.length || GeneralTaskCreateInputSchema.shape.publicSources.safeParse({ urls, dnsResolver, allowPublicRetrieval: true }).success;
   const validInput = GeneralTaskCreateInputSchema.safeParse(createInput).success && (routing === "local_only" || availability?.consultation?.available === true) &&
     // Backlog item 13a: a research task reads at least one input file and writes a document; the controller refuses anything else.
-    (!research || selection !== null && RESEARCH_DOCUMENT.test(outputName));
+    (!research || selection !== null && RESEARCH_DOCUMENT.test(outputName)) &&
+    // Backlog item 13b: a review takes exactly one .docx among its input files; any other file is context.
+    (!review || selection !== null && selection.files.filter(file => REVIEW_DOCUMENT.test(file.path)).length === 1);
   const consultation = task?.consultation;
   const verifiedConsultation = consultationPreview && consultationPreview.id === task?.id && consultation && matchesConsultation(consultationPreview.value, consultation) ? consultationPreview.value : null;
   return <div className="general-workspace">
@@ -397,21 +414,23 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
       <aside className="general-history" aria-label="Saved general tasks"><h2>Your tasks</h2>
         {loadingHistory ? <p role="status">Loading saved tasks…</p> : !tasks.length ? <p>No tasks yet. Your progress and artifacts will appear here.</p> : null}
         <ul className="general-history-list">{tasks.map(item => <li key={item.id}><button disabled={action === "create"} onClick={() => void selectTask(item.id)} aria-current={selectedId === item.id ? "true" : undefined}>
-          <strong>{title(item)}</strong><small>{statuses[item.status]} · {item.modelCalls} model attempts{item.research ? " · local research" : ""}</small>
+          <strong>{title(item)}</strong><small>{statuses[item.status]} · {item.modelCalls} model attempts{item.research ? " · local research" : ""}{item.review ? " · document review" : ""}</small>
         </button></li>)}</ul>
       </aside>
       <div className="general-main">
         <div className="general-readiness" aria-label="General task availability">
           <strong>{!api ? "General tasks are unavailable in this build" : checkingAvailability ? "Checking task runtime…" : availability?.available ? "Ready for a general task" : "Task runtime unavailable"}</strong>
           {availability?.reason && <p>{availability.reason}</p>}
-          <p>Your public or synthetic goal and any files go to the configured owned model server, which may be on another machine. Sandbox tools stay offline; public retrieval is limited to explicitly permitted GET requests.</p>
+          {/* Backlog item 13b: a document review, ticked in the form or the task shown, declares nothing public or synthetic and retrieves nothing. */}
+          <p>{(selectedId ? task?.review : review) ? "A document review sends your goal and its files to the configured owned model server, which may be on another machine, by your waiver: it declares nothing public or synthetic. Sandbox tools stay offline; a review permits no public retrieval."
+            : "Your public or synthetic goal and any files go to the configured owned model server, which may be on another machine. Sandbox tools stay offline; public retrieval is limited to explicitly permitted GET requests."}</p>
           {availability?.executionMode === "scripted" && <p role="note"><strong>Scripted test — app mechanics only.</strong> Predetermined actions do not demonstrate model quality.</p>}
           {api && <button className="general-button general-button-quiet" disabled={checkingAvailability || !!action} onClick={() => void refreshAvailability()}>Check availability again</button>}
         </div>
         {!selectedId ? <form className="general-form" aria-label="New general task" onSubmit={startNew}>
           <h2>What would you like to make?</h2>
           <label className="general-field"><span>Task goal</span><textarea value={goal} maxLength={16000} disabled={!!action} placeholder="Describe the result you need. Add files or public sources below if useful." onChange={event => { setGoal(event.target.value); setAttested(false); }} /></label>
-          <label className="general-field"><span id="general-consultation-label">Consultation mode</span><select value={routing} disabled={!!action || research} onChange={event => setRouting(event.target.value as GeneralTaskRouting)} aria-labelledby="general-consultation-label" aria-describedby="general-consultation-hint">
+          <label className="general-field"><span id="general-consultation-label">Consultation mode</span><select value={routing} disabled={!!action || research || review} onChange={event => setRouting(event.target.value as GeneralTaskRouting)} aria-labelledby="general-consultation-label" aria-describedby="general-consultation-hint">
             <option value="local_only">Local only</option><option value="ask_before_consulting" disabled={!availability?.consultation?.available}>Ask before consulting</option>
           </select><small id="general-consultation-hint">{availability?.consultation?.available
             ? routing === "ask_before_consulting" ? `The local coordinator may pause once to ask ${availability.consultation.model ?? "the configured consultant"}. You must review its exact packet and charge, approve, then Resume. No automatic consultation.` : "Use only the owned local model. No consultant packet or charge will be proposed."
@@ -421,25 +440,34 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
             {selection && <button type="button" className="general-button general-button-quiet" disabled={!!action} onClick={() => { setSelection(null); setAttested(false); }}>Clear files</button>}
           </div>{selection ? <ul className="general-selected-files" aria-label="Selected input files">{selection.files.map(file => <li className="general-file-row" key={file.path}><span>{file.name}</span><small>{size(file.bytes)}</small></li>)}</ul> : <small>No files selected. You can start from a goal alone. Selected originals stay unchanged.</small>}</div>
           {availability?.research ? <div className="general-field general-research-option">
-            <label className="general-ack"><input type="checkbox" checked={research} disabled={!!action || !availability.research.available} aria-describedby="general-research-hint"
+            <label className="general-ack"><input type="checkbox" checked={research} disabled={!!action || !availability.research.available || review} aria-describedby="general-research-hint"
               onChange={event => { const on = event.target.checked; setResearch(on); setAttested(false); if (on) { setProfile(""); setRouting("local_only"); setSourceUrls(""); setRetrievalAllowed(false); } }} />
               <span>Local research first (beta): the local model reads every input file in full and builds a cited evidence packet before the writer starts.</span></label>
             <small id="general-research-hint">{availability.research.reason}{availability.research.card ? ` Serving card of ${availability.research.card.date}.` : ""}{research
               ? " Heavy profile and local only, with at least one text input file and a document deliverable (.md, .txt, .html, .docx or .pdf). Pausing or quitting while the research stage runs ends the task." : ""}</small>
           </div> : null}
+          {/* Backlog item 13b: the document review option, offered only while the host offers it; never beside research. */}
+          {availability?.review ? <div className="general-field general-review-option">
+            <label className="general-ack"><input type="checkbox" checked={review} disabled={!!action || !availability.review.available || research} aria-describedby="general-review-hint"
+              onChange={event => { const on = event.target.checked; setReview(on); setAttested(false); if (on) { setProfile(""); setRouting("local_only"); setSourceUrls(""); setRetrievalAllowed(false); } }} />
+              <span>Review one document (beta): the local model reviews one .docx in a single sample and writes a summary, an edit plan, a redline, a clean copy, an issues list and a hygiene report.</span></label>
+            <small id="general-review-hint">{availability.review.reason}{review
+              ? ` Heavy profile and local only, with exactly one .docx among the input files; any other file you add is context. The summary is ${GENERAL_TASK_REVIEW_OUTPUT_NAME}. You make no public-or-synthetic declaration for a review.` : ""}</small>
+          </div> : null}
           <div className="general-public-inputs">
-            <label className="general-field"><span id="general-sources-label">Public source URLs (optional)</span><textarea aria-labelledby="general-sources-label" className="general-source-urls" value={sourceUrls} maxLength={6146} disabled={!!action || research} aria-invalid={!validSources} aria-describedby="general-source-hint" placeholder="https://example.org/source" onChange={event => { setSourceUrls(event.target.value); setRetrievalAllowed(false); setAttested(false); }} /><small id="general-source-hint">{validSources ? "Up to three exact HTTPS URLs, one per line. Paths and queries are included. URLs in the goal do not grant network permission." : "Use one to three distinct public HTTPS URLs, with no credentials or fragments. Check each complete address."}</small></label>
+            <label className="general-field"><span id="general-sources-label">Public source URLs (optional)</span><textarea aria-labelledby="general-sources-label" className="general-source-urls" value={sourceUrls} maxLength={6146} disabled={!!action || research || review} aria-invalid={!validSources} aria-describedby="general-source-hint" placeholder="https://example.org/source" onChange={event => { setSourceUrls(event.target.value); setRetrievalAllowed(false); setAttested(false); }} /><small id="general-source-hint">{validSources ? "Up to three exact HTTPS URLs, one per line. Paths and queries are included. URLs in the goal do not grant network permission." : "Use one to three distinct public HTTPS URLs, with no credentials or fragments. Check each complete address."}</small></label>
             {urls.length > 0 ? <>
               <label className="general-field"><span id="general-dns-label">Hostname lookup</span><select aria-labelledby="general-dns-label" value={dnsResolver} disabled={!!action} aria-describedby="general-dns-hint" onChange={event => { setDnsResolver(event.target.value as "system" | "cloudflare_v1"); setRetrievalAllowed(false); }}><option value="system">System resolver</option><option value="cloudflare_v1">Cloudflare public DNS</option></select><small id="general-dns-hint">{dnsResolver === "cloudflare_v1" ? "Cloudflare receives hostname lookups for these sources. Page requests go to the listed sites. This choice is saved with the task." : "Use the system's configured hostname resolver. This choice is saved with the task."}</small></label>
               <label className="general-ack"><input type="checkbox" checked={retrievalAllowed} disabled={!!action || !validSources} onChange={event => setRetrievalAllowed(event.target.checked)} /><span>Allow SOAR to retrieve only these public URLs through the host, with up to five GET attempts and 64 KiB per response. This permits no other browsing or publication.</span></label>
             </> : <p className="general-hint">No public retrieval will be permitted for this task.</p>}
           </div>
           {availability?.profiles?.length ? <label className="general-field"><span id="general-profile-label">Model profile</span>
-            <select value={research ? "heavy" : profile} disabled={!!action || research} aria-labelledby="general-profile-label" onChange={event => setProfile(event.target.value as "" | "standard" | "heavy")}>
+            <select value={research || review ? "heavy" : profile} disabled={!!action || research || review} aria-labelledby="general-profile-label" onChange={event => setProfile(event.target.value as "" | "standard" | "heavy")}>
               <option value="">Default ({availability.profile ?? "heavy"})</option>{availability.profiles.map(name => <option key={name} value={name}>{name === "heavy" ? "heavy — thinking on, long outputs" : "standard — thinking off, short outputs"}</option>)}
             </select><small>The profile sets the model's thinking mode, output limit and the task's allowances. It is fixed once the task is created.</small></label> : null}
-          <label className="general-field"><span id="general-output-label">Output filename</span><input value={outputName} maxLength={120} disabled={!!action} aria-labelledby="general-output-label" aria-invalid={!validOutputName} aria-describedby="general-output-hint" onChange={event => { setOutputName(event.target.value); setAttested(false); }} /><small id="general-output-hint">{validOutputName ? "A single filename, such as report.md or presentation.pptx." : "Use one filename starting with a letter or number, with no folders or '..'."}</small></label>
-          <label className="general-ack"><input type="checkbox" checked={attested} disabled={!!action} onChange={event => setAttested(event.target.checked)} /><span>I confirm that my task goal, any selected files and source URLs contain only public or synthetic material. Real private data is not qualified for this pilot.</span></label>
+          <label className="general-field"><span id="general-output-label">Output filename</span><input value={review ? GENERAL_TASK_REVIEW_OUTPUT_NAME : outputName} maxLength={120} disabled={!!action || review} aria-labelledby="general-output-label" aria-invalid={!review && !validOutputName} aria-describedby="general-output-hint" onChange={event => { setOutputName(event.target.value); setAttested(false); }} /><small id="general-output-hint">{review ? `A review's summary is always ${GENERAL_TASK_REVIEW_OUTPUT_NAME}, beside its five other deliverables.` : validOutputName ? "A single filename, such as report.md or presentation.pptx." : "Use one filename starting with a letter or number, with no folders or '..'."}</small></label>
+          {/* Backlog item 13b: a document review runs by the owner's waiver and declares nothing public or synthetic. */}
+          {!review && <label className="general-ack"><input type="checkbox" checked={attested} disabled={!!action} onChange={event => setAttested(event.target.checked)} /><span>I confirm that my task goal, any selected files and source URLs contain only public or synthetic material. Real private data is not qualified for this pilot.</span></label>}
           <button className="general-button general-button-primary" type="submit" disabled={!api || !availability?.available || checkingAvailability || !!action || !validInput}><Play aria-hidden="true" />{action === "create" ? "Saving and starting…" : "Create and start task"}</button>
           {availability && <p className="general-hint">Up to {availability.limits.modelCalls} model attempts, {availability.limits.toolCalls} tool actions and {duration(availability.limits.elapsedMs)}. Submission still needs your review.</p>}
         </form> : task ? <article aria-label="Selected general task">
@@ -448,6 +476,12 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
           {task.reason && <p className="general-hint">{task.reason.replaceAll("_", " ")}</p>}
           {task.profile && <p className="general-hint">Model profile: {task.profile}</p>}
           {task.research && <p className="general-badge" aria-label="Research route">Local research (beta) · serving card of {task.research.card.date} · {researchState(task.research)}</p>}
+          {task.review && <p className="general-badge" aria-label="Review route">Document review (beta) · single sample · {reviewState(task.status)}</p>}
+          {task.review && <section className="general-section general-review" aria-label="Review deliverables"><h3>Review deliverables</h3>
+            <ul className="general-selected-files">{GENERAL_TASK_REVIEW_DELIVERABLES.map(item => <li className="general-file-row" key={item.path}><span>{item.label} · {item.path}</span>
+              <small>{task.artifacts.some(file => file.path === item.path) ? "saved" : "not saved"}</small></li>)}</ul>
+            <p className="general-hint">The host flags file stays in this task's record and is never exported; once the review is submitted, its flags show under reported issues.</p>
+            <p className="general-hint">A review runs on your own model endpoint, by your waiver of the Tier O safeguards; SOAR gives the document no privacy protection.</p></section>}
           {task.research && <section className="general-section general-research" aria-label="Research stage"><h3>Research stage</h3>
             {task.research.stages.length ? <ul>{task.research.stages.flatMap(row => researchStageLines(row).map((line, i) => <li key={`${row.stage}-${i}`}>{line}</li>))}</ul>
               : <p className="general-hint">The research stage has recorded no work yet.</p>}
@@ -525,7 +559,9 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
           {task.status === "cancelled" && !task.cleanupConfirmed && (task.canRetryCleanup || task.cleanupInProgress) && <p className="general-hint">Cleanup keeps this task cancelled and sends no model requests. Saved artifacts become available after cleanup is confirmed.</p>}
           {task.status === "submitted" ? <p className="general-notice" role="note">Submitted for review. Host structural checks passed; this task has not been independently evaluated for correctness.</p> : task.status === "incomplete" || task.status === "cancelled" ? <p className="general-notice" role="note">This task did not submit a completed deliverable. Any saved artifacts are unfinished work and have not been independently evaluated.</p> : null}
           <section className="general-section" aria-label="Task artifacts"><div className="general-section-heading"><h2>Artifacts</h2>{task.bundle && <button className="general-button" disabled={!!action || task.status === "running" || !task.cleanupConfirmed || typeof api?.exportGeneralTaskBundle !== "function"} onClick={() => void exportBundle()}><DownloadSimple aria-hidden="true" />Export all as ZIP</button>}</div>
-            {task.bundle && <p className="general-hint">{task.bundle.fileCount} {task.bundle.fileCount === 1 ? "file" : "files"} · {size(task.bundle.totalBytes)}. ZIP contains all output files with their folder structure.</p>}
+            {task.bundle && <p className="general-hint">{task.bundle.fileCount} {task.bundle.fileCount === 1 ? "file" : "files"} · {size(task.bundle.totalBytes)}. {task.review
+              ? "ZIP contains the review's six deliverables, the edit plan in its review folder; the host flags file is never exported."
+              : "ZIP contains all output files with their folder structure."}</p>}
             {task.bundleUnavailableReason && <p className="general-notice" role="note">{task.bundleUnavailableReason}</p>}
             {!task.artifacts.length ? <p className="general-hint">No saved artifacts yet. They will appear after a workspace checkpoint.</p> : <><ul className="general-artifact-list">{task.artifacts.map(file => <li key={`${file.path}:${file.sha256}`}><div><button className="general-button general-button-quiet" disabled={task.status === "running" || !task.cleanupConfirmed} aria-label={`Preview ${file.path}`} onClick={() => void readArtifact(file)}>{file.path}</button><small>{size(file.bytes)} · SHA {file.sha256.slice(0, 12)}</small></div><button className="general-button" disabled={!!action || task.status === "running" || !task.cleanupConfirmed} aria-label={`Export ${file.path}`} onClick={() => void exportArtifact(file)}><DownloadSimple aria-hidden="true" />Export</button></li>)}</ul>{(task.status === "running" || !task.cleanupConfirmed) && <p className="general-hint">Preview and export become available after the task stops and cleanup is confirmed.</p>}</>}
             {previewPath && <section className="general-preview" aria-label="Artifact preview"><header><strong>{previewPath}</strong></header>{loadingPreview ? <p className="general-preview-empty" role="status">Loading verified preview…</p> : preview ? <ArtifactContent preview={preview} /> : <p className="general-preview-empty">No verified preview is available.</p>}</section>}

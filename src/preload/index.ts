@@ -27,7 +27,8 @@ const IPC_CHANNELS = {
 
 const api: SoarRendererApi = {
   getGeneralTaskAvailability: () => ipcRenderer.invoke("soar:general-task-availability"),
-  chooseGeneralTaskInputs: () => ipcRenderer.invoke("soar:general-task-choose-inputs"),
+  // Backlog item 13b: the picker's one option, a document review, goes through only when given; main validates it.
+  chooseGeneralTaskInputs: options => options === undefined ? ipcRenderer.invoke("soar:general-task-choose-inputs") : ipcRenderer.invoke("soar:general-task-choose-inputs", options),
   createGeneralTask: input => ipcRenderer.invoke("soar:general-task-create", input),
   listGeneralTasks: () => ipcRenderer.invoke("soar:general-task-list"),
   getGeneralTask: id => ipcRenderer.invoke("soar:general-task-get", id),

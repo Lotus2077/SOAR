@@ -32,9 +32,9 @@ next session takes that role. The sources are the entry files of 2026-11-18 to 2
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
   decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
-  The owner approved real private documents for 13b's local review route only
-  (BL-20261121-0611, decision 2); PLAN.md §3's Phase 3 preconditions for Tier O still come first,
-  and other real private data stays the owner's call. The owner's own
+  The owner approved real private documents for 13b's local review route only, and waived
+  PLAN.md §3's Phase 3 preconditions for Tier O for that route (BL-20261121-0611, decision 2);
+  other real private data stays the owner's call. The owner's own
   E5 jobs and verdicts, lines in `.env.local`, keys and every step that needs the owner's hands
   are the owner's (BL-20261117-0940, decision 7).
 
@@ -208,8 +208,9 @@ the same.
   - E5's real jobs may be proxied by strong agents that mimic users, grounded in real user
     communities' needs, dispatching real tasks, once an E5 amendment registers it. Who gives the
     verdicts, and whether such jobs count toward the MVP measure, are open until then.
-  - 13b may run on the owner's real private documents, on its local route only, once PLAN.md
-    §3's Phase 3 preconditions for Tier O are recorded (the session's reading).
+  - 13b may run on the owner's real private documents, on its local route only; the owner
+    waived PLAN.md §3's Phase 3 preconditions for Tier O for 13b ("Waive them for 13b"), accepting
+    a plain-HTTP endpoint and an unverified box.
   - 13b's export bundle is the six deliverables E6 graded; the flags file stays in the task's
     record for grading and scoring (the session's choice).
   - One synthetic desktop run is enough before an owner build of 13b, with no E6-style grading.
@@ -237,9 +238,8 @@ the same.
    and the agents' cost and destinations. Whether the counts reach the MVP measure is the owner's
    call. The owner's own jobs count meanwhile; none has run yet.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
-   announced synthetic desktop run before an owner build. Before a real private document goes
-   through it, PLAN.md §3's Phase 3 preconditions are recorded: the box checklist, a transport by
-   SSH local forward or WireGuard, the packet-capture canary, the Mac's settings and the code.
+   announced synthetic desktop run before an owner build. After that the owner may use it on real
+   private documents; the Tier O preconditions are waived for 13b (BL-20261121-0611, decision 2).
 3. **Waiting on the owner:** #105's residues (BL-20261117-0941, decision 1); the session's
    readings the owner may replace: s1's kept packet (#193, decision 4) and E6's "fresh at the
    start" (BL-20261119-1732).
@@ -348,6 +348,9 @@ the same.
   to two minutes, and a repair and its draft went to different graders (#202). E2's fresh check
   needed a second grader after the first accepted the decoy, and its grader and gold disagreed on
   one of four runs (#209).
+- **13b's route carries no privacy promise.** The owner waived PLAN.md's Tier O preconditions for
+  13b (BL-20261121-0611, decision 2). A private document reaches the owner's box over plain HTTP,
+  and the box's logging and egress are unverified (E5's card).
 - **The Git-review e2e flake** is diagnosed (run 44260413394: `inspect_git_changes` failed after
   5,609 ms) and its deadline raised (#174). It is not shown gone, against a base rate near 3%
   (BL-20261118-0800-git-command-deadline-15s).

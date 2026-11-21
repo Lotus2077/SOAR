@@ -162,11 +162,14 @@ export function userDataEnvFile(home = homedir(), platform = process.platform): 
  */
 export function setupUserDataEnvFile(env: NodeJS.ProcessEnv, cwd: string, home = homedir(), platform = process.platform): { file: string } | { refused: string } {
   const fallback = userDataEnvFile(home, platform), defaultFolder = dirname(fallback);
-  const folder = decideUserDataFolder(loadEnvironmentFiles({ cwd, appPath: cwd, environment: env }).SOAR_ENABLE_LOCAL_RESEARCH_BETA, defaultFolder);
+  // Backlog item 13b, part 4: either beta flag chooses the one beta folder, as the app does.
+  const chosen = loadEnvironmentFiles({ cwd, appPath: cwd, environment: env });
+  const folder = decideUserDataFolder({ research: chosen.SOAR_ENABLE_LOCAL_RESEARCH_BETA, review: chosen.SOAR_ENABLE_DOCUMENT_REVIEW_BETA }, defaultFolder);
   if (folder.kind === "refused") return { refused: folder.reason };
   const userDataPath = folder.kind === "beta" ? folder.path : defaultFolder;
   const settings = loadEnvironmentFiles({ cwd, appPath: cwd, environment: env, userDataPath });
-  const issue = researchBetaFolderIssue({ folder, localResearchBeta: settings.SOAR_ENABLE_LOCAL_RESEARCH_BETA === "true", userDataPath, databasePath: settings.SOAR_DB_PATH });
+  const issue = researchBetaFolderIssue({ folder, localResearchBeta: settings.SOAR_ENABLE_LOCAL_RESEARCH_BETA === "true",
+    documentReviewBeta: settings.SOAR_ENABLE_DOCUMENT_REVIEW_BETA === "true", userDataPath, databasePath: settings.SOAR_DB_PATH });
   return issue !== undefined ? { refused: issue } : { file: join(userDataPath, ".env.local") };
 }
 

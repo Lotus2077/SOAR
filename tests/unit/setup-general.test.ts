@@ -52,6 +52,9 @@ describe("pnpm setup:general doctor", () => {
     const { root, cwd } = setup(), home = join(root, "home"), plain = userDataEnvFile(home, "darwin");
     expect(setupUserDataEnvFile({}, cwd, home, "darwin")).toEqual({ file: plain });
     expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "false" }, cwd, home, "darwin")).toEqual({ file: plain });
+    // Backlog item 13b, part 4: the review flag alone chooses the same beta folder, and an invalid value is refused by its name.
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_DOCUMENT_REVIEW_BETA: "true" }, cwd, home, "darwin")).toEqual({ file: join(home, "Library", "Application Support", "SOAR Research Beta", ".env.local") });
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_DOCUMENT_REVIEW_BETA: "yes" }, cwd, home, "darwin")).toEqual({ refused: "SOAR_ENABLE_DOCUMENT_REVIEW_BETA must be true or false." });
     expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "true" }, cwd, home, "darwin")).toEqual({ file: join(home, "Library", "Application Support", "SOAR Research Beta", ".env.local") });
     writeFileSync(join(cwd, ".env.local"), "SOAR_ENABLE_LOCAL_RESEARCH_BETA=true\n");
     expect(setupUserDataEnvFile({}, cwd, home, "darwin")).toEqual({ file: join(home, "Library", "Application Support", "SOAR Research Beta", ".env.local") });
@@ -66,7 +69,7 @@ describe("pnpm setup:general doctor", () => {
     // A beta .env.local that links into the default folder is never the file the doctor writes.
     const betaFolder = join(home, "Library", "Application Support", "SOAR Research Beta"); mkdirSync(betaFolder, { recursive: true });
     writeFileSync(plain, ""); symlinkSync(plain, join(betaFolder, ".env.local"));
-    expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "true" }, cwd, home, "darwin")).toEqual({ refused: "The local research beta's .env.local leads out of its own user-data folder." });
+    expect(setupUserDataEnvFile({ SOAR_ENABLE_LOCAL_RESEARCH_BETA: "true" }, cwd, home, "darwin")).toEqual({ refused: "The beta's .env.local leads out of its own user-data folder." });
   });
   it("refuses at the command line what the app refuses, before any probe or write (backlog item 13a)", () => {
     const { root } = setup(), home = join(root, "home");

@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { app, BrowserWindow, dialog } from "electron";
 import { loadEnvironmentFiles } from "./config";
 import { quitOffer, startQuit } from "./liveness";
-import { decideUserDataFolder, type UserDataFolder } from "./user-data-folder";
+import { userDataFolderFromSettings, type UserDataFolder } from "./user-data-folder";
 
 import type { BootstrapController } from "./bootstrap";
 
@@ -23,14 +23,10 @@ function startupErrorMessage(error: unknown): string {
  * (user-data-folder.ts). A refusal takes no lock and starts nothing.
  */
 function chooseUserDataFolder(): UserDataFolder {
-  let folder: UserDataFolder;
-  try {
-    folder = decideUserDataFolder(loadEnvironmentFiles({ appPath: app.getAppPath() }).SOAR_ENABLE_LOCAL_RESEARCH_BETA, app.getPath("userData"));
-  } catch {
-    return { kind: "refused", reason: "SOAR could not read the settings that choose its user-data folder." };
-  }
+  // Backlog item 13b, part 4: either beta flag chooses the one beta folder.
+  const folder = userDataFolderFromSettings(() => loadEnvironmentFiles({ appPath: app.getAppPath() }), app.getPath("userData"));
   if (folder.kind !== "beta") return folder;
-  const unmoved: UserDataFolder = { kind: "refused", reason: "The local research beta could not move to its own user-data folder." };
+  const unmoved: UserDataFolder = { kind: "refused", reason: "The beta could not move to its own user-data folder." };
   // Electron's setPath throws for a folder that does not exist, so the folder is made first; any failure here is a refusal.
   try {
     mkdirSync(folder.path, { recursive: true });

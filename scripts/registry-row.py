@@ -29,6 +29,8 @@ Owner verdicts (#40):
     receipt holds hashes, counts, enums and the verdict only; any other key is refused. It supplies the measurements,
     `arm`, `outcome`, `ownerMinutes`, `interventions`, `verdictAt` and `exportedThroughApp`; the operator types --id,
     --batch, --task, --family, --exposure, --lesson and --verdict-by owner.
+    For an E5 proxy receipt, give --verdict-by proxy_agent and --batch proxy-real-jobs. The persona's
+    estimated minutes go in proxyMinutes, and ownerMinutes is null. See the registry README for the closed lesson format.
 
     `--supersedes ROW_ID [--registry PATH]` copies the registry row with that id verbatim (every measurement,
     taskJobSha256, date, usd, entailment, hostFlags, loop) and changes only id, supersedes, outcome, verdictBy, ownerMinutes,
@@ -43,7 +45,7 @@ Each row holds digests, bounded counts and USD amounts, booleans and closed code
 or claim text and labels never reach it.
 
 Exactly one of --run-dir, --loop-dir, --verdict-file, --supersedes, --probe-dir, --fixture-dir and --labelling-file is
-accepted. `--verdict-by` is `owner`, `agent_diagnostic` or `none`; `owner` requires --owner-minutes and --interventions (the
+accepted. `--verdict-by` is `owner`, `proxy_agent`, `agent_diagnostic` or `none`; `owner` requires --owner-minutes and --interventions (the
 receipt supplies them).
 
 Plan 11.4: --run-dir and --loop-dir rows add reservedUsd, pinnedUsd, committedDispatches, cloudCalls, disclosedBytes, urls,
@@ -71,7 +73,14 @@ import tempfile
 
 OUTCOMES = ("accepted", "rejected", "incomplete", "infra_invalid")
 EXPOSURES = ("fresh", "exposed")
-VERDICTS = ("owner", "agent_diagnostic", "none")
+VERDICTS = ("owner", "proxy_agent", "agent_diagnostic", "none")
+PROXY_BATCH = "proxy-real-jobs"
+PROXY_FAMILIES = {"document_review": "document-review", "deck": "deck", "website": "website"}
+PROXY_LESSON = re.compile(
+    r"persona=p-[0-9a-f]{8} source=[0-9a-f]{12} build=owner-v0\.2\.1"
+    r"(?: cause=(?P<cause>content_wrong_or_missing|format_or_fidelity|did_not_finish|too_much_editing|too_slow|other))?"
+    r"(?: grade=(?:accept|reject))?"
+)
 REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_REGISTRY = os.path.join(REPOSITORY_ROOT, "docs", "experiments", "registry.jsonl")
 # The desktop verdict receipt, version 1 (src/main/general-tasks/controller.ts, VERDICT_RECEIPT_KEYS): exactly these keys, nothing else. A document
@@ -95,7 +104,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--id", required=True, help="the new row's id; it must not exist in the registry when --supersedes is used")
     parser.add_argument("--lesson", required=True)
-    parser.add_argument("--verdict-by", required=True, help="owner, agent_diagnostic or none")
+    parser.add_argument("--verdict-by", required=True, help="owner, proxy_agent, agent_diagnostic or none")
     for name in ("--batch", "--task", "--family", "--exposure"):
         parser.add_argument(name, default=None, help="required unless --supersedes copies it")
     parser.add_argument("--arm", default=None, help="required unless --supersedes or --verdict-file supplies it")
@@ -135,7 +144,11 @@ def main() -> int:
     if args.exposure is not None and args.exposure not in EXPOSURES:
         sys.exit("invalid --exposure")
     if args.verdict_by not in VERDICTS:
-        sys.exit("invalid --verdict-by: use owner, agent_diagnostic or none (the registry's other values are legacy and are never re-rowed)")
+        sys.exit("invalid --verdict-by: use owner, proxy_agent, agent_diagnostic or none (the registry's other values are legacy and are never re-rowed)")
+    if args.batch == PROXY_BATCH and args.verdict_by != "proxy_agent":
+        sys.exit("the E5 proxy batch requires --verdict-by proxy_agent")
+    if args.verdict_by == "proxy_agent" and args.verdict_file is None and args.supersedes is None:
+        sys.exit("proxy_agent requires a desktop verdict receipt or an annotation of an existing proxy row")
     if args.owner_minutes is not None and (not math.isfinite(args.owner_minutes) or args.owner_minutes < 0):
         sys.exit("--owner-minutes must be a finite number of minutes, at least 0")
     if args.interventions is not None and args.interventions < 0:
@@ -171,7 +184,7 @@ def main() -> int:
             row[key] = value
     if args.critical_checks is not None or "criticalChecks" not in row:
         row["criticalChecks"] = args.critical_checks
-    if args.verdict_file is None:
+    if args.verdict_file is None and args.verdict_by != "proxy_agent":
         row["ownerMinutes"] = args.owner_minutes
         row["interventions"] = args.interventions if args.interventions is not None else 0
         if args.verdict_at is not None or args.supersedes is not None:
@@ -730,6 +743,10 @@ def load_registry(path: str) -> list:
 
 def superseding_row(args) -> dict:
     """A copy of the row with the superseded id; the caller then sets only the verdict fields (and git, gitSource and gitDirty, see row_provenance)."""
+    if args.verdict_by == "proxy_agent":
+        proxy_id = r"paj-[0-9]{8}-(?:document-review|deck|website)-[1-9][0-9]*(?:-fix(?:-[1-9][0-9]*)?)?"
+        if not all(re.fullmatch(proxy_id, identifier) for identifier in (args.supersedes, args.id)):
+            sys.exit("a proxy annotation requires E5 proxy row ids")
     rows = load_registry(args.registry)
     matches = [row for row in rows if row.get("id") == args.supersedes]
     if not matches:
@@ -742,8 +759,63 @@ def superseding_row(args) -> dict:
     if any(row.get("id") == args.id for row in rows):
         sys.exit(f"a registry row with id {args.id!r} already exists")
     row = copy.deepcopy(matches[0])
+    if row.get("verdictBy") == "proxy_agent" or row.get("batch") == PROXY_BATCH or args.verdict_by == "proxy_agent":
+        check_proxy_annotation(args, row)
     row["supersedes"] = args.supersedes
     return row
+
+
+def check_proxy_lesson(lesson, outcome) -> None:
+    match = PROXY_LESSON.fullmatch(lesson) if isinstance(lesson, str) else None
+    if not match or (outcome == "rejected") != (match["cause"] is not None):
+        sys.exit("invalid proxy lesson: give persona, source, build, a cause for a rejection, and optionally a blind grade")
+
+
+def check_proxy_annotation(args, row) -> None:
+    """A blind grade annotates the original proxy judgement and cannot replace its author, task, effort or time."""
+    if row.get("verdictBy") != "proxy_agent" or row.get("batch") != PROXY_BATCH or args.verdict_by != "proxy_agent":
+        sys.exit("a proxy annotation must supersede a proxy_agent row in the E5 proxy batch and keep its author")
+    if row.get("ownerMinutes") is not None or not is_amount(row.get("proxyMinutes")) or row.get("outcome") not in ("accepted", "rejected"):
+        sys.exit("a proxy annotation requires the original proxy verdict and its estimated effort")
+    fields = {"batch": args.batch, "task": args.task, "family": args.family, "exposure": args.exposure,
+              "arm": args.arm, "outcome": args.outcome, "interventions": args.interventions,
+              "criticalChecks": args.critical_checks}
+    if any(value is not None and value != row.get(key) for key, value in fields.items()):
+        sys.exit("a proxy annotation must preserve the original job and verdict fields")
+    if args.verdict_at is not None and utc_iso(args.verdict_at, "--verdict-at") != row.get("verdictAt"):
+        sys.exit("a proxy annotation must preserve the original verdict time")
+    check_proxy_lesson(row.get("lesson"), row["outcome"])
+    check_proxy_lesson(args.lesson, row["outcome"])
+    if " grade=" not in args.lesson:
+        sys.exit("a proxy annotation must record a blind grade")
+    if args.lesson.partition(" grade=")[0] != row["lesson"].partition(" grade=")[0]:
+        sys.exit("a proxy annotation must preserve the original persona, source, build and cause")
+    # The root id remains identifiable through subsequent blind-grade corrections.
+    root_id = row["id"].split("-fix", 1)[0]
+    if not re.fullmatch(re.escape(root_id) + r"-fix(?:-[1-9][0-9]*)?", args.id):
+        sys.exit("a proxy annotation id must be the original row id followed by -fix or -fix-N")
+
+
+def check_proxy_receipt(args, receipt) -> None:
+    if args.batch != PROXY_BATCH:
+        sys.exit("a proxy receipt requires --batch proxy-real-jobs")
+    if receipt["version"] != 1 or receipt["arm"] != "local-heavy" or receipt["profile"] != "heavy" or receipt["runStatus"] != "submitted":
+        fail_receipt("a proxy verdict requires a submitted version 1 desktop task on the plain local Heavy route")
+    if receipt["usd"] != 0:
+        fail_receipt("the E5 desktop run must have zero fee")
+    if receipt["entailment"] is not None:
+        fail_receipt("the E5 proxy route does not admit public sources")
+    if args.task != "proxy-" + receipt["taskId"][:8]:
+        sys.exit("a proxy task must be proxy- followed by the receipt's first eight task id digits")
+    family_slug = PROXY_FAMILIES.get(args.family)
+    if family_slug is None:
+        sys.exit("a proxy job's family must be document_review, deck or website")
+    day = receipt["date"].replace("-", "")
+    if not re.fullmatch(rf"paj-{day}-{family_slug}-[1-9][0-9]*", args.id):
+        sys.exit("a proxy receipt id must be paj-<receipt date>-<family>-<positive sequence>")
+    if args.critical_checks is not None and not re.fullmatch(r"[0-9]+/[0-9]+", args.critical_checks):
+        sys.exit("a proxy job's --critical-checks must be a passed/total count")
+    check_proxy_lesson(args.lesson, "rejected" if receipt["verdict"]["decision"] == "reject" else "accepted")
 
 
 def fail_receipt(message: str) -> None:
@@ -758,7 +830,7 @@ def is_amount(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
 
 
-def load_receipt(path: str) -> dict:
+def load_receipt(path: str, *, proxy: bool = False) -> dict:
     """The desktop verdict receipt, checked key by key: exactly the documented keys, enum-like identifiers, counts, and the verdict."""
     try:
         with open(path, encoding="utf-8") as handle:
@@ -777,6 +849,8 @@ def load_receipt(path: str) -> dict:
     keys = RECEIPT_KEYS if version == 1 else RECEIPT_REVIEW_KEYS
     unknown = sorted(set(receipt) - keys)
     if unknown:
+        if proxy:
+            fail_receipt("unknown key in the proxy receipt")
         fail_receipt(f"unknown key {unknown[0]!r}; a receipt holds hashes, counts and the verdict only")
     missing = sorted(keys - set(receipt))
     if missing:
@@ -837,8 +911,11 @@ def load_receipt(path: str) -> dict:
 
 def receipt_row(args) -> dict:
     """The registry row of a desktop task from its verdict receipt; the operator's flags may repeat the receipt's values but never contradict them."""
-    receipt = load_receipt(args.verdict_file)
-    if args.verdict_by != "owner":
+    proxy = args.verdict_by == "proxy_agent"
+    receipt = load_receipt(args.verdict_file, proxy=proxy)
+    if proxy:
+        check_proxy_receipt(args, receipt)
+    elif args.verdict_by != "owner":
         sys.exit("a desktop verdict receipt rows the owner's verdict: give --verdict-by owner")
     verdict = receipt["verdict"]
     derived = {"outcome": "accepted" if verdict["decision"] == "accept" else "rejected", "ownerMinutes": verdict["ownerMinutes"],
@@ -852,6 +929,9 @@ def receipt_row(args) -> dict:
     if receipt["version"] == 2:
         row["transport"] = receipt["transport"]
     row.update(derived)
+    if proxy:
+        row["proxyMinutes"] = row["ownerMinutes"]
+        row["ownerMinutes"] = None
     row["exportedThroughApp"] = verdict["exportedThroughApp"]
     # Backlog item 7(d), part C: a receipt, version 1 or 2, carries no host flags, so they are not recorded on this row.
     row["hostFlags"] = None

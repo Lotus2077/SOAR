@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -123,7 +123,7 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
     expect(() => run(["--verdict-file", rejected, ...operator, "--interventions", "1"])).toThrow(/records interventions 2/u);
     expect(() => run(["--verdict-file", rejected, ...operator, "--arm", "local-heavy"])).toThrow(/records arm 'local-standard-consulted'/u);
     expect(() => run(["--verdict-file", rejected, ...operator, "--verdict-at", "2026-11-07T10:00:00Z"])).toThrow(/records verdictAt/u);
-    // The receipt rows an owner verdict only, and the operator's enums are still required.
+    // An ordinary receipt requires owner attribution and the operator's enums.
     expect(() => run(["--verdict-file", path, ...operator.map(value => value === "owner" ? "none" : value)])).toThrow(/give --verdict-by owner/u);
     expect(() => run(["--verdict-file", path, "--id", "x", "--verdict-by", "owner", "--lesson", "l"])).toThrow(/missing --batch, --task, --family, --exposure/u);
     // A desktop local research task (backlog item 13a) rows under its own arm, on the heavy profile.
@@ -177,5 +177,108 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
     const broken = receiptFile(receipt()); writeFileSync(broken, "{not json");
     expect(() => run(["--verdict-file", broken, ...operator])).toThrow(/not JSON/u);
     expect(() => run(["--verdict-file", join(tmpdir(), "soar-missing-receipt.json"), ...operator])).toThrow(/cannot read the receipt/u);
+  });
+});
+
+const proxyLesson = "persona=p-12abcdef source=98437aa2e9f0 build=owner-v0.2.1";
+function proxyOperator(changes: Record<string, string | undefined> = {}): string[] {
+  const flags = {
+    "--id": "paj-20261107-document-review-1", "--batch": "proxy-real-jobs", "--task": "proxy-00000000",
+    "--family": "document_review", "--exposure": "fresh", "--verdict-by": "proxy_agent", "--lesson": proxyLesson, ...changes,
+  };
+  return Object.entries(flags).flatMap(([key, value]) => value === undefined ? [] : [key, value]);
+}
+
+describe("E5 proxy verdict rows", { timeout: 30_000 }, () => {
+  it("rows a proxy's verdict and estimated effort separately from real owner effort", () => {
+    const path = receiptFile(receipt());
+    const row = run(["--verdict-file", path, ...proxyOperator()]);
+    expect(row).toMatchObject({
+      verdictBy: "proxy_agent", ownerMinutes: null, proxyMinutes: 8, interventions: 1,
+      outcome: "accepted", verdictAt: "2026-11-07T09:00:00Z", exportedThroughApp: true,
+      arm: "local-heavy", taskJobSha256: h("a"), modelCalls: 19, toolCalls: 19, usd: 0,
+    });
+    expect(row).not.toHaveProperty("taskId");
+    expect(row).not.toHaveProperty("transport");
+    const human = run(["--verdict-file", path, ...operator]);
+    expect(human).toMatchObject({ verdictBy: "owner", ownerMinutes: 8 });
+    expect(human).not.toHaveProperty("proxyMinutes");
+  });
+
+  it("refuses false attribution, mismatched proxy identity, unsupported arms or spend", () => {
+    const path = receiptFile(receipt());
+    for (const changes of [
+      { "--batch": "owner-real-jobs" }, { "--task": "proxy-deadbeef" }, { "--family": "research" },
+      { "--id": "paj-20261108-document-review-1" }, { "--id": "paj-20261107-deck-1" },
+      { "--verdict-by": "owner" }, { "--verdict-by": "none" },
+      { "--owner-minutes": "8" }, { "--outcome": "rejected" }, { "--interventions": "3" },
+    ]) {
+      expect(() => run(["--verdict-file", path, ...proxyOperator(changes)]), JSON.stringify(changes)).toThrow();
+    }
+    for (const delta of [
+      { usd: 0.01 }, { profile: "standard" }, { arm: "local-heavy-consulted" }, { arm: "local-heavy-research" },
+      { version: 2, arm: "local-heavy-review1", transport: "owner_waived" },
+      { entailment: { counts: { supported: 1, partial: 0, unsupported: 0, contradicted: 0, not_judged: 0 }, entailmentCalls: 1, truncated: false, supportRate: 1 } },
+    ]) {
+      expect(() => run(["--verdict-file", receiptFile(receipt(delta)), ...proxyOperator()]), JSON.stringify(delta)).toThrow();
+    }
+  });
+
+  it("refuses proxy verdicts for harness runs before reading their producer files", () => {
+    const { root } = registry([]);
+    const result = spawnSync("python3", ["-I", SCRIPT, "--run-dir", root, ...proxyOperator(), "--outcome", "accepted", "--arm", "local-heavy"], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/proxy_agent|proxy verdict/u);
+  });
+
+  it("reports a refused proxy receipt without emitting its unexpected field or contents", () => {
+    const marker = "synthetic-private-marker";
+    const path = receiptFile(receipt({ [marker]: "synthetic-private-payload" }));
+    const result = spawnSync("python3", ["-I", SCRIPT, "--verdict-file", path, ...proxyOperator()], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toMatch(/unknown key/u);
+    expect(result.stderr).not.toMatch(/synthetic-private/u);
+  });
+
+  it("requires the registered lesson codes and keeps a rejected blind grade distinct from the proxy's decision", () => {
+    const path = receiptFile(receipt());
+    const sampled = run(["--verdict-file", path, ...proxyOperator({ "--lesson": proxyLesson + " grade=reject" })]);
+    expect(sampled).toMatchObject({ outcome: "accepted", lesson: proxyLesson + " grade=reject" });
+    for (const lesson of [
+      "post text from the study", proxyLesson + " grade=private-text", proxyLesson + " cause=unlisted",
+      proxyLesson.replace("98437aa2e9f0", h("f")), proxyLesson.replace("12abcdef", "persona-name"),
+      proxyLesson.replace("owner-v0.2.1", "owner-v0.3.0"), proxyLesson + "\nextra text",
+    ]) {
+      expect(() => run(["--verdict-file", path, ...proxyOperator({ "--lesson": lesson })]), lesson).toThrow();
+    }
+    const rejected = receiptFile(receipt({ verdict: {
+      decision: "reject", ownerMinutes: 14.5, interventions: 2, exportedThroughApp: true, recordedAt: "2026-11-07T10:00:00Z",
+    } }));
+    expect(() => run(["--verdict-file", rejected, ...proxyOperator()])).toThrow();
+    expect(run(["--verdict-file", rejected, ...proxyOperator({ "--lesson": proxyLesson + " cause=format_or_fidelity grade=reject" })]))
+      .toMatchObject({ outcome: "rejected", verdictBy: "proxy_agent", ownerMinutes: null, proxyMinutes: 14.5, interventions: 2 });
+  });
+
+  it("adds the blind grade by superseding only the same proxy job, preserving its original judgment", () => {
+    const path = receiptFile(receipt());
+    const proxy = run(["--verdict-file", path, ...proxyOperator()]);
+    const human = run(["--verdict-file", path, ...operator]);
+    const records = registry([proxy, human]);
+    const correction = ["--supersedes", String(proxy.id), "--registry", records.path, "--id", String(proxy.id) + "-fix",
+      "--verdict-by", "proxy_agent", "--outcome", "accepted", "--lesson", proxyLesson + " grade=reject"];
+    const graded = run(correction);
+    expect(graded).toMatchObject({
+      supersedes: proxy.id, id: String(proxy.id) + "-fix", lesson: proxyLesson + " grade=reject", verdictBy: "proxy_agent",
+      outcome: "accepted", ownerMinutes: null, proxyMinutes: 8, interventions: 1, verdictAt: proxy.verdictAt, wallSeconds: proxy.wallSeconds,
+      taskJobSha256: proxy.taskJobSha256, task: proxy.task, batch: proxy.batch, exportedThroughApp: proxy.exportedThroughApp,
+    });
+    expect(() => run(correction.map(value => value === proxy.id ? String(human.id) : value))).toThrow();
+    expect(() => run(correction.map(value => value === "accepted" ? "rejected" : value))).toThrow();
+    expect(() => run(correction.map(value => value.replace("98437aa2e9f0", "0123456789ab")))).toThrow();
+    expect(() => run(["--supersedes", String(proxy.id), "--registry", records.path, "--id", "owner-fix", ...owner])).toThrow();
+    expect(() => run([...correction, "--task", "proxy-deadbeef"])).toThrow();
+    expect(() => run([...correction, "--batch", "owner-real-jobs"])).toThrow();
   });
 });

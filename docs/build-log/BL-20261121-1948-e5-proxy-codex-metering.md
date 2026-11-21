@@ -6,11 +6,11 @@ Scope or hypothesis: E5 Amendment 1, point 6, left Codex plan metering open. Thi
 
 Decisions:
 1. The owner confirmed metered Codex use under the existing USD 8 per-task and USD 300 total limits. The proxy's task preparation and review share one task limit.
-2. Check the applicable price on the day of the run and account for the proxy's spend separately from the local desktop receipt.
+2. The owner specified prepaid credits at USD 0.04 per credit. The rehearsal's 200-credit cap includes the sourcing and judging turns. Record that spend apart from the local desktop receipt.
 
 Changes: This entry records the owner's decision before dispatch.
 
-Evidence: The owner selected “Metered; use the existing USD 8 per-task and USD 300 total limits” in the coordinating chat.
+Evidence: The owner selected “Metered; use the existing USD 8 per-task and USD 300 total limits” and then specified USD 0.04 per credit. The [Codex Standard rate card](https://learn.chatgpt.com/docs/pricing), checked 2026-11-21 UTC, lists GPT-6.2 Sol at 50, 2.5 and 250 credits per million input, cached input and output tokens respectively.
 
 Failures or blockers: None for the decision.
 

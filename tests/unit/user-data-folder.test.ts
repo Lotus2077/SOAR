@@ -102,4 +102,16 @@ describe("the local research beta's own user-data folder (backlog item 13a, requ
     expect(withResearchBetaFolder(on, { kind: "beta", path: "beta" })).toBe(on);
     expect(withResearchBetaFolder(off, { kind: "default" })).toBe(off);
   });
+
+  it("keeps the document review flag off at run time outside the beta folder too, alone or beside the research flag (backlog item 13b)", () => {
+    const review = { documentReviewBeta: true, other: 1 }, both = { localResearchBeta: true, documentReviewBeta: true, other: 1 };
+    expect(withResearchBetaFolder(review, { kind: "default" })).toEqual({ documentReviewBeta: false, other: 1 });
+    expect(withResearchBetaFolder(both, { kind: "default" })).toEqual({ localResearchBeta: false, documentReviewBeta: false, other: 1 });
+    expect(withResearchBetaFolder(review, { kind: "beta", path: "beta" })).toBe(review);
+    expect(withResearchBetaFolder(both, { kind: "beta", path: "beta" })).toBe(both);
+    // A flag that is off stays absent or off, and nothing else is touched.
+    expect(withResearchBetaFolder({ localResearchBeta: true, other: 1 }, { kind: "default" })).toEqual({ localResearchBeta: false, other: 1 });
+    const off = { documentReviewBeta: false, other: 1 };
+    expect(withResearchBetaFolder(off, { kind: "default" })).toBe(off);
+  });
 });

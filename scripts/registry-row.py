@@ -78,6 +78,9 @@ DEFAULT_REGISTRY = os.path.join(REPOSITORY_ROOT, "docs", "experiments", "registr
 RECEIPT_KEYS = frozenset(("version", "taskId", "taskJobSha256", "date", "profile", "thinking", "maxOutputTokens", "runStatus", "terminalCause",
                           "modelCalls", "toolCalls", "wallSeconds", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd",
                           "unknownDispatches", "retriedDispatches", "failedDispatches", "entailment", "arm", "verdict", "cloudModel", "cloudApi"))
+# Backlog item 13b: a desktop document review's receipt is version 2, the same keys and `transport`, the owner's waiver of the Tier O transport for
+# that route, which its row keeps. Every other receipt stays version 1.
+RECEIPT_REVIEW_KEYS = RECEIPT_KEYS | {"transport"}
 RECEIPT_VERDICT_KEYS = frozenset(("decision", "ownerMinutes", "interventions", "exportedThroughApp", "recordedAt"))
 RECEIPT_ENTAILMENT_KEYS = frozenset(("counts", "entailmentCalls", "truncated", "supportRate"))
 RECEIPT_COUNT_KEYS = frozenset(("supported", "partial", "unsupported", "contradicted", "not_judged"))
@@ -765,14 +768,18 @@ def load_receipt(path: str) -> dict:
         fail_receipt("not JSON")
     if not isinstance(receipt, dict):
         fail_receipt("not an object")
-    unknown = sorted(set(receipt) - RECEIPT_KEYS)
+    if "version" not in receipt:
+        fail_receipt("missing key 'version'")
+    version = receipt["version"]
+    if type(version) is not int or version not in (1, 2):
+        fail_receipt("version is not 1 or 2")
+    keys = RECEIPT_KEYS if version == 1 else RECEIPT_REVIEW_KEYS
+    unknown = sorted(set(receipt) - keys)
     if unknown:
         fail_receipt(f"unknown key {unknown[0]!r}; a receipt holds hashes, counts and the verdict only")
-    missing = sorted(RECEIPT_KEYS - set(receipt))
+    missing = sorted(keys - set(receipt))
     if missing:
         fail_receipt(f"missing key {missing[0]!r}")
-    if receipt["version"] != 1:
-        fail_receipt("version is not 1")
     if not isinstance(receipt["taskId"], str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", receipt["taskId"]):
         fail_receipt("taskId is not a UUID")
     if not isinstance(receipt["taskJobSha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", receipt["taskJobSha256"]):
@@ -782,8 +789,13 @@ def load_receipt(path: str) -> dict:
     for key in ("profile", "thinking", "runStatus", "terminalCause"):
         if not isinstance(receipt[key], str) or not IDENTIFIER.fullmatch(receipt[key]):
             fail_receipt(f"{key} is not an identifier")
-    if not isinstance(receipt["arm"], str) or not re.fullmatch(r"local-(standard|heavy)(-consulted)?|local-heavy-research", receipt["arm"]):
-        fail_receipt("arm is not local-<profile>, local-<profile>-consulted or local-heavy-research")
+    if not isinstance(receipt["arm"], str) or not re.fullmatch(r"local-(standard|heavy)(-consulted)?|local-heavy-research|local-heavy-review1", receipt["arm"]):
+        fail_receipt("arm is not local-<profile>, local-<profile>-consulted, local-heavy-research or local-heavy-review1")
+    # A desktop document review (backlog item 13b), and only it, is a version-2 receipt on the heavy profile under the owner's transport waiver.
+    if (receipt["arm"] == "local-heavy-review1") != (version == 2):
+        fail_receipt("a local-heavy-review1 receipt, and only one, is version 2")
+    if version == 2 and (receipt["transport"] != "owner_waived" or receipt["profile"] != "heavy"):
+        fail_receipt("a local-heavy-review1 receipt records the owner's transport waiver on the heavy profile")
     # A desktop local research task (backlog item 13a) runs the heavy profile only, and never consults.
     if receipt["arm"] == "local-heavy-research" and receipt["profile"] != "heavy":
         fail_receipt("a local-heavy-research receipt is not on the heavy profile")
@@ -836,6 +848,8 @@ def receipt_row(args) -> dict:
         if value is not None and value != derived[key]:
             sys.exit(f"the receipt records {key} {derived[key]!r}; omit the flag or repeat that value")
     row = {key: receipt[key] for key in RECEIPT_KEYS if key not in ("version", "taskId", "verdict")}
+    if receipt["version"] == 2:
+        row["transport"] = receipt["transport"]
     row.update(derived)
     row["exportedThroughApp"] = verdict["exportedThroughApp"]
     # Backlog item 7(d), part C: receipt version 1 carries no host flags, so they are not recorded on this row.

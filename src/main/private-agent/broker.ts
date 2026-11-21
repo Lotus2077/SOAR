@@ -34,6 +34,12 @@ export interface BrokerDestination {
   /** Explicit controlled-receiver fixture allowance, never a general HTTP setting. */
   loopbackFixture?: boolean;
   /**
+   * Backlog item 13b: the owner waived PLAN.md's Tier O safeguards, the transport among them, for the desktop's document review alone.
+   * Set only by that route's own code, never from settings or input, it lets that one local-model destination, which admits private data
+   * and is not synthetic-only, use plain HTTP. It is refused at construction anywhere else, and every other destination still needs HTTPS.
+   */
+  ownerWaivedTransport?: true;
+  /**
    * Phase 2 headless cloud arm only: a synthetic-only cloud destination that serves a wholly synthetic lineage without an
    * exact grant. Refused at construction on any other kind, without syntheticOnly, or together with requireExactGrant,
    * so the desktop consultant (synthetic-only, exact grant required) can never become grant-free by omission.
@@ -295,8 +301,10 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
       !Number.isSafeInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > BROKER_MAX_TIMEOUT_MS ||
       (value.maxRequestBytes !== undefined && (!Number.isSafeInteger(value.maxRequestBytes) || value.maxRequestBytes < 4096 || value.maxRequestBytes > BROKER_MAX_DESTINATION_BODY_BYTES)) ||
       !Number.isSafeInteger(value.credentialVersion) || value.credentialVersion < 0 || !value.accountId) deny("destination_invalid");
+  if (value.ownerWaivedTransport !== undefined && (value.ownerWaivedTransport !== true || value.kind !== "local_model" || value.privateDataAdmitted !== true ||
+      value.syntheticOnly)) deny("destination_transport_waiver_invalid");
   if (endpoint.protocol !== "https:" && !(value.loopbackFixture && isLoopback(endpoint.hostname)) &&
-      !(value.kind === "local_model" && value.syntheticOnly)) deny("destination_tls_required");
+      !(value.kind === "local_model" && value.syntheticOnly) && value.ownerWaivedTransport !== true) deny("destination_tls_required");
   if (value.loopbackFixture && !isLoopback(endpoint.hostname)) deny("destination_fixture_invalid");
   if ((value.requireExactGrant !== undefined && typeof value.requireExactGrant !== "boolean") ||
       (value.requireExactGrant === true) !== (value.approvalPriceProfileSha256 !== undefined) ||

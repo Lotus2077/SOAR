@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { GENERAL_TASK_REVIEW_EDITS_PATH } from "../../shared/general-task-contracts";
 
 export interface ArtifactBundleRecord { path: string; bytes: number; sha256: string }
 export interface ArtifactBundleFile { path: string; bytes: Buffer }
@@ -22,8 +23,9 @@ function collisionKey(value: string): string {
   return value.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFC");
 }
 function archiveName(value: unknown): string {
-  requireValue(typeof value === "string" && value.startsWith("output/") && value.length <= 240 && !unpairedSurrogate.test(value), "artifact_bundle_path_invalid");
-  const name = value.slice("output/".length), components = name.split("/");
+  // Backlog item 13b: a document review's edit plan keeps its own folder in the archive; every other entry comes from output/, which is stripped.
+  requireValue(typeof value === "string" && (value.startsWith("output/") || value === GENERAL_TASK_REVIEW_EDITS_PATH) && value.length <= 240 && !unpairedSurrogate.test(value), "artifact_bundle_path_invalid");
+  const name = value === GENERAL_TASK_REVIEW_EDITS_PATH ? value : value.slice("output/".length), components = name.split("/");
   for (const component of components) {
     const normalized = collisionKey(component);
     requireValue(component.length > 0 && component !== "." && component !== ".." && !forbidden.test(component) && !/[. ]$/u.test(component) &&

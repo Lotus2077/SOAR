@@ -45,3 +45,10 @@ or independent evaluation occurred. Final database exposure was ten requests,
 nine settled and one unknown. Its driver required watchdog termination; the
 leftover trial app was later identified and terminated. Those failures are not
 reclassified as successful delivery by this bundle feature.
+
+Later change (2026-11-21, backlog item 13b, part 2): a document review task lists
+and bundles only its six deliverables, by an allowlist. Its edit plan,
+`review/edits.json`, is the one artifact outside output/ and keeps its folder in
+the ZIP. Its host flags file, `output/review-flags.json`, is never exported, and
+a review with any deliverable missing offers no ZIP. Every other task's inventory
+is as described above. See BL-20261121-1517-desktop-review-exports.

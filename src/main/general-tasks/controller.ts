@@ -23,7 +23,7 @@ import { MODEL_FEE_CAP_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAge
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { withDocumentReview } from "../private-agent/document-review";
-import { DESKTOP_REVIEW_ARM, DESKTOP_REVIEW_OUTPUT_NAME, DESKTOP_REVIEW_ROUTE, DESKTOP_REVIEW_TRANSPORT, desktopReviewAvailability, isDesktopReviewRecord,
+import { DESKTOP_REVIEW_ARM, DESKTOP_REVIEW_DELIVERABLES, DESKTOP_REVIEW_OUTPUT_NAME, DESKTOP_REVIEW_ROUTE, DESKTOP_REVIEW_TRANSPORT, desktopReviewAvailability, isDesktopReviewRecord,
   reviewInputsCheck, type DesktopReviewRecord } from "./review-route";
 import { DockerSandbox } from "../private-agent/sandbox";
 import { RulePacketScanner } from "../private-agent/scanner";
@@ -745,12 +745,18 @@ export class GeneralTaskController {
       // A finalising task resumes past its deadline (only submission and the evidence pass remain), so the time limit is not its stop.
       expired && !finalising ? "deadline" :
       consultation?.status === "pending" ? "consultation_pending" : record.reason : record.reason;
-    const artifacts = snapshot.filter(file => GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
+    // Backlog item 13b: a document review's artifacts are exactly its six deliverables; every other task's are its files under output/.
+    const deliverables = record.review ? DESKTOP_REVIEW_DELIVERABLES : undefined;
+    const artifacts = snapshot.filter(file => (deliverables ? deliverables.includes(file.path) : file.path.startsWith("output/")) &&
+      GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
       .map(file => ({ ...file })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
     let bundle: GeneralTaskSnapshot["bundle"], bundleUnavailableReason: string | undefined;
-    if (artifacts.length) {
+    if (deliverables && artifacts.length && artifacts.length !== deliverables.length) {
+      bundleUnavailableReason = "The bundle holds the review's six deliverables, and not all of them are saved. Export the files individually.";
+    } else if (artifacts.length) {
       try {
-        if (snapshot.filter(file => file.path.startsWith("output/")).length !== artifacts.length) throw new Error("invalid_output_path");
+        // A review's host flags file is left out by name, above; any other task's bundle takes every file under output/ or none.
+        if (!deliverables && snapshot.filter(file => file.path.startsWith("output/")).length !== artifacts.length) throw new Error("invalid_output_path");
         bundle = bundleManifest(artifacts);
       }
       catch { bundleUnavailableReason = "These filenames cannot be combined into a portable ZIP. Export files individually."; }

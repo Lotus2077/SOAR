@@ -718,6 +718,41 @@ run the owner graded later, is a `--supersedes` row with `--verdict-by owner`,
 
 ## E5 proxy verdict rows
 
+### Preparing and rehearsing the proxy handoff
+
+The trusted operator keeps the scan policy, Electron profile, database, raw receipt and spend records apart from the proxy's working folder. Use fresh private directories owned by the operator, mode 0700, outside Git. The role folder contains only scanned public or synthetic material. A synthetic rehearsal uses a fictional need.
+
+Stage the exact files before each dispatch and each handoff, including the return trip for the exported deliverable. Provide the private policy on standard input. It names the authorized directories in `materialRoots`, lists `ownerNames` and `endpointHosts`, and may include `knownSecrets`. Populate these on the host without sending them to the proxy. A successful scan publishes a new directory and prints its file count and digest. A refusal publishes nothing. An owner-data hit stops proxy work and requires notifying the owner under Amendment 1 §8.
+
+```sh
+python3 -I scripts/e5-proxy-stage.py --source "$material" --out "$new_bundle" < "$policy"
+```
+
+The scanner accepts UTF-8 text, Markdown, CSV, JSON, static HTML/CSS and supported text-only Office packages. Opaque content, links in the filesystem and unsupported formats are refused. The operator still establishes that the material is public or synthetic and free of personal details.
+
+Static HTML may use accessibility attributes such as `role`, `aria-label`, `aria-describedby`, `scope`, `headers` and `tabindex`. Inert `data-*` names may contain lowercase letters, digits and hyphen-separated segments. The scanner checks attribute values and the text of complete CSS comments against the private policy. It refuses ambiguous comment delimiters and CSS that would load another resource.
+
+For the website rehearsal, the sourcing proxy prepares `brief.txt`, `input.txt` and `acceptance.txt` before dispatch. Stage those three files as `intake` inside the role folder. Run the trusted driver from the implementation checkout using the pinned Node version, during the exclusive endpoint window. The two private roots must already exist.
+
+```sh
+SOAR_E5_SCAN_POLICY_FILE="$policy" node --import tsx scripts/e5-proxy-rehearsal.mjs \
+  "$stock_checkout" "$operator_root" "$role_root"
+```
+
+The driver verifies the tagged checkout, runs the daily doctor and checks endpoint idleness. It selects the input in the stock desktop window, submits on the local Heavy route, and publishes the scanned `exported/report.html` to the role folder. The same proxy reads that export against its original notes and records its estimated minutes and edits. Supply its decision atomically as `judgment/decision.json` with `decision` (`accept` or `reject`), integer `minutes`, integer `interventions` and the export's `artifactSha256`. Keep the cause and minutes saved in the private tally.
+
+After `receipt_ready`, use `rehearsal/receipt.json` from the operator folder in the command below. Print the row to standard output. The rehearsal contributes zero registry rows and zero jobs to either trial measure. Keep the metered proxy fee in the private spend record. The receipt's USD field covers local desktop dispatches.
+
+For a sampled job, make the blind copy in a fresh grader-only directory. Supply the digest of the admitted need text, the acceptance digest recorded before dispatch and the digest of each actual app export. The grader receives just those files under neutral names. Give additional standalone deliverables by repeating `--deliverable`.
+
+```sh
+python3 -I scripts/e5-proxy-grader-copy.py \
+  --need "$need" "$need_sha256" --criteria "$criteria" "$criteria_sha256" \
+  --deliverable "$exported" "$export_sha256" --out "$new_grader_bundle" < "$policy"
+```
+
+### Printing a row
+
 E5 Amendment 1 uses the version 1 receipt exported by the `owner-v0.2.1` desktop build on the plain local Heavy route. The operator identifies the proxy when recording its receipt. The app's receipt carries the estimate in its historical `ownerMinutes` field. The writer puts this value in `proxyMinutes` on the registry row.
 
 This example prints a row for a synthetic receipt. Use its actual task UUID prefix, UTC start date, family and provenance when running the command.

@@ -10,10 +10,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 interface Fake { calls: string[]; paths: Record<string, string>; setPath: "move" | "hold" | "throw"; bootstrap: ReturnType<typeof vi.fn> }
 let fake: Fake;
 const cleanups: (() => void)[] = [];
-const saved = { flag: process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA, envFile: process.env.SOAR_ENV_FILE };
+const saved = { flag: process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA, review: process.env.SOAR_ENABLE_DOCUMENT_REVIEW_BETA, envFile: process.env.SOAR_ENV_FILE };
 afterEach(() => {
   vi.restoreAllMocks(); vi.doUnmock("electron"); vi.doUnmock("../../src/main/bootstrap"); vi.resetModules();
-  for (const [name, value] of [["SOAR_ENABLE_LOCAL_RESEARCH_BETA", saved.flag], ["SOAR_ENV_FILE", saved.envFile]] as const) {
+  for (const [name, value] of [["SOAR_ENABLE_LOCAL_RESEARCH_BETA", saved.flag], ["SOAR_ENABLE_DOCUMENT_REVIEW_BETA", saved.review], ["SOAR_ENV_FILE", saved.envFile]] as const) {
     if (value === undefined) delete process.env[name]; else process.env[name] = value;
   }
   for (const step of cleanups.splice(0).reverse()) step();
@@ -97,5 +97,23 @@ describe("the main process chooses its user-data folder before the single-instan
       expect(run.calls.at(-1), name).toBe("quit");
       expect(run.bootstrap, name).not.toHaveBeenCalled();
     }
+  });
+
+  it("moves to the same beta folder for the document review flag alone, and refuses a malformed one by name (backlog item 13b, part 4)", async () => {
+    for (const where of ["checkout", "environment"] as const) {
+      const { checkout, home } = machine(), beta = `${home} Research Beta`;
+      delete process.env.SOAR_ENV_FILE; delete process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA; delete process.env.SOAR_ENABLE_DOCUMENT_REVIEW_BETA;
+      if (where === "checkout") writeFileSync(join(checkout, ".env.local"), "SOAR_ENABLE_DOCUMENT_REVIEW_BETA=true\n");
+      else process.env.SOAR_ENABLE_DOCUMENT_REVIEW_BETA = "true";
+      const run = await start(checkout, home);
+      expect(run.calls, where).toEqual(["setPath userData", "setPath sessionData", `lock in ${beta}`]);
+      expect(run.bootstrap).toHaveBeenCalledWith({ userDataFolder: { kind: "beta", path: beta } });
+    }
+    const { checkout, home } = machine();
+    delete process.env.SOAR_ENV_FILE; delete process.env.SOAR_ENABLE_LOCAL_RESEARCH_BETA; process.env.SOAR_ENABLE_DOCUMENT_REVIEW_BETA = "yes";
+    const run = await start(checkout, home);
+    expect(run.calls.some(call => call.startsWith("lock"))).toBe(false);
+    expect(run.calls.find(call => call.startsWith("error"))).toMatch(/SOAR_ENABLE_DOCUMENT_REVIEW_BETA must be true or false/u);
+    expect(run.bootstrap).not.toHaveBeenCalled();
   });
 });

@@ -49,26 +49,39 @@ function overlaps(inner: string, outer: string): boolean {
     if (path.dirname(current) === current) return false;
   }
 }
-const REFUSED_UNRESOLVED: UserDataFolder = { kind: "refused", reason: "The local research beta's user-data folder could not be resolved." };
+const REFUSED_UNRESOLVED: UserDataFolder = { kind: "refused", reason: "The beta's user-data folder could not be resolved." };
+/** The two beta flags, as the settings readable before the folder is chosen hold them. */
+export interface BetaFolderFlags { research?: string; review?: string }
 
 /**
- * The flag reads as config.ts reads it: absent or "false" keeps the default folder, "true" chooses the default folder's sibling
- * named with the suffix, and any other value refuses to start. The beta folder is refused when it resolves to the default folder,
- * into it or around it (through a link, for example), or when one of the app's entries in it leads out of it.
+ * Each flag reads as config.ts reads it: absent or "false" is off, "true" is on, and any other value refuses to start. Backlog item
+ * 13b, part 4: either flag on chooses the one beta folder, the default folder's sibling named with the suffix, so the local research
+ * beta and the document review beta share it (the coordinating session's choice A). The beta
+ * folder is refused when it resolves to the default folder, into it or around it (through a link, for example), or when one of the
+ * app's entries in it leads out of it.
  */
-export function decideUserDataFolder(flag: string | undefined, defaultPath: string, resolve: (target: string) => string = resolvedPath): UserDataFolder {
-  if (flag === undefined || flag === "false") return { kind: "default" };
-  if (flag !== "true") return { kind: "refused", reason: "SOAR_ENABLE_LOCAL_RESEARCH_BETA must be true or false." };
+export function decideUserDataFolder(flags: BetaFolderFlags, defaultPath: string, resolve: (target: string) => string = resolvedPath): UserDataFolder {
+  for (const [value, name] of [[flags.research, "SOAR_ENABLE_LOCAL_RESEARCH_BETA"], [flags.review, "SOAR_ENABLE_DOCUMENT_REVIEW_BETA"]] as const) {
+    if (value !== undefined && value !== "false" && value !== "true") return { kind: "refused", reason: `${name} must be true or false.` };
+  }
+  if (flags.research !== "true" && flags.review !== "true") return { kind: "default" };
   const beta = `${path.resolve(defaultPath)}${RESEARCH_BETA_FOLDER_SUFFIX}`;
   let home: string, own: string;
   try { home = resolve(defaultPath); own = resolve(beta); } catch { return REFUSED_UNRESOLVED; }
-  if (overlaps(own, home) || overlaps(home, own)) return { kind: "refused", reason: "The local research beta's user-data folder resolves to the default user-data folder, into it or around it." };
+  if (overlaps(own, home) || overlaps(home, own)) return { kind: "refused", reason: "The beta's user-data folder resolves to the default user-data folder, into it or around it." };
   for (const name of USER_DATA_ENTRIES) {
     let entry: string;
     try { entry = resolve(path.join(beta, name)); } catch { return REFUSED_UNRESOLVED; }
-    if (!within(entry, own) || overlaps(entry, home)) return { kind: "refused", reason: `The local research beta's ${name} leads out of its own user-data folder.` };
+    if (!within(entry, own) || overlaps(entry, home)) return { kind: "refused", reason: `The beta's ${name} leads out of its own user-data folder.` };
   }
   return { kind: "beta", path: beta };
+}
+
+/** The folder from the settings readable before it is chosen; settings that cannot be read refuse to start rather than pick a folder. */
+export function userDataFolderFromSettings(read: () => Record<string, string | undefined>, defaultPath: string): UserDataFolder {
+  let settings: Record<string, string | undefined>;
+  try { settings = read(); } catch { return { kind: "refused", reason: "SOAR could not read the settings that choose its user-data folder." }; }
+  return decideUserDataFolder({ research: settings.SOAR_ENABLE_LOCAL_RESEARCH_BETA, review: settings.SOAR_ENABLE_DOCUMENT_REVIEW_BETA }, defaultPath);
 }
 
 /**
@@ -77,10 +90,13 @@ export function decideUserDataFolder(flag: string | undefined, defaultPath: stri
  * the beta folder, the effective database (SOAR_DB_PATH or the folder's own), its side files and the task data beside it must
  * resolve inside the folder.
  */
-export function researchBetaFolderIssue(input: { folder: UserDataFolder; localResearchBeta: boolean; userDataPath: string; databasePath?: string },
+export function researchBetaFolderIssue(input: { folder: UserDataFolder; localResearchBeta: boolean; documentReviewBeta?: boolean; userDataPath: string; databasePath?: string },
   resolve: (target: string) => string = resolvedPath): string | undefined {
   if (input.localResearchBeta && input.folder.kind !== "beta") {
     return "The local research beta is on only in the user-data folder's own settings. Set SOAR_ENABLE_LOCAL_RESEARCH_BETA=true in the beta checkout's .env.local instead, so the beta keeps its own user-data folder.";
+  }
+  if (input.documentReviewBeta && input.folder.kind !== "beta") {
+    return "The document review beta is on only in the user-data folder's own settings. Set SOAR_ENABLE_DOCUMENT_REVIEW_BETA=true in the beta checkout's .env.local instead, so the beta keeps its own user-data folder.";
   }
   if (input.folder.kind !== "beta") return undefined;
   const database = input.databasePath ?? path.join(input.userDataPath, "soar.sqlite");
@@ -88,7 +104,7 @@ export function researchBetaFolderIssue(input: { folder: UserDataFolder; localRe
   let inside = false;
   try { const own = resolve(input.folder.path); inside = targets.every(target => within(resolve(target), own)); } catch { inside = false; }
   return inside ? undefined
-    : "The local research beta keeps its database and task data inside its own user-data folder. Remove SOAR_DB_PATH from its settings, and any link there that leads out of the folder.";
+    : "The beta keeps its database and task data inside its own user-data folder. Remove SOAR_DB_PATH from its settings, and any link there that leads out of the folder.";
 }
 
 /** The configuration the running app sees: outside the beta folder the flag is off, whatever a settings file says later. */

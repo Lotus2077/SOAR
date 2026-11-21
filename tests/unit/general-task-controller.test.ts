@@ -2095,3 +2095,21 @@ describe("desktop document review exports (backlog item 13b, part 2)", () => {
   });
 });
 
+// Backlog item 13b, part 4: a review scans its document's own text, which the selection's byte scan cannot see.
+describe("desktop document review inputs (backlog item 13b, part 4)", () => {
+  it("refuses a review whose .docx hides a credential or cannot be read whole, before anything is saved; the review's own document passes", async () => {
+    const { f, count } = await reviewFixture();
+    const key = ["AK", "IA"].join("") + "Q".repeat(16), W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+    const hidden = join(f.root, "hidden.docx"), broken = join(f.root, "broken.docx");
+    writeFileSync(hidden, buildDocxFromXml(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body><w:p><w:r><w:t>${key.slice(0, 4)}</w:t></w:r><w:r><w:t>${key.slice(4)}</w:t></w:r></w:p></w:body></w:document>`));
+    writeFileSync(broken, "Not a ZIP, though it is named .docx.\n");
+    const review = (path: string) => f.controller.create({ goal: REVIEW_GOAL, inputSelectionId: f.controller.selectInputs([path]).id, outputName: "review-summary.md", review: "local_beta" });
+    // The selection's byte scan passes both files; the review's text scan does not.
+    expect(() => review(hidden)).toThrow("general_task_credential_input_denied");
+    expect(() => review(broken)).toThrow("general_task_review_document_unreadable");
+    expect(count()).toBe(0);
+    expect(review(join(f.root, "contract.docx")).review).toEqual({ route: "local_beta", transport: "owner_waived" });
+    expect(count()).toBe(1);
+  });
+});
+

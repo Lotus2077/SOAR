@@ -23,6 +23,7 @@ import { MODEL_FEE_CAP_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAge
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { withDocumentReview } from "../private-agent/document-review";
+import { scanDocxText } from "./docx-text-scan";
 import { DESKTOP_REVIEW_ARM, DESKTOP_REVIEW_DELIVERABLES, DESKTOP_REVIEW_OUTPUT_NAME, DESKTOP_REVIEW_ROUTE, DESKTOP_REVIEW_TRANSPORT, desktopReviewAvailability, isDesktopReviewRecord,
   reviewInputsCheck, type DesktopReviewRecord } from "./review-route";
 import { DockerSandbox } from "../private-agent/sandbox";
@@ -598,6 +599,13 @@ export class GeneralTaskController {
     const selection = input.inputSelectionId ? this.selections.get(input.inputSelectionId) : { files: [], metadata: [], expiresAt: Infinity };
     if (!selection || selection.expiresAt < Date.now()) throw new Error("general_task_selection_expired");
     if (input.review && reviewInputsCheck(selection.files) !== "fit") throw new Error("general_task_review_input_invalid");
+    // Backlog item 13b, part 4: the selection's credential scan cannot see inside the deflated .docx, so a review also scans its text.
+    // A document it cannot read whole is refused, not passed.
+    if (input.review) {
+      const scan = scanDocxText(selection.files.find(file => /\.docx$/iu.test(file.path))!.bytes);
+      if (scan === "credential") throw new Error("general_task_credential_input_denied");
+      if (scan !== "clean") throw new Error("general_task_review_document_unreadable");
+    }
     // The stage's refusals that are knowable before start, and the card the task is created on (the pinned read, at this moment).
     let research: DesktopResearchRecord | undefined;
     if (input.research) {

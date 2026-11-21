@@ -152,7 +152,7 @@ export async function bootstrap(options: { userDataFolder?: UserDataFolder } = {
       userDataPath,
     });
     // Requirement A: the research beta runs only in its own folder, with its database inside it. Checked before the database opens.
-    const folderIssue = researchBetaFolderIssue({ folder: userDataFolder, localResearchBeta: config.localResearchBeta === true, userDataPath, databasePath: config.databasePath });
+    const folderIssue = researchBetaFolderIssue({ folder: userDataFolder, localResearchBeta: config.localResearchBeta === true, documentReviewBeta: config.documentReviewBeta === true, userDataPath, databasePath: config.databasePath });
     if (folderIssue !== undefined) throw new Error(folderIssue);
     const databasePath =
       config.databasePath ?? path.join(userDataPath, "soar.sqlite");

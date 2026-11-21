@@ -12,17 +12,18 @@ next session takes that role. The sources are the entry files of 2026-11-18 to 2
 - **The measure.** The MVP exit is at least 6 of 8 real owner jobs accepted in each of two
   consecutive weeks, across at least 3 families (docs/PLAN.md §1), in the normal app build
   (BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout, decision 4). On
-  2026-11-21 the owner let agents that mimic real users stand in for those jobs; E5's amendment
-  says how their counts are read before any counts (BL-20261121-0611, decision 1).
+  2026-11-21 the owner let agents that mimic real users proxy E5's real jobs; whether such jobs
+  count toward this measure is open until E5's amendment and the owner's call
+  (BL-20261121-0611, decision 1).
 - **The order.** The owner approved local research in the desktop before the paid experiments
   E3 and E4 (the same entry, #155).
-- **The state.** E2 and E6 are done and recorded, and the endpoint is free.
+- **The state.** E2 and E6 are done and recorded, and no harness run is using the endpoint.
   - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
     at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
   - **E5's build** passed `pnpm check`, its doctor and the owner's rehearsal (#208), so day 1 is
     open; no real job has run yet. On 2026-11-21 the owner let agents that mimic real users
-    stand in for E5's real jobs, once an E5 amendment registers it
+    proxy E5's real jobs by dispatching real tasks, once an E5 amendment registers it
     (BL-20261121-0611-owner-e5-proxy-jobs-and-13b-answers, decision 1).
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
@@ -31,8 +32,9 @@ next session takes that role. The sources are the entry files of 2026-11-18 to 2
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
   decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
-  The owner's real private documents may go to 13b's local review route only
-  (BL-20261121-0611, decision 2); other real private data stays the owner's call. The owner's own
+  The owner approved real private documents for 13b's local review route only
+  (BL-20261121-0611, decision 2); PLAN.md §3's Phase 3 preconditions for Tier O still come first,
+  and other real private data stays the owner's call. The owner's own
   E5 jobs and verdicts, lines in `.env.local`, keys and every step that needs the owner's hands
   are the owner's (BL-20261117-0940, decision 7).
 
@@ -204,11 +206,13 @@ the same.
   version 5, an export allowlist and a scan of the document's text; 5 to 7 days in six parts.
 - **The owner's decisions of 2026-11-21** (BL-20261121-0611-owner-e5-proxy-jobs-and-13b-answers):
   - E5's real jobs may be proxied by strong agents that mimic users, grounded in real user
-    communities' needs, once an E5 amendment registers it.
-  - 13b may run on the owner's real private documents; its route is local only.
+    communities' needs, dispatching real tasks, once an E5 amendment registers it. Who gives the
+    verdicts, and whether such jobs count toward the MVP measure, are open until then.
+  - 13b may run on the owner's real private documents, on its local route only, once PLAN.md
+    §3's Phase 3 preconditions for Tier O are recorded (the session's reading).
   - 13b's export bundle is the six deliverables E6 graded; the flags file stays in the task's
-    record for grading and scoring.
-  - One synthetic desktop run is enough before an owner build of 13b.
+    record for grading and scoring (the session's choice).
+  - One synthetic desktop run is enough before an owner build of 13b, with no E6-style grading.
 - **Two other pull requests:** #191 restates criterion 6 of the review's depth bar, on the
   owner's yes; it is an input to E3's and E4's rules. #192 designs resuming a paused research
   stage, `Proposed`; the owner kept the 90-minute clock running through a pause ("Keep it for
@@ -230,10 +234,12 @@ the same.
 
 1. **E5's proxy jobs** need an amendment to E5's card before any counts. It registers where the
    needs come from, how an agent turns one into a task, who gives the verdict and by what rule,
-   the agents' cost and destinations, and how the counts are read against the measure. The
-   owner's own jobs count meanwhile; none has run yet.
+   and the agents' cost and destinations. Whether the counts reach the MVP measure is the owner's
+   call. The owner's own jobs count meanwhile; none has run yet.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
-   announced synthetic desktop run before an owner build.
+   announced synthetic desktop run before an owner build. Before a real private document goes
+   through it, PLAN.md §3's Phase 3 preconditions are recorded: the box checklist, a transport by
+   SSH local forward or WireGuard, the packet-capture canary, the Mac's settings and the code.
 3. **Waiting on the owner:** #105's residues (BL-20261117-0941, decision 1); the session's
    readings the owner may replace: s1's kept packet (#193, decision 4) and E6's "fresh at the
    start" (BL-20261119-1732).

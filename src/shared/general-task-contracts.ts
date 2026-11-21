@@ -61,9 +61,14 @@ export const GeneralTaskCreateInputSchema = z.object({
 });
 export type GeneralTaskCreateInput = z.infer<typeof GeneralTaskCreateInputSchema>;
 
+/**
+ * Backlog item 13b: a document review's edit plan, one of its six deliverables, lives outside output/ (private-agent/document-review.ts,
+ * DOCUMENT_REVIEW_EDITS_PATH). It is the one path outside output/ an artifact may have, and only a review task lists it.
+ */
+export const GENERAL_TASK_REVIEW_EDITS_PATH = "review/edits.json";
 export const GeneralTaskArtifactRefSchema = z.object({
   id: GeneralTaskIdSchema,
-  path: z.string().min(1).max(240).refine(value => value.startsWith("output/") &&
+  path: z.string().min(1).max(240).refine(value => (value.startsWith("output/") || value === GENERAL_TASK_REVIEW_EDITS_PATH) &&
     !/[\\\x00-\x1f\x7f]/u.test(value) && value.split("/").every(part => part && part !== "." && part !== "..")),
   sha256: z.string().regex(/^[a-f0-9]{64}$/u),
 }).strict();

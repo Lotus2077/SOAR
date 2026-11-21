@@ -1,5 +1,7 @@
 import type { SoarConfig } from "../config";
 import type { GeneralTaskAvailability } from "../../shared/general-task-contracts";
+import { DOCUMENT_REVIEW_ARTIFACTS } from "../private-agent/document-review";
+import { DOCUMENT_REVIEW_FLAGS_PATH } from "../private-agent/document-review-flags";
 
 /**
  * Backlog item 13b: the desktop's staged document review. It is review-1, the single sample the headless driver applies
@@ -18,6 +20,12 @@ export const DESKTOP_REVIEW_TRANSPORT = "owner_waived" as const;
 export interface DesktopReviewRecord { route: DesktopReviewRoute; transport: typeof DESKTOP_REVIEW_TRANSPORT }
 /** The review's own deliverable, the summary E6 graded: a review task's output name is fixed to it. */
 export const DESKTOP_REVIEW_OUTPUT_NAME = "review-summary.md";
+/**
+ * A review's artifacts, exactly: the six deliverables E6 graded, its summary and the driver's five other outputs, the edit plan under
+ * review/ among them. The host flags file is not one: it stays in the task's own record, never exported, zipped or put in a receipt.
+ */
+export const DESKTOP_REVIEW_DELIVERABLES: readonly string[] = Object.freeze([`output/${DESKTOP_REVIEW_OUTPUT_NAME}`,
+  ...DOCUMENT_REVIEW_ARTIFACTS.map(artifact => artifact.path).filter(path => path !== DOCUMENT_REVIEW_FLAGS_PATH)]);
 /** The receipt's arm, the name E6's rows give this route. */
 export const DESKTOP_REVIEW_ARM = "local-heavy-review1";
 

@@ -96,6 +96,25 @@ describe("deterministic artifact ZIP bundle", () => {
     expect(new Set(data.map(row => row.path))).toEqual(new Set(paths.map(path => path.slice(7))));
   });
 
+  it("keeps a document review's edit plan in its own folder, and admits no other path outside output/ (backlog item 13b, part 2)", () => {
+    const files = [
+      { path: "output/review-summary.md", bytes: Buffer.from("# Review\n") }, { path: "review/edits.json", bytes: Buffer.from('{"edits":[]}\n') },
+      { path: "output/redline.docx", bytes: Buffer.from([80, 75, 3, 4, 1]) }, { path: "output/clean.docx", bytes: Buffer.from([80, 75, 3, 4, 2]) },
+      { path: "output/issues.xlsx", bytes: Buffer.from([80, 75, 3, 4, 3]) }, { path: "output/hygiene.json", bytes: Buffer.from("{}\n") },
+    ];
+    const rows = inspect(buildArtifactBundle(files));
+    expect(rows.map(row => row.path)).toEqual(["clean.docx", "hygiene.json", "issues.xlsx", "redline.docx", "review-summary.md", "review/edits.json"]);
+    expect(rows.find(row => row.path === "review/edits.json")!.base64).toBe(Buffer.from('{"edits":[]}\n').toString("base64"));
+    expect(bundleManifest(files.map(file => ({ path: file.path, bytes: file.bytes.length, sha256: sha(file.bytes) })))).toMatchObject({ fileCount: 6 });
+    for (const path of ["review/other.json", "review/edits.json/x", "review/edits.json.bak", "review/", "review", "Review/edits.json", "review/EDITS.json",
+      "work/review/edits.json"]) {
+      expect(() => bundleManifest([record(path)]), path).toThrow("artifact_bundle_path_invalid");
+      expect(() => buildArtifactBundle([{ path, bytes: Buffer.from("x") }]), path).toThrow("artifact_bundle_path_invalid");
+    }
+    // An output file of the same name would extract to the same place, so the pair is refused as any other collision is.
+    expect(() => bundleManifest([record("review/edits.json"), record("output/review/edits.json")])).toThrow("artifact_bundle_path_collision");
+  });
+
   it("rejects malformed metadata and never accepts filesystem or symlink metadata", () => {
     for (const value of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) expect(() => bundleManifest([record("output/a", value)])).toThrow("artifact_bundle_size_exceeded");
     for (const hash of ["", "A".repeat(64), "b".repeat(63), "b".repeat(65)]) expect(() => bundleManifest([{ ...record("output/a"), sha256: hash }])).toThrow("artifact_bundle_digest_invalid");

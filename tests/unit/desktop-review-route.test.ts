@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DESKTOP_REVIEW_ARM, DESKTOP_REVIEW_OUTPUT_NAME, DESKTOP_REVIEW_ROUTE, DESKTOP_REVIEW_TRANSPORT, desktopReviewAvailability, isDesktopReviewRecord,
-  reviewInputsCheck } from "../../src/main/general-tasks/review-route";
-import { GeneralTaskCreateInputSchema } from "../../src/shared/general-task-contracts";
+import { DESKTOP_REVIEW_ARM, DESKTOP_REVIEW_DELIVERABLES, DESKTOP_REVIEW_OUTPUT_NAME, DESKTOP_REVIEW_ROUTE, DESKTOP_REVIEW_TRANSPORT, desktopReviewAvailability,
+  isDesktopReviewRecord, reviewInputsCheck } from "../../src/main/general-tasks/review-route";
+import { DOCUMENT_REVIEW_EDITS_PATH } from "../../src/main/private-agent/document-review";
+import { DOCUMENT_REVIEW_FLAGS_PATH } from "../../src/main/private-agent/document-review-flags";
+import { GENERAL_TASK_REVIEW_EDITS_PATH, GeneralTaskArtifactRefSchema, GeneralTaskCreateInputSchema } from "../../src/shared/general-task-contracts";
 
 const root = resolve(__dirname, "..", "..");
 
@@ -56,5 +59,34 @@ describe("desktop document review route (backlog item 13b, part 1)", () => {
     expect(GeneralTaskCreateInputSchema.safeParse({ ...base, review: "cloud" }).success).toBe(false);
     // The renderer still reads the object's own fields.
     expect(GeneralTaskCreateInputSchema.shape.outputName.safeParse("review-summary.md").success).toBe(true);
+  });
+});
+
+describe("desktop document review exports (backlog item 13b, part 2)", () => {
+  it("exports exactly the six deliverables E6 graded, as its grading brief and the blind-bundle tool list them, and never the host flags file", () => {
+    expect([...DESKTOP_REVIEW_DELIVERABLES]).toEqual(["output/review-summary.md", "review/edits.json", "output/redline.docx", "output/clean.docx", "output/issues.xlsx",
+      "output/hygiene.json"]);
+    expect(DESKTOP_REVIEW_DELIVERABLES).not.toContain(DOCUMENT_REVIEW_FLAGS_PATH);
+    expect(Object.isFrozen(DESKTOP_REVIEW_DELIVERABLES)).toBe(true);
+    // The grading brief's sentence on what goes in a blind bundle, read in its own order.
+    const brief = readFileSync(resolve(root, "docs/experiments/e6-grading-brief.md"), "utf8");
+    const start = brief.indexOf("Six deliverables:"), end = brief.indexOf("Never `output/review-flags.json`", start);
+    expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+    expect([...brief.slice(start, end).matchAll(/`([^`]+)`/gu)].map(match => match[1])).toEqual([...DESKTOP_REVIEW_DELIVERABLES]);
+    // The blind-bundle tool adds the review's five files to the task's required summary, and leaves the flags file out.
+    const tool = readFileSync(resolve(root, "scripts/phase2-blind.py"), "utf8");
+    const tuple = /^DOCUMENT_REVIEW_ARTIFACTS = \(([^)]*)\)$/mu.exec(tool);
+    expect(tuple).not.toBeNull();
+    expect(["output/review-summary.md", ...[...tuple![1]!.matchAll(/"([^"]+)"/gu)].map(match => match[1])]).toEqual([...DESKTOP_REVIEW_DELIVERABLES]);
+  });
+
+  it("admits the review's edit plan, and no other path outside output/, to an artifact reference", () => {
+    expect(GENERAL_TASK_REVIEW_EDITS_PATH).toBe(DOCUMENT_REVIEW_EDITS_PATH);
+    const ref = (path: string) => GeneralTaskArtifactRefSchema.safeParse({ id: randomUUID(), path, sha256: "a".repeat(64) }).success;
+    for (const path of ["review/edits.json", "output/review-summary.md", "output/review-flags.json"]) expect(ref(path), path).toBe(true);
+    for (const path of ["review/other.json", "review/edits.json/x", "review/edits.json.bak", "review/", "review", "Review/edits.json", "review/EDITS.json",
+      "review/../output/a.md", "./review/edits.json", "/review/edits.json", "review/edits.json ", "work/review/edits.json", "input/01-contract.docx"]) {
+      expect(ref(path), path).toBe(false);
+    }
   });
 });

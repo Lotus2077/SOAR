@@ -2020,3 +2020,78 @@ describe("desktop document review (backlog item 13b, part 1)", () => {
     expect(first.version).toBe(1); expect(first).not.toHaveProperty("transport");
   });
 });
+
+// Backlog item 13b, part 2: a review's exports are its six deliverables, by an allowlist; its host flags file stays in the task's own record.
+const REVIEW_FLAGS = Buffer.from('{"version":1,"flags":[]}\n'), REVIEW_DRAFT = Buffer.from("A scratch note the agent left under output/.\n");
+const reviewOutputs = () => [
+  { path: "output/review-summary.md", bytes: Buffer.from("# Review\nTwo terms need dates.\n") }, { path: "review/edits.json", bytes: Buffer.from('{"edits":[]}\n') },
+  { path: "output/redline.docx", bytes: Buffer.from("synthetic redline bytes") }, { path: "output/clean.docx", bytes: Buffer.from("synthetic clean bytes") },
+  { path: "output/issues.xlsx", bytes: Buffer.from("synthetic workbook bytes") }, { path: "output/hygiene.json", bytes: Buffer.from('{"authors":[]}\n') },
+  { path: "output/review-flags.json", bytes: REVIEW_FLAGS }, { path: "output/draft-notes.md", bytes: REVIEW_DRAFT },
+];
+/** Saves files as the run's latest checkpoint, beside its inputs, as the runner records one. */
+function saveOutputs(args: GeneralJobOptions, id: string, files: { path: string; bytes: Buffer }[]): void {
+  const snapshot = args.checkpoints.save([...args.files, ...files]);
+  args.store.append(id, { type: "checkpoint", contextId: args.contextId, snapshot, sha256: args.checkpoints.fingerprint(snapshot) });
+}
+const zipNames = (archive: Buffer) => JSON.parse(execFileSync("python3", ["-I", "-c",
+  "import io,json,sys,zipfile; print(json.dumps(zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).namelist()))"], { input: archive, encoding: "utf8" })) as string[];
+
+describe("desktop document review exports (backlog item 13b, part 2)", () => {
+  it("lists exactly a review's six deliverables, bundles those six and no other file, and never reads out the host flags file", async () => {
+    const { f, create } = await reviewFixture();
+    const task = create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    saveOutputs(f.executions[0]!, task.id, reviewOutputs());
+    const current = f.controller.get(task.id);
+    expect(current.artifacts.map(file => file.path)).toEqual(["output/clean.docx", "output/hygiene.json", "output/issues.xlsx", "output/redline.docx",
+      "output/review-summary.md", "review/edits.json"]);
+    const six = reviewOutputs().filter(file => current.artifacts.some(artifact => artifact.path === file.path));
+    expect(current.bundle).toMatchObject({ fileCount: 6, totalBytes: six.reduce((total, file) => total + file.bytes.length, 0) });
+    expect(current).not.toHaveProperty("bundleUnavailableReason");
+    const archive = f.controller.bundle({ id: task.id, manifestSha256: current.bundle!.manifestSha256 });
+    expect(zipNames(archive.bytes)).toEqual(["clean.docx", "hygiene.json", "issues.xlsx", "redline.docx", "review-summary.md", "review/edits.json"]);
+    expect(archive.bytes.includes(REVIEW_FLAGS)).toBe(false); expect(archive.bytes.includes(REVIEW_DRAFT)).toBe(false);
+    // One deliverable at a time, the edit plan included; neither the flags file nor a scratch output is an artifact, so neither is read out.
+    const plan = current.artifacts.find(file => file.path === "review/edits.json")!;
+    expect(f.controller.artifact({ id: task.id, path: plan.path, sha256: plan.sha256 }).bytes.toString("utf8")).toBe('{"edits":[]}\n');
+    expect(() => f.controller.artifact({ id: task.id, path: "output/review-flags.json", sha256: digest(REVIEW_FLAGS) })).toThrow("general_task_artifact_stale");
+    expect(() => f.controller.artifact({ id: task.id, path: "output/draft-notes.md", sha256: digest(REVIEW_DRAFT) })).toThrow("general_task_artifact_stale");
+    // The flags file stays in the task's own record, and the receipt names no file.
+    expect(f.executions[0]!.checkpoints.load([{ path: "output/review-flags.json", sha256: digest(REVIEW_FLAGS), bytes: REVIEW_FLAGS.length }])[0]!.bytes.equals(REVIEW_FLAGS)).toBe(true);
+    f.controller.recordVerdict({ id: task.id, decision: "accept", ownerMinutes: 5, interventions: 0, exportedThroughApp: true });
+    const receipt = f.controller.verdictReceipt(task.id).bytes.toString("utf8");
+    expect(receipt).not.toContain("review-flags"); expect(receipt).not.toContain(digest(REVIEW_FLAGS));
+  });
+
+  it("offers no bundle while any deliverable is missing, and says why; each saved deliverable still exports on its own", async () => {
+    const { f, create } = await reviewFixture();
+    const task = create();
+    // Before a run there is nothing to export, and nothing to explain.
+    expect(f.controller.get(task.id).artifacts).toEqual([]); expect(f.controller.get(task.id)).not.toHaveProperty("bundleUnavailableReason");
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    // The fixture's run saves the summary alone.
+    let current = f.controller.get(task.id);
+    expect(current.artifacts.map(file => file.path)).toEqual(["output/review-summary.md"]);
+    expect(current.bundle).toBeUndefined();
+    expect(current.bundleUnavailableReason).toBe("The bundle holds the review's six deliverables, and not all of them are saved. Export the files individually.");
+    expect(() => f.controller.bundle({ id: task.id, manifestSha256: digest("anything") })).toThrow("general_task_bundle_stale");
+    saveOutputs(f.executions[0]!, task.id, reviewOutputs().filter(file => file.path !== "output/issues.xlsx"));
+    current = f.controller.get(task.id);
+    expect(current.artifacts).toHaveLength(5); expect(current.bundle).toBeUndefined(); expect(current.bundleUnavailableReason).toContain("six deliverables");
+    const plan = current.artifacts.find(file => file.path === "review/edits.json")!;
+    expect(f.controller.artifact({ id: task.id, path: plan.path, sha256: plan.sha256 }).bytes.toString("utf8")).toBe('{"edits":[]}\n');
+  });
+
+  it("leaves every other task's exports as they were: the edit plan's path is not its artifact, and its bundle takes every file under output/", async () => {
+    const f = fixture(), task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const plan = Buffer.from('{"edits":["plain"]}\n');
+    saveOutputs(f.executions[0]!, task.id, [{ path: "output/report.md", bytes: Buffer.from("Report") }, { path: "output/review-flags.json", bytes: REVIEW_FLAGS },
+      { path: "review/edits.json", bytes: plan }]);
+    const current = f.controller.get(task.id);
+    expect(current.artifacts.map(file => file.path)).toEqual(["output/report.md", "output/review-flags.json"]);
+    expect(current.bundle).toMatchObject({ fileCount: 2, totalBytes: 6 + REVIEW_FLAGS.length });
+    expect(zipNames(f.controller.bundle({ id: task.id, manifestSha256: current.bundle!.manifestSha256 }).bytes)).toEqual(["report.md", "review-flags.json"]);
+    expect(() => f.controller.artifact({ id: task.id, path: "review/edits.json", sha256: digest(plan) })).toThrow("general_task_artifact_stale");
+  });
+});
+

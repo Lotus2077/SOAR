@@ -1,41 +1,49 @@
 # SOAR handoff
 
-## Start here (2026-11-20)
+## Start here (2026-11-21)
 
 This section is the entrypoint for the next session. It replaces every earlier "next step" in
 this file; the rest of the file is the September 2026 record. "The session" is the coordinating
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
-next session takes that role. The sources are the entry files of 2026-11-18 to 2026-11-20 under
-`docs/build-log/`, pull requests #155 to #202, and `main` after the merge of #202.
+next session takes that role. The sources are the entry files of 2026-11-18 to 2026-11-21 under
+`docs/build-log/`, pull requests #155 to #209 and this restatement's, and `main` after the merge of #209.
 
 **In brief.**
 - **The measure.** The MVP exit is at least 6 of 8 real owner jobs accepted in each of two
   consecutive weeks, across at least 3 families (docs/PLAN.md §1), in the normal app build
-  (BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout, decision 4).
+  (BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout, decision 4). On
+  2026-11-21 the owner let agents that mimic real users proxy E5's real jobs; whether such jobs
+  count toward this measure is open until E5's amendment and the owner's call
+  (BL-20261121-0611, decision 1).
 - **The order.** The owner approved local research in the desktop before the paid experiments
   E3 and E4 (the same entry, #155).
-- **The state.** 13a.1 is complete on `main`, and no beta build is cut. E2 and E6 are done, and
-  the endpoint is free.
-  - E2's second batch (#201), at 734e702 after the writer fixes (#195): Heavy stays by case 1
-    again, and Heavy had 4 of 4 graded runs accepted. That meets the beta's 3-of-4 reading, but on
-    exposed tasks, so whether it opens the beta is the owner's decision (Amendment 2, point 6).
-  - E6 (#202): no difference shown between one sample and two samples with critique and repair
-    (4 and 5 of 6 accepted), so the document-review route stays the single sample. Every loop
-    delivered its sample a on a tie.
+- **The state.** E2 and E6 are done and recorded, and no harness run is using the endpoint.
+  - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
+    at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
+    the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
+  - **E5's build** passed `pnpm check`, its doctor and the owner's rehearsal (#208), so day 1 is
+    open; no real job has run yet. On 2026-11-21 the owner let agents that mimic real users
+    proxy E5's real jobs by dispatching real tasks, once an E5 amendment registers it
+    (BL-20261121-0611-owner-e5-proxy-jobs-and-13b-answers, decision 1).
+  - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
+    the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. Then ask the owner the items of §4, item 1, by name.
+  `ls docs/build-log | tail`. Then 13b's code (§5, item 1) and E5's amendment (§5, item 2).
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
-  item 5); the push of the tag `owner-v0.2.1`, a new outside destination and real private data
-  (BL-20261117-0940-owner-direction-decisions-delegated, decision 5); #105's residues
-  (BL-20261117-0941-group-a-decided-under-delegation, decision 1). E5's jobs and verdicts, lines
-  in `.env.local`, keys and every step that needs the owner's hands are the owner's
-  (BL-20261117-0940, decision 7).
+  item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
+  decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
+  The owner approved real private documents for 13b's local review route only, and waived
+  PLAN.md §3's Phase 3 preconditions for Tier O for that route (BL-20261121-0611, decision 2);
+  other real private data stays the owner's call. The owner's own
+  E5 jobs and verdicts, lines in `.env.local`, keys and every step that needs the owner's hands
+  are the owner's (BL-20261117-0940, decision 7).
 
 ### 1. Get the work
 
-`main` is past 734e702, the merge of #195, only by docs pull requests (#196 to #202 and this
-sync). The main checkout was held at 734e702 for E2's second batch and E6; both are done, and it
-follows `main` again. Do other work in a separate worktree. Select
+`main` is past 734e702, the merge of #195, only by docs pull requests (#196 to #209 and this
+restatement). The main checkout was held at 734e702 for E2's second batch and E6, and at 69ee783
+for E2's fresh check; all are done, and it follows `main` again. Do other work in a separate
+worktree. Select
 Node 22.22.2 and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
 `engine-strict=true`, so another Node major fails the install.
 
@@ -46,17 +54,19 @@ pnpm install --frozen-lockfile
 ```
 
 CI runs on pull requests and on pushes to `main`. These merged from 04:31 UTC on 2026-11-18 to
-the morning of 2026-11-20; the draft #86 is open, and #181 is closed unmerged (§4).
+2026-11-21; the draft #86 is open, and #181 is closed unmerged (§4).
 
 | Area | Pull requests |
 | --- | --- |
 | The order and the log | #155 (the owner's approval, and E0's Amendment 6), #159 (one file per entry), #157 (source comments cite pull requests) |
 | 13a, local research in the desktop | #156 (the design), #158, #160, #162, #164, #168, #170, #175, #185 ("resolved", not "read") |
 | E0 and the research protocol | #163 (r3), #166 (the owner's gap decision), #171 (Amendment 7), #172 (the gap), #173 (card-writer options), #176 (the tolerant check), #178 (Amendment 7's result), #180 (Amendment 8), #183 (the re-probe's result), #184 (the adoption), #186 (the r3 runs under the adopted card) |
-| E2 | #187 (Amendment 1), #190 (the grading brief), #193 (the first batch's result), #194 (the owner's "Fix first"), #196 (a Correction to it), #198 (Amendment 2, the second batch), #201 (the second batch's result) |
+| E2 | #187 (Amendment 1), #190 (the grading brief), #193 (the first batch's result), #194 (the owner's "Fix first"), #196 (a Correction to it), #198 (Amendment 2, the second batch), #201 (the second batch's result), #206 (Amendment 3, the fresh check), #207 (the fresh tasks), #209 (the fresh check's result) |
 | The writer | #195 (ledger feedback and the length nudge) |
 | E6 | #177 (the grading brief), #179 (the scorer's re-pin), #197 (the grader start), #199 (the batch state), #202 (the result) |
-| Other | #189 and #200 (the handoff syncs of 2026-11-19), #191 (criterion 6 restated, on the owner's yes), #192 (a stage-resume design, `Proposed`) |
+| The owner's builds | #205 (the owner's answers of 2026-11-20), #208 (E5's rehearsal and the research beta's cut) |
+| 13b, document review in the desktop | #203 (the design, `Proposed`) |
+| Other | #189, #200 and #204 (the handoff syncs), #191 (criterion 6 restated, on the owner's yes), #192 (a stage-resume design, `Proposed`) |
 | Tests and git | #161, #165, #169 and #188 (test timeouts and waits), #167 (the e2e diagnostic), #174 (the git deadline) |
 
 **Values at 734e702.** #195 changed the writer, not the research stage. The earlier values
@@ -68,7 +78,8 @@ the morning of 2026-11-20; the draft #86 is open, and #181 is closed unmerged (�
 
 The freeze moved with #195; the protocol hash last moved with #172 and #176. Recompute both
 before any run. E2's first batch and E0's r3 runs were made at 2996218 (freeze `0b896d92…`);
-E2's second batch and E6 are made at 734e702.
+E2's second batch and E6 were made at 734e702, and E2's fresh check at 69ee783, whose source is
+the same.
 
 ### 2. Read, in this order
 
@@ -79,11 +90,12 @@ E2's second batch and E6 are made at 734e702.
 4. The E0 card, docs/experiments/e0-card-2026-11-13.md, with its Amendments 6, 7 and 8, and the
    adopted serving card, docs/experiments/serving-card-2026-11-18.json.
 5. 13a's design (BL-20261118-0438-desktop-local-research-13a-design, in the archive) and
-   13a.1's entry files. #170's description holds the beta-cut checklist.
+   13a.1's entry files. #170's description holds the beta-cut checklist. 13b's design is
+   BL-20261120-0646-desktop-document-review-13b-design, and #203's description holds its detail.
 6. The E2, E5 and E6 cards (docs/experiments/e2-, e5- and e6-card-2026-11-17.md), E2's
-   Amendments 1 and 2, and the grading briefs, docs/experiments/e2-grading-brief.md and
+   Amendments 1 to 3, and the grading briefs, docs/experiments/e2-grading-brief.md and
    e6-grading-brief.md.
-7. The entry files of 2026-11-19 and 2026-11-20 under `docs/build-log/`, newest first.
+7. The entry files of 2026-11-19 to 2026-11-21 under `docs/build-log/`, newest first.
 
 ### 3. Decided
 
@@ -174,6 +186,34 @@ E2's second batch and E6 are made at 734e702.
   and delivered sample a on a tie, so question 1 compared single samples. In pd3's second loop the
   repair (8 of 8 defects, accepted) lost on that tie to its draft (6 of 8, rejected). Planted
   defects: 46 against 44 of 48 (p 0.694); no control changed; kind guesses 12 of 24.
+- **The owner's answers of 2026-11-20** (#205, BL-20261120-0657-owner-opens-beta-with-fresh-check-and-starts-e5):
+  cut the research beta now with a fresh-task check beside it; 8 or more real jobs a week; E5
+  today; push the tag `owner-v0.2.1` (pushed).
+- **E5's rehearsal and the beta's cut** (#208, BL-20261120-1012-e5-rehearsed-and-research-beta-cut):
+  E5's build (`owner-v0.2.1`, c02366a) passed `pnpm check`, its doctor and the owner's rehearsal;
+  the beta (`owner-v0.3.0-research-beta.1`, 9812bd8) passed `pnpm check` and its doctor with the
+  adopted card. Receipts go to the ignored `.soar/experiments/e5/receipts/` and
+  `.soar/experiments/research-beta/receipts/`, and E5's tally to `.soar/experiments/e5/tally.csv`.
+- **E2's fresh check** (#206, Amendment 3; #207, the tasks; #209,
+  BL-20261120-1317-e2-fresh-check-result, `Verified`): two packets and four Heavy writer runs on
+  the fresh tasks s3 and s4. Heavy had 3 of 4 graded runs accepted, which meets the beta's
+  reading there, so the beta stays. s4's first grader accepted the decoy, so the reading rests on
+  the card's "the owner then grades, or names another grader" and the owner's choice of a second
+  grader, who rejected it. The gold gave 7, 7, 6 and 0 of 7. s3's run 1 ended after three replies
+  were cut at the 16,384-token cap.
+- **13b's design** (#203, BL-20261120-0646-desktop-document-review-13b-design, `Proposed`):
+  review-1 in the desktop as an opt-in beta route for one .docx, local only, with a record
+  version 5, an export allowlist and a scan of the document's text; 5 to 7 days in six parts.
+- **The owner's decisions of 2026-11-21** (BL-20261121-0611-owner-e5-proxy-jobs-and-13b-answers):
+  - E5's real jobs may be proxied by strong agents that mimic users, grounded in real user
+    communities' needs, dispatching real tasks, once an E5 amendment registers it. Who gives the
+    verdicts, and whether such jobs count toward the MVP measure, are open until then.
+  - 13b may run on the owner's real private documents, on its local route only; the owner
+    waived PLAN.md §3's Phase 3 preconditions for Tier O for 13b ("Waive them for 13b"), accepting
+    a plain-HTTP endpoint and an unverified box.
+  - 13b's export bundle is the six deliverables E6 graded; the flags file stays in the task's
+    record for grading and scoring (the session's choice).
+  - One synthetic desktop run is enough before an owner build of 13b, with no E6-style grading.
 - **Two other pull requests:** #191 restates criterion 6 of the review's depth bar, on the
   owner's yes; it is an input to E3's and E4's rules. #192 designs resuming a paused research
   stage, `Proposed`; the owner kept the 90-minute clock running through a pause ("Keep it for
@@ -193,48 +233,44 @@ E2's second batch and E6 are made at 734e702.
 
 ### 4. Still open, and what each blocks
 
-1. **Waiting on the owner:**
-   - whether E2's second batch, a reading on exposed tasks, opens the beta (Amendment 2, point 6),
-     and whether to replace the batch's reading, since the choice before its first run passed
-     unasked (§3). A yes leads to the beta cut by #170's checklist, with the owner's hands; a no
-     leads to a further batch on fresh tasks, which lane S-e1 would author (about a day);
-   - how many real jobs a week the owner can run in the desktop build (BL-20261118-0418,
-     decision 6);
-   - the push of the local tag `owner-v0.2.1` (BL-20261117-1157-e5-owner-build-cut);
-   - #105's residues, the session's choice put to the owner by name (BL-20261117-0941,
-     decision 1);
-   - the rehearsal and E5's day 1 (BL-20261117-1157, decision 4);
-   - the session's readings the owner may replace: s1's kept packet (#193, decision 4) and E6's
-     "fresh at the start" (BL-20261119-1732);
-   - the six questions of 13b's design (#203).
-2. **13b, the staged document review in the desktop,** comes after E6 (BL-20261118-0418). E6
-   leaves its route as the single sample, which the driver applies today. Lane S-desk's design is
-   #203, `Proposed`, with no code: a beta flag off by default as 13a's, one .docx, local only, the
-   six deliverables exported and the flags file kept out, and six questions for the owner.
-3. **The selection rule's tie step.** In every E6 loop both steps chose sample a on a tie, and in
+1. **E5's proxy jobs** need an amendment to E5's card before any counts. It registers where the
+   needs come from, how an agent turns one into a task, who gives the verdict and by what rule,
+   and the agents' cost and destinations. Whether the counts reach the MVP measure is the owner's
+   call. The owner's own jobs count meanwhile; none has run yet.
+2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
+   announced synthetic desktop run before an owner build. After that the owner may use it on real
+   private documents; the Tier O preconditions are waived for 13b (BL-20261121-0611, decision 2).
+3. **Waiting on the owner:** #105's residues (BL-20261117-0941, decision 1); the session's
+   readings the owner may replace: s1's kept packet (#193, decision 4) and E6's "fresh at the
+   start" (BL-20261119-1732).
+4. **The writer's length runaway.** E2's fresh check ended one Heavy run after three replies
+   were cut at the 16,384-token cap despite two nudges (#209). It may ground a later writer
+   change, under its own entry; none is planned.
+5. **The selection rule's tie step.** In every E6 loop both steps chose sample a on a tie, and in
    one loop that kept a rejected draft over an accepted repair. It may ground a later card, "a
    later lever under its own entry"; none is planned.
-4. **E3 and E4** have no cards. They stay as the paid assist question (BL-20261118-0418). A
+6. **E3 and E4** have no cards. They stay as the paid assist question (BL-20261118-0418). A
    reviewer of #191 read E3's frozen f1-f3 briefs, which #191 discloses; this goes to the owner
    with E3's items.
-5. **The draft #86** (the Rayline evaluation of 2026-11-13) adds a paragraph inside an earlier
+7. **The draft #86** (the Rayline evaluation of 2026-11-13) adds a paragraph inside an earlier
    "Start here", which this one replaces, so that paragraph is re-placed or dropped at its merge.
    Entries on `main` from #90, #91 and #104 cite its entry, BL-20261113-0730, which reaches
    `main` only with #86.
 
 ### 5. Act next, in this order
 
-1. **Ask the owner** for each item of §4, item 1, by name, the beta first. Record each answer in an
-   `Approved` entry, quoted, before acting on it.
-2. **If the owner opens the beta,** cut it with the owner by #170's checklist, recorded in an
-   `Approved` entry first. No beta build is cut before then
-   (BL-20261118-0659-desktop-research-e2e-and-beta-cut-plan). If the owner declines, register a
-   further E2 batch on fresh tasks by an amendment before any run.
-3. **13b's design** (#203) merges as `Proposed` after one light review. Its code waits for the
-   owner's answers to the design's questions that bear on it.
-4. **Lanes.** S-pipe: the research protocol and the writer, and #192's part (a) when its other
-   conditions are met. S-desk: 13b's design, the beta cut when the owner says so, and #192's part
-   (b). S-harn: the harness, the log's tools and the runbooks. S-e1: E2's and E6's fixtures and
+1. **13b's code** by lane S-desk, in the design's six parts, each a pull request with one light
+   review, merged on green CI. The gated Playwright case and the synthetic desktop run are
+   announced first. An owner build of 13b follows the synthetic run.
+2. **E5's amendment for proxy jobs,** drafted by the session under the review's rules (under 200
+   lines, one light review, the owner's reading choices named), before any proxy job.
+3. **The owner's jobs** in E5's build and in the beta, whenever the owner runs them: one at a time
+   on an idle endpoint, with no harness run meanwhile (E5's card, O10); the doctor before each
+   day's first E5 job; receipts saved to the ignored folders and rowed by reviewed pull requests
+   (batch `owner-real-jobs` for E5, `research-beta-1` for the beta).
+4. **Lanes.** S-pipe: the research protocol and the writer, and #192's part (a) once owner-job
+   evidence exists. S-desk: 13b's code, and #192's part (b). S-harn: the harness, the log's tools,
+   the runbooks and any proxy-job tooling E5's amendment needs. S-e1: E2's and E6's fixtures and
    their gold, which only it opens. S-assist: the next failed electron-e2e run, read before
    anyone re-runs it (BL-20261118-0800-git-command-deadline-15s).
 
@@ -294,13 +330,14 @@ E2's second batch and E6 are made at 734e702.
 
 - **What is `Verified`:** the r3 results (#163 and #186); 13a.1's gated end-to-end case (#170);
   the tolerant check and its cell (#176); Amendment 7's result (#178); the re-probe (#183); E2's
-  two batches (#193, #201); E6 (#202).
+  two batches (#193, #201) and its fresh check (#209); E6 (#202).
 - **Nothing measures research quality yet.** #163 covers no report's quality. The stage's checks
   are not a verdict on content (#178). The desktop stage has run only against loopback endpoints
   with scripted replies, and the gated case once, on one machine, outside CI (#164, #170).
 - **Counts, not rates.** E0's r3 runs and E2's batches are a few runs of three tasks, two of them
-  exposed for the second batch, and E6's 12 runs are on three synthetic files; all ran on one
-  endpoint between 2026-11-18 and 2026-11-20, and they estimate no rate (Amendment 8,
+  exposed for the second batch; E6's 12 runs are on three synthetic files, and E2's fresh check's
+  6 runs on two; all ran on one endpoint between 2026-11-18 and 2026-11-20, and they estimate no
+  rate (Amendment 8,
   item 6; E2's card). E0's inherited limits are in
   BL-20261116-1357-e0-verified.
 - **One paid run since 2026-11-07:** E0's judge labelling on 2026-11-16, USD 0.067876 by the
@@ -308,12 +345,18 @@ E2's second batch and E6 are made at 734e702.
   owner's Claude subscription; no entry since records a fee.
 - **The proxy grades are weak evidence.** E2's graders read for about a minute each and
   disagreed with the gold on every r3 run in both batches (#193, #201). E6's graders read for one
-  to two minutes, and a repair and its draft went to different graders (#202).
+  to two minutes, and a repair and its draft went to different graders (#202). E2's fresh check
+  needed a second grader after the first accepted the decoy, and its grader and gold disagreed on
+  one of four runs (#209).
+- **13b's route carries no privacy promise.** The owner waived PLAN.md's Tier O preconditions for
+  13b (BL-20261121-0611, decision 2). A private document reaches the owner's box over plain HTTP,
+  and the box's logging and egress are unverified (E5's card).
 - **The Git-review e2e flake** is diagnosed (run 44260413394: `inspect_git_changes` failed after
   5,609 ms) and its deadline raised (#174). It is not shown gone, against a base rate near 3%
   (BL-20261118-0800-git-command-deadline-15s).
 - **The adopted card rests on one probe run,** on the export's synthetic payloads; E0's three r3
-  runs, E2's two batches and E6 are its live uses so far (#186, #193, #201, #202).
+  runs, E2's two batches, E6 and E2's fresh check are its live uses so far (#186, #193, #201,
+  #202, #209).
 
 ## September 2026 record
 

@@ -36,6 +36,14 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
+  it("reads the document review beta's flag (backlog item 13b), off unless set to true, and refuses any other value", async () => {
+    const roots = await createConfigRoots(), environment = { SOAR_VLLM_MODEL: "qwen3.8-flash-next" };
+    expect(loadConfig({ ...roots, environment }).documentReviewBeta).not.toBe(true);
+    expect(loadConfig({ ...roots, environment: { ...environment, SOAR_ENABLE_DOCUMENT_REVIEW_BETA: "true" } }).documentReviewBeta).toBe(true);
+    expect(loadConfig({ ...roots, environment: { ...environment, SOAR_ENABLE_DOCUMENT_REVIEW_BETA: "false" } }).documentReviewBeta).toBe(false);
+    expect(() => loadConfig({ ...roots, environment: { ...environment, SOAR_ENABLE_DOCUMENT_REVIEW_BETA: "yes" } })).toThrow();
+  });
+
   it("enables the local reply contract only through its explicit deployment setting", async () => {
     const roots = await createConfigRoots();
     const environment = { SOAR_VLLM_MODEL: "qwen3.8-flash-next" };

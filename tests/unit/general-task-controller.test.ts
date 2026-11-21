@@ -5,9 +5,12 @@ import { execFileSync } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GENERAL_TASK_LIMITS, GeneralTaskController, VERDICT_RECEIPT_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
+import { GENERAL_TASK_LIMITS, GENERAL_TASK_WEB_LIMITS, GeneralTaskController, VERDICT_RECEIPT_KEYS, VERDICT_RECEIPT_REVIEW_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
+import { DOCUMENT_REVIEW_APPLIER_PATH, DOCUMENT_REVIEW_ARTIFACTS, DOCUMENT_REVIEW_CHECK_ID, documentReviewApplierFile, documentReviewCheck,
+  documentReviewInstructions } from "../../src/main/private-agent/document-review";
+import { buildDocxFromXml } from "../helpers/claims-fixtures";
 import type { SoarConfig } from "../../src/main/config";
-import { canonical, digest, contextFingerprint } from "../../src/main/private-agent/contracts";
+import { canonical, digest, contextFingerprint, diagnosticRetention } from "../../src/main/private-agent/contracts";
 import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { EXECUTION_PROGRESS_STOP } from "../../src/main/private-agent/progress";
@@ -1890,5 +1893,130 @@ describe("desktop local research: the disclosed gap (backlog item 13a, #172)", (
     expect(extract).toMatchObject({ chunksPlanned: 2, chunksComplete: 0, repairCalls: 2 });
     expect(extract).not.toHaveProperty("denied"); expect(extract).not.toHaveProperty("declaredGaps");
     expect(f.executions).toHaveLength(0);
+  });
+});
+
+// Backlog item 13b, part 1: the staged document review as a task (record version 5), on a loopback model endpoint.
+const REVIEW_GOAL = "Review the maintenance contract for unclear terms and missing dates.";
+const reviewDocx = () => buildDocxFromXml('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>The supplier services the lifts every month.</w:t></w:r></w:p></w:body></w:document>');
+async function reviewFixture(names: string[] = ["contract.docx"]) {
+  const server = await researchModelServer(() => "Noted."); cleanup.push(server.close);
+  const f = fixture(); f.config.documentReviewBeta = true; f.config.vllm.baseUrl = server.baseUrl;
+  const paths = names.map(name => { const path = join(f.root, name); writeFileSync(path, name.endsWith(".docx") ? reviewDocx() : "Context notes for the review.\n"); return path; });
+  const create = (overrides: Record<string, unknown> = {}) => f.controller.create({ goal: REVIEW_GOAL, inputSelectionId: f.controller.selectInputs(paths).id,
+    outputName: "review-summary.md", review: "local_beta", ...overrides } as GeneralTaskCreateInput);
+  const stored = (id: string) => JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(id) as { value: string }).value);
+  const count = () => (f.db.prepare("SELECT COUNT(*) AS n FROM general_tasks").get() as { n: number }).n;
+  return { f, server, paths, create, stored, count };
+}
+
+describe("desktop document review (backlog item 13b, part 1)", () => {
+  it("offers the review only while its flag is on, and creates it as record version 5 on the heavy profile with no public-or-synthetic declaration", async () => {
+    const { f, create, stored } = await reviewFixture();
+    expect((await f.controller.availability()).review).toEqual({ available: true, reason: expect.stringContaining("to your own model endpoint over plain HTTP, and to nothing else") });
+    const task = create();
+    expect(task.review).toEqual({ route: "local_beta", transport: "owner_waived" });
+    const record = stored(task.id);
+    expect(record).toMatchObject({ version: 5, profile: "heavy", review: { route: "local_beta", transport: "owner_waived" }, outputName: "review-summary.md" });
+    for (const key of ["research", "publicSources", "routing", "consultantIdentity", "wallMs"]) expect(record).not.toHaveProperty(key);
+    // The attestation binds what the owner declared for a review: nothing public or synthetic.
+    expect(record.attestationIdentity).toBe(digest(canonical({ publicOrSynthetic: false, goal: record.goal, phaseIdentity: record.phaseIdentity,
+      inputSnapshot: record.inputSnapshot, version: 5, publicSources: null, webLimits: GENERAL_TASK_WEB_LIMITS, review: { route: "local_beta", transport: "owner_waived" } })));
+    // A start or resume needs the flag, as a research task needs its own.
+    f.config.documentReviewBeta = false;
+    expect(await f.controller.availability()).not.toHaveProperty("review");
+    expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
+  });
+
+  it("refuses a review without its flag, beside consultation, URLs or the standard profile, under another name, or on other than exactly one .docx", async () => {
+    const one = await reviewFixture();
+    one.f.config.documentReviewBeta = false;
+    expect(() => one.create()).toThrow("general_task_review_unavailable");
+    one.f.config.documentReviewBeta = true;
+    expect(() => one.create({ routing: "ask_before_consulting" })).toThrow("general_task_review_consultation_denied");
+    expect(() => one.create({ publicSources: { urls: ["https://example.org/a"], dnsResolver: "system", allowPublicRetrieval: true } })).toThrow("general_task_review_sources_unsupported");
+    expect(() => one.create({ profile: "standard" })).toThrow("general_task_review_profile_heavy");
+    expect(() => one.create({ outputName: "notes.md" })).toThrow("general_task_review_output_invalid");
+    // The schema: no declaration on a review, never research beside one, and the declaration still required on any other task.
+    expect(() => one.create({ publicOrSynthetic: true })).toThrow();
+    expect(() => one.create({ research: "local_beta" })).toThrow();
+    expect(() => one.f.controller.create({ goal: REVIEW_GOAL, inputSelectionId: one.f.controller.selectInputs(one.paths).id, outputName: "review-summary.md" } as GeneralTaskCreateInput)).toThrow();
+    expect(one.count()).toBe(0);
+    for (const names of [["notes.md"], ["a.docx", "b.docx"]]) {
+      const other = await reviewFixture(names);
+      expect(() => other.create(), names.join(",")).toThrow("general_task_review_input_invalid");
+      expect(other.count()).toBe(0);
+    }
+  });
+
+  it("runs the driver's review-1 phase unchanged: its instructions, the six outputs with the flags file, the fidelity check and the pinned applier", async () => {
+    const { f, create } = await reviewFixture(["notes.md", "contract.docx"]);
+    const task = create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const args = f.executions[0]!, source = args.files.find(file => file.path.endsWith(".docx"))!;
+    expect(source.path).toBe("input/02-contract.docx");
+    expect(args.contract.requiredArtifacts.map(item => item.path)).toEqual(["output/review-summary.md", ...DOCUMENT_REVIEW_ARTIFACTS.map(item => item.path)]);
+    expect(args.contract.requiredChecks).toEqual(["desktop_artifact_structure", DOCUMENT_REVIEW_CHECK_ID]);
+    expect(args.contract.goal.startsWith(`${REVIEW_GOAL}\nPreserve every provided input file byte-for-byte.`)).toBe(true);
+    expect(args.contract.goal.endsWith(`\n${documentReviewInstructions(source.path)}`)).toBe(true);
+    expect(args.contract).toMatchObject({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 });
+    expect(args.files.find(file => file.path === DOCUMENT_REVIEW_APPLIER_PATH)!.bytes.equals(documentReviewApplierFile().bytes)).toBe(true);
+    expect(args.checks.find(check => check.id === DOCUMENT_REVIEW_CHECK_ID)).toEqual(documentReviewCheck({ sourcePath: source.path, sourceSha256: digest(source.bytes) }));
+  });
+
+  it("sends a review's private context to the owner's endpoint, which only a review's destination admits, and never declares it synthetic", async () => {
+    const { f, server, paths, create } = await reviewFixture();
+    const outcomes: string[] = [];
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run(signal) {
+      f.executions.push(args);
+      try { await args.model.complete([{ role: "system", content: "Review." }, { role: "user", content: "One line." }], [], signal ?? new AbortController().signal); outcomes.push("sent"); }
+      catch (error) { outcomes.push(error instanceof Error ? (error as Error & { code?: string }).code ?? error.message : String(error)); }
+      return { status: "incomplete", reason: "bounded_allowance_exhausted", snapshot: [], checks: [], modelCalls: 1 };
+    } });
+    const task = create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    // A synthetic-only destination refuses a private context before anything is sent; the review's request reached the endpoint.
+    expect(outcomes).toEqual(["sent"]); expect(server.requests).toHaveLength(1);
+    const review = new PrivateAgentStore(f.db).context(f.executions[0]!.contextId);
+    expect(review.sources.length).toBeGreaterThan(0);
+    expect(review.sources.every(source => source.classification === "private" && !source.synthetic)).toBe(true);
+    // No raw diagnostic of a review's text is kept: a context that is not wholly public or synthetic retains hashes only.
+    expect(diagnosticRetention(review)).toBe("hash_only");
+    // A plain task on the same inputs keeps its declaration, so its context is synthetic, as before.
+    const plain = f.controller.create({ goal: "Summarize the notes.", inputSelectionId: f.controller.selectInputs(paths).id, outputName: "report.md", publicOrSynthetic: true });
+    f.controller.start(plain.id); await f.controller.wait(plain.id);
+    const declared = new PrivateAgentStore(f.db).context(f.executions[1]!.contextId);
+    expect(declared.sources.every(source => source.synthetic)).toBe(true); expect(diagnosticRetention(declared)).toBe("raw");
+  });
+
+  it("refuses a stored version-5 record that is not a review's, and a review on any other version", async () => {
+    const { f, create, stored } = await reviewFixture();
+    const task = create(), record = stored(task.id), write = (value: unknown) => f.db.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical(value), task.id);
+    const { review: _route, ...unrouted } = record;
+    for (const broken of [{ ...record, profile: "standard" }, { ...record, review: { route: "cloud" } }, unrouted,
+      { ...record, research: { route: "local_beta", cardSha256: "a".repeat(64), cardDate: "2026-11-18" } },
+      { ...record, publicSources: { urls: ["https://example.org/a"], dnsResolver: "system", allowPublicRetrieval: true } }, { ...record, version: 2 }, { ...record, version: 4 }]) {
+      write(broken); expect(() => f.controller.get(task.id), JSON.stringify(broken.version)).toThrow("general_task_record_invalid");
+    }
+    write({ ...record, review: { route: "local_beta" } }); expect(() => f.controller.get(task.id)).toThrow("general_task_record_invalid");
+    write({ ...record, review: { route: "local_beta", transport: "tls" } }); expect(() => f.controller.get(task.id)).toThrow("general_task_record_invalid");
+    write(record); expect(f.controller.get(task.id).review).toEqual({ route: "local_beta", transport: "owner_waived" });
+  });
+
+  it("exports a review's receipt as version 2 with the arm E6's review-1 rows carry and the owner's transport waiver, which registry-row.py keeps on the row", async () => {
+    const { f, create } = await reviewFixture();
+    const task = create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id).status).toBe("submitted");
+    f.controller.recordVerdict({ id: task.id, decision: "accept", ownerMinutes: 5, interventions: 0, exportedThroughApp: true });
+    const receipt = f.controller.verdictReceipt(task.id), parsed = JSON.parse(receipt.bytes.toString("utf8"));
+    expect(Object.keys(parsed).sort()).toEqual([...VERDICT_RECEIPT_REVIEW_KEYS].sort());
+    expect(parsed).toMatchObject({ version: 2, arm: "local-heavy-review1", profile: "heavy", runStatus: "submitted", transport: "owner_waived" });
+    const path = join(f.root, "receipt.json"); writeFileSync(path, receipt.bytes);
+    const row = JSON.parse(execFileSync("python3", ["-I", resolve(__dirname, "..", "..", "scripts", "registry-row.py"), "--verdict-file", path, "--id", "oaj-unit-review", "--batch", "owner-real-jobs",
+      "--task", `owner-${task.id.slice(0, 8)}`, "--family", "review", "--exposure", "fresh", "--verdict-by", "owner", "--lesson", "unit"], { cwd: resolve(__dirname, "..", ".."), encoding: "utf8" }));
+    expect(row).toMatchObject({ arm: "local-heavy-review1", profile: "heavy", outcome: "accepted", transport: "owner_waived" });
+    // A plain task's receipt stays version 1, without the key, as the E5 and beta builds write it.
+    const plain = f.create(); f.controller.start(plain.id); await f.controller.wait(plain.id);
+    f.controller.recordVerdict({ id: plain.id, decision: "accept", ownerMinutes: 1, interventions: 0, exportedThroughApp: false });
+    const first = JSON.parse(f.controller.verdictReceipt(plain.id).bytes.toString("utf8"));
+    expect(first.version).toBe(1); expect(first).not.toHaveProperty("transport");
   });
 });

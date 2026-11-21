@@ -92,6 +92,8 @@ export function researchBetaFolderIssue(input: { folder: UserDataFolder; localRe
 }
 
 /** The configuration the running app sees: outside the beta folder the flag is off, whatever a settings file says later. */
-export function withResearchBetaFolder<T extends Pick<SoarConfig, "localResearchBeta">>(config: T, folder: UserDataFolder): T {
-  return folder.kind === "beta" || config.localResearchBeta !== true ? config : { ...config, localResearchBeta: false };
+export function withResearchBetaFolder<T extends Pick<SoarConfig, "localResearchBeta" | "documentReviewBeta">>(config: T, folder: UserDataFolder): T {
+  // Backlog item 13b: the document review beta is masked the same way, so it never runs in the default folder either.
+  if (folder.kind === "beta" || (config.localResearchBeta !== true && config.documentReviewBeta !== true)) return config;
+  return { ...config, ...(config.localResearchBeta === true ? { localResearchBeta: false } : {}), ...(config.documentReviewBeta === true ? { documentReviewBeta: false } : {}) };
 }

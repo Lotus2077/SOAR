@@ -130,6 +130,14 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
     expect(run(["--verdict-file", receiptFile(receipt({ arm: "local-heavy-research" })), ...operator])).toMatchObject({ arm: "local-heavy-research", profile: "heavy", outcome: "accepted" });
   });
 
+  it("rows a single-sample desktop document review under its recorded arm", () => {
+    const arm = "local-heavy-review1";
+    const args = ["--verdict-file", receiptFile(receipt({ arm })), ...operator];
+    expect(run(args)).toMatchObject({ arm, profile: "heavy", family: "document_review", outcome: "accepted", hostFlags: null });
+    expect(run([...args, "--arm", arm])).toMatchObject({ arm });
+    expect(() => run([...args, "--arm", "local-heavy"])).toThrow(/records arm 'local-heavy-review1'/u);
+  });
+
   it("refuses a receipt with any other key, a wrong version, a missing or malformed verdict, or content that is not a hash, count or enum", () => {
     const refused: [Record<string, unknown>, RegExp][] = [
       [receipt({ goal: "Translate the attached contract" }), /unknown key 'goal'/u],
@@ -152,6 +160,10 @@ describe("registry verdict rows", { timeout: 30_000 }, () => {
       [receipt({ arm: "local-heavy-research-consulted" }), /arm is not local/u],
       [receipt({ arm: "local-heavy-research", profile: "standard" }), /local-heavy-research receipt is not on the heavy profile/u],
       [receipt({ modelCalls: -1 }), /modelCalls is not a count/u],
+      [receipt({ arm: "local-heavy-review1", profile: "standard" }), /local-heavy-review1 receipt is not on the heavy profile/u],
+      [receipt({ arm: "local-heavy-review1-consulted" }), /arm is not local/u],
+      [receipt({ arm: "local-heavy-review2" }), /arm is not local/u],
+      [receipt({ arm: "local-heavy-review1", hostFlags: {} }), /unknown key 'hostFlags'/u],
       [receipt({ usd: "free" }), /usd is not a non-negative number/u],
       [receipt({ cloudModel: "gpt-6-sol" }), /no cloud model/u],
       [receipt({ entailment: { counts: { supported: 1 }, entailmentCalls: 1, truncated: false, supportRate: 1 } }), /five verdict counts/u],

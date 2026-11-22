@@ -7,7 +7,8 @@ this file; the rest of the file is the September 2026 record. "The session" is t
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
 next session takes that role. The sources are the entry files of 2026-11-18 to 2026-11-21 under
 `docs/build-log/`, pull requests #155 to #209 and this restatement's, and `main` after the merge of #209.
-The current E5 decision is BL-20261122-0525-e5-proxy-only-start.
+E5's proxy-only start is recorded in BL-20261122-0525. BL-20261122-0529-e5-proxy-target-customers
+sets the customer groups for sourcing.
 
 **In brief.**
 - **The measure.** Read each UTC Monday–Sunday week's first eight real job starts in the
@@ -258,8 +259,11 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's first real proxy job.** Read Amendment 1. Log the public need and freeze the
-   persona's acceptance notes. Check the day's price and reserve within USD 8 per task and
+1. **E5's first real proxy job.** Source a public need from a community serving private or
+   community physicians, lawyers, financial workers, scientific researchers, geeks or AI
+   content creators. The request and its community must support the persona's role and task.
+   The owner set no quota per customer group. Apply Amendment 1's privacy exclusions,
+   log the public need and freeze the persona's acceptance notes. Check the day's price and reserve within USD 8 per task and
    USD 300 total including prior spend. Scan each handoff, run the same-day doctor, confirm an
    idle exclusive endpoint and record the sampling decision at dispatch. The sourcing proxy
    judges the exported work. Keep its `proxy_agent` row and the blind grade attributed separately.

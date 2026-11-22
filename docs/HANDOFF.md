@@ -22,7 +22,7 @@ sets the order for sourcing new proxy jobs.
   - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
     at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
-  - **E5 first week: 0/8 qualifying, with the first five fixed at 0/5.** Eight proxy starts yielded one raw acceptance below the Heavy floor, four material-content rejections and three voids. All five priority groups are represented among the seven ranked starts. One researcher start predated the change. All three real blind grades agreed with their sourcing proxies. The weekly decoy's original split verdict remains in the sample. The separately registered local comparison favored the one-sentence evidence check on one synthetic case. See BL-20261122-0838-e5-first-eight-and-paired-test.
+  - **E5 first week: 0/8 qualifying, with the first five fixed at 0/5.** Eight proxy starts yielded one raw acceptance below the Heavy floor, four material-content rejections and three voids. All five priority groups are represented among the seven ranked starts. One researcher start predated the change. All three real blind grades agreed with their sourcing proxies. The weekly decoy's original split verdict remains in the sample. The one-sentence generation check helped on the first synthetic dossier. Both versions of the executive memo still recommended an action beyond the authority given (BL-20261122-0855-e5-executive-evidence-check). See BL-20261122-0838-e5-first-eight-and-paired-test.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
@@ -231,7 +231,7 @@ the same.
 
 ### 4. Still open, and what each blocks
 
-1. **E5's first weekly reading.** Eight starts supplied zero qualifying jobs. Unsupported commitments and capability claims, two tooling faults, one passive-format refusal and an acceptance below the Heavy floor explain the shortfall. The second week needs fresh sampling and a weekly decoy. The synthetic evidence-check treatment requires replication before any stock build decision.
+1. **E5's first weekly reading.** Eight starts supplied zero qualifying jobs. Unsupported commitments and capability claims, two tooling faults, one passive-format refusal and an acceptance below the Heavy floor explain the shortfall. The second week needs fresh sampling and a weekly decoy. The evidence-check instruction failed to reproduce its benefit on a second dossier. Continue ranked E5 on the qualified stock build.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
    announced synthetic desktop run before an owner build. After that the owner may use it on real
    private documents; the Tier O preconditions are waived for 13b (BL-20261121-0611, decision 2).
@@ -254,7 +254,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's next proxy job.** The November 16 UTC week's first eight are complete. The installed week-rollover operator v2 passed 44 offline checks (BL-20261122-0851-e5-week-rollover-operator). On November 23 UTC, reconcile the previous week and the seven-day owner-verdict clock, use a fresh weekly sample and decoy, check the day's price and remaining envelope, and re-run stock doctor and idle gates. Use the next eligible real public request in the brief's order. Keep the first-five reading fixed. For new intake, start with a public request from the highest-ranked customer
+1. **E5's next proxy job.** The November 16 UTC week's first eight are complete. The installed week-rollover operator v2 passed 44 offline checks (BL-20261122-0851-e5-week-rollover-operator). On November 23 UTC, reconcile the previous week and the seven-day owner-verdict clock, use a fresh weekly sample and decoy, check the day's price and remaining envelope, and re-run stock doctor and idle gates. A first-priority founder source for an enterprise-sales planning deck is screened and staged in the private intake records. Re-read and match the original source before any reservation. If it no longer qualifies, select the next eligible public request in the brief's order. Keep the first-five reading fixed. For new intake, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

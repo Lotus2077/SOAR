@@ -31,7 +31,7 @@ sets the order for sourcing new proxy jobs.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. See §5 for the owner decision required to resume proxy counting.
+  `ls docs/build-log | tail`. See §5 for the owner-authorized fresh-decoy check before counting resumes.
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
   decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
@@ -236,8 +236,8 @@ the same.
 
 ### 4. Still open, and what each blocks
 
-1. **E5's counting pause.** The weekly decoy received one acceptance. The owner decides when
-   counting resumes. Preserve the genuine proxy verdict, blind grade, decoy disagreement and
+1. **E5's counting pause.** The weekly decoy received one acceptance. The owner authorized resumption once fresh judges verify the revised material-error rule.
+   Point 5 of E5 Amendment 1 gives the pass criteria. Preserve the genuine proxy verdict, blind grade, decoy disagreement and
    Heavy-floor failure in the weekly reading.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
    announced synthetic desktop run before an owner build. After that the owner may use it on real
@@ -261,7 +261,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's next proxy job.** After the owner lifts the counting pause, start with a public request from the highest-ranked customer
+1. **E5's next proxy job.** After the recorded fresh-decoy verification passes and counting resumes, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

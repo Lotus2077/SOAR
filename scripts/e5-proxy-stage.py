@@ -72,6 +72,10 @@ CSS_FUNCTIONS = set("""
 """.split())
 CSS_TOKENS = re.compile(r'''"[^"\r\n]*"|'[^'\r\n]*'|/\*(.*?)\*/|/\*|\*/|["']''', re.S)
 
+# The complete value of a CSS content declaration may encode a decorative white square.
+CSS_CONTENT_START = re.compile(r"(?:^|[;{])[ \t\r\n]*content[ \t\r\n]*:[ \t\r\n]*\Z", re.I | re.ASCII)
+CSS_CONTENT_END = re.compile(r"[ \t\r\n]*(?:[;}]|\Z)")
+
 
 class Refusal(Exception):
     """The message is a fixed code; it must never include input or a local path."""
@@ -174,7 +178,6 @@ def scan_text(text, terms, css_openers=False):
 
 def scan_css(css):
     # Limit the grammar to static styling. CSS can fetch even bare quoted strings in @import/image-set.
-    require("\\" not in css, "opaque_content")
 
     def privacy_view(match):
         token, comment = match[0], match[1]
@@ -183,9 +186,14 @@ def scan_css(css):
             return " " + comment + " "
         # Reject unmatched delimiters and comment markup inside a quoted string.
         require(len(token) >= 2 and token[0] in "\"'" and "/*" not in token and "*/" not in token, "opaque_content")
+        if (token[1:-1].lower() == r"\25a1" and CSS_CONTENT_START.search(css, 0, match.start())
+                and CSS_CONTENT_END.match(css, match.end())):
+            return token[0] + "\u25a1" + token[-1]
         return token
 
     text = CSS_TOKENS.sub(privacy_view, css)
+    # Every other escape, including an escape inside a comment or another string, is refused.
+    require("\\" not in text, "opaque_content")
     for separator in ("", " "):
         code = CSS_TOKENS.sub(lambda m: separator if m[1] is not None else m[0], css)
         require(not re.search(r"@(?!media\b|page\b|supports\b|layer\b)", code, re.I), "opaque_content")

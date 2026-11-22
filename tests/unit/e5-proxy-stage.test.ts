@@ -157,6 +157,36 @@ describe("E5 proxy material staging", () => {
     expect(readFileSync(join(out, "schedule.docx"))).toEqual(readFileSync(file));
   });
 
+  it("preserves the original bytes of a quoted white-square content declaration", () => {
+    const { source, out } = fixture();
+    const css = String.raw`li::before { content: "\25A1"; } li::after { color: navy; content: '\25a1' }`;
+    const html = `<style>${css}</style><ul><li>Sample item</li></ul>`;
+    writeFileSync(join(source, "icons.css"), css);
+    writeFileSync(join(source, "index.html"), html);
+    expect(stage(source, out).status).toBe(0);
+    expect(readFileSync(join(out, "icons.css"), "utf8")).toBe(css);
+    expect(readFileSync(join(out, "index.html"), "utf8")).toBe(html);
+  });
+
+  it.each([
+    String.raw`li::before { content: "\25a0"; }`,
+    String.raw`li::before { content: "\25a10"; }`,
+    String.raw`li::before { content: "\25a1 more"; }`,
+    String.raw`li::before { content: "\25a1" "more"; }`,
+    String.raw`li::before { content: "\25a1" !important; }`,
+    String.raw`li::before { --other-content: "\25a1"; }`,
+    String.raw`li::before { content: \25a1; }`,
+    String.raw`li::before { /* content: "\25a1"; */ color: navy; }`,
+    String.raw`li::before { content: 'example; content: "\25a1";'; }`,
+    String.raw`li::before { content: "\25a1"; } p { font-family: "\25a1"; }`,
+  ])("keeps CSS escapes outside an exact decorative declaration opaque", css => {
+    const { root, source, out } = fixture();
+    writeFileSync(join(source, "icons.css"), css);
+    const result = stage(source, out);
+    expectRefusal(result, [root, css, "icons.css"]);
+    expect(result.stderr.trim()).toBe("opaque_content");
+  });
+
   it("preserves complete static CSS comments and scanned accessibility and data attributes", () => {
     const { source, out } = fixture();
     const css = "/* Print layout\n   for the sample */\n@media print { p { color: navy; } }";

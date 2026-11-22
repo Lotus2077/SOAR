@@ -22,16 +22,16 @@ sets the order for sourcing new proxy jobs.
   - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
     at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
-  - **E5.** The owner authorized real community-sourced proxy jobs to start now. The
-    synthetic proxy rehearsal passed on `owner-v0.2.1` and contributes zero trial jobs
-    (BL-20261121-1953). The first real proxy job, a scientific researcher’s deck, started on
-    2026-11-22 at 05:32:49 UTC. That date is proxy day 1. The job keeps its place in the
-    first five proxy starts and the week’s first eight starts. Report its result separately
-    from the newly ranked customer groups. Read the proxy first five under O4/O5.
+  - **E5 proxy counting paused on 2026-11-22.** The scientific researcher’s deck started at
+    05:32:49 UTC and was voided by a handoff fault. The first ranked executive review started at
+    05:38:29 UTC. Both the sourcing proxy and the blind grader accepted the genuine export. It
+    fell below the Heavy floor. A fresh same-persona judge accepted the weekly decoy. The owner
+    was notified under Amendment 1 point 5. Two chronological starts, one ranked start, zero
+    eligible acceptances. See BL-20261122-0542-e5-first-ranked-job-and-counting-pause.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. Run the next eligible E5 proxy job under §5 and its card.
+  `ls docs/build-log | tail`. See §5 for the owner decision required to resume proxy counting.
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
   decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
@@ -236,9 +236,9 @@ the same.
 
 ### 4. Still open, and what each blocks
 
-1. **E5's live evidence.** Reconcile the researcher start with its desktop outcome, attributed
-   proxy verdict and any blind grade. Record live sampling, decoys and weekly eligibility
-   against the card. The grader copy passed on rehearsal material (BL-20261121-2007).
+1. **E5's counting pause.** The weekly decoy received one acceptance. The owner decides when
+   counting resumes. Preserve the genuine proxy verdict, blind grade, decoy disagreement and
+   Heavy-floor failure in the weekly reading.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
    announced synthetic desktop run before an owner build. After that the owner may use it on real
    private documents; the Tier O preconditions are waived for 13b (BL-20261121-0611, decision 2).
@@ -261,7 +261,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's next proxy job.** Start with a public request from the highest-ranked customer
+1. **E5's next proxy job.** After the owner lifts the counting pause, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

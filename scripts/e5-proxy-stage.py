@@ -72,6 +72,11 @@ CSS_FUNCTIONS = set("""
 """.split())
 CSS_TOKENS = re.compile(r'''"[^"\r\n]*"|'[^'\r\n]*'|/\*(.*?)\*/|/\*|\*/|["']''', re.S)
 
+# Quoted strings and comments are single tokens; their punctuation cannot open a declaration.
+CSS_LAYOUT = re.compile(CSS_TOKENS.pattern + r"|[{}()\[\];]", re.S)
+CSS_CONTENT_PREFIX = re.compile(r"[ \t\r\n]*content[ \t\r\n]*:[ \t\r\n]*", re.I | re.ASCII)
+CSS_CONTENT_END = re.compile(r"[ \t\r\n]*(?:[;}]|\Z)")
+
 
 class Refusal(Exception):
     """The message is a fixed code; it must never include input or a local path."""
@@ -172,9 +177,40 @@ def scan_text(text, terms, css_openers=False):
     raise Refusal("opaque_content")
 
 
-def scan_css(css):
+def decorative_glyphs(css, inline):
+    # Only a flat rule (or a flat inline declaration list). Nested blocks and functions can
+    # contain declaration-shaped custom-property values, so an escape there remains opaque.
+    positions = set()
+    stack = []
+    boundary = 0
+    closing = {"}": "{", ")": "(", "]": "["}
+    expected = [] if inline else ["{"]
+    for match in CSS_LAYOUT.finditer(css):
+        token = match[0]
+        if token in ("{", "(", "["):
+            require(len(stack) < 32, "opaque_content")
+            stack.append(token)
+        elif token in closing:
+            require(stack and stack.pop() == closing[token], "opaque_content")
+        if token in ("{", ";"):
+            boundary = match.end()
+        elif (len(token) == 7 and token[0] in "\"'" and token[-1] == token[0]
+              and token[1:-1].lower() == r"\25a1" and stack == expected
+              and CSS_CONTENT_PREFIX.fullmatch(css, boundary, match.start())
+              and CSS_CONTENT_END.match(css, match.end())):
+            positions.add(match.start())
+        else:
+            # A token between the declaration boundary and content prevents a flat prefix.
+            # Leave the boundary at this token so later checks never rescan a long prefix.
+            boundary = match.start()
+    require(not stack, "opaque_content")
+    return positions
+
+
+def scan_css(css, inline=False):
     # Limit the grammar to static styling. CSS can fetch even bare quoted strings in @import/image-set.
-    require("\\" not in css, "opaque_content")
+
+    allowed = decorative_glyphs(css, inline) if "\\" in css else set()
 
     def privacy_view(match):
         token, comment = match[0], match[1]
@@ -183,9 +219,13 @@ def scan_css(css):
             return " " + comment + " "
         # Reject unmatched delimiters and comment markup inside a quoted string.
         require(len(token) >= 2 and token[0] in "\"'" and "/*" not in token and "*/" not in token, "opaque_content")
+        if match.start() in allowed:
+            return token[0] + "\u25a1" + token[-1]
         return token
 
     text = CSS_TOKENS.sub(privacy_view, css)
+    # Every other escape, including an escape inside a comment or another string, is refused.
+    require("\\" not in text, "opaque_content")
     for separator in ("", " "):
         code = CSS_TOKENS.sub(lambda m: separator if m[1] is not None else m[0], css)
         require(not re.search(r"@(?!media\b|page\b|supports\b|layer\b)", code, re.I), "opaque_content")
@@ -228,7 +268,7 @@ class VisibleHTML(HTMLParser):
                         or re.fullmatch(r"data-[a-z0-9]+(?:-[a-z0-9]+)*", name), "opaque_content")
             if value:
                 if name == "style":
-                    value = scan_css(value)
+                    value = scan_css(value, inline=True)
                 scan_text(value, self.terms)
                 require(not value.lstrip().lower().startswith("javascript:"), "opaque_content")
 

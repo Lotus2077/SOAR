@@ -7,8 +7,8 @@ this file; the rest of the file is the September 2026 record. "The session" is t
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
 next session takes that role. The sources are the entry files of 2026-11-18 to 2026-11-21 under
 `docs/build-log/`, pull requests #155 to #209 and this restatement's, and `main` after the merge of #209.
-E5's proxy-only start is recorded in BL-20261122-0525. BL-20261122-0529-e5-proxy-target-customers
-sets the customer groups for sourcing.
+BL-20261122-0525 authorizes E5's proxy-only start. BL-20261122-0533-e5-ranked-proxy-intake
+sets the order for sourcing new proxy jobs.
 
 **In brief.**
 - **The measure.** Read each UTC Monday–Sunday week's first eight real job starts in the
@@ -24,8 +24,10 @@ sets the customer groups for sourcing.
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
   - **E5.** The owner authorized real community-sourced proxy jobs to start now. The
     synthetic proxy rehearsal passed on `owner-v0.2.1` and contributes zero trial jobs
-    (BL-20261121-1953). The first evidenced real proxy desktop start sets proxy day 1.
-    Read its first five jobs under O4/O5 separately from the owner's five.
+    (BL-20261121-1953). The first real proxy job, a scientific researcher’s deck, started on
+    2026-11-22 at 05:32:49 UTC. That date is proxy day 1. The job keeps its place in the
+    first five proxy starts and the week’s first eight starts. Report its result separately
+    from the newly ranked customer groups. Read the proxy first five under O4/O5.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
@@ -234,9 +236,9 @@ the same.
 
 ### 4. Still open, and what each blocks
 
-1. **E5's live evidence.** Record the first real desktop start, receipt, attributed proxy
-   verdict and any blind grade. The grader copy passed on rehearsal material
-   (BL-20261121-2007). Live sampling, decoys and weekly eligibility need their own evidence.
+1. **E5's live evidence.** Reconcile the researcher start with its desktop outcome, attributed
+   proxy verdict and any blind grade. Record live sampling, decoys and weekly eligibility
+   against the card. The grader copy passed on rehearsal material (BL-20261121-2007).
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
    announced synthetic desktop run before an owner build. After that the owner may use it on real
    private documents; the Tier O preconditions are waived for 13b (BL-20261121-0611, decision 2).
@@ -259,11 +261,15 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's first real proxy job.** Source a public need from a community serving private or
-   community physicians, lawyers, financial workers, scientific researchers, geeks or AI
-   content creators. The request and its community must support the persona's role and task.
-   The owner set no quota per customer group. Apply Amendment 1's privacy exclusions,
-   log the public need and freeze the persona's acceptance notes. Check the day's price and reserve within USD 8 per task and
+1. **E5's next proxy job.** Start with a public request from the highest-ranked customer
+   group with a suitable need. The order is (1) high-net-worth business owners and
+   executives, including private offices, (2) independent wealth advisers and owner-led
+   registered investment advisers, (3) independent consultants and fractional executives,
+   (4) boutique law-firm partners, then (5) private-practice direct primary care and
+   concierge physicians. Use explicit professional context and never infer a poster's wealth.
+   Amendment 1 point 2 records the reserve, co-design, later and channel groups. Apply its
+   public/synthetic-only and confidentiality rules. Log the need and freeze the persona's
+   acceptance notes. Check the day's price and reserve within USD 8 per task and
    USD 300 total including prior spend. Scan each handoff, run the same-day doctor, confirm an
    idle exclusive endpoint and record the sampling decision at dispatch. The sourcing proxy
    judges the exported work. Keep its `proxy_agent` row and the blind grade attributed separately.

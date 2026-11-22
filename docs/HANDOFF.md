@@ -22,11 +22,11 @@ sets the order for sourcing new proxy jobs.
   - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
     at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
-  - **E5 proxy jobs paused at the fourth start on November 22 UTC.** The founder deck in slot 3 received a material-content rejection from its sourcing proxy and its randomly selected blind grader. The adviser website in slot 4 reached native export. Its scanner stopped the handoff before role delivery. This was the second tool fault in the week. Preserve both earlier starts and the separate November 22 judging-rule release. Four starts, three ranked, zero eligible acceptances. The first five are still open. See BL-20261122-0759-e5-ranked-starts-three-and-four and Amendment 1 point 8.
+  - **E5 first-five proxy reading on November 22 UTC: 0/5 qualifying.** The first five starts produced two tooling voids, two sourcing-proxy rejections of unsupported commitments, and one raw acceptance below the Heavy floor. Both real independent grades agreed with the original proxy. The scanner repair passed its independent rehearsal, and the fourth start retains its void. No route earns the O13 mark. The current week can reach at most three qualifying jobs in its first eight. The next ranked groups are boutique law-firm partners and DPC/concierge physicians. See BL-20261122-0811-e5-first-five-proxy-reading.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. See §5 for the tooling repair and rehearsal required before the next ranked job.
+  `ls docs/build-log | tail`. See §5 for the first-five decision and the next ranked jobs.
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
   decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
@@ -231,7 +231,7 @@ the same.
 
 ### 4. Still open, and what each blocks
 
-1. **E5's point-8 tooling pause.** The adviser website and the pre-ranking researcher deck encountered tool faults in the same week. Fix and rehearse the export handoff before another proxy start. Preserve the separate historical decoy and the verified judging-rule release.
+1. **E5's first-five outcome.** The stock generator made unsupported commitments in two judged deliverables. The other three starts comprised two tooling voids and an accepted export below the Heavy floor. Test the named generation failure separately. Preserve the historical stops, the independent scanner release, and all earlier starts.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
    announced synthetic desktop run before an owner build. After that the owner may use it on real
    private documents; the Tier O preconditions are waived for 13b (BL-20261121-0611, decision 2).
@@ -254,7 +254,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's next proxy job.** After the slot-4 scanner fault is fixed and rehearsed, continue the ranked queue with the independent consultant. For new intake, start with a public request from the highest-ranked customer
+1. **E5's next proxy job.** After the 0/5 reading, test one evidence-check instruction in a separate local diagnosis. Continue the registered E5 queue with the boutique law-firm partner workflow followed by the concierge-practice physician workflow. For new intake, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

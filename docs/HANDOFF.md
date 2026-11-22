@@ -1,34 +1,34 @@
 # SOAR handoff
 
-## Start here (2026-11-21)
+## Start here (E5 updated 2026-11-22 UTC)
 
 This section is the entrypoint for the next session. It replaces every earlier "next step" in
 this file; the rest of the file is the September 2026 record. "The session" is the coordinating
 session: it runs the lanes and the experiments on the owner's Mac, and it talks to the owner. The
 next session takes that role. The sources are the entry files of 2026-11-18 to 2026-11-21 under
 `docs/build-log/`, pull requests #155 to #209 and this restatement's, and `main` after the merge of #209.
+The current E5 decision is BL-20261122-0525-e5-proxy-only-start.
 
 **In brief.**
-- **The measure.** The MVP exit is at least 6 of 8 real owner jobs accepted in each of two
-  consecutive weeks, across at least 3 families (docs/PLAN.md §1), in the normal app build
-  (BL-20261118-0418-owner-approves-desktop-first-order-and-log-layout, decision 4). On
-  2026-11-21 the owner let agents that mimic real users proxy E5's real jobs; whether such jobs
-  count toward this measure is open until E5's amendment and the owner's call
-  (BL-20261121-0611, decision 1).
+- **The measure.** Read each UTC Monday–Sunday week's first eight real job starts in the
+  normal app. At least six must be accepted across at least three families in each of two
+  consecutive weeks. Eligible community-sourced proxy jobs can supply all eight for now.
+  Report owner and proxy counts separately. PLAN.md §1's weekly private job applies once
+  Tier O opens for the bar. E5 admits public or synthetic proxy material only.
 - **The order.** The owner approved local research in the desktop before the paid experiments
-  E3 and E4 (the same entry, #155).
+  E3 and E4 (BL-20261118-0418, #155).
 - **The state.** E2 and E6 are done and recorded, and no harness run is using the endpoint.
   - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
     at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
-  - **E5's build** passed `pnpm check`, its doctor and the owner's rehearsal (#208), so day 1 is
-    open; no real job has run yet. On 2026-11-21 the owner let agents that mimic real users
-    proxy E5's real jobs by dispatching real tasks, once an E5 amendment registers it
-    (BL-20261121-0611-owner-e5-proxy-jobs-and-13b-answers, decision 1).
+  - **E5.** The owner authorized real community-sourced proxy jobs to start now. The
+    synthetic proxy rehearsal passed on `owner-v0.2.1` and contributes zero trial jobs
+    (BL-20261121-1953). The first evidenced real proxy desktop start sets proxy day 1.
+    Read its first five jobs under O4/O5 separately from the owner's five.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. Then 13b's code (§5, item 1) and E5's amendment (§5, item 2).
+  `ls docs/build-log | tail`. Run the next eligible E5 proxy job under §5 and its card.
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
   decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
@@ -205,9 +205,9 @@ the same.
   review-1 in the desktop as an opt-in beta route for one .docx, local only, with a record
   version 5, an export allowlist and a scan of the document's text; 5 to 7 days in six parts.
 - **The owner's decisions of 2026-11-21** (BL-20261121-0611-owner-e5-proxy-jobs-and-13b-answers):
-  - E5's real jobs may be proxied by strong agents that mimic users, grounded in real user
-    communities' needs, dispatching real tasks, once an E5 amendment registers it. Who gives the
-    verdicts, and whether such jobs count toward the MVP measure, are open until then.
+  - The owner subsequently chose the sourcing proxy to judge its export against pre-dispatch
+    criteria. A fresh blind grader checks the sample. Accepted eligible proxy jobs count
+    toward the MVP measure (BL-20261121-1701, BL-20261121-1705).
   - 13b may run on the owner's real private documents, on its local route only; the owner
     waived PLAN.md §3's Phase 3 preconditions for Tier O for 13b ("Waive them for 13b"), accepting
     a plain-HTTP endpoint and an unverified box.
@@ -233,10 +233,9 @@ the same.
 
 ### 4. Still open, and what each blocks
 
-1. **E5's proxy jobs** need an amendment to E5's card before any counts. It registers where the
-   needs come from, how an agent turns one into a task, who gives the verdict and by what rule,
-   and the agents' cost and destinations. Whether the counts reach the MVP measure is the owner's
-   call. The owner's own jobs count meanwhile; none has run yet.
+1. **E5's live evidence.** Record the first real desktop start, receipt, attributed proxy
+   verdict and any blind grade. The grader copy passed on rehearsal material
+   (BL-20261121-2007). Live sampling, decoys and weekly eligibility need their own evidence.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
    announced synthetic desktop run before an owner build. After that the owner may use it on real
    private documents; the Tier O preconditions are waived for 13b (BL-20261121-0611, decision 2).
@@ -259,11 +258,14 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **13b's code** by lane S-desk, in the design's six parts, each a pull request with one light
+1. **E5's first real proxy job.** Read Amendment 1. Log the public need and freeze the
+   persona's acceptance notes. Check the day's price and reserve within USD 8 per task and
+   USD 300 total including prior spend. Scan each handoff, run the same-day doctor, confirm an
+   idle exclusive endpoint and record the sampling decision at dispatch. The sourcing proxy
+   judges the exported work. Keep its `proxy_agent` row and the blind grade attributed separately.
+2. **13b's code** by lane S-desk, in the design's six parts, each a pull request with one light
    review, merged on green CI. The gated Playwright case and the synthetic desktop run are
    announced first. An owner build of 13b follows the synthetic run.
-2. **E5's amendment for proxy jobs,** drafted by the session under the review's rules (under 200
-   lines, one light review, the owner's reading choices named), before any proxy job.
 3. **The owner's jobs** in E5's build and in the beta, whenever the owner runs them: one at a time
    on an idle endpoint, with no harness run meanwhile (E5's card, O10); the doctor before each
    day's first E5 job; receipts saved to the ignored folders and rowed by reviewed pull requests

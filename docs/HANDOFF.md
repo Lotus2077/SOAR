@@ -254,7 +254,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's next proxy job.** The November 16 UTC week's first eight are complete. On November 23 UTC, reconcile the previous week and the seven-day owner-verdict clock, use a fresh weekly sample and decoy, check the day's price and remaining envelope, and re-run stock doctor and idle gates. Use the next eligible real public request in the brief's order. Keep the first-five reading fixed. For new intake, start with a public request from the highest-ranked customer
+1. **E5's next proxy job.** The November 16 UTC week's first eight are complete. The installed week-rollover operator v2 passed 44 offline checks (BL-20261122-0851-e5-week-rollover-operator). On November 23 UTC, reconcile the previous week and the seven-day owner-verdict clock, use a fresh weekly sample and decoy, check the day's price and remaining envelope, and re-run stock doctor and idle gates. Use the next eligible real public request in the brief's order. Keep the first-five reading fixed. For new intake, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

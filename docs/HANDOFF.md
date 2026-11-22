@@ -22,16 +22,16 @@ sets the order for sourcing new proxy jobs.
   - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
     at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
-  - **E5 proxy counting paused on 2026-11-22.** The scientific researcher’s deck started at
+  - **E5 proxy counting resumed at 07:49:27 UTC on 2026-11-22.** Both fresh judges rejected the altered export for the planted error and both clean-control judges accepted. The owner-authorized release binds this four-judgment check to the previous pause (BL-20261122-0749-e5-fresh-decoy-and-resumption). The scientific researcher’s deck started at
     05:32:49 UTC and was voided by a handoff fault. The first ranked executive review started at
     05:38:29 UTC. Both the sourcing proxy and the blind grader accepted the genuine export. It
     fell below the Heavy floor. A fresh same-persona judge accepted the weekly decoy. The owner
-    was notified under Amendment 1 point 5. Two chronological starts, one ranked start, zero
+    was notified under Amendment 1 point 5. At the pause there were two chronological starts, one ranked start, and zero
     eligible acceptances. See BL-20261122-0542-e5-first-ranked-job-and-counting-pause.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
-  `ls docs/build-log | tail`. See §5 for the owner-authorized fresh-decoy check before counting resumes.
+  `ls docs/build-log | tail`. See §5 for the resumed ranked intake.
 - **Not without the owner, each asked by name:** a serving card's adoption commit (Amendment 8,
   item 5); a new outside destination (BL-20261117-0940-owner-direction-decisions-delegated,
   decision 5); #105's residues (BL-20261117-0941-group-a-decided-under-delegation, decision 1).
@@ -236,8 +236,7 @@ the same.
 
 ### 4. Still open, and what each blocks
 
-1. **E5's counting pause.** The weekly decoy received one acceptance. The owner authorized resumption once fresh judges verify the revised material-error rule.
-   Point 5 of E5 Amendment 1 gives the pass criteria. Preserve the genuine proxy verdict, blind grade, decoy disagreement and
+1. **E5's November 22 counting pause was lifted.** Both altered-export judges rejected for the planted error, and both clean judges accepted. The release at 07:49:27 UTC satisfies point 5 of E5 Amendment 1. Preserve the genuine proxy verdict, blind grade, decoy disagreement and
    Heavy-floor failure in the weekly reading.
 2. **13b's code** (lane S-desk), per #203 and the owner's answers of 2026-11-21; then one
    announced synthetic desktop run before an owner build. After that the owner may use it on real
@@ -261,7 +260,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's next proxy job.** After the recorded fresh-decoy verification passes and counting resumes, start with a public request from the highest-ranked customer
+1. **E5's next proxy job.** With the fresh check passed and counting resumed, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

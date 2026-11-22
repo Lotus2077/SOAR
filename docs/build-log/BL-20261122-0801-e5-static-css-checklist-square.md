@@ -10,7 +10,7 @@ Decisions:
 
 Changes: The E5 staging scanner recognizes this one static representation. Regression tests cover standalone CSS, HTML, byte preservation and the continued refusal of other escapes and placements.
 
-Evidence: The original refusal was reproduced locally on the pinned stock export. A local scratch run of the focused staging suite passed 51 tests. The original stayed quarantined throughout the diagnostic.
+Evidence: The original refusal was reproduced locally on the pinned stock export. After independent review tightened the handling of nested CSS contexts, the focused staging suite passed 56 tests. The original stayed quarantined throughout the diagnostic.
 
 Failures or blockers: Other unsupported formats or opaque content can still stop a handoff. Two weekly tool faults are recorded at the fourth chronological start.
 

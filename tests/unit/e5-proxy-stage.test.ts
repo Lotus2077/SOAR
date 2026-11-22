@@ -175,6 +175,10 @@ describe("E5 proxy material staging", () => {
     String.raw`li::before { content: "\25a1" "more"; }`,
     String.raw`li::before { content: "\25a1" !important; }`,
     String.raw`li::before { --other-content: "\25a1"; }`,
+    String.raw`li { --panel: { content: "\25a1"; }; }`,
+    String.raw`li { --panel: placeholder(; content: "\25a1";); }`,
+    String.raw`li { --panel: [; content: "\25a1";]; }`,
+    String.raw`@media print { li::before { content: "\25a1"; } }`,
     String.raw`li::before { content: \25a1; }`,
     String.raw`li::before { /* content: "\25a1"; */ color: navy; }`,
     String.raw`li::before { content: 'example; content: "\25a1";'; }`,
@@ -184,6 +188,19 @@ describe("E5 proxy material staging", () => {
     writeFileSync(join(source, "icons.css"), css);
     const result = stage(source, out);
     expectRefusal(result, [root, css, "icons.css"]);
+    expect(result.stderr.trim()).toBe("opaque_content");
+  });
+
+  it("uses the declaration-list context for inline styles", () => {
+    const { root, source, staging, out } = fixture();
+    const clean = String.raw`<span style="content: '\25a1';">Item</span>`;
+    writeFileSync(join(source, "index.html"), clean);
+    expect(stage(source, out).status).toBe(0);
+    expect(readFileSync(join(out, "index.html"), "utf8")).toBe(clean);
+    const nested = String.raw`<span style="--panel: { content: '\25a1'; }">Item</span>`;
+    writeFileSync(join(source, "index.html"), nested);
+    const result = stage(source, join(staging, "nested"));
+    expectRefusal(result, [root, nested]);
     expect(result.stderr.trim()).toBe("opaque_content");
   });
 

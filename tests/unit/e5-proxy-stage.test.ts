@@ -59,6 +59,12 @@ function writeDocx(file: string, paragraphs: string, extras: Record<string, stri
 }
 
 describe("E5 proxy material staging", () => {
+  it("checks prospective website intake against the passive handoff", () => {
+    const suite = resolve(__dirname, "../python");
+    const result = spawnSync("python3", ["-IB", "-m", "unittest", "discover", "-s", suite, "-p", "test_e5_website_intake.py"], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it("copies public and synthetic material before handoff and reports only counts and a digest", () => {
     const { root, source, out } = fixture();
     const files = {

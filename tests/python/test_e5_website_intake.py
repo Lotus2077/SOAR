@@ -50,10 +50,12 @@ class WebsiteIntakeTests(unittest.TestCase):
 
     def test_precomputed_request_must_reach_worker_and_plain_pages_still_fit(self):
         candidate = website.prepared_candidate(self.candidate, "views")
-        self.assertFalse(website.format_reached_worker(candidate, "Static HTML and no scripts."))
-        self.assertTrue(website.format_reached_worker(candidate, "Use fragment navigation and CSS :target, without forms."))
+        self.assertFalse(website.format_reached_worker(candidate, "Static HTML and no scripts.", ""))
+        self.assertFalse(website.format_reached_worker(candidate, "Use fragment navigation and CSS :target, without forms.", ""))
+        self.assertTrue(website.format_reached_worker(candidate, website.FORMATS["views"] + " No scripts or remote resources.", ""))
         plain = website.prepared_candidate(self.candidate, "page")
-        self.assertTrue(website.format_reached_worker(plain, "Use plain paragraphs without form controls."))
+        self.assertTrue(website.format_reached_worker(plain, website.FORMATS["page"], ""))
+        self.assertFalse(website.format_reached_worker(plain, "Use plain paragraphs without form controls.", ""))
         with self.assertRaisesRegex(website.Hold, "author_limit"):
             website.prepared_candidate({**self.candidate, "syntheticInput": "é" * 2750}, "page")
 
@@ -94,6 +96,20 @@ class WebsiteIntakeTests(unittest.TestCase):
                     self.assertEqual(website.desktop(self.root, self.root, equivalent=digest), 0)
                     self.assertEqual(native.once.call_args.args[0], op / "website-format-review.json")
                     run.reset_mock()
+
+    def test_only_an_unambiguous_worker_instruction_can_skip_coordinator_review(self):
+        candidate = website.prepared_candidate(self.candidate, "views")
+        instruction = website.FORMATS["views"]
+        self.assertTrue(website.format_reached_worker(candidate, "Show outstanding balances. " + instruction, "Synthetic numbers."))
+        self.assertFalse(website.format_reached_worker(candidate, "Show outstanding balances.", instruction))
+        self.assertFalse(website.format_reached_worker(candidate, "Do not follow this suggestion: " + instruction, ""))
+        self.assertFalse(website.format_reached_worker(candidate, instruction + " Use radio buttons for the main view.", ""))
+        self.assertFalse(website.format_reached_worker(candidate, instruction, "Do not use CSS :target; use radio controls."))
+        self.assertFalse(website.format_reached_worker(candidate,
+            "No forms in print. Use radio buttons on the page; do not use fragment navigation or CSS :target.", ""))
+        for malformed in (None, [], "not an object"):
+            with self.assertRaisesRegex(website.Hold, "website_candidate_required"):
+                website.prepared_candidate(malformed, "views")
 
     @unittest.skipUnless(os.environ.get("E5_V4_PACKAGE"), "requires the pinned, host-installed v4 operator")
     def test_installed_prepare_frozen_author_and_worker_inputs(self):
@@ -145,4 +161,4 @@ class WebsiteIntakeTests(unittest.TestCase):
         full = [job / "role/intake" / name for name in ("brief.txt", "input.txt")]
         self.assertTrue(all(frozen[p.name] == hashlib.sha256(p.read_bytes()).hexdigest() for p in full))
         self.assertTrue(website.format_reached_worker(v4.rec(job / "operator/candidate.json"),
-                                                       "\n".join(p.read_text() for p in full)))
+                                                      *(p.read_text() for p in full)))

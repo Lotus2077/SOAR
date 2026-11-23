@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ FORMATS = {
     "views": "Use same-document fragment links and CSS :target for the precomputed views, with no form controls.",
 }
 LABEL = "SOAR delivery format (technical instructions, separate from the source evidence):"
+EXCLUSIONS = "Exclude inputs, buttons, selects and labels."
 
 
 class Hold(Exception):
@@ -42,7 +44,7 @@ def checked_package(folder):
 
 
 def prepared_candidate(candidate, mode):
-    if candidate.get("family") != "website":
+    if not isinstance(candidate, dict) or candidate.get("family") != "website":
         raise Hold("website_candidate_required")
     if mode == "requires-active":
         raise Hold("website_requires_active_behavior")
@@ -55,8 +57,8 @@ def prepared_candidate(candidate, mode):
         raise Hold("missing_website_source")
     if LABEL in source:
         raise Hold("website_format_already_attached")
-    note = (f"{LABEL}\nCopy this short technical instruction into the desktop brief or attachment: {FORMATS[mode]} "
-            "Exclude inputs, buttons, selects and labels. Keep all requested behavior and ordering.")
+    note = (f"{LABEL}\nInclude this exact sentence in the desktop brief: {FORMATS[mode]} "
+            f"{EXCLUSIONS} Keep all requested behavior and ordering.")
     if mode == "views":
         note += (" Provide a default visible section and a fragment destination for every state. "
                  "Only the selected section should be visible. Tie breaking and totals must agree across views.")
@@ -78,19 +80,23 @@ def prepare(package, args):
                                str(args.original_text), str(args.policy), str(args.source_review)]).returncode
 
 
-def format_reached_worker(candidate, material):
+def format_reached_worker(candidate, brief, attachment):
     source = candidate["syntheticInput"]
     if source.count(LABEL) != 1:
         return False
     note = source.split(LABEL)[1]
-    words = " ".join(material.casefold().split())
-    excludes_forms = any(term in words for term in (
-        "no form controls", "without form controls", "avoid form controls", "exclude form controls",
-        "do not use form controls", "no forms", "without forms", "form-free",
-    ))
-    if FORMATS["views"] in note:
-        return excludes_forms and ":target" in words and "fragment" in words
-    return FORMATS["page"] in note and excludes_forms
+    guidance = next((text for text in FORMATS.values() if text in note), None)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", brief)]
+    if guidance is None or sentences.count(guidance) != 1:
+        return False
+    # The template is evidence of delivery only in the worker's instructions. Any
+    # second prescription about controls/navigation requires reading the full packet.
+    remainder = " ".join(s for s in sentences if s not in (guidance, EXCLUSIONS)) + "\n" + attachment
+    # "No scripts or remote resources" is ordinary passive brief wording.
+    remainder = re.sub(r"\b(?:no|without|do not use) (?:scripts?|javascript)\b", "", remainder, flags=re.IGNORECASE)
+    ambiguous = (r"\b(?:radio|checkbox(?:es)?|forms?|buttons?|selects?|dropdowns?|input fields?|"
+                 r"scripts?|javascript|fragments?|override|disregard|ignore)\b|:target\b|<\s*(?:input|select|label|textarea)\b")
+    return re.search(ambiguous, remainder, re.IGNORECASE) is None
 
 
 def desktop(package, root, equivalent=None, incompatible=None):
@@ -105,7 +111,7 @@ def desktop(package, root, equivalent=None, incompatible=None):
         raise Hold("native_admission_held") from None
     op = root / "operator"
     candidate = v4.rec(op / "candidate.json")
-    if candidate.get("family") != "website":
+    if not isinstance(candidate, dict) or candidate.get("family") != "website":
         raise Hold("website_candidate_required")
     # Do not race a running desktop, or produce a stop marker for a consumed position.
     with (v4.AREA / ".live-desktop.lock").open("a") as lock:
@@ -132,7 +138,7 @@ def desktop(package, root, equivalent=None, incompatible=None):
         if equivalent:
             v4.once(op / "website-format-review.json", {"status": "equivalent_passive_format",
                                                         "intakeFreezeSha256": equivalent})
-        elif not format_reached_worker(candidate, "\n".join(visible)):
+        elif not format_reached_worker(candidate, *visible):
             raise Hold("website_format_needs_coordinator_review")
     return subprocess.run([sys.executable, "-IB", str(package / "live.py"), "desktop", str(root)]).returncode
 

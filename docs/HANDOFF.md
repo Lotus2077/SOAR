@@ -255,7 +255,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5 is paused after two handoff faults in the same UTC week.** The v2 operator enforces the hold before a third start. A prospective v3 transport passed 53 offline tests. Its 48,000-byte file limit is below the second export's size. Rehearse a repair covering both sizes and record the prospective release before another reservation. The weekly decoy is outstanding. The seven-day owner-verdict check is due November 29 at 05:32:49 UTC. For new intake, start with a public request from the highest-ranked customer
+1. **E5 is paused after two handoff faults in the same UTC week.** V2 and v3 enforce the same hold. V3's 48,000-byte file limit is below the second export's size. V4 passed an independent offline rehearsal with synthetic originals and decoys at both observed sizes. The third first-priority candidate is staged. Its reservation and dispatch await the owner's explicit release for v4. The weekly decoy is outstanding. The seven-day owner-verdict check is due November 29 at 05:32:49 UTC. For new intake, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

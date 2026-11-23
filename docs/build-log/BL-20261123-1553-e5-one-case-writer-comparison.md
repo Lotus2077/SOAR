@@ -1,6 +1,6 @@
 ### BL-20261123-1553-e5-one-case-writer-comparison -- 2026-11-23 -- Compare two writers on one fresh synthetic client communication
 
-Status: `Approved`
+Status: `Verified`
 
 Scope or hypothesis: Compare the local writer's ability to turn a source into an accurate client reply with Codex's ability on the same task.
 
@@ -11,14 +11,14 @@ Decisions:
 
 Changes: A separate supplementary experiment uses the ordinary local writer model and Standard GPT-6.2 Sol as writers. Independent blind readers assess the finished answers.
 
-Evidence: The official Standard rates checked November 23 are 50 input, 2.5 cached input and 250 output credits per million tokens. The session verified the shared ledger had USD 272.6099824 headroom before registration.
+Evidence: Each writer saw the registered system and user messages once and returned one scannable, in-limit answer. Both blind readers passed GPT-6.2 Sol with zero material errors, four of four source requirements covered and three of three usefulness checks. Both rejected RM-01 with four material errors and one of three usefulness checks. The readers saw the answers in opposite orders.
 
-Failures or blockers: In the preceding desktop comparison, the local model approved a message containing unsupported commitments. The blind reader found four material errors.
+Failures or blockers: RM-01 reversed custody and collection roles and made unsupported statements about a condition and a booking. Both readers also flagged its formatting. Material errors independently failed the answer.
 
-Limitations and non-claims: The experiment covers one source-to-answer task. It awards zero E5 credit. It supplies no desktop route change or owner verdict.
+Limitations and non-claims: The result favors Standard GPT-6.2 Sol on this one synthetic task. The serving settings differed, including medium reasoning on RM-01 and low on Codex. The desktop workflow was absent from both. E5 credit and owner verdicts are zero.
 
-Paid exposure: Reserve before the one allowed turn. Record actual usage in the shared program ledger. Keep a reservation for an uncertain charge.
+Paid exposure: RM-01 settled at USD 0. Standard GPT-6.2 Sol used 324 uncached input and 140 output tokens, or 0.0512 credits at USD 0.04 each. The ledger settled USD 0.002048, released the USD 8 reservation and showed USD 272.6079344 remaining.
 
-Next gate: Bind the frozen packet and scoring criteria, confirm the local route and charge limits, then seal both answers and independent assessments before revealing the writer assignments.
+Next gate: Keep the current counted build. Replicate on additional fresh, ranked customer workflows before proposing a routing change. Additional paid comparison turns require their own approval.
 
 References: BL-20261123-1048-desktop-source-review, BL-20261121-1948-e5-proxy-codex-metering, E5 card, [official Standard rate card](https://learn.chatgpt.com/docs/pricing).

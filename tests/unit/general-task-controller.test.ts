@@ -1420,6 +1420,30 @@ describe("desktop general-task host controller", () => {
   const blobPath = (f: ReturnType<typeof fixture>, id: string, sha256: string) => join(f.root, "tasks", "checkpoints", id, sha256);
   const observationSha = (f: ReturnType<typeof fixture>, id: string) => (f.executions[0]!.store.events(id).find(event => event.executionCapture === "retained")!.executionObservation as { sha256: string }).sha256;
   const writes = (path: string, content: string) => ({ name: "write_file", args: { path, content } });
+  it.each([false, true])("projects the reviewed HTML summary and counts only actual failures (repair=%s)", async repair => {
+    const f = fixture(), path = "output/report.html";
+    const finish = (summary: string) => ({ name: "finish", args: { summary } });
+    const verdict = (artifactExcerpt: string, issues: string[]) => ({ name: "review_submission",
+      args: { artifactExcerpt, sourceExcerpt: "21", comparison: "Compared the saved quantity with the attachment.", issues } });
+    const steps = repair ? [finish("The artifact is still missing."), writes(path, "<p>12 units</p>"), finish("The first draft says 12."),
+      verdict("12 units", ["Correct the quantity."])] : [];
+    const summary = "The final report gives 21 units.";
+    runnerBacked(f, [[...steps, writes(path, "<p>21 units</p>"), finish(summary), finish("An invalid reviewer answer."),
+      verdict("absent excerpt", []), verdict("21 units", [])]]);
+    const task = f.controller.create({ goal: "Report the supplied quantity.", outputName: "report.html", profile: "heavy",
+      inputSelectionId: f.controller.selectInputs([f.input]).id, publicOrSynthetic: true });
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    const expectedIssues = repair ? ["1 finish attempt failed the host checks before the final one passed.", "1 source review returned the HTML for repair."] : [];
+    const expected = { status: "submitted", finishSummary: summary, reportedIssues: expectedIssues };
+    expect(f.controller.get(task.id)).toMatchObject(expected);
+    // Early source-review records saved the accepted bytes in the submitted snapshot alone.
+    f.db.prepare("UPDATE private_agent_events SET value = json_remove(value, '$.acceptedSourceReview') WHERE job_id = ? AND json_type(value, '$.acceptedSourceReview') = 'text'").run(task.id);
+    expect(f.controller.get(task.id)).toMatchObject(expected);
+    // A reviewer may have queued changed bytes itself. Only the writer's matching finish can supply a summary.
+    f.db.prepare("UPDATE private_agent_events SET value = json_set(value, '$.pendingSourceReview', ?) WHERE job_id = ? AND json_extract(value, '$.pendingSourceReview') = ?")
+      .run(digest("different writer draft"), task.id, digest("<p>21 units</p>"));
+    expect(f.controller.get(task.id).finishSummary).toBeUndefined();
+  });
   it.each([
     ["a deleted checkpoint blob", [writes("output/report.md", "report body A")], (f: ReturnType<typeof fixture>, id: string) => rmSync(blobPath(f, id, digest("report body A")))],
     ["a checkpoint blob holding other bytes of the same size", [writes("output/report.md", "report body B")], (f: ReturnType<typeof fixture>, id: string) => writeFileSync(blobPath(f, id, digest("report body B")), "report body X")],

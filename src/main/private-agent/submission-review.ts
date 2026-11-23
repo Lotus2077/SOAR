@@ -18,7 +18,24 @@ export const REVIEW_TOOL: GeneralToolDefinition = { type: "function", function: 
     issues: { type: "array", items: { type: "string" } },
   }, required: ["artifactExcerpt", "sourceExcerpt", "comparison", "issues"], additionalProperties: false },
 } };
-export const REVIEW_PROTOCOL = { prompt: REVIEW_PROMPT, tool: REVIEW_TOOL, version: SUBMISSION_REVIEW };
+export const REVIEW_ATTEMPT_LIMIT = 3;
+export const REVIEW_RETRY_FEEDBACK = {
+  invalid_arguments: "The previous review did not match the tool schema. Use all four required fields, short nonempty strings, and an array of issues.",
+  artifact_excerpt: "The previous artifactExcerpt was absent from the saved HTML. Copy a short, contiguous passage verbatim from the html value, preserving punctuation and case.",
+  source_excerpt: "The previous sourceExcerpt was absent from the attachments. Copy a short, contiguous passage verbatim from one sources[].text value, preserving punctuation and case.",
+  wrong_tool: "The previous action used an unavailable tool. Call only review_submission. Put any needed changes in issues for the writer.",
+  length: "The previous response hit the output limit. Use one compact review_submission call with short excerpts, a concise comparison and specific issues.",
+  no_action: "The previous response did not contain exactly one action. Make one review_submission call with all four fields.",
+} as const;
+export const REVIEW_PROTOCOL = { prompt: REVIEW_PROMPT, tool: REVIEW_TOOL, version: SUBMISSION_REVIEW,
+  retryFeedback: REVIEW_RETRY_FEEDBACK, attemptLimit: REVIEW_ATTEMPT_LIMIT };
+export type ReviewRetryReason = keyof typeof REVIEW_RETRY_FEEDBACK;
+// Reserve room for a correction when admitting the export, even when its first review needs no feedback.
+export const LONGEST_REVIEW_RETRY = (Object.keys(REVIEW_RETRY_FEEDBACK) as ReviewRetryReason[]).reduce((longer, next) =>
+  Buffer.byteLength(JSON.stringify(REVIEW_RETRY_FEEDBACK[next])) > Buffer.byteLength(JSON.stringify(REVIEW_RETRY_FEEDBACK[longer])) ? next : longer);
+export function isReviewRetryReason(value: unknown): value is ReviewRetryReason {
+  return typeof value === "string" && Object.hasOwn(REVIEW_RETRY_FEEDBACK, value);
+}
 type File = { path: string; bytes: Buffer };
 function utf8(bytes: Buffer): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -31,17 +48,19 @@ export function reviewableHtml(outputName: string, inputs: readonly File[]): boo
     try { return Boolean(utf8(file.bytes).trim()); } catch { return false; }
   });
 }
-export function submissionReviewPacket(task: string, files: readonly File[], artifact: Buffer) {
+export function submissionReviewPacket(task: string, files: readonly File[], artifact: Buffer, retry?: ReviewRetryReason) {
   const sources = files.map(file => ({ path: file.path, text: utf8(file.bytes) }));
   const html = utf8(artifact);
-  const messages: GeneralMessage[] = [{ role: "system", content: REVIEW_PROMPT },
+  const messages: GeneralMessage[] = [{ role: "system", content: retry ? `${REVIEW_PROMPT}\n${REVIEW_RETRY_FEEDBACK[retry]}` : REVIEW_PROMPT },
     { role: "user", content: canonical({ task, sources, html }) }];
   return { messages, html, sources };
 }
-export function readSubmissionReview(args: string, packet: ReturnType<typeof submissionReviewPacket>) {
+export function readSubmissionReview(args: string, packet: ReturnType<typeof submissionReviewPacket>):
+  { verdict: z.infer<typeof verdictSchema>; retry?: never } | { verdict?: never; retry: ReviewRetryReason } {
   try {
     const result = verdictSchema.parse(JSON.parse(args));
-    if (packet.html.includes(result.artifactExcerpt) && packet.sources.some(source => source.text.includes(result.sourceExcerpt))) return result;
-  } catch { /* An unbound or malformed response supplies no review. */ }
-  return undefined;
+    if (!packet.html.includes(result.artifactExcerpt)) return { retry: "artifact_excerpt" };
+    if (!packet.sources.some(source => source.text.includes(result.sourceExcerpt))) return { retry: "source_excerpt" };
+    return { verdict: result };
+  } catch { return { retry: "invalid_arguments" }; }
 }

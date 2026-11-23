@@ -245,7 +245,55 @@ describe("draft-first artifact validation and repair", () => {
     expect(f.requests[3]!.some(m => m.role === "tool" && m.content?.includes("Qualify the unconfirmed booking."))).toBe(true);
     expect(f.requests[4]!.some(m => m.role === "tool" && m.content?.includes("Repair the flagged"))).toBe(true);
     expect(f.requests[6]![1]!.content).toContain("Confirm capacity before promising delivery.");
+    expect(f.requests[7]![0]!.content).toContain("previous sourceExcerpt");
+    const recorded = f.options.store.events(f.options.jobId);
+    expect(recorded.find(event => event.rejectedSourceReview)?.rejectedSourceReview).toBe(digest("<p>Delivery is booked.</p>"));
+    expect(recorded.find(event => event.acceptedSourceReview)?.acceptedSourceReview).toBe(digest("<p>Confirm capacity before promising delivery.</p>"));
     expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(8);
+  });
+
+  it.each([
+    ["artifact_excerpt", reviewVerdict("Untrusted absent phrase", []), "previous artifactExcerpt"],
+    ["source_excerpt", reviewVerdict("Confirm capacity.", [], "Untrusted absent phrase"), "previous sourceExcerpt"],
+    ["invalid_arguments", { name: "review_submission", arguments: "Untrusted invalid arguments" }, "did not match the tool schema"],
+    ["wrong_tool", writeReport("Untrusted reviewer edit"), "used an unavailable tool"],
+    ["length", { ...finish, reply: "cut" }, "hit the output limit"],
+    ["no_action", { ...finish, reply: "text" }, "did not contain exactly one action"],
+    ["no_action", { ...finish, reply: "multi" }, "did not contain exactly one action"],
+  ] as const)("reopens a %s review retry with its host correction and only the original evidence", async (reason, badReply, correction) => {
+    const html = "<p>Confirm capacity.</p>";
+    const f = fixture([writeReport(html), finish, badReply, reviewVerdict("Confirm capacity.", [])], { phase: reviewPhase(4) });
+    const first = new GeneralAgentRunner(f.options);
+    const append = f.options.store.append.bind(f.options.store);
+    vi.spyOn(f.options.store, "append").mockImplementation((job, event) => {
+      const saved = append(job, event);
+      if (event.sourceReviewRetry === reason) first.pause();
+      return saved;
+    });
+    expect(await first.run()).toMatchObject({ status: "paused", modelCalls: 3 });
+    const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
+    const store = new PrivateAgentStore(reopened);
+    expect(store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ pendingSourceReview: digest(html), sourceReviewRetry: reason }));
+    const result = await new GeneralAgentRunner({ ...f.options, store }).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 4 });
+    const retry = f.requests[3]!;
+    expect(retry.map(m => m.role)).toEqual(["system", "user"]);
+    expect(retry[1]).toEqual(f.requests[2]![1]);
+    expect(retry[0]!.content).toContain(correction);
+    expect(JSON.stringify(retry)).not.toMatch(/Untrusted|Artifacts are ready|I will write the result now|helper excluded/u);
+    expect(f.complete.mock.calls[3]![1].map(t => t.function.name)).toEqual(["review_submission"]);
+  });
+
+  it("stops after three unusable reviews of the same export and refuses a fourth across restart", async () => {
+    const f = fixture([writeReport("<p>Confirm capacity.</p>"), finish, { ...finish, reply: "text" }, writeReport("Untrusted edit"),
+      reviewVerdict("Missing excerpt", [])], { phase: reviewPhase(9) });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "incomplete", reason: "source_review_attempts_exhausted", modelCalls: 5 });
+    expect(f.requests[3]![0]!.content).toContain("did not contain exactly one action");
+    expect(f.requests[4]![0]!.content).toContain("used an unavailable tool");
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "source_review_attempts_exhausted", modelCalls: 5 });
+    expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(5);
+    expect(f.options.store.events(f.options.jobId).some(event => event.type === "completed")).toBe(false);
   });
 
   it("cannot bypass source review at allowance exhaustion or execute a reviewer-proposed edit", async () => {
@@ -263,6 +311,7 @@ describe("draft-first artifact validation and repair", () => {
     expect(result.status).toBe("incomplete");
     expect(f.requests[2]![1]!.content).toContain("Capacity is unconfirmed.");
     expect(f.requests[3]![1]!.content).toContain("Delivery is booked.");
+    expect(f.requests[3]![0]).toEqual(f.requests[2]![0]);
     expect(result.checks).toContainEqual({ id: "desktop_source_review", passed: false });
   });
 

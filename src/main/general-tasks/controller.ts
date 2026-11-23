@@ -76,6 +76,7 @@ const fixedReasons: Record<string, string> = {
   model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
   // The runner's end at a spent model-call, tool-call or request allowance (runner.ts), when no submission passed the host's checks there.
   bounded_allowance_exhausted: "The task used its whole model-call, tool or request allowance before a submission passed the host's checks. Saved progress is retained; this task cannot resume.",
+  source_review_attempts_exhausted: "The source reviewer exhausted its attempts to supply a valid verdict for the saved export. The export is retained.",
   // Backlog item 6 (finding A6, #85): an incomplete record keeps its run's own reason. A reason's text is shown only when no
   // request or action is uncertain; none promises a resume, which the allowance, the deadline or a closing app can still withhold.
   runtime_failure_progress_preserved: "The execution runtime failed during the run; progress up to the last saved checkpoint is retained and no request or action is uncertain. A resume starts again from that checkpoint.",
@@ -153,15 +154,46 @@ function actionDetail(events: Record<string, unknown>[], event: Record<string, u
     default: return name || undefined;
   }
 }
-/** The latest plan and the final finish summary of the private context, labelled by the renderer as untrusted. */
-function projectAgentText(events: Record<string, unknown>[], contextId: string | undefined): { plan?: string; finishSummary?: string } {
-  if (!contextId) return {};
-  const own = events.filter(event => event.contextId === contextId);
-  const plan = boundedText([...own].reverse().find(event => event.type === "plan")?.plan, AGENT_TEXT_MAX_CHARS);
-  const finished = [...own].reverse().find(event => event.type === "tool_finished" && typeof event.output === "string" && (event.output as string).includes('"complete":true'));
-  const finishCall = finished ? events.flatMap(toolCallsOf).find(candidate => candidate.id === finished.toolCallId && candidate.function?.name === "finish") : undefined;
-  const finishSummary = finishCall ? boundedText(argumentsOf(finishCall).summary, AGENT_TEXT_MAX_CHARS) : undefined;
-  return { ...(plan ? { plan } : {}), ...(finishSummary ? { finishSummary } : {}) };
+/** Read completion and failures only from the host's finish/review actions in the writer context. */
+function submissionActivity(own: Record<string, unknown>[], reviewedSha: string | undefined) {
+  const summaries = new Map<string, string>(), queued = new Map<string, string>();
+  const starts = new Map<unknown, { name: "finish" | "review_submission"; callId: string }>();
+  let plan: string | undefined, finishSummary: string | undefined, failedFinishes = 0, rejectedReviews = 0;
+  let reviewing = false;
+  for (const event of own) {
+    if (event.type === "plan") plan = boundedText(event.plan, AGENT_TEXT_MAX_CHARS);
+    if (event.type === "model_finished") {
+      for (const call of toolCallsOf(event)) {
+        if (typeof call.id !== "string" || call.function?.name !== "finish") continue;
+        const text = boundedText(argumentsOf(call).summary, AGENT_TEXT_MAX_CHARS);
+        if (text) summaries.set(call.id, text);
+      }
+    }
+    if (event.type === "tool_started" && (event.name === "finish" || event.name === "review_submission") && typeof event.toolCallId === "string") {
+      starts.set(event.operationId, { name: event.name, callId: event.toolCallId });
+    }
+    if (event.type !== "tool_finished") continue;
+    const wasReviewing = reviewing;
+    reviewing = typeof event.pendingSourceReview === "string";
+    const action = starts.get(event.operationId);
+    if (!action || action.callId !== event.toolCallId) continue;
+    if (action.name === "review_submission" && typeof event.rejectedSourceReview === "string") { rejectedReviews++; continue; }
+    if (typeof event.pendingSourceReview === "string") {
+      // An invalid review can call finish too. Only the writer can queue a finish summary.
+      const summary = !wasReviewing && action.name === "finish" ? summaries.get(action.callId) : undefined;
+      if (summary) queued.set(event.pendingSourceReview, summary);
+      continue;
+    }
+    if (typeof event.output !== "string") continue;
+    let result: Record<string, unknown> | null;
+    try { result = JSON.parse(event.output); } catch { continue; }
+    if (result?.complete === true) {
+      // Early review records have no acceptedSourceReview. The submitted snapshot still binds the exact HTML.
+      if (action.name === "finish") finishSummary = summaries.get(action.callId);
+      else if (reviewedSha && (event.acceptedSourceReview === undefined || event.acceptedSourceReview === reviewedSha)) finishSummary = queued.get(reviewedSha);
+    } else if (result?.complete === false) failedFinishes++;
+  }
+  return { plan, finishSummary, failedFinishes, rejectedReviews };
 }
 const HOST_FLAG_SECTIONS = Object.freeze({ report_failed: "the report scan", argument_failed: "the argument scan", misses_failed: "the misses",
   review_failed: "the review summary" } as const);
@@ -252,10 +284,11 @@ export function hostFlagIssues(events: readonly Record<string, unknown>[], expec
   return issues;
 }
 /** Host-derived qualifications of a submission; the agent's own words never add or remove one. */
-function reportedIssues(events: Record<string, unknown>[], contextId: string | undefined, entailment: GeneralTaskEntailment | undefined, hostFlagsExpected: boolean): string[] {
-  const own = events.filter(event => !contextId || event.contextId === contextId), issues: string[] = [];
-  const failedFinishes = own.filter(event => event.type === "tool_finished" && typeof event.output === "string" && (event.output as string).includes('"complete":false')).length;
+function reportedIssues(own: Record<string, unknown>[], { failedFinishes, rejectedReviews }: ReturnType<typeof submissionActivity>,
+  entailment: GeneralTaskEntailment | undefined, hostFlagsExpected: boolean): string[] {
+  const issues: string[] = [];
   if (failedFinishes) issues.push(`${failedFinishes} finish attempt${failedFinishes === 1 ? "" : "s"} failed the host checks before the final one passed.`);
+  if (rejectedReviews) issues.push(`${rejectedReviews} source review${rejectedReviews === 1 ? "" : "s"} returned the HTML for repair.`);
   const failedValidations = own.filter(event => event.type === "host_validation_finished" && event.passed === false).length;
   if (failedValidations) issues.push(`${failedValidations} host validation${failedValidations === 1 ? "" : "s"} failed before completion.`);
   if (entailment) {
@@ -762,6 +795,9 @@ export class GeneralTaskController {
     const artifacts = snapshot.filter(file => (deliverables ? deliverables.includes(file.path) : file.path.startsWith("output/")) &&
       GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
       .map(file => ({ ...file })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    const writerEvents = events.filter(event => contextId !== undefined && event.contextId === contextId);
+    const reviewedSha = record.version === 6 && record.status === "submitted" ? record.snapshot.find(file => file.path === `output/${record.outputName}`)?.sha256 : undefined;
+    const submission = submissionActivity(writerEvents, reviewedSha);
     let bundle: GeneralTaskSnapshot["bundle"], bundleUnavailableReason: string | undefined;
     if (deliverables && artifacts.length && artifacts.length !== deliverables.length) {
       bundleUnavailableReason = "The bundle holds the review's six deliverables, and not all of them are saved. Export the files individually.";
@@ -801,10 +837,11 @@ export class GeneralTaskController {
       cleanupInProgress: record.status === "cancelled" && active,
       independentAcceptance: "not_evaluated", canResume,
       ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
-      ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
+      ...(record.profile ? { profile: record.profile } : {}), ...(submission.plan ? { plan: submission.plan } : {}),
+      ...(submission.finishSummary ? { finishSummary: submission.finishSummary } : {}),
       ...(record.review ? { review: { route: record.review.route, transport: record.review.transport } } : {}),
       ...(record.research ? { research: researchStageView(record.research, events, dispatches, active, researchTransferGaps(events, snapshot => this.checkpoints(id).load(snapshot))) } : {}),
-      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment, record.publicSources !== undefined || record.review !== undefined) } : {}),
+      ...(record.status === "submitted" ? { reportedIssues: reportedIssues(writerEvents, submission, record.entailment, record.publicSources !== undefined || record.review !== undefined) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :

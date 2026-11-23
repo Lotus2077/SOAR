@@ -363,7 +363,7 @@ export class GeneralAgentRunner {
         options.model.config.inputUsdPerMillion !== 0 || options.model.config.outputUsdPerMillion !== 0 ||
         !options.broker.zeroRiskDispatch({ destinationId: options.model.config.destinationId, method: "POST", maxFeeMicrousd: 0 }) ||
         (options.model.config.api !== undefined && options.model.config.api !== "vllm")))
-      throw new Error("general_submission_review_invalid");
+      throw new Error("general_job_contract_invalid");
     if (!options.initialEvidence && options.files.some(file => (Object.values(RESEARCH_FILES) as readonly string[]).includes(file.path)))
       throw new Error("general_initial_evidence_missing");
     const initialEvidence = options.initialEvidence ? validateResearchPresentation(options.initialEvidence, options.files) : undefined;
@@ -599,7 +599,7 @@ export class GeneralAgentRunner {
         let reviewPacket: ReturnType<typeof submissionReviewPacket> | undefined;
         if (pendingReview) {
           const artifact = checkpoints.load(snapshot).find(file => file.path === reviewedPath);
-          if (!artifact || digest(artifact.bytes) !== pendingReview) return finish("incomplete", "source_review_checkpoint_changed");
+          if (!artifact || digest(artifact.bytes) !== pendingReview) return finish("incomplete", "checkpoint_identity_mismatch");
           reviewPacket = submissionReviewPacket(contract.submissionReview!.task, reviewSources, artifact.bytes);
         }
         const requestMessages = reviewPacket?.messages ?? layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget));

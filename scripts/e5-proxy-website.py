@@ -4,6 +4,8 @@
 import argparse
 import fcntl
 import hashlib
+from html import unescape
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -15,12 +17,43 @@ import tempfile
 
 # Published v4 manifest. The wrapper delegates to v4 without changing its files or pins.
 V4_MANIFEST = "c6710a2ffa158214eba5733ae43dce00bd36c69016654ecf6f637310417dccb9"
-FORMATS = {
+LEGACY_FORMATS = {
     "page": "Use passive HTML with no form controls.",
     "views": "Use same-document fragment links and CSS :target for the precomputed views, with no form controls.",
 }
+FORMATS = {mode: sentence[:-1] + ", using ordinary visible sections with headings wherever content must start expanded and omitting the open attribute."
+           for mode, sentence in LEGACY_FORMATS.items()}
 LABEL = "SOAR delivery format (technical instructions, separate from the source evidence):"
 EXCLUSIONS = "Exclude inputs, buttons, selects and labels."
+DISCLOSURE = r"(?:<\s*details\b|\bdetails\s+(?:elements?|tags?|markup|widgets?)\b|\b(?:disclosures?|accordions?)\b)"
+EXPANDED = (r"\b(?:(?:initially|default|pre|already|starts?|begins?)[-\s]+(?:open|expanded)|"
+            r"(?:open|expanded)\s+(?:by default|on (?:page )?load|initially))\b")
+DISCLOSURE_CONFLICT = re.compile(
+    r"\bdetails\s*(?:\[\s*open\s*\]|\.open\b)|\bopen[\x60'\"]?\s+attributes?\b|"
+    + DISCLOSURE + r"[^.!?\n]{0,100}" + EXPANDED + "|" + EXPANDED + r"[^.!?\n]{0,100}" + DISCLOSURE, re.I)
+
+
+class DisclosureMarkup(HTMLParser):
+    has_open_details = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "details" and any(name == "open" for name, _ in attrs):
+            self.has_open_details = True
+
+
+def disclosure_needs_review(text):
+    text = unescape(text)
+    if DISCLOSURE_CONFLICT.search(text):
+        return True
+    if "<details" not in text.lower():
+        return False
+    parser = DisclosureMarkup()
+    try:
+        parser.feed(text)
+        parser.close()
+    except (AssertionError, ValueError):
+        return True
+    return parser.has_open_details
 
 
 class Hold(Exception):
@@ -86,6 +119,10 @@ def format_reached_worker(candidate, brief, attachment):
         return False
     note = source.split(LABEL)[1]
     guidance = next((text for text in FORMATS.values() if text in note), None)
+    prospective = guidance is not None
+    if not prospective:
+        # Frozen v4 worker packets keep the exact delivery sentence and gate they were issued.
+        guidance = next((text for text in LEGACY_FORMATS.values() if text in note), None)
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", brief)]
     if guidance is None or sentences.count(guidance) != 1:
         return False
@@ -96,7 +133,8 @@ def format_reached_worker(candidate, brief, attachment):
     remainder = re.sub(r"\b(?:no|without|do not use) (?:scripts?|javascript)\b", "", remainder, flags=re.IGNORECASE)
     ambiguous = (r"\b(?:radio|checkbox(?:es)?|forms?|buttons?|selects?|dropdowns?|input fields?|"
                  r"scripts?|javascript|fragments?|override|disregard|ignore)\b|:target\b|<\s*(?:input|select|label|textarea)\b")
-    return re.search(ambiguous, remainder, re.IGNORECASE) is None
+    return (re.search(ambiguous, remainder, re.IGNORECASE) is None and
+            (not prospective or not disclosure_needs_review(remainder)))
 
 
 def desktop(package, root, equivalent=None, incompatible=None):

@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import types
@@ -58,6 +59,58 @@ class WebsiteIntakeTests(unittest.TestCase):
         self.assertFalse(website.format_reached_worker(plain, "Use plain paragraphs without form controls.", ""))
         with self.assertRaisesRegex(website.Hold, "author_limit"):
             website.prepared_candidate({**self.candidate, "syntheticInput": "é" * 2750}, "page")
+
+    def test_new_website_modes_guide_initial_visibility_and_route_conflicting_disclosures_to_review(self):
+        for mode in ("page", "views"):
+            candidate = website.prepared_candidate(self.candidate, mode)
+            instruction = website.FORMATS[mode]
+            self.assertIn("ordinary visible sections with headings wherever content must start expanded", instruction)
+            self.assertFalse(website.format_reached_worker(candidate, website.LEGACY_FORMATS[mode], instruction))
+            plain = "Show the details of the open invoices. Include the open issues in a section with a heading."
+            self.assertTrue(website.format_reached_worker(candidate, instruction + " " + plain, "An open invoice has 21 units."))
+            for requirement in ("Use <details open> for the appendix.", 'Use <DETAILS title="a>b" OPEN="">.',
+                                "Use &lt;details open&gt;.", "The disclosure should start expanded.",
+                                "Require an initially expanded details element.", "Use details[open].",
+                                "Set the `open` attribute on the disclosure."):
+                with self.subTest(mode=mode, requirement=requirement):
+                    self.assertFalse(website.format_reached_worker(candidate, instruction, requirement))
+                    self.assertFalse(website.format_reached_worker(candidate, instruction + " " + requirement, ""))
+            self.assertTrue(website.format_reached_worker(candidate, instruction, "Use <details><summary>More</summary></details> for optional material."))
+
+    def test_previously_frozen_website_keeps_its_original_format_check(self):
+        for mode, sentence in (("page", "Use passive HTML with no form controls."),
+                               ("views", "Use same-document fragment links and CSS :target for the precomputed views, with no form controls.")):
+            previous_note = ("SOAR delivery format (technical instructions, separate from the source evidence):\n"
+                             "Include this exact sentence in the desktop brief: " + sentence +
+                             " Exclude inputs, buttons, selects and labels. Keep all requested behavior and ordering.")
+            if mode == "views":
+                previous_note += (" Provide a default visible section and a fragment destination for every state. "
+                                  "Only the selected section should be visible. Tie breaking and totals must agree across views.")
+            candidate = {**self.candidate, "syntheticInput": self.candidate["syntheticInput"] + "\n\n" + previous_note}
+            frozen = (sentence, "Use <details open> for the appendix.")
+            self.assertTrue(website.format_reached_worker(candidate, *frozen))
+            self.assertFalse(website.format_reached_worker(candidate, "", sentence))
+            self.assertFalse(website.format_reached_worker(candidate, sentence, "Use radio buttons."))
+            self.assertFalse(website.format_reached_worker(website.prepared_candidate(self.candidate, mode), *frozen))
+
+    def test_unchanged_export_scanner_stages_a_semantic_section_and_refuses_an_open_disclosure(self):
+        source = self.root / "source"
+        source.mkdir(mode=0o700)
+        policy = json.dumps({"ownerNames": ["Fictional Alias"], "endpointHosts": ["fixture.invalid"],
+                             "materialRoots": [str(self.root.resolve())]})
+        body = "<section><h2>Next steps</h2><p>Confirm the date.</p></section>"
+        for name, fragment in (("accepted", body), ("refused", "<details open><summary>Next steps</summary><p>Confirm the date.</p></details>")):
+            output = self.root / name
+            (source / "report.html").write_text(fragment)
+            result = subprocess.run([sys.executable, "-IB", str(SCRIPT.with_name("e5-proxy-stage.py")),
+                                     "--source", str(source), "--out", str(output)], capture_output=True, input=policy, text=True)
+            if name == "accepted":
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((output / "report.html").read_text(), body)
+            else:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stderr.strip(), "opaque_content")
+                self.assertFalse(output.exists())
 
     def test_desktop_gate_uses_frozen_worker_documents_and_signals_an_omission_before_click(self):
         op = self.root / "operator"

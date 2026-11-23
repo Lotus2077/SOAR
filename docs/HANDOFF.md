@@ -1,6 +1,6 @@
 # SOAR handoff
 
-## Start here (E5 updated 2026-11-22 UTC)
+## Start here (E5 updated 2026-11-23 UTC)
 
 This section is the entrypoint for the next session. It replaces every earlier "next step" in
 this file; the rest of the file is the September 2026 record. "The session" is the coordinating
@@ -18,11 +18,12 @@ sets the order for sourcing new proxy jobs.
   Tier O opens for the bar. E5 admits public or synthetic proxy material only.
 - **The order.** The owner approved local research in the desktop before the paid experiments
   E3 and E4 (BL-20261118-0418, #155).
-- **The state.** E2 and E6 are done and recorded, and no harness run is using the endpoint.
+- **The state.** E2 and E6 are done and recorded.
   - **The research beta is cut** on the owner's go (#205, #208): `owner-v0.3.0-research-beta.1`
     at 9812bd8, in its own worktree, checked, with its doctor ready. E2's fresh check (#209) met
     the beta's 3-of-4 reading on two fresh tasks, so the beta stays. No beta job has run yet.
   - **E5 first week: 0/8 qualifying, with the first five fixed at 0/5.** Eight proxy starts yielded one raw acceptance below the Heavy floor, four material-content rejections and three voids. All five priority groups are represented among the seven ranked starts. One researcher start predated the change. All three real blind grades agreed with their sourcing proxies. The weekly decoy's original split verdict remains in the sample. The one-sentence generation check helped on the first synthetic dossier. Both versions of the executive memo still recommended an action beyond the authority given (BL-20261122-0855-e5-executive-evidence-check). See BL-20261122-0838-e5-first-eight-and-paired-test.
+  - **E5 paused on November 23 after 0/2 qualifying proxy starts.** The stock desktop exported a 33,817-byte founder deck and a 65,146-byte document review. Both exceeded the live sourcing reader's 30,000-byte limit. Neither job produced a verdict or registry row. Slot 1 keeps its random selection and missing blind grade, which prevents certification of the weekly sample. See BL-20261123-0026-e5-second-week-results.
   - **Document review** stays the single sample (E6, #202). 13b's design (#203) is merged, and
     the owner answered its three questions on 2026-11-21 (the same entry), so its code is next.
 - **First,** see what moved: `gh pr list --state open`, `git log --oneline -5 origin/main` and
@@ -254,7 +255,7 @@ the same.
 
 ### 5. Act next, in this order
 
-1. **E5's next proxy job.** The November 16 UTC week's first eight are complete. The installed week-rollover operator v2 passed 44 offline checks (BL-20261122-0851-e5-week-rollover-operator). On November 23 UTC, reconcile the previous week and the seven-day owner-verdict clock, use a fresh weekly sample and decoy, check the day's price and remaining envelope, and re-run stock doctor and idle gates. A first-priority founder source for an enterprise-sales planning deck is screened and staged in the private intake records. Re-read and match the original source before any reservation. If it no longer qualifies, select the next eligible public request in the brief's order. Keep the first-five reading fixed. For new intake, start with a public request from the highest-ranked customer
+1. **E5 is paused after two handoff faults in the same UTC week.** V2 and v3 enforce the same hold. V3's 48,000-byte file limit is below the second export's size. V4 passed an independent offline rehearsal with synthetic originals and decoys at both observed sizes. The third first-priority candidate is staged. Its reservation and dispatch await the owner's explicit release for v4. The weekly decoy is outstanding. The seven-day owner-verdict check is due November 29 at 05:32:49 UTC. For new intake, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led
    registered investment advisers, (3) independent consultants and fractional executives,

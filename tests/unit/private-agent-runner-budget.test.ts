@@ -31,7 +31,7 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; toolStderr?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean;
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; maxRequestBytes?: number; checkExitCode?: number; toolStdout?: string; toolStderr?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean;
   claimsReply?: (run: "live" | "verify") => { exitCode: number; stdout: string } | undefined; firstLedgerCheck?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
@@ -50,7 +50,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     accountId: "fixture", credentialVersion: 0, privateDataAdmitted: true, loopbackFixture: true, maxResponseBytes: 65536, timeoutMs: 1000 }],
   { scan: async () => { throw new Error("No scanner or transport is allowed in this unit fixture."); } });
   const model = new PrivateAgentModel(broker, { destinationId: "model", model: "synthetic", maxOutputTokens: 4096,
-    inputUsdPerMillion: limits.priced ? 2 : 0, outputUsdPerMillion: limits.priced ? 10 : 0, thinking: "disabled" }, jobId, contextId);
+    inputUsdPerMillion: limits.priced ? 2 : 0, outputUsdPerMillion: limits.priced ? 10 : 0, thinking: "disabled",
+    ...(limits.maxRequestBytes ? { maxRequestBytes: limits.maxRequestBytes } : {}) }, jobId, contextId);
   const options: GeneralJobOptions = { jobId, contextId, store, broker, model, files, contract,
     ...(limits.phase?.initialEvidence ? { initialEvidence: limits.phase.initialEvidence } : {}),
     ...(limits.firstLedgerCheck ? { claimsCheckOnFirstLedger: true } : {}),
@@ -215,6 +216,83 @@ describe("research presentation through the real writer serializer", () => {
 });
 
 describe("draft-first artifact validation and repair", () => {
+  const reportPath = "output/report.html";
+  const writeReport = (content: string): Action => ({ name: "write_file", arguments: JSON.stringify({ path: reportPath, content }) });
+  const reviewVerdict = (artifactExcerpt: string, issues: string[], sourceExcerpt = "capacity is unconfirmed"): Action => ({
+    name: "review_submission", arguments: JSON.stringify({ artifactExcerpt, sourceExcerpt,
+      comparison: "The source records no confirmed booking.", issues }),
+  });
+  const reviewPhase = (maxCalls: number): SessionPhase => ({
+    contract: { version: 1, goal: "Prepare a delivery decision.", submissionReview: { version: "local_source_html_v1", task: "Prepare a delivery decision." },
+      requiredArtifacts: [{ path: reportPath, description: "Delivery plan" }], requiredChecks: ["fixture_check"],
+      maxModelCalls: maxCalls, maxToolCalls: maxCalls, maxElapsedMs: 10000 },
+    files: [{ path: "input/source.txt", bytes: Buffer.from("Modeled capacity is unconfirmed.") },
+      { path: "tools/helper.py", bytes: Buffer.from("# helper excluded from source evidence") }],
+    checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }],
+  });
+
+  it("isolates source review, binds its excerpts, and requires a repaired HTML export after a material rejection", async () => {
+    const f = fixture([writeReport("<p>Delivery is booked.</p>"), finish, reviewVerdict("Delivery is booked.", ["Qualify the unconfirmed booking."]),
+      finish, writeReport("<p>Confirm capacity before promising delivery.</p>"), finish,
+      reviewVerdict("Confirm capacity", [], "nonexistent evidence"), reviewVerdict("Confirm capacity", [])], { phase: reviewPhase(8) });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 8, checks: [{ id: "fixture_check", passed: true }, { id: "desktop_source_review", passed: true }] });
+    const review = f.requests[2]!;
+    expect(review.map(message => message.role)).toEqual(["system", "user"]);
+    expect(JSON.parse(review[1]!.content!)).toMatchObject({ sources: [{ path: "input/source.txt" }], html: "<p>Delivery is booked.</p>" });
+    expect(review[1]!.content).not.toContain("helper excluded");
+    expect(f.complete.mock.calls[2]![1].map(t => t.function.name)).toEqual(["review_submission"]);
+    expect(f.requests[3]!.some(m => m.role === "tool" && m.content?.includes("Qualify the unconfirmed booking."))).toBe(true);
+    expect(f.requests[4]!.some(m => m.role === "tool" && m.content?.includes("Repair the flagged"))).toBe(true);
+    expect(f.requests[6]![1]!.content).toContain("Confirm capacity before promising delivery.");
+    expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(8);
+  });
+
+  it("cannot bypass source review at allowance exhaustion or execute a reviewer-proposed edit", async () => {
+    const f = fixture([writeReport("<p>Delivery is booked.</p>"), finish, writeReport("<p>Should never execute.</p>")], { phase: reviewPhase(3) });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted" });
+    expect(f.options.checkpoints.load(result.snapshot).find(file => file.path === reportPath)?.bytes.toString()).toBe("<p>Delivery is booked.</p>");
+  });
+
+  it("withholds a passing review if the captured HTML changed, and grades the new bytes in a fresh turn", async () => {
+    const f = fixture([writeReport("<p>Capacity is unconfirmed.</p>"), finish, reviewVerdict("Capacity is unconfirmed.", []),
+      reviewVerdict("Delivery is booked.", ["Remove the unapproved promise."])], { phase: reviewPhase(4) });
+    f.afterResponse(count => { if (count === 3) f.mutateWorkspace(reportPath, Buffer.from("<p>Delivery is booked.</p>")); });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result.status).toBe("incomplete");
+    expect(f.requests[2]![1]!.content).toContain("Capacity is unconfirmed.");
+    expect(f.requests[3]![1]!.content).toContain("Delivery is booked.");
+    expect(result.checks).toContainEqual({ id: "desktop_source_review", passed: false });
+  });
+
+  it("resumes the outstanding readback from its frozen checkpoint, within the original model allowance", async () => {
+    const f = fixture([writeReport("<p>Confirm capacity.</p>"), finish, reviewVerdict("Confirm capacity.", [])], { phase: reviewPhase(3) });
+    const runner = new GeneralAgentRunner(f.options);
+    const append = f.options.store.append.bind(f.options.store);
+    vi.spyOn(f.options.store, "append").mockImplementation((job, event) => {
+      const result = append(job, event);
+      if (event.type === "tool_finished" && event.pendingSourceReview) runner.pause();
+      return result;
+    });
+    expect((await runner.run()).status).toBe("paused");
+    expect(f.complete).toHaveBeenCalledTimes(2);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    expect(f.requests[2]!.map(m => m.role)).toEqual(["system", "user"]);
+    expect(f.requests[2]![1]!.content).toContain("Confirm capacity.");
+  });
+
+  it("requests a smaller saved export if its complete review packet exceeds the existing model request limit", async () => {
+    const f = fixture([{ name: "execute", arguments: '{"command":"generate large HTML"}' }, finish, writeReport("<p>Confirm capacity.</p>"),
+      finish, reviewVerdict("Confirm capacity.", [])], { phase: reviewPhase(5), maxRequestBytes: 5000 });
+    f.afterExecute(command => {
+      if (command === "generate large HTML") f.mutateWorkspace(reportPath, Buffer.from("<p>" + "g".repeat(9000) + "</p>"));
+    });
+    expect((await new GeneralAgentRunner(f.options).run()).status).toBe("completed");
+    expect(f.requests[2]!.some(m => m.role === "tool" && m.content?.includes("exceed the review request limit"))).toBe(true);
+    expect(f.requests[4]![1]!.content).toContain("Confirm capacity.");
+  });
+
   it("preserves an incremental draft, rejects its failed check, repairs it and finishes within the original allowance", async () => {
     const limits = { maxModelCalls: 4, maxToolCalls: 4, checkExitCode: 1 };
     const f = fixture([

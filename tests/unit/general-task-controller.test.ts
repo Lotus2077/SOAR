@@ -681,6 +681,25 @@ describe("desktop general-task host controller", () => {
     const after = JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
     expect(after.version).toBe(1); expect(after.phaseIdentity).toBe(record.phaseIdentity); expect(after.attestationIdentity).toBe(record.attestationIdentity);
   });
+  it("enables source readback on new Heavy file-backed HTML jobs and preserves ordinary offline routes", async () => {
+    const f = fixture();
+    for (const [profile, outputName, expectedVersion] of [["heavy", "plan.html", 6], ["standard", "plan.html", 2], ["heavy", "memo.md", 2]] as const) {
+      const task = f.controller.create({ goal: "Plan staffing from the supplied CSV.", profile, outputName,
+        inputSelectionId: f.controller.selectInputs([f.input]).id, publicOrSynthetic: true });
+      const persisted = JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
+      expect(persisted.version).toBe(expectedVersion);
+      f.controller.start(task.id); await f.controller.wait(task.id);
+      const phase = f.executions.at(-1)!;
+      if (expectedVersion === 6) {
+        expect(phase.contract.submissionReview).toEqual({ version: "local_source_html_v1", task: "Plan staffing from the supplied CSV." });
+        expect(phase.files.map(file => file.path)).toEqual(["input/01-source.csv", "tools/soar_capacity.py"]);
+        expect(phase.contract.goal).toContain("from the same source data");
+      } else {
+        expect(phase.contract.submissionReview).toBeUndefined();
+        expect(phase.files.map(file => file.path)).toEqual(["input/01-source.csv"]);
+      }
+    }
+  });
   it("copies native-selected bytes before create, uses one selection once and exposes no host path", async () => {
     const f = fixture(), selection = f.controller.selectInputs([f.input]);
     writeFileSync(f.input, "changed after selection");

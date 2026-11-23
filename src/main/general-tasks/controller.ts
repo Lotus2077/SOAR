@@ -34,7 +34,7 @@ import { bundleManifest, buildArtifactBundle } from "./artifact-bundle";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "../private-agent/progress";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck, isEntailmentDispatch } from "../private-agent/claims";
-import { reviewableHtml, SUBMISSION_REVIEW, WRITER_REVIEW_INSTRUCTIONS } from "../private-agent/submission-review";
+import { INDEXED_SUBMISSION_REVIEW, reviewableHtml, SUBMISSION_REVIEW, WRITER_REVIEW_INSTRUCTIONS } from "../private-agent/submission-review";
 import { capacityReportFile, capacityReportGuidance } from "./capacity-report";
 import { isBlockingDispatch, isResolvedDispatch } from "../private-agent/store";
 import { isAssistDispatch } from "../private-agent/dispatch-purposes";
@@ -303,7 +303,7 @@ function reportedIssues(own: Record<string, unknown>[], { failedFinishes, reject
 }
 
 interface TaskRecord {
-  version: 1 | 2 | 3 | 4 | 5 | 6; id: string; goal: string; outputName: string; createdAt: number; updatedAt: number; revision: number;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7; id: string; goal: string; outputName: string; createdAt: number; updatedAt: number; revision: number;
   status: GeneralTaskSnapshot["status"]; reason: string; inputs: GeneralTaskInputFile[]; inputSnapshot: WorkspaceSnapshot;
   snapshot: WorkspaceSnapshot; phaseIdentity: string; configurationIdentity: string; attestationIdentity: string;
   startedAt: number | null; checks: { id: string; passed: boolean }[];
@@ -416,8 +416,8 @@ export class GeneralTaskController {
     const row = this.options.database.prepare("SELECT value FROM general_tasks WHERE id=?").get(id) as { value: string } | undefined;
     if (!row) throw new Error("general_task_missing");
     const record = JSON.parse(row.value) as TaskRecord;
-    if (![1, 2, 3, 4, 5, 6].includes(record.version) || record.id !== id || record.version === 1 && record.publicSources !== undefined ||
-        record.version === 6 && (record.publicSources !== undefined || record.profile === "standard" || !/\.html?$/iu.test(record.outputName)) ||
+    if (![1, 2, 3, 4, 5, 6, 7].includes(record.version) || record.id !== id || record.version === 1 && record.publicSources !== undefined ||
+        record.version >= 6 && (record.publicSources !== undefined || record.profile === "standard" || !/\.html?$/iu.test(record.outputName)) ||
         record.version === 3 && (record.routing !== "ask_before_consulting" || !/^[a-f0-9]{64}$/u.test(record.consultantIdentity ?? "")) ||
         record.version !== 3 && (record.routing !== undefined || record.consultantIdentity !== undefined) ||
         // A document review (version 5) runs the heavy profile on one .docx and the local model alone: no consultation, typed URLs or research.
@@ -578,13 +578,14 @@ export class GeneralTaskController {
       check: claimsLedgerCheck({ reportPath: target, sources: claimSources, publicSources: retrieval }) } : undefined;
     // Under the twelve-call research bound the ledger is written in the last calls, so the host checks it once when it first appears.
     const firstLedgerCheck = ledger !== undefined && record.research !== undefined && (this.options.testing?.researchWriteBound ?? DESKTOP_RESEARCH_WRITE_BOUND) === "twelve-call";
-    const reviewInstructions = record.version === 6 ? `\n${WRITER_REVIEW_INSTRUCTIONS}\n${capacityReportGuidance}` : "";
+    const reviewVersion = record.version === 7 ? INDEXED_SUBMISSION_REVIEW : record.version === 6 ? SUBMISSION_REVIEW : undefined;
+    const reviewInstructions = reviewVersion ? `\n${WRITER_REVIEW_INSTRUCTIONS}\n${capacityReportGuidance}` : "";
     const phase: SessionPhase = { contract: { version: 1, goal: `${record.goal}\nPreserve every provided input file byte-for-byte. Write the required deliverable to ${JSON.stringify(target)}.${publicInstructions}${ledger?.instructions ?? ""}${reviewInstructions}`,
-      ...(record.version === 6 ? { submissionReview: { version: SUBMISSION_REVIEW, task: record.goal } } : {}),
+      ...(reviewVersion ? { submissionReview: { version: reviewVersion, task: record.goal } } : {}),
       requiredArtifacts: [{ path: target, description: "The user's requested deliverable." }, ...(ledger ? [{ path: CLAIMS_LEDGER_PATH, description: "Claims ledger: one verbatim source quote per material claim." }] : [])],
       requiredChecks: ["desktop_artifact_structure", ...(ledger ? [CLAIMS_LEDGER_CHECK_ID] : [])],
       maxModelCalls: this.writeLimits(record).modelCalls, maxToolCalls: this.writeLimits(record).toolCalls, maxElapsedMs: this.writeLimits(record).elapsedMs },
-      files: record.version === 6 ? [...files, capacityReportFile()] : files,
+      files: reviewVersion ? [...files, capacityReportFile()] : files,
     checks: [...(ledger ? [ledger.check] : []), { id: "desktop_artifact_structure", python: `import base64, hashlib, json\nfrom pathlib import Path\nspec=json.loads(base64.b64decode('${expected}'))\nfor item in spec['inputs']:\n    p=Path(item['path'])\n    assert p.is_file() and not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256']\np=Path(spec['target'])\nassert p.is_file() and not p.is_symlink() and p.stat().st_size>0` }],
       ...(firstLedgerCheck ? { claimsCheckOnFirstLedger: true as const } : {}) };
     // Backlog item 13b: a document review is the headless driver's own route, review-1: `withDocumentReview` adds the pinned applier, its
@@ -657,7 +658,7 @@ export class GeneralTaskController {
     const id = randomUUID(), now = Date.now(), store = this.checkpoints(id);
     // The phase is built before any input is saved, so a refusal while building it leaves nothing behind.
     const version = research ? 4 : review ? 5 : consultant ? 3 : !input.publicSources && profile.name === "heavy" &&
-      reviewableHtml(task.outputName, selection.files) ? 6 : 2;
+      reviewableHtml(task.outputName, selection.files) ? 7 : 2;
     const phase = this.phase({ ...task, version, inputs: selection.metadata }, selection.files), inputSnapshot = store.save(selection.files);
     const phaseIdentity = sessionPhaseIdentity(phase);
     const record: TaskRecord = { version, id, goal: input.goal, outputName: input.outputName, createdAt: now, updatedAt: now, revision: 0, status: "queued", reason: "queued",
@@ -796,7 +797,7 @@ export class GeneralTaskController {
       GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
       .map(file => ({ ...file })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
     const writerEvents = events.filter(event => contextId !== undefined && event.contextId === contextId);
-    const reviewedSha = record.version === 6 && record.status === "submitted" ? record.snapshot.find(file => file.path === `output/${record.outputName}`)?.sha256 : undefined;
+    const reviewedSha = record.version >= 6 && record.status === "submitted" ? record.snapshot.find(file => file.path === `output/${record.outputName}`)?.sha256 : undefined;
     const submission = submissionActivity(writerEvents, reviewedSha);
     let bundle: GeneralTaskSnapshot["bundle"], bundleUnavailableReason: string | undefined;
     if (deliverables && artifacts.length && artifacts.length !== deliverables.length) {

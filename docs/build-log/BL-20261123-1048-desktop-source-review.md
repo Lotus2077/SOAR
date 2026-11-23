@@ -13,12 +13,12 @@ Changes: New local Heavy HTML jobs with compact text attachments use a fresh rev
 
 Evidence: Regression tests cover material rejection and repair, binding a review to the exact export, restart, dispatch limits, saved task compatibility and staffing calculations. A synthetic offline invoice passed the scanner and switched between all four requested filter and sort states in Electron. The matched trial was registered before generation.
 
-Failures or blockers: Five sourcing proxies rejected November 23 exports for material errors. The passive scanner separately refused an invoice page that used enabled radio controls.
+Failures or blockers: Both controls in the original comparison failed blind grading. Neither candidate exported. The staffing run stopped on host contention. A hidden length limit and exact quotation matching prevented a valid client review. The next desktop revision identifies the saved passages for the reviewer.
 
 Limitations and non-claims: The prospective comparison covers two workflows and takes no owner verdict.
 
 Paid exposure: Zero paid calls authorized for this diagnostic.
 
-Next gate: Verify both builds, check the desktop and idle endpoint, run the registered comparison and seal the independent grades.
+Next gate: Complete the separately registered staffing comparison and the two-case verification of the revised interface. Use an exclusive desktop and idle endpoint and seal blind grades before unmasking.
 
 References: BL-20261123-0737-e5-v4-ranked-jobs, BL-20261122-0855-e5-executive-evidence-check, E5 matched desktop workflow comparison.

@@ -257,7 +257,7 @@ the same.
 ### 5. Act next, in this order
 
 1. **Check the owner-verdict clock before the next weekly cohort.** The November 23 week has all eight starts. The seven-day owner check falls on November 29 at 05:32:49 UTC. If seven days have passed without an owner verdict, pause E5 and talk with the owner. A declared owner absence pauses the clock. November 30 at 00:00 UTC is the earliest start of the next first-eight cohort, subject to that gate and fresh daily checks. V4 carries the scoped transport approval from BL-20261123-0722-e5-v4-prospective-release. V2 and v3 retain the hold.
-   - **Proposed product diagnostic.** Exercise a fresh case where an export must distinguish confirmed facts from assumptions before recommending a consequential action. Have a blind reviewer check the recommendation against the supplied evidence. The earlier prompt-only comparison met its criterion on one of two cases (BL-20261122-0855-e5-executive-evidence-check).
+   - **Desktop export fixes in draft #237.** The candidate supplies one calculation for staffing tables and summaries and checks saved HTML against the source before submission. The prospective E5 website intake supports finite filter and sort views using passive HTML. BL-20261123-1048-desktop-source-review records the same-model comparisons on fresh synthetic jobs outside the trial. Use the build specified in the E5 card for counted runs.
    - For new intake, start with a public request from the highest-ranked customer
    group with a suitable need. The order is (1) high-net-worth business owners and
    executives, including private offices, (2) independent wealth advisers and owner-led

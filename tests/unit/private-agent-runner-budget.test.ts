@@ -231,6 +231,53 @@ describe("draft-first artifact validation and repair", () => {
     checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }],
   });
 
+  it("accepts indexed review of entity-encoded, styled HTML without copying its wording or supplying a rationale", async () => {
+    const heading = " ".repeat(510) + "🧪", html = "\ufeff" + heading + '<p>R&amp;D <strong>must confirm</strong> capacity.</p>\r\n';
+    const phase = reviewPhase(5);
+    phase.contract.submissionReview!.version = "local_source_html_v2";
+    const source = "\ufeffR&D capacity: unknown.\r\nContact the account owner.\r\n";
+    phase.files.push({ path: "input/detail.md", bytes: Buffer.from(source) });
+    const verdict = (sourceId: string): Action => ({ name: "review_submission", arguments: JSON.stringify({ artifactId: "H2", sourceId, issues: [] }) });
+    const f = fixture([writeReport(html), finish, { ...verdict("S2"), reply: "length" }, verdict("unissued"), verdict("S2")], { phase });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 5 });
+    const packet = JSON.parse(f.requests[2]![1]!.content!) as { html: { id: string; text: string }[]; sources: { path: string; slices: { id: string; text: string }[] }[] };
+    expect(packet.html.map(part => part.text).join("")).toBe(html);
+    expect(packet.html.map(part => part.id)).toEqual(["H1", "H2"]);
+    expect(packet.sources.map(file => file.slices.map(part => part.id))).toEqual([["S1"], ["S2"]]);
+    expect(packet.sources[1]!.slices.map(part => part.text).join("")).toBe(source);
+    expect(f.requests[3]![0]!.content).toContain("output limit");
+    expect(f.requests[4]![0]!.content).toContain("Choose sourceId");
+    expect(f.requests[4]![1]).toEqual(f.requests[2]![1]);
+    expect(f.complete.mock.calls[2]![1][0]!.function.parameters).toMatchObject({
+      type: "object", additionalProperties: false, required: ["artifactId", "sourceId", "issues"],
+      properties: { artifactId: { enum: ["H1", "H2"] }, sourceId: { enum: ["S1", "S2"] }, issues: { type: "array", items: { type: "string", pattern: "\\S" } } },
+    });
+    expect(f.options.store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ acceptedSourceReview: digest(html) }));
+  });
+
+  it("sends repairs to the writer when an indexed reviewer gives a valid long rationale, then requires review of the changed bytes", async () => {
+    const phase = reviewPhase(6);
+    phase.contract.submissionReview!.version = "local_source_html_v2";
+    const draft = "<p>R&amp;D <b>guarantees</b> capacity.</p>";
+    const repaired = "<p>R&amp;D must confirm capacity.</p>";
+    const verdict = (issues: string[], comparison?: string): Action => ({ name: "review_submission",
+      arguments: JSON.stringify({ artifactId: "H1", sourceId: "S1", issues, comparison }) });
+    const issue = "Make capacity conditional on confirmation.";
+    const rationale = "The source does not establish the guarantee. ".repeat(64);
+    const f = fixture([writeReport(draft), finish, verdict([issue], rationale), writeReport(repaired), finish, verdict([])], { phase });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 6 });
+    const repairNotice = JSON.parse(f.requests[3]!.filter(m => m.role === "tool").at(-1)!.content!);
+    expect(repairNotice).toEqual({ complete: false, checks: [{ id: "desktop_source_review", passed: false }], repair: [issue],
+      evidence: { html: draft, sourcePath: "input/source.txt", source: "Modeled capacity is unconfirmed." } });
+    expect(f.requests[5]!.map(m => m.role)).toEqual(["system", "user"]);
+    expect(f.requests[5]![1]!.content).toContain(repaired);
+    expect(f.requests[5]![1]!.content).not.toContain("guarantees");
+    expect(f.options.store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ rejectedSourceReview: digest(draft) }));
+    expect(f.options.store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ acceptedSourceReview: digest(repaired) }));
+  });
+
   it("isolates source review, binds its excerpts, and requires a repaired HTML export after a material rejection", async () => {
     const f = fixture([writeReport("<p>Delivery is booked.</p>"), finish, reviewVerdict("Delivery is booked.", ["Qualify the unconfirmed booking."]),
       finish, writeReport("<p>Confirm capacity before promising delivery.</p>"), finish,
@@ -331,9 +378,13 @@ describe("draft-first artifact validation and repair", () => {
     expect(f.requests[2]![1]!.content).toContain("Confirm capacity.");
   });
 
-  it("requests a smaller saved export if its complete review packet exceeds the existing model request limit", async () => {
+  it.each(["local_source_html_v1", "local_source_html_v2"] as const)("requests a smaller saved export if the complete %s packet exceeds the model request limit", async version => {
+    const phase = reviewPhase(5);
+    phase.contract.submissionReview!.version = version;
+    const verdict = version === "local_source_html_v1" ? reviewVerdict("Confirm capacity.", []) :
+      { name: "review_submission", arguments: JSON.stringify({ artifactId: "H1", sourceId: "S1", issues: [] }) };
     const f = fixture([{ name: "execute", arguments: '{"command":"generate large HTML"}' }, finish, writeReport("<p>Confirm capacity.</p>"),
-      finish, reviewVerdict("Confirm capacity.", [])], { phase: reviewPhase(5), maxRequestBytes: 5000 });
+      finish, verdict], { phase, maxRequestBytes: 5000 });
     f.afterExecute(command => {
       if (command === "generate large HTML") f.mutateWorkspace(reportPath, Buffer.from("<p>" + "g".repeat(9000) + "</p>"));
     });

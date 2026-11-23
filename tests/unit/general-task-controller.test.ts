@@ -683,15 +683,15 @@ describe("desktop general-task host controller", () => {
   });
   it("enables source readback on new Heavy file-backed HTML jobs and preserves ordinary offline routes", async () => {
     const f = fixture();
-    for (const [profile, outputName, expectedVersion] of [["heavy", "plan.html", 6], ["standard", "plan.html", 2], ["heavy", "memo.md", 2]] as const) {
+    for (const [profile, outputName, expectedVersion] of [["heavy", "plan.html", 7], ["standard", "plan.html", 2], ["heavy", "memo.md", 2]] as const) {
       const task = f.controller.create({ goal: "Plan staffing from the supplied CSV.", profile, outputName,
         inputSelectionId: f.controller.selectInputs([f.input]).id, publicOrSynthetic: true });
       const persisted = JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
       expect(persisted.version).toBe(expectedVersion);
       f.controller.start(task.id); await f.controller.wait(task.id);
       const phase = f.executions.at(-1)!;
-      if (expectedVersion === 6) {
-        expect(phase.contract.submissionReview).toEqual({ version: "local_source_html_v1", task: "Plan staffing from the supplied CSV." });
+      if (expectedVersion === 7) {
+        expect(phase.contract.submissionReview).toEqual({ version: "local_source_html_v2", task: "Plan staffing from the supplied CSV." });
         expect(phase.files.map(file => file.path)).toEqual(["input/01-source.csv", "tools/soar_capacity.py"]);
         expect(phase.contract.goal).toContain("from the same source data");
       } else {
@@ -1420,16 +1420,30 @@ describe("desktop general-task host controller", () => {
   const blobPath = (f: ReturnType<typeof fixture>, id: string, sha256: string) => join(f.root, "tasks", "checkpoints", id, sha256);
   const observationSha = (f: ReturnType<typeof fixture>, id: string) => (f.executions[0]!.store.events(id).find(event => event.executionCapture === "retained")!.executionObservation as { sha256: string }).sha256;
   const writes = (path: string, content: string) => ({ name: "write_file", args: { path, content } });
+  it("submits a queued v6 HTML job with its original phase, attestation and excerpt verdict", async () => {
+    const f = fixture(), goal = "Plan staffing from the supplied CSV.";
+    const task = f.controller.create({ goal, profile: "heavy", outputName: "plan.html",
+      inputSelectionId: f.controller.selectInputs([f.input]).id, publicOrSynthetic: true });
+    // Captured at creation under the v6 controller for this exact brief, source and target.
+    const frozen = { version: 6, phaseIdentity: "c303870f50a04525cf73899d2721e1662232be86f140aba03fbac001957d7edc",
+      attestationIdentity: "254e5ec572369da59ae426d3fe3cc50e0ec695759b2701ad37a2bc30044ea73c" };
+    rewriteRecord(f, task.id, frozen);
+    runnerBacked(f, [[writes("output/plan.html", "<p>21 units</p>"), { name: "finish", args: { summary: "Reported the supplied quantity." } },
+      { name: "review_submission", args: { artifactExcerpt: "21 units", sourceExcerpt: "21", comparison: "The quantities agree.", issues: [] } }]]);
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(f.executions[0]!.contract.submissionReview).toEqual({ version: "local_source_html_v1", task: goal });
+    expect(f.controller.get(task.id)).toMatchObject({ status: "submitted", finishSummary: "Reported the supplied quantity.", reportedIssues: [] });
+    expect(storedRecord(f, task.id)).toMatchObject(frozen);
+  });
   it.each([false, true])("projects the reviewed HTML summary and counts only actual failures (repair=%s)", async repair => {
     const f = fixture(), path = "output/report.html";
     const finish = (summary: string) => ({ name: "finish", args: { summary } });
-    const verdict = (artifactExcerpt: string, issues: string[]) => ({ name: "review_submission",
-      args: { artifactExcerpt, sourceExcerpt: "21", comparison: "Compared the saved quantity with the attachment.", issues } });
+    const verdict = (artifactId: string, issues: string[]) => ({ name: "review_submission", args: { artifactId, sourceId: "S1", issues } });
     const steps = repair ? [finish("The artifact is still missing."), writes(path, "<p>12 units</p>"), finish("The first draft says 12."),
-      verdict("12 units", ["Correct the quantity."])] : [];
+      verdict("H1", ["Correct the quantity."])] : [];
     const summary = "The final report gives 21 units.";
     runnerBacked(f, [[...steps, writes(path, "<p>21 units</p>"), finish(summary), finish("An invalid reviewer answer."),
-      verdict("absent excerpt", []), verdict("21 units", [])]]);
+      verdict("H999", []), verdict("H1", [])]]);
     const task = f.controller.create({ goal: "Report the supplied quantity.", outputName: "report.html", profile: "heavy",
       inputSelectionId: f.controller.selectInputs([f.input]).id, publicOrSynthetic: true });
     f.controller.start(task.id); await f.controller.wait(task.id);

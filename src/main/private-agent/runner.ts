@@ -22,13 +22,13 @@ import { EXECUTION_PROGRESS_POLICY, EXECUTION_PROGRESS_STOP, deriveExecutionProg
   executionProgressStop, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "./progress";
 import { researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { RESEARCH_FILES } from "./research-contract";
-import { isReviewRetryReason, LONGEST_REVIEW_RETRY, readSubmissionReview, reviewableHtml, REVIEW_ATTEMPT_LIMIT, REVIEW_PROTOCOL,
-  REVIEW_RETRY_FEEDBACK, REVIEW_TOOL, submissionReviewPacket, SUBMISSION_REVIEW, SUBMISSION_REVIEW_CHECK, type ReviewRetryReason } from "./submission-review";
+import { INDEXED_SUBMISSION_REVIEW, isReviewRetryReason, longestReviewRetry, reviewableHtml, REVIEW_ATTEMPT_LIMIT, reviewFeedback,
+  submissionReviewPacket, submissionReviewProtocol, SUBMISSION_REVIEW, SUBMISSION_REVIEW_CHECK, type ReviewRetryReason } from "./submission-review";
 
 const ArtifactSchema = z.object({ path: z.string().min(1).max(240), description: z.string().min(1).max(2000) }).strict();
 export const GeneralJobContractSchema = z.object({
   version: z.literal(1), goal: z.string().min(1).max(32768),
-  submissionReview: z.object({ version: z.literal(SUBMISSION_REVIEW), task: z.string().min(1).max(32768) }).strict().optional(),
+  submissionReview: z.object({ version: z.enum([SUBMISSION_REVIEW, INDEXED_SUBMISSION_REVIEW]), task: z.string().min(1).max(32768) }).strict().optional(),
   requiredArtifacts: z.array(ArtifactSchema).min(1).max(30),
   requiredChecks: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u)).min(1).max(50),
   maxModelCalls: z.number().int().positive().max(200),
@@ -324,7 +324,7 @@ export function promptProtocol(options: PromptProtocolOptions, layoutVersion: Pr
   const definitions = [...TOOLS, ...(webDestinations.length ? [FETCH_TOOL] : []), ...(options.consultation ? [CONSULTATION_TOOL] : []),
     ...(claimsCheck ? [CLAIMS_TOOL] : [])];
   const protocol: Record<string, unknown> = { version: layout.protocolVersion + (options.consultation ? 1 : 0), prompt, definitions,
-    ...(contract.submissionReview ? { submissionReview: REVIEW_PROTOCOL } : {}),
+    ...(contract.submissionReview ? { submissionReview: submissionReviewProtocol(contract.submissionReview.version) } : {}),
     claimsVerified: { version: 1, contextChars: CLAIMS_CONTEXT_CHARS },
     executionProgressPolicy: EXECUTION_PROGRESS_POLICY, capabilitiesIdentity: capabilities.identity,
     executionObservationPolicy: executionObservationPolicyIdentity(layout.observationPolicyVersion),
@@ -421,7 +421,8 @@ export class GeneralAgentRunner {
     this.activeAbort = new AbortController();
     const { contract, store, jobId, contextId, imageId, model, checkpoints } = this.options;
     const observationScope = { store, checkpoints, jobId, contextId };
-    const reviewedPath = contract.submissionReview ? contract.requiredArtifacts[0]!.path : undefined;
+    const reviewContract = contract.submissionReview;
+    const reviewedPath = reviewContract ? contract.requiredArtifacts[0]!.path : undefined;
     const reviewSources = reviewedPath ? this.options.files.filter(file => file.path.startsWith("input/")) : [];
     let pendingReview: string | undefined;
     const rejectedArtifacts = new Set<string>();
@@ -610,7 +611,7 @@ export class GeneralAgentRunner {
           if (retry && retry.attempts >= REVIEW_ATTEMPT_LIMIT) return finish("incomplete", "source_review_attempts_exhausted");
           const artifact = checkpoints.load(snapshot).find(file => file.path === reviewedPath);
           if (!artifact || digest(artifact.bytes) !== pendingReview) return finish("incomplete", "checkpoint_identity_mismatch");
-          reviewPacket = submissionReviewPacket(contract.submissionReview!.task, reviewSources, artifact.bytes, retry?.reason);
+          reviewPacket = submissionReviewPacket(reviewContract!.version, reviewContract!.task, reviewSources, artifact.bytes, retry?.reason);
         }
         const requestMessages = reviewPacket?.messages ?? layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget));
         if (this.options.initialEvidence) {
@@ -628,7 +629,7 @@ export class GeneralAgentRunner {
         let response: Awaited<ReturnType<PrivateAgentModel["complete"]>>;
         // Layout 2 ends on the turn's guidance and budget; the Anthropic shape sends that tail as a system message, every
         // other shape ignores the option (#31).
-        try { response = await model.complete(requestMessages, reviewPacket ? [REVIEW_TOOL] : definitions, boundedSignal,
+        try { response = await model.complete(requestMessages, reviewPacket ? [reviewPacket.tool] : definitions, boundedSignal,
           !reviewPacket && layout.version === 2 ? { trailingTurnMessage: true } : undefined); }
         catch (error) {
           if (error instanceof LocalTokenAdmissionError && error.bodySha256) {
@@ -696,7 +697,7 @@ export class GeneralAgentRunner {
           return finish("incomplete", "cancelled_or_deadline");
         }
         if (nudgeKind && pendingReview) {
-          const message = REVIEW_RETRY_FEEDBACK[nudgeKind];
+          const message = reviewFeedback(reviewContract!.version, nudgeKind);
           this.record({ type: "nudge", operationId, kind: nudgeKind, message, pendingSourceReview: pendingReview, sourceReviewRetry: nudgeKind });
           rememberRetry(pendingReview, nudgeKind);
           messages.push({ role: "user", content: message });
@@ -778,17 +779,17 @@ export class GeneralAgentRunner {
           else if (action.function.name === "read_observation") observationCapture = "not_invoked";
           // After an inconclusive recheck the container is recreated from the last checkpoint before the action runs (#43, A).
           if (!execution) { execution = sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files: checkpoints.load(snapshot), lifetimeSeconds: sandboxLifetime(remainingActiveMs()) }); contextReady = true; }
-          const reviewed = reviewPacket && action.function.name === REVIEW_TOOL.function.name ? readSubmissionReview(action.function.arguments, reviewPacket) : undefined;
+          const reviewed = reviewPacket && action.function.name === reviewPacket.tool.function.name ? reviewPacket.verdict(action.function.arguments) : undefined;
           const review = reviewed?.verdict;
           sourceReviewRetry = reviewPacket && !review ? reviewed?.retry ?? "wrong_tool" : undefined;
           if (sourceReviewRetry) {
-            output = canonical({ complete: false, error: "source_review_invalid", instruction: REVIEW_RETRY_FEEDBACK[sourceReviewRetry] });
+            output = canonical({ complete: false, error: "source_review_invalid", instruction: reviewFeedback(reviewContract!.version, sourceReviewRetry) });
           } else if (review && review.issues.length) {
             rejectedSourceReview = pendingReview;
             rejectedArtifacts.add(pendingReview!);
             pendingReview = undefined;
             checks = [{ id: SUBMISSION_REVIEW_CHECK, passed: false }];
-            output = canonical({ complete: false, checks, repair: review.issues, comparison: review.comparison });
+            output = canonical({ complete: false, checks, repair: review.issues, ...(review.evidence ? { evidence: review.evidence } : { comparison: review.comparison }) });
           } else if (action.function.name === "execute") {
             const { command } = validatedArguments(action.function.arguments, executeArguments, "execute");
             executionCapture = "unavailable";
@@ -842,7 +843,7 @@ export class GeneralAgentRunner {
             // execution-observation retention, which belongs to model-authored commands.
             const checked = await this.liveClaimsCheck(execution, claimsCheck, boundedSignal);
             output = canonical({ passed: checked.exitCode === 0, exitCode: checked.exitCode, result: checked.stdout.slice(0, 32768), stderr: checked.stderr.slice(0, 2048) });
-          } else if (action.function.name === "finish" || (reviewPacket && action.function.name === REVIEW_TOOL.function.name)) {
+          } else if (action.function.name === "finish" || (reviewPacket && action.function.name === reviewPacket.tool.function.name)) {
             if (!reviewPacket) validatedArguments(action.function.arguments, finishArguments, "finish");
             const reviewedSha256 = pendingReview;
             pendingReview = undefined;
@@ -877,9 +878,13 @@ export class GeneralAgentRunner {
                   sourceReviewStatus = "Repair the flagged material claims in the saved artifact before resubmitting.";
                 } else {
                   try {
-                    const packet = submissionReviewPacket(contract.submissionReview!.task, reviewSources, artifact.bytes, LONGEST_REVIEW_RETRY);
-                    const body = model.requestBody(packet.messages, [REVIEW_TOOL]).body;
-                    if (Buffer.byteLength(body) > (model.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES)) {
+                    const bodyLimit = model.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
+                    let fits = artifact.bytes.length <= bodyLimit;
+                    if (fits) {
+                      const packet = submissionReviewPacket(reviewContract!.version, reviewContract!.task, reviewSources, artifact.bytes, longestReviewRetry(reviewContract!.version));
+                      fits = Buffer.byteLength(model.requestBody(packet.messages, [packet.tool]).body) <= bodyLimit;
+                    }
+                    if (!fits) {
                       sourceReviewStatus = "The complete HTML and sources exceed the review request limit. Reduce markup or redundant content and resubmit.";
                       pendingReview = undefined;
                     } else {

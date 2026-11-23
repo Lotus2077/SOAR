@@ -28,6 +28,7 @@ export const RUN_REASONS: Readonly<Record<string, RunReasonClass>> = Object.free
   // Terminal, because a later run repeats them.
   runtime_contract_drift: "terminal", checkpoint_identity_mismatch: "terminal", host_validation_not_replayed: "terminal",
   repeated_incomplete_tool_arguments_at_output_limit: "terminal", duplicate_tool_call_id: "terminal", bounded_allowance_exhausted: "terminal",
+  source_review_attempts_exhausted: "terminal",
   consultation_budget_unavailable: "terminal", consultation_response_missing_no_replay: "terminal",
   public_source_retention_or_text_failed: "terminal", public_retrieval_receipt_missing: "terminal", task_integrity_failed: "terminal",
   // Terminal: the runner refused its own contract when it was built (runner.ts), which every later run repeats.

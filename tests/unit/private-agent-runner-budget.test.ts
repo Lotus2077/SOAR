@@ -31,7 +31,7 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; toolStderr?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean;
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; maxRequestBytes?: number; checkExitCode?: number; toolStdout?: string; toolStderr?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean;
   claimsReply?: (run: "live" | "verify") => { exitCode: number; stdout: string } | undefined; firstLedgerCheck?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
@@ -50,7 +50,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     accountId: "fixture", credentialVersion: 0, privateDataAdmitted: true, loopbackFixture: true, maxResponseBytes: 65536, timeoutMs: 1000 }],
   { scan: async () => { throw new Error("No scanner or transport is allowed in this unit fixture."); } });
   const model = new PrivateAgentModel(broker, { destinationId: "model", model: "synthetic", maxOutputTokens: 4096,
-    inputUsdPerMillion: limits.priced ? 2 : 0, outputUsdPerMillion: limits.priced ? 10 : 0, thinking: "disabled" }, jobId, contextId);
+    inputUsdPerMillion: limits.priced ? 2 : 0, outputUsdPerMillion: limits.priced ? 10 : 0, thinking: "disabled",
+    ...(limits.maxRequestBytes ? { maxRequestBytes: limits.maxRequestBytes } : {}) }, jobId, contextId);
   const options: GeneralJobOptions = { jobId, contextId, store, broker, model, files, contract,
     ...(limits.phase?.initialEvidence ? { initialEvidence: limits.phase.initialEvidence } : {}),
     ...(limits.firstLedgerCheck ? { claimsCheckOnFirstLedger: true } : {}),
@@ -215,6 +216,183 @@ describe("research presentation through the real writer serializer", () => {
 });
 
 describe("draft-first artifact validation and repair", () => {
+  const reportPath = "output/report.html";
+  const writeReport = (content: string): Action => ({ name: "write_file", arguments: JSON.stringify({ path: reportPath, content }) });
+  const reviewVerdict = (artifactExcerpt: string, issues: string[], sourceExcerpt = "capacity is unconfirmed"): Action => ({
+    name: "review_submission", arguments: JSON.stringify({ artifactExcerpt, sourceExcerpt,
+      comparison: "The source records no confirmed booking.", issues }),
+  });
+  const reviewPhase = (maxCalls: number): SessionPhase => ({
+    contract: { version: 1, goal: "Prepare a delivery decision.", submissionReview: { version: "local_source_html_v1", task: "Prepare a delivery decision." },
+      requiredArtifacts: [{ path: reportPath, description: "Delivery plan" }], requiredChecks: ["fixture_check"],
+      maxModelCalls: maxCalls, maxToolCalls: maxCalls, maxElapsedMs: 10000 },
+    files: [{ path: "input/source.txt", bytes: Buffer.from("Modeled capacity is unconfirmed.") },
+      { path: "tools/helper.py", bytes: Buffer.from("# helper excluded from source evidence") }],
+    checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }],
+  });
+
+  it("accepts indexed review of entity-encoded, styled HTML without copying its wording or supplying a rationale", async () => {
+    const heading = " ".repeat(510) + "🧪", html = "\ufeff" + heading + '<p>R&amp;D <strong>must confirm</strong> capacity.</p>\r\n';
+    const phase = reviewPhase(5);
+    phase.contract.submissionReview!.version = "local_source_html_v2";
+    const source = "\ufeffR&D capacity: unknown.\r\nContact the account owner.\r\n";
+    phase.files.push({ path: "input/detail.md", bytes: Buffer.from(source) });
+    const verdict = (sourceId: string): Action => ({ name: "review_submission", arguments: JSON.stringify({ artifactId: "H2", sourceId, issues: [] }) });
+    const f = fixture([writeReport(html), finish, { ...verdict("S2"), reply: "length" }, verdict("unissued"), verdict("S2")], { phase });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 5 });
+    const packet = JSON.parse(f.requests[2]![1]!.content!) as { html: { id: string; text: string }[]; sources: { path: string; slices: { id: string; text: string }[] }[] };
+    expect(packet.html.map(part => part.text).join("")).toBe(html);
+    expect(packet.html.map(part => part.id)).toEqual(["H1", "H2"]);
+    expect(packet.sources.map(file => file.slices.map(part => part.id))).toEqual([["S1"], ["S2"]]);
+    expect(packet.sources[1]!.slices.map(part => part.text).join("")).toBe(source);
+    expect(f.requests[3]![0]!.content).toContain("output limit");
+    expect(f.requests[4]![0]!.content).toContain("Choose sourceId");
+    expect(f.requests[4]![1]).toEqual(f.requests[2]![1]);
+    expect(f.complete.mock.calls[2]![1][0]!.function.parameters).toMatchObject({
+      type: "object", additionalProperties: false, required: ["artifactId", "sourceId", "issues"],
+      properties: { artifactId: { enum: ["H1", "H2"] }, sourceId: { enum: ["S1", "S2"] }, issues: { type: "array", items: { type: "string", pattern: "\\S" } } },
+    });
+    expect(f.options.store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ acceptedSourceReview: digest(html) }));
+  });
+
+  it("sends repairs to the writer when an indexed reviewer gives a valid long rationale, then requires review of the changed bytes", async () => {
+    const phase = reviewPhase(6);
+    phase.contract.submissionReview!.version = "local_source_html_v2";
+    const draft = "<p>R&amp;D <b>guarantees</b> capacity.</p>";
+    const repaired = "<p>R&amp;D must confirm capacity.</p>";
+    const verdict = (issues: string[], comparison?: string): Action => ({ name: "review_submission",
+      arguments: JSON.stringify({ artifactId: "H1", sourceId: "S1", issues, comparison }) });
+    const issue = "Make capacity conditional on confirmation.";
+    const rationale = "The source does not establish the guarantee. ".repeat(64);
+    const f = fixture([writeReport(draft), finish, verdict([issue], rationale), writeReport(repaired), finish, verdict([])], { phase });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 6 });
+    const repairNotice = JSON.parse(f.requests[3]!.filter(m => m.role === "tool").at(-1)!.content!);
+    expect(repairNotice).toEqual({ complete: false, checks: [{ id: "desktop_source_review", passed: false }], repair: [issue],
+      evidence: { html: draft, sourcePath: "input/source.txt", source: "Modeled capacity is unconfirmed." } });
+    expect(f.requests[5]!.map(m => m.role)).toEqual(["system", "user"]);
+    expect(f.requests[5]![1]!.content).toContain(repaired);
+    expect(f.requests[5]![1]!.content).not.toContain("guarantees");
+    expect(f.options.store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ rejectedSourceReview: digest(draft) }));
+    expect(f.options.store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ acceptedSourceReview: digest(repaired) }));
+  });
+
+  it("isolates source review, binds its excerpts, and requires a repaired HTML export after a material rejection", async () => {
+    const f = fixture([writeReport("<p>Delivery is booked.</p>"), finish, reviewVerdict("Delivery is booked.", ["Qualify the unconfirmed booking."]),
+      finish, writeReport("<p>Confirm capacity before promising delivery.</p>"), finish,
+      reviewVerdict("Confirm capacity", [], "nonexistent evidence"), reviewVerdict("Confirm capacity", [])], { phase: reviewPhase(8) });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 8, checks: [{ id: "fixture_check", passed: true }, { id: "desktop_source_review", passed: true }] });
+    const review = f.requests[2]!;
+    expect(review.map(message => message.role)).toEqual(["system", "user"]);
+    expect(JSON.parse(review[1]!.content!)).toMatchObject({ sources: [{ path: "input/source.txt" }], html: "<p>Delivery is booked.</p>" });
+    expect(review[1]!.content).not.toContain("helper excluded");
+    expect(f.complete.mock.calls[2]![1].map(t => t.function.name)).toEqual(["review_submission"]);
+    expect(f.requests[3]!.some(m => m.role === "tool" && m.content?.includes("Qualify the unconfirmed booking."))).toBe(true);
+    expect(f.requests[4]!.some(m => m.role === "tool" && m.content?.includes("Repair the flagged"))).toBe(true);
+    expect(f.requests[6]![1]!.content).toContain("Confirm capacity before promising delivery.");
+    expect(f.requests[7]![0]!.content).toContain("previous sourceExcerpt");
+    const recorded = f.options.store.events(f.options.jobId);
+    expect(recorded.find(event => event.rejectedSourceReview)?.rejectedSourceReview).toBe(digest("<p>Delivery is booked.</p>"));
+    expect(recorded.find(event => event.acceptedSourceReview)?.acceptedSourceReview).toBe(digest("<p>Confirm capacity before promising delivery.</p>"));
+    expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(8);
+  });
+
+  it.each([
+    ["artifact_excerpt", reviewVerdict("Untrusted absent phrase", []), "previous artifactExcerpt"],
+    ["source_excerpt", reviewVerdict("Confirm capacity.", [], "Untrusted absent phrase"), "previous sourceExcerpt"],
+    ["invalid_arguments", { name: "review_submission", arguments: "Untrusted invalid arguments" }, "did not match the tool schema"],
+    ["wrong_tool", writeReport("Untrusted reviewer edit"), "used an unavailable tool"],
+    ["length", { ...finish, reply: "cut" }, "hit the output limit"],
+    ["no_action", { ...finish, reply: "text" }, "did not contain exactly one action"],
+    ["no_action", { ...finish, reply: "multi" }, "did not contain exactly one action"],
+  ] as const)("reopens a %s review retry with its host correction and only the original evidence", async (reason, badReply, correction) => {
+    const html = "<p>Confirm capacity.</p>";
+    const f = fixture([writeReport(html), finish, badReply, reviewVerdict("Confirm capacity.", [])], { phase: reviewPhase(4) });
+    const first = new GeneralAgentRunner(f.options);
+    const append = f.options.store.append.bind(f.options.store);
+    vi.spyOn(f.options.store, "append").mockImplementation((job, event) => {
+      const saved = append(job, event);
+      if (event.sourceReviewRetry === reason) first.pause();
+      return saved;
+    });
+    expect(await first.run()).toMatchObject({ status: "paused", modelCalls: 3 });
+    const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
+    const store = new PrivateAgentStore(reopened);
+    expect(store.events(f.options.jobId)).toContainEqual(expect.objectContaining({ pendingSourceReview: digest(html), sourceReviewRetry: reason }));
+    const result = await new GeneralAgentRunner({ ...f.options, store }).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 4 });
+    const retry = f.requests[3]!;
+    expect(retry.map(m => m.role)).toEqual(["system", "user"]);
+    expect(retry[1]).toEqual(f.requests[2]![1]);
+    expect(retry[0]!.content).toContain(correction);
+    expect(JSON.stringify(retry)).not.toMatch(/Untrusted|Artifacts are ready|I will write the result now|helper excluded/u);
+    expect(f.complete.mock.calls[3]![1].map(t => t.function.name)).toEqual(["review_submission"]);
+  });
+
+  it("stops after three unusable reviews of the same export and refuses a fourth across restart", async () => {
+    const f = fixture([writeReport("<p>Confirm capacity.</p>"), finish, { ...finish, reply: "text" }, writeReport("Untrusted edit"),
+      reviewVerdict("Missing excerpt", [])], { phase: reviewPhase(9) });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "incomplete", reason: "source_review_attempts_exhausted", modelCalls: 5 });
+    expect(f.requests[3]![0]!.content).toContain("did not contain exactly one action");
+    expect(f.requests[4]![0]!.content).toContain("used an unavailable tool");
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "source_review_attempts_exhausted", modelCalls: 5 });
+    expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(5);
+    expect(f.options.store.events(f.options.jobId).some(event => event.type === "completed")).toBe(false);
+  });
+
+  it("cannot bypass source review at allowance exhaustion or execute a reviewer-proposed edit", async () => {
+    const f = fixture([writeReport("<p>Delivery is booked.</p>"), finish, writeReport("<p>Should never execute.</p>")], { phase: reviewPhase(3) });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted" });
+    expect(f.options.checkpoints.load(result.snapshot).find(file => file.path === reportPath)?.bytes.toString()).toBe("<p>Delivery is booked.</p>");
+  });
+
+  it("withholds a passing review if the captured HTML changed, and grades the new bytes in a fresh turn", async () => {
+    const f = fixture([writeReport("<p>Capacity is unconfirmed.</p>"), finish, reviewVerdict("Capacity is unconfirmed.", []),
+      reviewVerdict("Delivery is booked.", ["Remove the unapproved promise."])], { phase: reviewPhase(4) });
+    f.afterResponse(count => { if (count === 3) f.mutateWorkspace(reportPath, Buffer.from("<p>Delivery is booked.</p>")); });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result.status).toBe("incomplete");
+    expect(f.requests[2]![1]!.content).toContain("Capacity is unconfirmed.");
+    expect(f.requests[3]![1]!.content).toContain("Delivery is booked.");
+    expect(f.requests[3]![0]).toEqual(f.requests[2]![0]);
+    expect(result.checks).toContainEqual({ id: "desktop_source_review", passed: false });
+  });
+
+  it("resumes the outstanding readback from its frozen checkpoint, within the original model allowance", async () => {
+    const f = fixture([writeReport("<p>Confirm capacity.</p>"), finish, reviewVerdict("Confirm capacity.", [])], { phase: reviewPhase(3) });
+    const runner = new GeneralAgentRunner(f.options);
+    const append = f.options.store.append.bind(f.options.store);
+    vi.spyOn(f.options.store, "append").mockImplementation((job, event) => {
+      const result = append(job, event);
+      if (event.type === "tool_finished" && event.pendingSourceReview) runner.pause();
+      return result;
+    });
+    expect((await runner.run()).status).toBe("paused");
+    expect(f.complete).toHaveBeenCalledTimes(2);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    expect(f.requests[2]!.map(m => m.role)).toEqual(["system", "user"]);
+    expect(f.requests[2]![1]!.content).toContain("Confirm capacity.");
+  });
+
+  it.each(["local_source_html_v1", "local_source_html_v2"] as const)("requests a smaller saved export if the complete %s packet exceeds the model request limit", async version => {
+    const phase = reviewPhase(5);
+    phase.contract.submissionReview!.version = version;
+    const verdict = version === "local_source_html_v1" ? reviewVerdict("Confirm capacity.", []) :
+      { name: "review_submission", arguments: JSON.stringify({ artifactId: "H1", sourceId: "S1", issues: [] }) };
+    const f = fixture([{ name: "execute", arguments: '{"command":"generate large HTML"}' }, finish, writeReport("<p>Confirm capacity.</p>"),
+      finish, verdict], { phase, maxRequestBytes: 5000 });
+    f.afterExecute(command => {
+      if (command === "generate large HTML") f.mutateWorkspace(reportPath, Buffer.from("<p>" + "g".repeat(9000) + "</p>"));
+    });
+    expect((await new GeneralAgentRunner(f.options).run()).status).toBe("completed");
+    expect(f.requests[2]!.some(m => m.role === "tool" && m.content?.includes("exceed the review request limit"))).toBe(true);
+    expect(f.requests[4]![1]!.content).toContain("Confirm capacity.");
+  });
+
   it("preserves an incremental draft, rejects its failed check, repairs it and finishes within the original allowance", async () => {
     const limits = { maxModelCalls: 4, maxToolCalls: 4, checkExitCode: 1 };
     const f = fixture([

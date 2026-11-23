@@ -2,7 +2,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { canonical, digest, exactText, contextFingerprint } from "./contracts";
 import { PrivateAgentStore, isBlockingDispatch } from "./store";
-import { PrivateAgentBroker, BrokerError, RETRY_WAIT_CANCELLED } from "./broker";
+import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError, RETRY_WAIT_CANCELLED } from "./broker";
 import { LOCAL_TOKEN_ADMISSION_STOP, LocalTokenAdmissionError } from "./flash-next-admission";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX_OMITTED_PATHS, type SandboxErrorCode, type SandboxExecution, type WorkspaceOmissionReason } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
@@ -22,10 +22,13 @@ import { EXECUTION_PROGRESS_POLICY, EXECUTION_PROGRESS_STOP, deriveExecutionProg
   executionProgressStop, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "./progress";
 import { researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { RESEARCH_FILES } from "./research-contract";
+import { INDEXED_SUBMISSION_REVIEW, isReviewRetryReason, longestReviewRetry, reviewableHtml, REVIEW_ATTEMPT_LIMIT, reviewFeedback,
+  submissionReviewPacket, submissionReviewProtocol, SUBMISSION_REVIEW, SUBMISSION_REVIEW_CHECK, type ReviewRetryReason } from "./submission-review";
 
 const ArtifactSchema = z.object({ path: z.string().min(1).max(240), description: z.string().min(1).max(2000) }).strict();
 export const GeneralJobContractSchema = z.object({
   version: z.literal(1), goal: z.string().min(1).max(32768),
+  submissionReview: z.object({ version: z.enum([SUBMISSION_REVIEW, INDEXED_SUBMISSION_REVIEW]), task: z.string().min(1).max(32768) }).strict().optional(),
   requiredArtifacts: z.array(ArtifactSchema).min(1).max(30),
   requiredChecks: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u)).min(1).max(50),
   maxModelCalls: z.number().int().positive().max(200),
@@ -321,6 +324,7 @@ export function promptProtocol(options: PromptProtocolOptions, layoutVersion: Pr
   const definitions = [...TOOLS, ...(webDestinations.length ? [FETCH_TOOL] : []), ...(options.consultation ? [CONSULTATION_TOOL] : []),
     ...(claimsCheck ? [CLAIMS_TOOL] : [])];
   const protocol: Record<string, unknown> = { version: layout.protocolVersion + (options.consultation ? 1 : 0), prompt, definitions,
+    ...(contract.submissionReview ? { submissionReview: submissionReviewProtocol(contract.submissionReview.version) } : {}),
     claimsVerified: { version: 1, contextChars: CLAIMS_CONTEXT_CHARS },
     executionProgressPolicy: EXECUTION_PROGRESS_POLICY, capabilitiesIdentity: capabilities.identity,
     executionObservationPolicy: executionObservationPolicyIdentity(layout.observationPolicyVersion),
@@ -355,6 +359,12 @@ export class GeneralAgentRunner {
   constructor(private readonly options: GeneralJobOptions) {
     const contract = GeneralJobContractSchema.parse(options.contract);
     const context = options.store.context(options.contextId);
+    if (contract.submissionReview && (options.consultation || options.initialEvidence || options.webDestinations?.length ||
+        contract.requiredArtifacts.length !== 1 || !reviewableHtml(contract.requiredArtifacts[0]!.path, options.files.filter(file => file.path.startsWith("input/"))) ||
+        options.model.config.inputUsdPerMillion !== 0 || options.model.config.outputUsdPerMillion !== 0 ||
+        !options.broker.zeroRiskDispatch({ destinationId: options.model.config.destinationId, method: "POST", maxFeeMicrousd: 0 }) ||
+        (options.model.config.api !== undefined && options.model.config.api !== "vllm")))
+      throw new Error("general_job_contract_invalid");
     if (!options.initialEvidence && options.files.some(file => (Object.values(RESEARCH_FILES) as readonly string[]).includes(file.path)))
       throw new Error("general_initial_evidence_missing");
     const initialEvidence = options.initialEvidence ? validateResearchPresentation(options.initialEvidence, options.files) : undefined;
@@ -411,6 +421,15 @@ export class GeneralAgentRunner {
     this.activeAbort = new AbortController();
     const { contract, store, jobId, contextId, imageId, model, checkpoints } = this.options;
     const observationScope = { store, checkpoints, jobId, contextId };
+    const reviewContract = contract.submissionReview;
+    const reviewedPath = reviewContract ? contract.requiredArtifacts[0]!.path : undefined;
+    const reviewSources = reviewedPath ? this.options.files.filter(file => file.path.startsWith("input/")) : [];
+    let pendingReview: string | undefined;
+    const rejectedArtifacts = new Set<string>();
+    const reviewRetries = new Map<string, { reason: ReviewRetryReason; attempts: number }>();
+    const rememberRetry = (sha256: string, reason: ReviewRetryReason) => {
+      reviewRetries.set(sha256, { reason, attempts: (reviewRetries.get(sha256)?.attempts ?? 0) + 1 });
+    };
     let sandbox: DockerSandbox | undefined;
     let snapshot: WorkspaceSnapshot = [];
     let checks: GeneralJobResult["checks"] = [];
@@ -495,9 +514,14 @@ export class GeneralAgentRunner {
       for (const event of history) if (event.type === "tool_finished") {
         incompleteExecuteStreak = event.invalidExecuteAtOutputLimit === true ? incompleteExecuteStreak + 1 : 0;
         allowanceFinalizationEligible = event.allowanceFinalizationEligible === true;
+        pendingReview = typeof event.pendingSourceReview === "string" ? event.pendingSourceReview : undefined;
+        if (typeof event.rejectedSourceReview === "string") rejectedArtifacts.add(event.rejectedSourceReview);
       }
       const seenToolCalls = new Set(history.filter(event => event.type === "tool_started").map(event => String(event.toolCallId)));
       for (const event of history) {
+        if ((event.type === "tool_finished" || event.type === "nudge") && typeof event.pendingSourceReview === "string" && isReviewRetryReason(event.sourceReviewRetry)) {
+          rememberRetry(event.pendingSourceReview, event.sourceReviewRetry);
+        }
         if (event.type === "tool_started") { noActionStreak = 0; lengthStreak = 0; }
         else if (event.type === "nudge") { if (event.kind === "length") { lengthStreak++; noActionStreak = 0; } else { noActionStreak++; lengthStreak = 0; } }
       }
@@ -581,7 +605,15 @@ export class GeneralAgentRunner {
         const projected = projectExecutionObservations(observationScope, messages, layout.observationPolicyVersion);
         const progress = deriveExecutionProgress({ ...observationScope, snapshot }, contract.requiredArtifacts.map(artifact => artifact.path),
           calls, contract.maxModelCalls, this.options.consultation !== undefined);
-        const requestMessages = layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget));
+        let reviewPacket: ReturnType<typeof submissionReviewPacket> | undefined;
+        if (pendingReview) {
+          const retry = reviewRetries.get(pendingReview);
+          if (retry && retry.attempts >= REVIEW_ATTEMPT_LIMIT) return finish("incomplete", "source_review_attempts_exhausted");
+          const artifact = checkpoints.load(snapshot).find(file => file.path === reviewedPath);
+          if (!artifact || digest(artifact.bytes) !== pendingReview) return finish("incomplete", "checkpoint_identity_mismatch");
+          reviewPacket = submissionReviewPacket(reviewContract!.version, reviewContract!.task, reviewSources, artifact.bytes, retry?.reason);
+        }
+        const requestMessages = reviewPacket?.messages ?? layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget));
         if (this.options.initialEvidence) {
           const encoded = JSON.stringify(this.options.initialEvidence.rendered).slice(1, -1);
           if (JSON.stringify(requestMessages).split(encoded).length - 1 !== 1) {
@@ -597,8 +629,8 @@ export class GeneralAgentRunner {
         let response: Awaited<ReturnType<PrivateAgentModel["complete"]>>;
         // Layout 2 ends on the turn's guidance and budget; the Anthropic shape sends that tail as a system message, every
         // other shape ignores the option (#31).
-        try { response = await model.complete(requestMessages, definitions, boundedSignal,
-          layout.version === 2 ? { trailingTurnMessage: true } : undefined); }
+        try { response = await model.complete(requestMessages, reviewPacket ? [reviewPacket.tool] : definitions, boundedSignal,
+          !reviewPacket && layout.version === 2 ? { trailingTurnMessage: true } : undefined); }
         catch (error) {
           if (error instanceof LocalTokenAdmissionError && error.bodySha256) {
             this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256,
@@ -664,6 +696,13 @@ export class GeneralAgentRunner {
           this.record({ type: "model_action_not_started", operationId, reason: "cancelled_or_deadline" });
           return finish("incomplete", "cancelled_or_deadline");
         }
+        if (nudgeKind && pendingReview) {
+          const message = reviewFeedback(reviewContract!.version, nudgeKind);
+          this.record({ type: "nudge", operationId, kind: nudgeKind, message, pendingSourceReview: pendingReview, sourceReviewRetry: nudgeKind });
+          rememberRetry(pendingReview, nudgeKind);
+          messages.push({ role: "user", content: message });
+          continue;
+        }
         if (nudgeKind === "length") {
           // A truncated response executes nothing; it becomes durable feedback.
           lengthStreak++; noActionStreak = 0;
@@ -688,7 +727,7 @@ export class GeneralAgentRunner {
         let execution: DockerSandbox | undefined = sandbox;
         let recheckCaptureFailure: { code: CaptureFailureCode } | undefined;
         if (seenToolCalls.has(action.id)) return finish("incomplete", "duplicate_tool_call_id");
-        if (executionProgressBlocks(progress, action, snapshot)) {
+        if (!reviewPacket && executionProgressBlocks(progress, action, snapshot)) {
           // A background process may have changed inputs since the last saved
           // action. Recheck content before denying a retry; no command is run.
           const current = await this.captureCheckpoint(execution);
@@ -721,6 +760,9 @@ export class GeneralAgentRunner {
         this.record({ type: "tool_started", operationId: toolOperationId, toolCallId: action.id, name: action.function.name }); tools++;
         let output: string;
         let complete = false;
+        let rejectedSourceReview: string | undefined;
+        let acceptedSourceReview: string | undefined;
+        let sourceReviewRetry: ReviewRetryReason | undefined;
         let contextReady = execution !== undefined;
         let finishCapture: CaptureOutcome | undefined;
         let invalidExecuteAtOutputLimit = false;
@@ -737,7 +779,18 @@ export class GeneralAgentRunner {
           else if (action.function.name === "read_observation") observationCapture = "not_invoked";
           // After an inconclusive recheck the container is recreated from the last checkpoint before the action runs (#43, A).
           if (!execution) { execution = sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files: checkpoints.load(snapshot), lifetimeSeconds: sandboxLifetime(remainingActiveMs()) }); contextReady = true; }
-          if (action.function.name === "execute") {
+          const reviewed = reviewPacket && action.function.name === reviewPacket.tool.function.name ? reviewPacket.verdict(action.function.arguments) : undefined;
+          const review = reviewed?.verdict;
+          sourceReviewRetry = reviewPacket && !review ? reviewed?.retry ?? "wrong_tool" : undefined;
+          if (sourceReviewRetry) {
+            output = canonical({ complete: false, error: "source_review_invalid", instruction: reviewFeedback(reviewContract!.version, sourceReviewRetry) });
+          } else if (review && review.issues.length) {
+            rejectedSourceReview = pendingReview;
+            rejectedArtifacts.add(pendingReview!);
+            pendingReview = undefined;
+            checks = [{ id: SUBMISSION_REVIEW_CHECK, passed: false }];
+            output = canonical({ complete: false, checks, repair: review.issues, ...(review.evidence ? { evidence: review.evidence } : { comparison: review.comparison }) });
+          } else if (action.function.name === "execute") {
             const { command } = validatedArguments(action.function.arguments, executeArguments, "execute");
             executionCapture = "unavailable";
             executionResult = await execution.execute(command, { signal: boundedSignal, timeoutMs: COMMAND_TIMEOUT_MS });
@@ -790,8 +843,10 @@ export class GeneralAgentRunner {
             // execution-observation retention, which belongs to model-authored commands.
             const checked = await this.liveClaimsCheck(execution, claimsCheck, boundedSignal);
             output = canonical({ passed: checked.exitCode === 0, exitCode: checked.exitCode, result: checked.stdout.slice(0, 32768), stderr: checked.stderr.slice(0, 2048) });
-          } else if (action.function.name === "finish") {
-            validatedArguments(action.function.arguments, finishArguments, "finish");
+          } else if (action.function.name === "finish" || (reviewPacket && action.function.name === reviewPacket.tool.function.name)) {
+            if (!reviewPacket) validatedArguments(action.function.arguments, finishArguments, "finish");
+            const reviewedSha256 = pendingReview;
+            pendingReview = undefined;
             finishCapture = await this.captureCheckpoint(execution);
             if (!finishCapture.ok) {
               // #43 (A): without the frozen bytes nothing is verified; the model learns it here and in the notice that follows.
@@ -809,16 +864,46 @@ export class GeneralAgentRunner {
               catch (error) { if (error instanceof ObservationIntegrityError) throw error; throw new ToolError("verification_unavailable"); }
               checks = verified.checks;
               complete = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
+              let sourceReviewStatus: string | undefined;
+              if (reviewedPath && complete) {
+                const artifact = files.find(file => file.path === reviewedPath)!;
+                const sha256 = digest(artifact.bytes);
+                complete = Boolean(review && reviewedSha256 === sha256);
+                if (complete) {
+                  acceptedSourceReview = sha256;
+                  pendingReview = undefined;
+                  checks = [...checks, { id: SUBMISSION_REVIEW_CHECK, passed: true }];
+                } else if (rejectedArtifacts.has(sha256)) {
+                  pendingReview = undefined;
+                  sourceReviewStatus = "Repair the flagged material claims in the saved artifact before resubmitting.";
+                } else {
+                  try {
+                    const bodyLimit = model.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
+                    let fits = artifact.bytes.length <= bodyLimit;
+                    if (fits) {
+                      const packet = submissionReviewPacket(reviewContract!.version, reviewContract!.task, reviewSources, artifact.bytes, longestReviewRetry(reviewContract!.version));
+                      fits = Buffer.byteLength(model.requestBody(packet.messages, [packet.tool]).body) <= bodyLimit;
+                    }
+                    if (!fits) {
+                      sourceReviewStatus = "The complete HTML and sources exceed the review request limit. Reduce markup or redundant content and resubmit.";
+                      pendingReview = undefined;
+                    } else {
+                      pendingReview = sha256;
+                      sourceReviewStatus = "Saved HTML is queued for a separate source review.";
+                    }
+                  } catch { pendingReview = undefined; sourceReviewStatus = "The saved HTML must be valid UTF-8 for source review."; }
+                }
+              }
               // A failed ledger check says what failed (claim ids, codes, citations, sections), so a repair can follow.
               output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks,
-                ...(verified.claimsFeedback ? { claimsLedger: verified.claimsFeedback } : {}) });
+                ...(verified.claimsFeedback ? { claimsLedger: verified.claimsFeedback } : {}), ...(sourceReviewStatus ? { sourceReviewStatus } : {}) });
               if (complete) this.recordVerifiedClaims(verified.claimsOutput);
               // The container for a repair is recreated below, once the result is recorded (#43, A).
             }
           } else throw new ToolError("tool_unknown");
           // A failed explicit finish already checked this source. Invalid or
           // uncertain actions never obtain implicit terminal validation.
-          allowanceFinalizationEligible = action.function.name !== "finish" && action.function.name !== "request_consultation";
+          allowanceFinalizationEligible = !reviewedPath && action.function.name !== "finish" && action.function.name !== "request_consultation";
         } catch (error) {
           if (error instanceof ObservationIntegrityError) throw error;
           if (unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
@@ -864,7 +949,9 @@ export class GeneralAgentRunner {
             if (error instanceof SandboxError && error.code !== "invalid_input" && error.code !== "busy") sandbox = undefined;
           }
         }
-        const extras = { ...(executionCapture ? { executionCapture } : {}), ...(executionObservation ? { executionObservation } : {}),
+        const extras = { ...(pendingReview ? { pendingSourceReview: pendingReview } : {}), ...(rejectedSourceReview ? { rejectedSourceReview } : {}),
+          ...(sourceReviewRetry ? { sourceReviewRetry } : {}), ...(acceptedSourceReview ? { acceptedSourceReview } : {}),
+          ...(executionCapture ? { executionCapture } : {}), ...(executionObservation ? { executionObservation } : {}),
           ...(observationCapture ? { observationCapture } : {}), ...(observationRead ? { observationRead } : {}),
           ...(captureFailure ? { captureFailure } : {}), ...(recheckCaptureFailure ? { recheckCaptureFailure } : {}),
           ...(captured?.ok && captured.omitted ? { captureOmitted: captured.omitted } : {}), ...(claimsLedgerCheck ? { claimsLedgerCheck } : {}) };
@@ -883,6 +970,7 @@ export class GeneralAgentRunner {
           this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
           this.record({ type: "tool_finished", operationId: toolOperationId, toolCallId: action.id, output, invalidExecuteAtOutputLimit, allowanceFinalizationEligible, ...extras });
         });
+        if (pendingReview && sourceReviewRetry) rememberRetry(pendingReview, sourceReviewRetry);
         messages.push({ role: "tool", tool_call_id: action.id, content: output });
         const notice = captureNotice(extras); if (notice) messages.push({ role: "user", content: notice });
         const ledgerNotice = claimsCheckNotice(extras); if (ledgerNotice) messages.push({ role: "user", content: ledgerNotice });

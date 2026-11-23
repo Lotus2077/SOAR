@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { canonical } from "./contracts";
+import { assertUniqueJsonObjectMembers } from "../../shared/review-result-contract";
+import { canonical, exactText } from "./contracts";
 import type { GeneralMessage, GeneralToolDefinition } from "./model";
 
 export const SUBMISSION_REVIEW = "local_source_html_v1";
@@ -133,7 +134,11 @@ export function submissionReviewPacket(version: SubmissionReviewVersion, task: s
   const schema = indexedSchema([...htmlById.keys()], [...sourceById.keys()]);
   function verdict(args: string): ReviewResult {
     let value: unknown;
-    try { value = JSON.parse(args); } catch { return { retry: "invalid_arguments" }; }
+    try {
+      assertUniqueJsonObjectMembers(args);
+      // A repair must survive the same exact-text encoding the host uses to send it to the writer.
+      value = JSON.parse(args, (_key, item: unknown) => typeof item === "string" ? exactText(item) : item);
+    } catch { return { retry: "invalid_arguments" }; }
     const result = schema.safeParse(value);
     if (!result.success) {
       const field = result.error.issues[0]?.path[0];

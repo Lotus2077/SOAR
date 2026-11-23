@@ -446,7 +446,7 @@ export class ReviewResultContractError extends Error {
   }
 }
 
-function assertUniqueJsonObjectMembers(rawContent: string): void {
+export function assertUniqueJsonObjectMembers(rawContent: string): void {
   let index = 0;
 
   const skipWhitespace = (): void => {
